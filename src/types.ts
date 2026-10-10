@@ -20,4 +20,5 @@ export interface EntradaLog {
   objetos: ObjetoVisto[];
   resumo: string;
   tipo: TipoEntrada;
+  snapshot?: string;
 }

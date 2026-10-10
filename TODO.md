@@ -42,11 +42,11 @@ Lista de melhorias e pendências. `[ ]` = aberto, `[x]` = concluído.
 
 ## Produto / UX
 
-- [ ] Salvar *snapshot* (thumbnail JPEG) por entrada de detecção para uma linha do tempo visual.
-- [ ] Endpoint `/api/health` verificando o Ollama (acessível? qual modelo carregado?).
-- [ ] Indicador visual de "analisando…" sobre o vídeo (spinner/overlay) e tempo real de inferência.
-- [ ] Filtro/busca no histórico e opção de exportar o log.
-- [ ] Ampliar o dicionário `COCO_PT` e permitir descrições em outros idiomas.
+- [x] Salvar *snapshot* (thumbnail JPEG) por entrada de detecção/descrição para uma linha do tempo visual.
+- [x] Endpoint `/api/health` verificando o Ollama (acessível? qual modelo carregado?).
+- [x] Indicador visual de "analisando…" sobre o vídeo (spinner) e descrição em tempo real.
+- [x] Filtro/busca no histórico e opção de exportar o log.
+- [x] Ampliar o dicionário `COCO_PT`.
 
 ## Qualidade / testes
 

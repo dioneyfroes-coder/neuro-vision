@@ -10,24 +10,82 @@ const COCO_PT: Record<string, string> = {
   bicycle: "bicicleta",
   car: "carro",
   motorcycle: "moto",
+  airplane: "aviao",
   bus: "onibus",
+  train: "trem",
   truck: "caminhao",
+  boat: "barco",
+  "traffic light": "semaforo",
+  "fire hydrant": "hidrante",
+  "stop sign": "placa de pare",
+  "parking meter": "parquimetro",
+  bench: "banco",
   cat: "gato",
   dog: "cachorro",
   bird: "passaro",
-  "cell phone": "celular",
-  laptop: "notebook",
-  tv: "televisao",
+  horse: "cavalo",
+  sheep: "ovelha",
+  cow: "vaca",
+  elephant: "elefante",
+  bear: "urso",
+  zebra: "zebra",
+  giraffe: "girafa",
+  backpack: "mochila",
+  umbrella: "guarda-chuva",
+  handbag: "bolsa",
+  tie: "gravata",
+  suitcase: "mala",
+  frisbee: "frisbee",
+  skis: "esquis",
+  snowboard: "snowboard",
+  "sports ball": "bola",
+  kite: "pipa",
+  "baseball bat": "bastao",
+  "baseball glove": "luva",
+  skateboard: "skate",
+  surfboard: "prancha",
+  "tennis racket": "raquete",
   bottle: "garrafa",
+  "wine glass": "taca",
   cup: "copo",
+  fork: "garfo",
+  knife: "faca",
+  spoon: "colher",
+  bowl: "tigela",
+  banana: "banana",
+  apple: "maca",
+  sandwich: "sanduiche",
+  orange: "laranja",
+  broccoli: "brocolis",
+  carrot: "cenoura",
+  "hot dog": "cachorro-quente",
+  pizza: "pizza",
+  donut: "rosquinha",
+  cake: "bolo",
   chair: "cadeira",
-  "dining table": "mesa",
-  book: "livro",
-  keyboard: "teclado",
-  mouse: "mouse",
-  clock: "relogio",
+  couch: "sofa",
   "potted plant": "planta",
+  bed: "cama",
+  "dining table": "mesa",
+  toilet: "vaso sanitario",
+  tv: "televisao",
+  laptop: "notebook",
+  mouse: "mouse",
+  remote: "controle",
+  keyboard: "teclado",
+  "cell phone": "celular",
+  microwave: "micro-ondas",
+  oven: "forno",
+  toaster: "torradeira",
+  sink: "pia",
+  refrigerator: "geladeira",
+  book: "livro",
+  clock: "relogio",
+  vase: "vaso",
+  scissors: "tesoura",
   "teddy bear": "urso de pelucia",
+  "hair drier": "secador",
+  toothbrush: "escova de dentes",
 };
 
 function el<T extends HTMLElement>(id: string): T {
@@ -47,9 +105,13 @@ const frameCtx = frameCanvas.getContext("2d");
 
 const placeholder = el<HTMLDivElement>("placeholder");
 const statusEl = el<HTMLDivElement>("status");
+const spinnerEl = el<HTMLDivElement>("spinner");
+const ollamaStatusEl = el<HTMLSpanElement>("ollamaStatus");
 const logEl = el<HTMLUListElement>("log");
 const logCountEl = el<HTMLSpanElement>("logCount");
 const clearLogBtn = el<HTMLButtonElement>("clearLog");
+const exportBtn = el<HTMLButtonElement>("exportLog");
+const filterInput = el<HTMLInputElement>("filter");
 const startBtn = el<HTMLButtonElement>("start");
 const stopBtn = el<HTMLButtonElement>("stop");
 const modelSelect = el<HTMLSelectElement>("model");
@@ -71,6 +133,10 @@ let ultimaDescricao = "";
 
 function setStatus(text: string): void {
   statusEl.textContent = text;
+}
+
+function setSpinner(ativo: boolean): void {
+  spinnerEl.hidden = !ativo;
 }
 
 function traduzir(label: string): string {
@@ -129,12 +195,26 @@ function drawBoxes(detecoes: Deteccao[]): void {
 }
 
 function atualizarContagem(): void {
-  logCountEl.textContent = String(logEl.children.length);
-  clearLogBtn.disabled = logEl.children.length === 0;
+  const total = logEl.children.length;
+  logCountEl.textContent = String(total);
+  clearLogBtn.disabled = total === 0;
+  exportBtn.disabled = total === 0;
 }
 
 function criarItem(entry: EntradaLog): HTMLLIElement {
   const li = document.createElement("li");
+
+  if (entry.snapshot) {
+    const img = document.createElement("img");
+    img.className = "thumb";
+    img.src = entry.snapshot;
+    img.alt = "frame capturado";
+    img.loading = "lazy";
+    li.appendChild(img);
+  }
+
+  const corpo = document.createElement("div");
+  corpo.className = "corpo";
 
   const cabecalho = document.createElement("div");
   cabecalho.className = "cabecalho";
@@ -148,7 +228,7 @@ function criarItem(entry: EntradaLog): HTMLLIElement {
     meta.textContent = entry.modelo;
     cabecalho.appendChild(meta);
   }
-  li.appendChild(cabecalho);
+  corpo.appendChild(cabecalho);
 
   const objs = document.createElement("div");
   objs.className = "objs";
@@ -170,7 +250,8 @@ function criarItem(entry: EntradaLog): HTMLLIElement {
       objs.appendChild(tag);
     }
   }
-  li.appendChild(objs);
+  corpo.appendChild(objs);
+  li.appendChild(corpo);
   return li;
 }
 
@@ -242,7 +323,7 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
     resposta = await fetch("/api/visao", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imagem: base64, anterior: ultimaDescricao }),
+      body: JSON.stringify({ imagem: base64, anterior: ultimaDescricao, snapshot: dataUrl }),
       signal,
     });
   } catch (err) {
@@ -263,7 +344,7 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
   const decoder = new TextDecoder();
   let buffer = "";
   let parcial = "";
-  let resultado: { descricao?: string; modelo?: string } | null = null;
+  let resultado: { descricao?: string; modelo?: string; snapshot?: string } | null = null;
 
   try {
     for (;;) {
@@ -280,6 +361,7 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
           response?: string;
           descricao?: string;
           modelo?: string;
+          snapshot?: string;
           erro?: string;
         };
         if (evt.type === "chunk" && evt.response) {
@@ -310,6 +392,7 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
     objetos: [],
     resumo: descricao,
     tipo: "descricao",
+    snapshot: resultado?.snapshot,
   };
   ultimaDescricao = descricao;
   addLogEntry(entry);
@@ -321,6 +404,7 @@ async function analisar(): Promise<void> {
   analisando = true;
   controller = new AbortController();
   const { signal } = controller;
+  setSpinner(true);
   try {
     if (motorSelect.value === "ollama") {
       await descreverViaOllama(signal);
@@ -366,12 +450,14 @@ async function analisar(): Promise<void> {
       ? Object.entries(contagem).map(([n, c]) => (c > 1 ? `${c}x ${n}` : n)).join(", ")
       : "nada reconhecido";
 
+    const thumb = capturarFrame(240);
     const entry: EntradaLog = {
       timestamp: new Date().toISOString(),
       modelo: loadedModel ?? "desconhecido",
       objetos,
       resumo,
       tipo: "deteccao",
+      snapshot: thumb ?? undefined,
     };
 
     addLogEntry(entry);
@@ -387,6 +473,7 @@ async function analisar(): Promise<void> {
   } finally {
     analisando = false;
     controller = null;
+    setSpinner(false);
   }
 }
 
@@ -428,6 +515,7 @@ async function start(): Promise<void> {
 
 function stop(): void {
   running = false;
+  setSpinner(false);
   if (controller) {
     controller.abort();
     controller = null;
@@ -446,9 +534,63 @@ function stop(): void {
   setStatus("Parado.");
 }
 
+async function verificarOllama(): Promise<void> {
+  try {
+    const resposta = await fetch("/api/health");
+    const dados = (await resposta.json()) as {
+      ollama?: { online: boolean; modelos: string[]; erro: string };
+    };
+    const o = dados.ollama;
+    if (o?.online) {
+      ollamaStatusEl.textContent = `Ollama: online${o.modelos.length ? " (" + o.modelos.join(", ") + ")" : ""}`;
+      ollamaStatusEl.className = "health online";
+      ollamaStatusEl.title = o.modelos.join("\n") || "Ollama acessivel";
+    } else {
+      ollamaStatusEl.textContent = `Ollama: offline${o?.erro ? " — " + o.erro : ""}`;
+      ollamaStatusEl.className = "health offline";
+    }
+  } catch {
+    ollamaStatusEl.textContent = "Ollama: servidor indisponivel";
+    ollamaStatusEl.className = "health offline";
+  }
+}
+
+function aplicarFiltro(): void {
+  const termo = filterInput.value.trim().toLowerCase();
+  for (const item of Array.from(logEl.children)) {
+    const texto = (item.textContent ?? "").toLowerCase();
+    (item as HTMLElement).hidden = termo.length > 0 && !texto.includes(termo);
+  }
+}
+
+async function exportarLog(): Promise<void> {
+  exportBtn.disabled = true;
+  try {
+    const resposta = await fetch("/api/logs?limit=500");
+    const dados = (await resposta.json()) as { entradas?: EntradaLog[] };
+    const blob = new Blob([JSON.stringify(dados.entradas ?? [], null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    a.download = `neuro-vision-log-${stamp}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatus("Log exportado.");
+  } catch (err) {
+    setStatus(`Falha ao exportar: ${(err as Error).message}`);
+  } finally {
+    atualizarContagem();
+  }
+}
+
 startBtn.addEventListener("click", () => void start());
 stopBtn.addEventListener("click", stop);
 clearLogBtn.addEventListener("click", () => void limparHistorico());
+exportBtn.addEventListener("click", () => void exportarLog());
+filterInput.addEventListener("input", aplicarFiltro);
 
 intervalInput.addEventListener("input", () => {
   intervalValue.textContent = `${intervalInput.value}s`;
@@ -465,3 +607,4 @@ motorSelect.addEventListener("change", () => {
 
 atualizarContagem();
 void carregarHistorico();
+void verificarOllama();

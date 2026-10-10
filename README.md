@@ -67,24 +67,26 @@ OLLAMA_MODEL=qwen2.5vl:7b npm start            # bash
 
 | Método | Rota | Descrição |
 | --- | --- | --- |
-| `POST` | `/api/log` | Grava uma entrada de detecção no arquivo de log. |
-| `POST` | `/api/visao` | Envia um frame (base64) e recebe a descrição do Ollama; grava no log. |
+| `POST` | `/api/log` | Grava uma entrada de detecção no arquivo de log. Aceita `snapshot` (data URL) opcional. |
+| `POST` | `/api/visao` | Envia um frame (base64) e recebe a descrição do Ollama em stream NDJSON; grava no log. |
 | `GET` | `/api/logs?limit=100` | Lista as entradas mais recentes (mais nova primeiro, limite máx. 500). |
 | `DELETE` | `/api/logs` | Limpa o histórico de log. |
+| `GET` | `/api/health` | Status do Ollama (`{ ollama: { online, modelos, erro } }`). |
+| `GET` | `/snapshots/<arquivo>` | Serve os snapshots (thumbnails) gravados. |
 
-As entradas são gravadas em `logs/visao.jsonl` (uma linha JSON por entrada).
+As entradas são gravadas em `logs/visao.jsonl` (uma linha JSON por entrada) e os snapshots em `logs/snapshots/`.
 
 `POST /api/visao` — corpo:
 
 ```json
-{ "imagem": "<base64 ou data URL>", "modelo": "qwen3-vl:4b", "anterior": "descrição anterior" }
+{ "imagem": "<base64 ou data URL>", "modelo": "qwen3-vl:4b", "anterior": "descrição anterior", "snapshot": "<data URL opcional>" }
 ```
 
 Resposta: stream NDJSON (`application/x-ndjson`), uma linha por evento:
 
 ```json
 { "type": "chunk", "response": "Uma pessoa" }
-{ "type": "done", "descricao": "Uma pessoa no escritorio.", "modelo": "qwen3-vl:4b", "tokens": 42, "ms": 3120 }
+{ "type": "done", "descricao": "Uma pessoa no escritorio.", "modelo": "qwen3-vl:4b", "tokens": 42, "ms": 3120, "snapshot": "/snapshots/123-abc.jpg" }
 ```
 
 Em caso de erro após o início do stream: `{ "type": "erro", "erro": "Ollama: ..." }`.

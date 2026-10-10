@@ -10,6 +10,7 @@
   <header>
     <h1>Neuro Vision</h1>
     <p class="sub">Visao computacional local — a webcam enxerga e registra o que ve.</p>
+    <span id="ollamaStatus" class="health" title="Status do Ollama">Ollama: verificando...</span>
   </header>
 
   <main>
@@ -17,6 +18,7 @@
       <div class="stage">
         <video id="video" autoplay muted playsinline></video>
         <canvas id="overlay"></canvas>
+        <div id="spinner" class="spinner" hidden aria-hidden="true"></div>
         <div id="placeholder">Clique em iniciar para ligar a webcam</div>
       </div>
       <div class="controls">
@@ -53,8 +55,12 @@
     <aside class="logpanel">
       <div class="logpanel-head">
         <h2>Registro do que viu <span id="logCount" class="count">0</span></h2>
-        <button id="clearLog" class="ghost" type="button" disabled>Limpar</button>
+        <div class="logpanel-actions">
+          <button id="exportLog" class="ghost" type="button" disabled>Exportar</button>
+          <button id="clearLog" class="ghost" type="button" disabled>Limpar</button>
+        </div>
       </div>
+      <input id="filter" class="filter" type="search" placeholder="Filtrar por texto, objeto ou modelo..." />
       <ul id="log"></ul>
     </aside>
   </main>

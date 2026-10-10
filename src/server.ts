@@ -12,6 +12,8 @@ const PUBLIC_DIR = path.join(ROOT, "public");
 export const LOG_DIR = path.join(ROOT, "logs");
 export const LOG_FILE = path.join(LOG_DIR, "visao.jsonl");
 export const LOG_MAX_BYTES = Number(process.env.LOG_MAX_BYTES) || 5_000_000;
+export const SNAP_DIR = path.join(LOG_DIR, "snapshots");
+export const SNAP_URL = "/snapshots";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -159,6 +161,25 @@ export async function limparLog(filePath: string = LOG_FILE): Promise<void> {
   await fs.promises.writeFile(filePath, "", "utf8");
 }
 
+function extrairBase64Imagem(imagem: unknown): string | null {
+  if (typeof imagem !== "string" || !imagem) return null;
+  const index = imagem.indexOf("base64,");
+  const b64 = index >= 0 ? imagem.slice(index + 7) : imagem;
+  return b64.trim() ? b64 : null;
+}
+
+export async function salvarSnapshot(
+  imagem: unknown,
+  snapDir: string = SNAP_DIR
+): Promise<string | null> {
+  const b64 = extrairBase64Imagem(imagem);
+  if (!b64) return null;
+  await fs.promises.mkdir(snapDir, { recursive: true });
+  const nome = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+  await fs.promises.writeFile(path.join(snapDir, nome), Buffer.from(b64, "base64"));
+  return `${SNAP_URL}/${nome}`;
+}
+
 export function resolveStaticFile(rawUrl: string, publicDir: string = PUBLIC_DIR): string | null {
   const pathname = decodeURIComponent(new URL(rawUrl, "http://localhost").pathname);
   const relPath = pathname === "/" ? "/index.html" : pathname;
@@ -186,11 +207,22 @@ function serveStatic(req: IncomingMessage, res: ServerResponse, publicDir: strin
   });
 }
 
-async function handleLog(req: IncomingMessage, res: ServerResponse, logFile: string): Promise<void> {
+async function handleLog(
+  req: IncomingMessage,
+  res: ServerResponse,
+  logFile: string,
+  snapDir: string
+): Promise<void> {
   try {
     const raw = await readBody(req);
     const payload: unknown = JSON.parse(raw || "{}");
     const entry = montarEntrada(payload);
+    const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
+      string,
+      unknown
+    >;
+    const snapshot = await salvarSnapshot(p.snapshot, snapDir);
+    if (snapshot) entry.snapshot = snapshot;
     await appendLogEntry(entry, logFile);
     sendJson(res, 200, { ok: true, entrada: entry });
   } catch (err) {
@@ -202,7 +234,9 @@ async function streamVisao(
   res: ServerResponse,
   imagem: string,
   opcoes: { modelo?: string; host?: string; anterior?: string },
-  logFile: string
+  logFile: string,
+  snapDir: string,
+  snapshot: unknown
 ): Promise<void> {
   const iterador = gerarDescricaoStream(imagem, opcoes);
   const primeiro = await iterador.next();
@@ -234,6 +268,8 @@ async function streamVisao(
     resumo: texto,
     tipo: "descricao",
   };
+  const snap = await salvarSnapshot(snapshot, snapDir);
+  if (snap) entry.snapshot = snap;
   await appendLogEntry(entry, logFile);
 
   res.write(
@@ -243,6 +279,7 @@ async function streamVisao(
       modelo: resumo.modelo,
       tokens: resumo.tokens,
       ms: resumo.duracaoMs,
+      snapshot: entry.snapshot,
     }) + "\n"
   );
   res.end();
@@ -253,7 +290,6 @@ async function handleVisao(
   res: ServerResponse,
   config: ServerConfig
 ): Promise<void> {
-  const logFile = config.logFile ?? LOG_FILE;
   let payload: unknown;
   try {
     const raw = await readBody(req, 12_000_000);
@@ -282,7 +318,9 @@ async function handleVisao(
         host: config.ollamaUrl,
         anterior: typeof p.anterior === "string" ? p.anterior : undefined,
       },
-      logFile
+      config.logFile ?? LOG_FILE,
+      config.snapDir ?? SNAP_DIR,
+      p.snapshot
     );
   } catch (err) {
     const mensagem = (err as Error).message;
@@ -321,21 +359,77 @@ async function handleClearLogs(res: ServerResponse, logFile: string): Promise<vo
   }
 }
 
+interface InfoOllama {
+  online: boolean;
+  modelos: string[];
+  erro: string;
+}
+
+async function consultarOllama(host?: string): Promise<InfoOllama> {
+  const base = (host ?? process.env.OLLAMA_HOST ?? "http://localhost:11434").replace(/\/+$/, "");
+  try {
+    const resposta = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(3000) });
+    if (!resposta.ok) return { online: false, modelos: [], erro: `HTTP ${resposta.status}` };
+    const dados = (await resposta.json()) as { models?: { name?: string }[] };
+    const modelos = (dados.models ?? [])
+      .map((m) => m.name ?? "")
+      .filter((n) => n.length > 0);
+    return { online: true, modelos, erro: "" };
+  } catch (err) {
+    return { online: false, modelos: [], erro: (err as Error).message };
+  }
+}
+
+async function handleHealth(res: ServerResponse, config: ServerConfig): Promise<void> {
+  const ollama = await consultarOllama(config.ollamaUrl);
+  sendJson(res, 200, { ok: true, ollama });
+}
+
+function serveSnapshot(
+  req: IncomingMessage,
+  res: ServerResponse,
+  snapDir: string
+): void {
+  const pathname = decodeURIComponent(new URL(req.url ?? "/", "http://localhost").pathname);
+  const rel = pathname.replace(/^\/snapshots\/?/, "");
+  const filePath = path.normalize(path.join(snapDir, rel));
+  if (!rel || !filePath.startsWith(snapDir)) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Acesso negado");
+    return;
+  }
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Nao encontrado");
+      return;
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    res.writeHead(200, {
+      "Content-Type": MIME[ext] || "application/octet-stream",
+      "Cache-Control": "public, max-age=31536000, immutable",
+    });
+    res.end(data);
+  });
+}
+
 export interface ServerConfig {
   logFile?: string;
+  snapDir?: string;
   publicDir?: string;
   ollamaUrl?: string;
 }
 
 export function createServer(config: ServerConfig = {}): http.Server {
   const logFile = config.logFile ?? LOG_FILE;
+  const snapDir = config.snapDir ?? SNAP_DIR;
   const publicDir = config.publicDir ?? PUBLIC_DIR;
 
   return http.createServer((req, res) => {
     const url = req.url ?? "/";
     const pathname = url.split("?")[0];
     if (req.method === "POST" && url === "/api/log") {
-      void handleLog(req, res, logFile);
+      void handleLog(req, res, logFile, snapDir);
       return;
     }
     if (req.method === "POST" && url === "/api/visao") {
@@ -348,6 +442,14 @@ export function createServer(config: ServerConfig = {}): http.Server {
     }
     if (req.method === "DELETE" && pathname === "/api/logs") {
       void handleClearLogs(res, logFile);
+      return;
+    }
+    if (req.method === "GET" && pathname === "/api/health") {
+      void handleHealth(res, config);
+      return;
+    }
+    if (req.method === "GET" && pathname.startsWith("/snapshots/")) {
+      serveSnapshot(req, res, snapDir);
       return;
     }
     if (req.method === "GET") {

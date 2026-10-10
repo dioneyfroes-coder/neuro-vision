@@ -10,6 +10,7 @@ import {
   limparLog,
   montarEntrada,
   resolveStaticFile,
+  salvarSnapshot,
 } from "./server";
 import type { EntradaLog } from "./types";
 
@@ -125,6 +126,22 @@ describe("limparLog", () => {
     );
     await limparLog(arquivo);
     expect(await readFile(arquivo, "utf8")).toBe("");
+  });
+});
+
+describe("salvarSnapshot", () => {
+  it("grava o arquivo e devolve a URL publica", async () => {
+    const dir = path.join(tmpDir, "snapshots");
+    const url = await salvarSnapshot("data:image/jpeg;base64,QkxPQg==", dir);
+    expect(url).toMatch(/^\/snapshots\/.+\.jpg$/);
+    const nome = url!.replace("/snapshots/", "");
+    const conteudo = await readFile(path.join(dir, nome));
+    expect(conteudo.toString("utf8")).toBe("BLOB");
+  });
+
+  it("retorna null quando nao ha imagem", async () => {
+    expect(await salvarSnapshot("", tmpDir)).toBeNull();
+    expect(await salvarSnapshot(undefined, tmpDir)).toBeNull();
   });
 });
 
@@ -344,6 +361,102 @@ describe("createServer", () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/logs`, { method: "DELETE" });
       expect(res.status).toBe(200);
       expect(await readFile(logFile, "utf8")).toBe("");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("POST /api/log salva o snapshot e o serve em /snapshots", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const snapDir = path.join(tmpDir, "snapshots");
+    const server = createServer({ logFile, snapDir, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          modelo: "m",
+          resumo: "pessoa",
+          objetos: [],
+          snapshot: "data:image/jpeg;base64,QkxPQg==",
+        }),
+      });
+      expect(res.status).toBe(200);
+      const { entrada } = (await res.json()) as { entrada: { snapshot?: string } };
+      expect(entrada.snapshot).toMatch(/^\/snapshots\/.+\.jpg$/);
+
+      const arquivo = await fetch(`http://127.0.0.1:${port}${entrada.snapshot}`);
+      expect(arquivo.status).toBe(200);
+      expect(await arquivo.text()).toBe("BLOB");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("GET /snapshots bloqueia path traversal", async () => {
+    const server = createServer({ snapDir: path.join(tmpDir, "snapshots"), publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/snapshots/..%2f..%2fpackage.json`);
+      expect([403, 404]).toContain(res.status);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("GET /api/health informa o status do Ollama", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/tags")) {
+          return { ok: true, json: async () => ({ models: [{ name: "qwen3-vl:4b" }] }) };
+        }
+        return realFetch(input, init);
+      })
+    );
+
+    const server = createServer({ publicDir: tmpDir, ollamaUrl: "http://localhost:11434" });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+      expect(res.status).toBe(200);
+      const corpo = (await res.json()) as {
+        ok: boolean;
+        ollama: { online: boolean; modelos: string[] };
+      };
+      expect(corpo.ollama.online).toBe(true);
+      expect(corpo.ollama.modelos).toContain("qwen3-vl:4b");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("GET /api/health reporta Ollama offline quando falha", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/tags")) throw new TypeError("fetch failed");
+        return realFetch(input, init);
+      })
+    );
+
+    const server = createServer({ publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+      const corpo = (await res.json()) as { ollama: { online: boolean } };
+      expect(corpo.ollama.online).toBe(false);
     } finally {
       server.close();
     }

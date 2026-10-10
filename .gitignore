@@ -2,5 +2,6 @@ node_modules/
 dist/
 public/app.js
 logs/*.jsonl
+logs/snapshots/
 .env
 .DS_Store
