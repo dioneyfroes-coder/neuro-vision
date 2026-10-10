@@ -4,13 +4,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gerarDescricao } from "./ollama";
-import type { EntradaLog, ObjetoVisto, TipoEntrada } from "./types";
+import type { Caixa, EntradaLog, ObjetoVisto, TipoEntrada } from "./types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const PUBLIC_DIR = path.join(ROOT, "public");
 export const LOG_DIR = path.join(ROOT, "logs");
 export const LOG_FILE = path.join(LOG_DIR, "visao.jsonl");
+export const LOG_MAX_BYTES = Number(process.env.LOG_MAX_BYTES) || 5_000_000;
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -47,11 +48,32 @@ function readBody(req: IncomingMessage, limit = 1_000_000): Promise<string> {
   });
 }
 
+function normalizarCaixa(valor: unknown): Caixa {
+  const v = (typeof valor === "object" && valor !== null ? valor : {}) as Record<string, unknown>;
+  const num = (x: unknown): number => (typeof x === "number" && Number.isFinite(x) ? x : 0);
+  return {
+    xmin: num(v.xmin),
+    ymin: num(v.ymin),
+    xmax: num(v.xmax),
+    ymax: num(v.ymax),
+  };
+}
+
 function normalizarObjetos(valor: unknown): ObjetoVisto[] {
   if (!Array.isArray(valor)) return [];
-  return valor.filter(
-    (o): o is ObjetoVisto => typeof o === "object" && o !== null && "nome" in o
-  );
+  const objetos: ObjetoVisto[] = [];
+  for (const item of valor) {
+    if (typeof item !== "object" || item === null || !("nome" in item)) continue;
+    const o = item as Record<string, unknown>;
+    if (typeof o.nome !== "string") continue;
+    objetos.push({
+      nome: o.nome,
+      rotulo: typeof o.rotulo === "string" ? o.rotulo : o.nome,
+      score: typeof o.score === "number" && Number.isFinite(o.score) ? o.score : 0,
+      caixa: normalizarCaixa(o.caixa),
+    });
+  }
+  return objetos;
 }
 
 export function montarEntrada(payload: unknown): EntradaLog {
@@ -69,24 +91,58 @@ export function montarEntrada(payload: unknown): EntradaLog {
   };
 }
 
+async function rotacionarSeNecessario(filePath: string): Promise<void> {
+  try {
+    const info = await fs.promises.stat(filePath);
+    if (info.size < LOG_MAX_BYTES) return;
+  } catch {
+    return;
+  }
+  await fs.promises.rename(filePath, `${filePath}.1`).catch(() => {});
+}
+
 export async function appendLogEntry(entry: EntradaLog, filePath: string = LOG_FILE): Promise<void> {
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+  await rotacionarSeNecessario(filePath);
   await fs.promises.appendFile(filePath, JSON.stringify(entry) + "\n", "utf8");
+}
+
+async function lerUltimasLinhas(filePath: string, alvo: number): Promise<string[]> {
+  const handle = await fs.promises.open(filePath, "r");
+  try {
+    let tamanho = (await handle.stat()).size;
+    const chunkSize = 64 * 1024;
+    let buffer = Buffer.alloc(0);
+    let linhas: string[] = [];
+    while (tamanho > 0 && linhas.length <= alvo) {
+      const leitura = Math.min(chunkSize, tamanho);
+      tamanho -= leitura;
+      const chunk = Buffer.alloc(leitura);
+      await handle.read(chunk, 0, leitura, tamanho);
+      buffer = Buffer.concat([chunk, buffer]);
+      linhas = buffer.toString("utf8").split("\n");
+    }
+    return linhas;
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function lerLogEntries(
   filePath: string = LOG_FILE,
   limit = 100
 ): Promise<EntradaLog[]> {
-  let conteudo: string;
+  const n = Math.max(0, Math.trunc(limit));
+  if (n === 0) return [];
+  let linhas: string[];
   try {
-    conteudo = await fs.promises.readFile(filePath, "utf8");
+    linhas = await lerUltimasLinhas(filePath, n);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw err;
   }
   const entradas: EntradaLog[] = [];
-  for (const linha of conteudo.split("\n")) {
+  for (const linha of linhas) {
     const texto = linha.trim();
     if (!texto) continue;
     try {
@@ -95,7 +151,6 @@ export async function lerLogEntries(
       // ignora linhas corrompidas
     }
   }
-  const n = Math.max(0, Math.trunc(limit));
   return entradas.slice(-n).reverse();
 }
 
@@ -256,8 +311,9 @@ export function createServer(config: ServerConfig = {}): http.Server {
 const entryUrl = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
 if (import.meta.url === entryUrl) {
   const PORT = Number(process.env.PORT) || 3000;
-  createServer().listen(PORT, () => {
-    console.log(`\n  Neuro Vision rodando em http://localhost:${PORT}`);
+  const HOST = process.env.HOST || "127.0.0.1";
+  createServer().listen(PORT, HOST, () => {
+    console.log(`\n  Neuro Vision rodando em http://${HOST}:${PORT}`);
     console.log(`  Logs em: ${LOG_FILE}\n`);
   });
 }

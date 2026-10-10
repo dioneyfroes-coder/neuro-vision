@@ -27,11 +27,11 @@ Lista de melhorias e pendências. `[ ]` = aberto, `[x]` = concluído.
 
 ## Correções e robustez
 
-- [ ] `public/app.ts:83` — teste de WebGPU (`"gpu" in navigator`) não é confiável; checar `navigator.gpu` + `requestAdapter()`.
-- [ ] `src/server.ts` — `listen(PORT)` escuta em `0.0.0.0`. Sem auth, qualquer host da rede aciona a webcam. Bind em `127.0.0.1` por padrão (configurável).
-- [ ] `src/server.ts:77` — `lerLogEntries` lê e faz parse do arquivo inteiro mesmo para `limit=100`. Ler do fim ou rotacionar o log (`visao.jsonl` cresce sem limite).
-- [ ] Validar `score` e `caixa` em `normalizarObjetos` (`src/server.ts:50`) — hoje só exige `nome`.
-- [ ] Rotação/tamanho máximo do log (`logs/visao.jsonl`) e política de retenção.
+- [x] `public/app.ts:83` — teste de WebGPU (`"gpu" in navigator`) não é confiável; checar `navigator.gpu` + `requestAdapter()`.
+- [x] `src/server.ts` — `listen(PORT)` escuta em `0.0.0.0`. Bind em `127.0.0.1` por padrão (configurável via `HOST`).
+- [x] `src/server.ts:77` — `lerLogEntries` lia e fazia parse do arquivo inteiro; agora lê do fim em blocos de 64KB.
+- [x] Validar `score` e `caixa` em `normalizarObjetos` (agora preenche `rotulo`, `score` e `caixa` seguros).
+- [x] Rotação/tamanho máximo do log (`LOG_MAX_BYTES`, backup `.1`).
 
 ## Performance
 

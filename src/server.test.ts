@@ -60,6 +60,22 @@ describe("montarEntrada", () => {
     expect(entrada.objetos).toHaveLength(1);
     expect(entrada.objetos[0].nome).toBe("pessoa");
   });
+
+  it("preenche score e caixa invalidos com valores seguros", () => {
+    const entrada = montarEntrada({
+      objetos: [{ nome: "pessoa", score: "alto", caixa: { xmin: 5, ymin: "x" } }],
+    });
+    expect(entrada.objetos).toHaveLength(1);
+    expect(entrada.objetos[0].score).toBe(0);
+    expect(entrada.objetos[0].rotulo).toBe("pessoa");
+    expect(entrada.objetos[0].caixa).toEqual({ xmin: 5, ymin: 0, xmax: 0, ymax: 0 });
+  });
+
+  it("descarta objetos sem nome textual", () => {
+    const entrada = montarEntrada({ objetos: [{ nome: 123 }, { nome: "ok" }] });
+    expect(entrada.objetos).toHaveLength(1);
+    expect(entrada.objetos[0].nome).toBe("ok");
+  });
 });
 
 describe("appendLogEntry", () => {

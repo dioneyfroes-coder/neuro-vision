@@ -51,8 +51,10 @@ Variáveis de ambiente lidas pelo servidor:
 | Variável | Padrão | Descrição |
 | --- | --- | --- |
 | `PORT` | `3000` | Porta HTTP. |
+| `HOST` | `127.0.0.1` | Interface de escuta (use `0.0.0.0` para expor na rede). |
 | `OLLAMA_HOST` | `http://localhost:11434` | URL do Ollama. |
 | `OLLAMA_MODEL` | `qwen3-vl:4b` | Modelo de visão usado na descrição. |
+| `LOG_MAX_BYTES` | `5000000` | Tamanho máximo de `visao.jsonl` antes de rotacionar para `.1`. |
 
 Exemplo:
 

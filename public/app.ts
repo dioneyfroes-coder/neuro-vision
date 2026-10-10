@@ -84,7 +84,8 @@ async function getDetector(modelId: string): Promise<Detector> {
   };
 
   setStatus(`Carregando modelo ${modelId}...`);
-  const device = "gpu" in navigator ? "webgpu" : "wasm";
+  const gpu = (navigator as Navigator & { gpu?: unknown }).gpu;
+  const device = gpu ? "webgpu" : "wasm";
   try {
     detector = await pipeline("object-detection", modelId, { device, progress_callback: onProgress });
   } catch (err) {
