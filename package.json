@@ -10,6 +10,7 @@
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "build": "npm run clean && npm run build:server && npm run build:client",
     "build:server": "esbuild src/server.ts --bundle --platform=node --format=esm --outfile=dist/server.js --external:node:*",
     "build:client": "esbuild public/app.ts --bundle --format=esm --outfile=public/app.js --external:https://*",
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.0",
     "@types/node": "^26.6.5",
     "concurrently": "^10.0.6",
     "esbuild": "^0.28.2",

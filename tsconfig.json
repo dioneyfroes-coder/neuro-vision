@@ -17,5 +17,5 @@
     "moduleDetection": "force",
     "resolveJsonModule": true
   },
-  "include": ["src", "public", "vitest.config.ts"]
+  "include": ["src", "public", "e2e", "vitest.config.ts", "playwright.config.ts"]
 }

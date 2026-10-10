@@ -8,6 +8,7 @@ import {
   createServer,
   lerLogEntries,
   limparLog,
+  logEvent,
   montarEntrada,
   resolveStaticFile,
   salvarSnapshot,
@@ -126,6 +127,18 @@ describe("limparLog", () => {
     );
     await limparLog(arquivo);
     expect(await readFile(arquivo, "utf8")).toBe("");
+  });
+});
+
+describe("logEvent", () => {
+  it("emite uma linha JSON com nivel e evento", () => {
+    const espiao = vi.spyOn(console, "log").mockImplementation(() => {});
+    logEvent("info", "teste", { a: 1 });
+    expect(espiao).toHaveBeenCalledTimes(1);
+    const linha = JSON.parse(String(espiao.mock.calls[0][0])) as Record<string, unknown>;
+    expect(linha).toMatchObject({ nivel: "info", evento: "teste", a: 1 });
+    expect(linha.ts).toMatch(/^\d{4}-/);
+    espiao.mockRestore();
   });
 });
 

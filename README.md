@@ -115,8 +115,9 @@ logs/
 | `npm run dev` | Servidor + cliente em modo watch. |
 | `npm run build` | Build de servidor (`dist/server.js`) e cliente (`public/app.js`). |
 | `npm start` | Build e executa o servidor. |
-| `npm test` | Testes (vitest). |
+| `npm test` | Testes unitários/integração (vitest). |
 | `npm run test:watch` | Testes em watch. |
+| `npm run test:e2e` | Testes E2E (Playwright; requer `npx playwright install chromium`). |
 | `npm run typecheck` | Checagem de tipos (`tsc --noEmit`). |
 | `npm run lint` | ESLint. |
 | `npm run lint:fix` | ESLint com correção automática. |

@@ -255,6 +255,8 @@ button.ghost:hover:not(:disabled) {
   gap: 10px;
 }
 
+#log li[hidden] { display: none; }
+
 #log li .thumb {
   width: 64px;
   height: 48px;

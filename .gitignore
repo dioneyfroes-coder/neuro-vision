@@ -5,3 +5,6 @@ logs/*.jsonl
 logs/snapshots/
 .env
 .DS_Store
+test-results/
+playwright-report/
+.playwright/

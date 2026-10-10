@@ -50,7 +50,7 @@ Lista de melhorias e pendências. `[ ]` = aberto, `[x]` = concluído.
 
 ## Qualidade / testes
 
-- [ ] Testes E2E do cliente (Playwright): fluxo webcam → detecção/descrição → log.
-- [ ] Testes para os novos endpoints `GET`/`DELETE /api/logs` (já cobertos no servidor; falta no fluxo do cliente).
-- [ ] Log estruturado e padronização de mensagens/erros no servidor.
-- [ ] Pipeline de CI (typecheck + lint + test + build).
+- [x] Testes E2E do cliente (Playwright): histórico, filtro e status do Ollama (`e2e/app.spec.ts`).
+- [x] Testes para os endpoints de log/snapshot/health (servidor e cliente).
+- [x] Log estruturado no servidor (`logEvent`, JSON com `ts`/`nivel`/`evento`).
+- [x] Pipeline de CI (typecheck + lint + test + build + E2E).

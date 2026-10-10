@@ -32,6 +32,18 @@ export function sendJson(res: ServerResponse, status: number, data: unknown): vo
   res.end(JSON.stringify(data));
 }
 
+export type NivelLog = "info" | "warn" | "error";
+
+export function logEvent(
+  nivel: NivelLog,
+  evento: string,
+  dados: Record<string, unknown> = {}
+): void {
+  const linha = JSON.stringify({ ts: new Date().toISOString(), nivel, evento, ...dados });
+  if (nivel === "error") console.error(linha);
+  else console.log(linha);
+}
+
 function readBody(req: IncomingMessage, limit = 1_000_000): Promise<string> {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -325,6 +337,7 @@ async function handleVisao(
   } catch (err) {
     const mensagem = (err as Error).message;
     const status = mensagem.startsWith("Ollama") || err instanceof TypeError ? 502 : 500;
+    logEvent("error", "visao_falhou", { status, erro: mensagem });
     if (!res.headersSent) {
       sendJson(res, status, { ok: false, erro: "Ollama: " + mensagem });
     } else {
@@ -346,6 +359,7 @@ async function handleListLogs(
     const entradas = await lerLogEntries(logFile, limite);
     sendJson(res, 200, { ok: true, total: entradas.length, entradas });
   } catch (err) {
+    logEvent("error", "listar_logs_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }
 }
@@ -355,6 +369,7 @@ async function handleClearLogs(res: ServerResponse, logFile: string): Promise<vo
     await limparLog(logFile);
     sendJson(res, 200, { ok: true });
   } catch (err) {
+    logEvent("error", "limpar_logs_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }
 }
@@ -466,6 +481,7 @@ if (import.meta.url === entryUrl) {
   const PORT = Number(process.env.PORT) || 3000;
   const HOST = process.env.HOST || "127.0.0.1";
   createServer().listen(PORT, HOST, () => {
+    logEvent("info", "servidor_iniciado", { host: HOST, port: PORT, logFile: LOG_FILE });
     console.log(`\n  Neuro Vision rodando em http://${HOST}:${PORT}`);
     console.log(`  Logs em: ${LOG_FILE}\n`);
   });
