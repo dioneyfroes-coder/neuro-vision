@@ -1,9 +1,14 @@
+export type ModoAnalise = "descricao" | "roteiro";
+
 export interface OpcoesGerarDescricao {
   modelo?: string;
   prompt?: string;
   host?: string;
   timeoutMs?: number;
   anterior?: string;
+  modo?: ModoAnalise;
+  roteiro?: string;
+  base?: boolean;
 }
 
 export interface ResultadoDescricao {
@@ -27,6 +32,26 @@ export function montarPromptDescricao(anterior?: string): string {
     "Se a cena estiver igual, NAO repita o que ja foi dito: tente enxergar detalhes adicionais " +
     "ainda nao mencionados (partes do corpo, objetos pequenos, textos, cores, nuances de postura). " +
     "Responda em portugues, no maximo 2 frases, sem se repetir."
+  );
+}
+
+export const PROMPT_ROTEIRO_BASE =
+  "Voce ve o PRIMEIRO frame de uma webcam. Faca uma descricao profunda e detalhada da cena em " +
+  "portugues: pessoas, objetos, disposicao, cores, iluminacao, postura e possiveis acoes. " +
+  "Escreva de 3 a 4 frases objetivas, sem repetir ideias.";
+
+export const PROMPT_ROTEIRO_DELTA =
+  "Voce acompanha uma webcam e mantem um ROTEIRO do que ja aconteceu. " +
+  "Escreva em portugues APENAS o que mudou no novo frame em relacao ao roteiro, em 1 frase curta " +
+  "e concreta. Nao repita o que ja foi dito. Se nada relevante mudou, responda apenas a palavra: INALTERADO.";
+
+export function montarPromptRoteiro(base: boolean, roteiro?: string): string {
+  if (base) return PROMPT_ROTEIRO_BASE;
+  const texto = roteiro?.trim() ?? "";
+  if (!texto) return PROMPT_ROTEIRO_DELTA;
+  return (
+    `${PROMPT_ROTEIRO_DELTA} Roteiro ate agora: "${texto}". ` +
+    "Descreva somente a diferenca deste frame para o roteiro."
   );
 }
 
@@ -133,6 +158,8 @@ export async function forcarCarregamento(opcoes: OpcoesOllama = {}): Promise<num
 }
 
 export const NUM_PREDICT_PADRAO = 256;
+export const NUM_PREDICT_BASE = 320;
+export const NUM_PREDICT_DELTA = 160;
 
 function montarCorpo(
   imagem: string,
@@ -140,20 +167,34 @@ function montarCorpo(
   stream: boolean
 ): { modelo: string; corpo: string } {
   const modelo = opcoes.modelo ?? process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
-  const prompt = opcoes.prompt ?? montarPromptDescricao(opcoes.anterior);
+  const roteiro = opcoes.modo === "roteiro";
+  const prompt =
+    opcoes.prompt ??
+    (roteiro ? montarPromptRoteiro(opcoes.base === true, opcoes.roteiro) : montarPromptDescricao(opcoes.anterior));
   const mensagem: { role: string; content: string; images?: string[] } = {
     role: "user",
     content: prompt,
   };
   const imagemBase64 = extrairBase64(imagem);
   if (imagemBase64) mensagem.images = [imagemBase64];
+  const numPredict = roteiro
+    ? opcoes.base === true
+      ? NUM_PREDICT_BASE
+      : NUM_PREDICT_DELTA
+    : NUM_PREDICT_PADRAO;
   const corpo = JSON.stringify({
     model: modelo,
     messages: [mensagem],
     stream,
     think: false,
     keep_alive: "5m",
-    options: { temperature: 0.2, num_predict: NUM_PREDICT_PADRAO },
+    options: {
+      temperature: 0.2,
+      repeat_penalty: 1.3,
+      repeat_last_n: 128,
+      top_p: 0.9,
+      num_predict: numPredict,
+    },
   });
   return { modelo, corpo };
 }

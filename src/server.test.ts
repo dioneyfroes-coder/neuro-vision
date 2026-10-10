@@ -14,6 +14,7 @@ import {
   salvarSnapshot,
 } from "./server";
 import type { EntradaLog } from "./types";
+import { PROMPT_ROTEIRO_BASE } from "./ollama";
 
 let tmpDir: string;
 
@@ -284,6 +285,90 @@ describe("createServer", () => {
         objetos: [],
         tipo: "descricao",
       });
+    } finally {
+      server.close();
+    }
+  });
+
+  it("POST /api/visao no modo roteiro grava a base e colapsa repeticoes nos deltas", async () => {
+    const corpos: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (!url.includes("/api/chat")) return realFetch(input, init);
+        const corpo = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+        corpos.push(corpo);
+        const prompt = (corpo.messages as { content: string }[])[0]?.content ?? "";
+        const base = prompt === PROMPT_ROTEIRO_BASE;
+        const inalterado = prompt.includes("MARCA_INALTERADO");
+        const linhas = base
+          ? [`${JSON.stringify({ message: { content: "Pessoa de pe." }, model: "qwen2.5vl:3b" })}`,
+             `${JSON.stringify({ eval_count: 12, total_duration: 2_000_000_000, done: true })}`]
+          : inalterado
+            ? [`${JSON.stringify({ message: { content: "INALTERADO." }, model: "qwen2.5vl:3b" })}`,
+               `${JSON.stringify({ eval_count: 3, total_duration: 800_000_000, done: true })}`]
+            : [
+                `${JSON.stringify({ message: { content: "A. B. A. B. A. B." }, model: "qwen2.5vl:3b" })}`,
+                `${JSON.stringify({ eval_count: 10, total_duration: 1_000_000_000, done: true })}`,
+              ];
+        return { ok: true, body: new Response(linhas.join("\n") + "\n").body };
+      })
+    );
+
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const server = createServer({ logFile, publicDir: tmpDir, ollamaUrl: "http://localhost:11434" });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    const post = (payload: Record<string, unknown>): Promise<Response> =>
+      fetch(`http://127.0.0.1:${port}/api/visao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+    try {
+      const resBase = await post({ imagem: "QkxPQ", modo: "roteiro", base: true, roteiro: "" });
+      expect(resBase.status).toBe(200);
+      const eventosBase = (await resBase.text()).trim().split("\n").map((l) => JSON.parse(l));
+      const doneBase = eventosBase.find((e) => e.type === "done");
+      expect(doneBase.descricao).toBe("Pessoa de pe.");
+      expect(doneBase.tipo).toBe("roteiro");
+      expect(doneBase.papel).toBe("base");
+      const msgs0 = (corpos[0].messages as { content: string }[]);
+      expect(msgs0[0].content).toBe(PROMPT_ROTEIRO_BASE);
+      expect((corpos[0].options as { num_predict: number }).num_predict).toBe(320);
+
+      const resDelta = await post({ imagem: "QkxPQ", modo: "roteiro", base: false, roteiro: "Pessoa de pe." });
+      expect(resDelta.status).toBe(200);
+      const doneDelta = (await resDelta.text()).trim().split("\n").map((l) => JSON.parse(l)).find((e) => e.type === "done");
+      expect(doneDelta.descricao).toBe("A. B.");
+      expect(doneDelta.tipo).toBe("roteiro");
+      expect(doneDelta.papel).toBe("delta");
+      const msgs1 = (corpos[1].messages as { content: string }[]);
+      expect(msgs1[0].content).toContain("Pessoa de pe.");
+      expect((corpos[1].options as { num_predict: number }).num_predict).toBe(160);
+
+      const resInalterado = await post({
+        imagem: "QkxPQ",
+        modo: "roteiro",
+        base: false,
+        roteiro: "MARCA_INALTERADO",
+      });
+      const doneInalterado = (await resInalterado.text())
+        .trim()
+        .split("\n")
+        .map((l) => JSON.parse(l))
+        .find((e) => e.type === "done");
+      expect(doneInalterado.semMudanca).toBe(true);
+      expect(doneInalterado.tipo).toBe("roteiro");
+      expect(doneInalterado.papel).toBe("delta");
+
+      const linhas = (await readFile(logFile, "utf8")).trim().split("\n");
+      expect(linhas).toHaveLength(2);
+      expect(JSON.parse(linhas[0])).toMatchObject({ tipo: "roteiro", papel: "base", resumo: "Pessoa de pe." });
+      expect(JSON.parse(linhas[1])).toMatchObject({ tipo: "roteiro", papel: "delta", resumo: "A. B." });
     } finally {
       server.close();
     }

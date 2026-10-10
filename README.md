@@ -9,7 +9,8 @@ Todo o processamento roda na sua máquina. A imagem capturada nunca sai do seu c
 | Motor | Onde roda | O que faz |
 | --- | --- | --- |
 | **Detecção** (transformers.js) | Navegador (WebGPU/CPU) | Detecta objetos (pessoa, carro, celular, ...) com caixas e confiança, usando YOLOS ou DETR (COCO). |
-| **Descrição** (Ollama local) | Servidor (Ollama local) | Descreve o frame em português, comparando com o frame anterior para evitar repetições. |
+| **Roteiro** (Ollama local) | Servidor (Ollama local) | Faz **uma análise profunda da cena** (base) e, a cada novo frame, registra **apenas o que mudou** em relação ao que já aconteceu — montando um roteiro cronológico. É o motor padrão. |
+| **Descrição** (Ollama local) | Servidor (Ollama local) | Descreve cada frame em português, comparando com o frame anterior para evitar repetições. |
 
 ## Requisitos
 
@@ -29,6 +30,8 @@ ollama pull qwen2.5vl:3b
 ```
 
 > **Nota sobre `qwen3-vl`:** o `qwen3-vl` é um modelo "thinking" e, nos builds atuais do Ollama, o `think:false` é **ignorado** — o modelo gasta o `num_predict` raciocinando e devolve `content` vazio (nenhum log sai da descrição). Por isso a integração usa `/api/chat` com detecção desse caso e recomenda o `qwen2.5vl` (não-pensante) para descrição de frames.
+
+> **Repetição:** o motor de descrição costumava repetir/fundir frases. As causas eram do próprio modelo, agravadas por reinjetar a descrição anterior inteira. Mitigações: `repeat_penalty: 1.3`, `repeat_last_n: 128`, `top_p: 0.9`, `num_predict` reduzido no delta do roteiro e pós-processamento (`colapsarRepeticoes` + `cortarFraseIncompleta`) no servidor.
 
 ## Uso
 
@@ -82,15 +85,21 @@ As entradas são gravadas em `logs/visao.jsonl` (uma linha JSON por entrada) e o
 `POST /api/visao` — corpo:
 
 ```json
-{ "imagem": "<base64 ou data URL>", "modelo": "qwen2.5vl:3b", "anterior": "descrição anterior", "snapshot": "<data URL opcional>" }
+{ "imagem": "<base64 ou data URL>", "modelo": "qwen2.5vl:3b", "modo": "roteiro", "base": true, "roteiro": "", "anterior": "descrição anterior", "snapshot": "<data URL opcional>" }
 ```
+
+- `modo`: `"roteiro"` (padrão) ou `"descricao"`.
+- `base`: no modo roteiro, `true` no primeiro frame (análise profunda) e `false` nos seguintes (só o que mudou).
+- `roteiro`: roteiro acumulado (resumido) enviado como contexto nos deltas.
 
 Resposta: stream NDJSON (`application/x-ndjson`), uma linha por evento:
 
 ```json
 { "type": "chunk", "response": "Uma pessoa" }
-{ "type": "done", "descricao": "Uma pessoa no escritorio.", "modelo": "qwen2.5vl:3b", "tokens": 42, "ms": 3120, "snapshot": "/snapshots/123-abc.jpg" }
+{ "type": "done", "descricao": "Uma pessoa no escritorio.", "modelo": "qwen2.5vl:3b", "tokens": 42, "ms": 3120, "snapshot": "/snapshots/123-abc.jpg", "tipo": "roteiro", "papel": "delta", "semMudanca": false }
 ```
+
+No modo roteiro, quando o modelo responde que **nada mudou** (sentinela `INALTERADO`, tolerante a acentos/variações), o servidor devolve `"semMudanca": true` e **não grava** a entrada no log — assim o roteiro não vira ruído.
 
 Em caso de erro após o início do stream: `{ "type": "erro", "erro": "Ollama: ..." }`.
 
@@ -99,7 +108,8 @@ Em caso de erro após o início do stream: `{ "type": "erro", "erro": "Ollama: .
 ```
 src/
   server.ts            servidor HTTP (estático + API) e persistência do log
-  ollama.ts            cliente do Ollama e montagem do prompt de descrição
+  ollama.ts            cliente do Ollama e montagem dos prompts (descrição e roteiro)
+  texto.ts             pós-processamento: colapsa repetições, detecta "sem mudança", corta frase incompleta
   types.ts             tipos compartilhados (EntradaLog, ObjetoVisto, ...)
   *.test.ts            testes (vitest)
   transformers-cdn.d.ts  tipos para o transformers.js via CDN

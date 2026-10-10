@@ -6,7 +6,11 @@ import {
   gerarDescricaoStream,
   modelosEmMemoria,
   montarPromptDescricao,
+  montarPromptRoteiro,
+  NUM_PREDICT_BASE,
   PROMPT_DESCRICAO,
+  PROMPT_ROTEIRO_BASE,
+  PROMPT_ROTEIRO_DELTA,
 } from "./ollama";
 
 afterEach(() => {
@@ -252,5 +256,76 @@ describe("forcarCarregamento", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(forcarCarregamento({ modelo: "x" })).rejects.toThrow(/404/);
+  });
+});
+
+describe("montarPromptRoteiro", () => {
+  it("usado no frame base retorna o prompt de base", () => {
+    expect(montarPromptRoteiro(true, "")).toBe(PROMPT_ROTEIRO_BASE);
+    expect(PROMPT_ROTEIRO_BASE).toContain("profunda");
+  });
+
+  it("usado em delta embute o roteiro acumulado", () => {
+    const prompt = montarPromptRoteiro(false, "Pessoa de pe. Braco esquerdo levantado.");
+    expect(prompt).toContain(PROMPT_ROTEIRO_DELTA);
+    expect(prompt).toContain("Pessoa de pe. Braco esquerdo levantado.");
+    expect(prompt).toContain("Roteiro ate agora");
+  });
+
+  it("usado em delta sem roteiro mantem o prompt de delta", () => {
+    expect(montarPromptRoteiro(false, "")).toBe(PROMPT_ROTEIRO_DELTA);
+  });
+});
+
+describe("gerarDescricao no modo roteiro", () => {
+  it("frame base usa num_predict padrao e prompt de base", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        message: { content: "Base detalhada." },
+        model: "qwen2.5vl:3b",
+        eval_count: 30,
+        total_duration: 2_000_000_000,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await gerarDescricao("AAAA", {
+      modelo: "qwen2.5vl:3b",
+      modo: "roteiro",
+      base: true,
+      roteiro: "",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const corpo = JSON.parse(String(init.body));
+    expect(corpo.messages[0].content).toBe(PROMPT_ROTEIRO_BASE);
+    expect(corpo.options.num_predict).toBe(NUM_PREDICT_BASE);
+    expect(corpo.options.repeat_penalty).toBe(1.3);
+  });
+
+  it("delta usa num_predict reduzido e prompt com roteiro", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        message: { content: "Pessoa sentou." },
+        model: "qwen2.5vl:3b",
+        eval_count: 8,
+        total_duration: 1_000_000_000,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await gerarDescricao("AAAA", {
+      modelo: "qwen2.5vl:3b",
+      modo: "roteiro",
+      base: false,
+      roteiro: "Pessoa de pe.",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const corpo = JSON.parse(String(init.body));
+    expect(corpo.messages[0].content).toContain("Pessoa de pe.");
+    expect(corpo.options.num_predict).toBe(160);
   });
 });

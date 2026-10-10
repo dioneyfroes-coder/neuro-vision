@@ -10,7 +10,9 @@ import {
   modeloEmMemoria,
   modelosEmMemoria,
   MODELO_PADRAO,
+  type ModoAnalise,
 } from "./ollama";
+import { colapsarRepeticoes, cortarFraseIncompleta, ehSemMudanca } from "./texto";
 import type { Caixa, EntradaLog, ObjetoVisto, TipoEntrada } from "./types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -252,7 +254,14 @@ async function handleLog(
 async function streamVisao(
   res: ServerResponse,
   imagem: string,
-  opcoes: { modelo?: string; host?: string; anterior?: string },
+  opcoes: {
+    modelo?: string;
+    host?: string;
+    anterior?: string;
+    modo?: ModoAnalise;
+    roteiro?: string;
+    base?: boolean;
+  },
   logFile: string,
   snapDir: string,
   snapshot: unknown
@@ -282,29 +291,53 @@ async function streamVisao(
   }
 
   const resumo = resultado.value;
-  const entry: EntradaLog = {
-    timestamp: new Date().toISOString(),
-    modelo: resumo.modelo,
-    objetos: [],
-    resumo: texto,
-    tipo: "descricao",
-    ms: resumo.duracaoMs,
-    tokens: resumo.tokens,
-  };
-  const snap = await salvarSnapshot(snapshot, snapDir);
-  if (snap) entry.snapshot = snap;
-  await appendLogEntry(entry, logFile);
+  const limpo = colapsarRepeticoes(cortarFraseIncompleta(texto));
+  const tipo: TipoEntrada = opcoes.modo === "roteiro" ? "roteiro" : "descricao";
+  const papel = opcoes.modo === "roteiro" ? (opcoes.base === true ? "base" : "delta") : undefined;
+  const semMudanca = papel === "delta" && ehSemMudanca(limpo);
 
-  res.write(
-    JSON.stringify({
-      type: "done",
-      descricao: texto,
+  if (!semMudanca) {
+    const entry: EntradaLog = {
+      timestamp: new Date().toISOString(),
       modelo: resumo.modelo,
-      tokens: resumo.tokens,
+      objetos: [],
+      resumo: limpo,
+      tipo,
+      papel,
       ms: resumo.duracaoMs,
-      snapshot: entry.snapshot,
-    }) + "\n"
-  );
+      tokens: resumo.tokens,
+    };
+    const snap = await salvarSnapshot(snapshot, snapDir);
+    if (snap) entry.snapshot = snap;
+    await appendLogEntry(entry, logFile);
+
+    res.write(
+      JSON.stringify({
+        type: "done",
+        descricao: limpo,
+        modelo: resumo.modelo,
+        tokens: resumo.tokens,
+        ms: resumo.duracaoMs,
+        snapshot: entry.snapshot,
+        tipo,
+        papel,
+        semMudanca: false,
+      }) + "\n"
+    );
+  } else {
+    res.write(
+      JSON.stringify({
+        type: "done",
+        descricao: limpo,
+        modelo: resumo.modelo,
+        tokens: resumo.tokens,
+        ms: resumo.duracaoMs,
+        tipo,
+        papel,
+        semMudanca: true,
+      }) + "\n"
+    );
+  }
   res.end();
 }
 
@@ -340,6 +373,9 @@ async function handleVisao(
         modelo: typeof p.modelo === "string" ? p.modelo : undefined,
         host: config.ollamaUrl,
         anterior: typeof p.anterior === "string" ? p.anterior : undefined,
+        modo: p.modo === "roteiro" ? "roteiro" : "descricao",
+        roteiro: typeof p.roteiro === "string" ? p.roteiro : undefined,
+        base: p.base === true,
       },
       config.logFile ?? LOG_FILE,
       config.snapDir ?? SNAP_DIR,

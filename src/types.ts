@@ -12,7 +12,7 @@ export interface ObjetoVisto {
   caixa: Caixa;
 }
 
-export type TipoEntrada = "deteccao" | "descricao";
+export type TipoEntrada = "deteccao" | "descricao" | "roteiro";
 
 export interface EntradaLog {
   timestamp: string;
@@ -20,6 +20,7 @@ export interface EntradaLog {
   objetos: ObjetoVisto[];
   resumo: string;
   tipo: TipoEntrada;
+  papel?: "base" | "delta";
   snapshot?: string;
   ms?: number;
   tokens?: number;

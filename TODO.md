@@ -4,7 +4,20 @@ Lista de melhorias e pendências. `[ ]` = aberto, `[x]` = concluído.
 
 ---
 
-## 🔴 Bug atual (reportado) — alta prioridade
+## 🟠 Nova rodada — modo Roteiro + repetição
+
+**Objetivo:** corrigir o novo bug de descrição repetida/"fundida" no motor Descrição e adicionar um **modo Roteiro** (padrão): 1 análise profunda da cena (base) e, nas capturas seguintes, registrar **só o que mudou**, formando um roteiro cronológico.
+
+- [x] `src/texto.ts`: `separarFrases`, `colapsarRepeticoes` (dedupe + colapso de sufixo periódico via KMP), `normalizarTexto`, `ehSemMudanca`, `cortarFraseIncompleta`.
+- [x] `src/ollama.ts`: `ModoAnalise = "descricao" | "roteiro"`; `PROMPT_ROTEIRO_BASE`/`PROMPT_ROTEIRO_DELTA` + `montarPromptRoteiro`; `NUM_PREDICT_BASE=320`/`NUM_PREDICT_DELTA=160`; `repeat_penalty`/`repeat_last_n`/`top_p` no `montarCorpo`.
+- [x] `src/server.ts`: `streamVisao`/`handleVisao` aceitam `modo`/`roteiro`/`base`; colapsa e corta frase incompleta; grava `tipo:"roteiro"` + `papel:"base"|"delta"`; **não grava** delta quando `semMudanca` (sentinela `INALTERADO`); evento `done` com `tipo`/`papel`/`semMudanca`.
+- [x] `src/types.ts`: `TipoEntrada` inclui `"roteiro"`; `EntradaLog.papel`.
+- [x] Cliente (`public/index.html`/`app.ts`): motor **Roteiro (Ollama)** como padrão; estado do roteiro; envio de `modo`/`roteiro`/`base`; respeita `semMudanca` (mostra "Sem mudancas neste intervalo" e não adiciona entrada); badge `roteiro base`/`roteiro +`.
+- [x] Testes: `texto.test.ts` (colapsar, sem-mudança, cortar-frase), `ollama.test.ts` (prompt roteiro, num_predict), `server.test.ts` (base+delta+sem-mudança, não grava quando sem mudança). 68 testes passando; typecheck/lint/build ok.
+- [x] Validado end-to-end com `qwen2.5vl:3b`: base grava análise completa (termina em frase completa), delta produz 1 frase curta sem repetição.
+- [x] Docs (`README.md`/`TODO.md`) atualizadas.
+
+## 🔴 Bug anterior (resolvido) — alta prioridade
 
 **Sintoma:** nenhum log de descrição (motor Ollama) aparece. As detecções saem, mas os logs `descricao` nunca surgem e o status mostra erro.
 

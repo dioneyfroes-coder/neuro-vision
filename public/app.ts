@@ -1,6 +1,7 @@
 import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3";
 import type { Detector, Deteccao, ProgressInfo } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3";
 import type { EntradaLog, ObjetoVisto } from "../src/types";
+import { colapsarRepeticoes } from "../src/texto";
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
@@ -131,6 +132,8 @@ let analisando = false;
 let controller: AbortController | null = null;
 let ultimaDescricao = "";
 let ultimaDuracaoMs = 0;
+let roteiroBeats: string[] = [];
+let roteiroPrimeiro = true;
 
 function setStatus(text: string): void {
   statusEl.textContent = text;
@@ -238,7 +241,13 @@ function criarItem(entry: EntradaLog): HTMLLIElement {
 
   const objs = document.createElement("div");
   objs.className = "objs";
-  if (entry.tipo === "descricao") {
+  if (entry.tipo === "descricao" || entry.tipo === "roteiro") {
+    if (entry.tipo === "roteiro") {
+      const badge = document.createElement("span");
+      badge.className = "tag papel";
+      badge.textContent = entry.papel === "base" ? "roteiro base" : "roteiro +";
+      objs.appendChild(badge);
+    }
     const span = document.createElement("span");
     span.className = "desc";
     span.textContent = entry.resumo;
@@ -324,12 +333,23 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
   setStatus("Ollama analisando frame... (pode demorar)");
   const started = performance.now();
 
+  const ehRoteiro = motorSelect.value === "roteiro";
+  const roteiro = ehRoteiro ? roteiroBeats.slice(-8).join(" ").slice(0, 1200) : "";
+  const corpo: Record<string, unknown> = { imagem: base64, snapshot: dataUrl };
+  if (ehRoteiro) {
+    corpo.modo = "roteiro";
+    corpo.roteiro = roteiro;
+    corpo.base = roteiroPrimeiro;
+  } else {
+    corpo.anterior = ultimaDescricao;
+  }
+
   let resposta: Response;
   try {
     resposta = await fetch("/api/visao", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imagem: base64, anterior: ultimaDescricao, snapshot: dataUrl }),
+      body: JSON.stringify(corpo),
       signal,
     });
   } catch (err) {
@@ -356,6 +376,9 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
     snapshot?: string;
     tokens?: number;
     ms?: number;
+    tipo?: string;
+    papel?: "base" | "delta";
+    semMudanca?: boolean;
   } | null = null;
 
   try {
@@ -377,10 +400,13 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
           erro?: string;
           tokens?: number;
           ms?: number;
+          tipo?: string;
+          papel?: "base" | "delta";
+          semMudanca?: boolean;
         };
         if (evt.type === "chunk" && evt.response) {
           parcial += evt.response;
-          setStatus(`Ollama: ${parcial}`);
+          setStatus(`Ollama: ${colapsarRepeticoes(parcial)}`);
         } else if (evt.type === "done") {
           resultado = evt;
         } else if (evt.type === "erro") {
@@ -401,12 +427,25 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
   const ms = Math.round(performance.now() - started);
   ultimaDuracaoMs = ms;
 
+  if (ehRoteiro && resultado?.semMudanca) {
+    setStatus(`Sem mudancas neste intervalo (${ms} ms).`);
+    return;
+  }
+
+  if (ehRoteiro) {
+    if (roteiroPrimeiro) roteiroPrimeiro = false;
+    roteiroBeats.push(colapsarRepeticoes(descricao));
+    if (roteiroBeats.length > 64) roteiroBeats.splice(0, roteiroBeats.length - 64);
+  }
+
+  const entradaTipo: EntradaLog["tipo"] = ehRoteiro ? "roteiro" : "descricao";
   const entry: EntradaLog = {
     timestamp: new Date().toISOString(),
     modelo: resultado?.modelo ?? "ollama",
     objetos: [],
     resumo: descricao,
-    tipo: "descricao",
+    tipo: entradaTipo,
+    papel: ehRoteiro ? (resultado?.papel ?? "delta") : undefined,
     snapshot: resultado?.snapshot,
     ms,
     tokens: resultado?.tokens,
@@ -428,7 +467,7 @@ async function analisar(): Promise<void> {
   const { signal } = controller;
   setSpinner(true);
   try {
-    if (motorSelect.value === "ollama") {
+    if (motorSelect.value === "ollama" || motorSelect.value === "roteiro") {
       await descreverViaOllama(signal);
       return;
     }
@@ -537,6 +576,8 @@ async function start(): Promise<void> {
   if (running) return;
   startBtn.disabled = true;
   ultimaDescricao = "";
+  roteiroBeats = [];
+  roteiroPrimeiro = true;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
   } catch (err) {
@@ -548,7 +589,7 @@ async function start(): Promise<void> {
   await video.play();
   placeholder.style.display = "none";
 
-  if (motorSelect.value === "ollama") {
+  if (motorSelect.value === "ollama" || motorSelect.value === "roteiro") {
     const preparado = await prepararOllama();
     if (!preparado) {
       startBtn.disabled = false;
@@ -666,6 +707,8 @@ thresholdInput.addEventListener("input", () => {
 
 motorSelect.addEventListener("change", () => {
   ultimaDescricao = "";
+  roteiroBeats = [];
+  roteiroPrimeiro = true;
 });
 
 atualizarContagem();
