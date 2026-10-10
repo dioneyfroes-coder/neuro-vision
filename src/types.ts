@@ -21,4 +21,6 @@ export interface EntradaLog {
   resumo: string;
   tipo: TipoEntrada;
   snapshot?: string;
+  ms?: number;
+  tokens?: number;
 }

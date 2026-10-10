@@ -3,7 +3,14 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { gerarDescricaoStream } from "./ollama";
+import {
+  ErroOllama,
+  forcarCarregamento,
+  gerarDescricaoStream,
+  modeloEmMemoria,
+  modelosEmMemoria,
+  MODELO_PADRAO,
+} from "./ollama";
 import type { Caixa, EntradaLog, ObjetoVisto, TipoEntrada } from "./types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -253,7 +260,9 @@ async function streamVisao(
   const iterador = gerarDescricaoStream(imagem, opcoes);
   const primeiro = await iterador.next();
   if (primeiro.done) {
-    throw new Error("Resposta de streaming vazia");
+    throw new Error(
+      "Ollama retornou um stream vazio (nenhum texto). Verifique se o modelo suporta 'think:false' ou aumente num_predict."
+    );
   }
 
   res.writeHead(200, {
@@ -279,6 +288,8 @@ async function streamVisao(
     objetos: [],
     resumo: texto,
     tipo: "descricao",
+    ms: resumo.duracaoMs,
+    tokens: resumo.tokens,
   };
   const snap = await salvarSnapshot(snapshot, snapDir);
   if (snap) entry.snapshot = snap;
@@ -336,7 +347,7 @@ async function handleVisao(
     );
   } catch (err) {
     const mensagem = (err as Error).message;
-    const status = mensagem.startsWith("Ollama") || err instanceof TypeError ? 502 : 500;
+    const status = err instanceof TypeError || err instanceof ErroOllama ? 502 : 500;
     logEvent("error", "visao_falhou", { status, erro: mensagem });
     if (!res.headersSent) {
       sendJson(res, status, { ok: false, erro: "Ollama: " + mensagem });
@@ -377,6 +388,7 @@ async function handleClearLogs(res: ServerResponse, logFile: string): Promise<vo
 interface InfoOllama {
   online: boolean;
   modelos: string[];
+  carregados: string[];
   erro: string;
 }
 
@@ -384,14 +396,28 @@ async function consultarOllama(host?: string): Promise<InfoOllama> {
   const base = (host ?? process.env.OLLAMA_HOST ?? "http://localhost:11434").replace(/\/+$/, "");
   try {
     const resposta = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(3000) });
-    if (!resposta.ok) return { online: false, modelos: [], erro: `HTTP ${resposta.status}` };
+    if (!resposta.ok) return { online: false, modelos: [], carregados: [], erro: `HTTP ${resposta.status}` };
     const dados = (await resposta.json()) as { models?: { name?: string }[] };
     const modelos = (dados.models ?? [])
       .map((m) => m.name ?? "")
       .filter((n) => n.length > 0);
-    return { online: true, modelos, erro: "" };
+    const carregados = await modelosEmMemoria({ host: base, timeoutMs: 3000 });
+    return { online: true, modelos, carregados, erro: "" };
   } catch (err) {
-    return { online: false, modelos: [], erro: (err as Error).message };
+    return { online: false, modelos: [], carregados: [], erro: (err as Error).message };
+  }
+}
+
+async function handlePreparar(res: ServerResponse, config: ServerConfig): Promise<void> {
+  const modelo = process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
+  try {
+    const carregandoMs = await forcarCarregamento({ modelo, host: config.ollamaUrl });
+    const emMemoria = await modeloEmMemoria({ modelo, host: config.ollamaUrl });
+    sendJson(res, 200, { ok: true, modelo, carregado: emMemoria, carregandoMs });
+    logEvent("info", "modelo_preparado", { modelo, carregandoMs, carregado: emMemoria });
+  } catch (err) {
+    logEvent("error", "modelo_preparacao_falhou", { modelo, erro: (err as Error).message });
+    sendJson(res, 502, { ok: false, erro: "Ollama: " + (err as Error).message });
   }
 }
 
@@ -449,6 +475,10 @@ export function createServer(config: ServerConfig = {}): http.Server {
     }
     if (req.method === "POST" && url === "/api/visao") {
       void handleVisao(req, res, config);
+      return;
+    }
+    if (req.method === "GET" && pathname === "/api/visao/preparar") {
+      void handlePreparar(res, config);
       return;
     }
     if (req.method === "GET" && pathname === "/api/logs") {

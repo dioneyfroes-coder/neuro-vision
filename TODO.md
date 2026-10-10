@@ -6,22 +6,37 @@ Lista de melhorias e pendências. `[ ]` = aberto, `[x]` = concluído.
 
 ## 🔴 Bug atual (reportado) — alta prioridade
 
-**Sintoma:** nenhum log aparece enquanto se usa o motor **Descrição (Ollama qwen3-vl)** e/ou **Detecção (YOLOS tiny)**. As entradas demoram muito para surgir e **continuam surgindo mesmo depois de clicar em Parar**.
+**Sintoma:** nenhum log de descrição (motor Ollama) aparece. As detecções saem, mas os logs `descricao` nunca surgem e o status mostra erro.
 
-**Causas prováveis (diagnóstico):**
+**Diagnóstico final (raiz):**
 
-1. **Sem guarda de concorrência.** `agendarAnalise()` (`public/app.ts:268`) usa `setInterval` sem checar se a análise anterior terminou. O Ollama pode levar dezenas de segundos, então as chamadas se acumulam a cada `interval` (padrão 4s) e cada uma vira um log quando (e se) completar.
-2. **Sem cancelamento ao parar.** `stop()` (`public/app.ts`) não aborta requisições em voo; `descreverViaOllama()` faz `fetch` sem `AbortController`. Resultado: ao clicar em Parar, os pedidos pendentes seguem e "soltam logs" depois.
-3. **Log só aparece no fim da resposta.** No motor Ollama, `addLogEntry()` só é chamado depois que `/api/visao` responde (`public/app.ts:190-203`). No servidor, o log também só é gravado ao final de `gerarDescricao()` (`handleVisao`, `src/server.ts`). Enquanto processa, a UI fica vazia.
-4. **Fila acumulada = atraso crescente.** Com intervalo menor que o tempo de inferência, a latência percebida só aumenta, dando a sensação de que "nada sai" e depois "sai tudo de uma vez".
-5. **Timeout longo sem feedback.** `timeoutMs` padrão 90s (`src/ollama.ts:56`); ao estourar, retorna erro e **não** grava log.
+1. **`think: false` dentro de `options` era ignorado pelo Ollama.** `src/ollama.ts` enviava `options: { think: false }`. O Ollama ignora silenciosamente `think` dentro de `options`; num modelo thinking (qwen3-vl) os tokens de raciocínio consomem todo o `num_predict` e o campo `response` sai **vazio** → o stream não rende nenhum chunk → `servidor` lança "stream vazio" → 500 → **nenhuma entrada é gravada**.
+2. **Evento `{"error": ...}` no stream era ignorado.** Quando o Ollama falha no meio do NDJSON (HTTP 200), o parser descartava a linha e terminava o gerador sem `yield` → mesmo sintoma de stream vazio e log vazio.
+3. **Fila/latência como sintoma agravante** (já endereçado antes): sem guarda de concorrência e sem cancelamento o intervalo menor que a inferência acumulava atraso.
 
-**Correções propostas:**
+**Correções aplicadas (esta rodada):**
 
-- [x] Adicionar flag `analisando` em `analisar()` e ignorar tick se já houver análise em andamento.
-- [x] Usar `AbortController`: abortar requisições em `stop()` e ao trocar de motor; passar `signal` aos `fetch` (`/api/visao` e inferência).
-- [x] Feedback imediato na UI: mostrar "analisando…" enquanto processa.
-- [x] Avaliar log otimista/`stream:true` no Ollama para exibir texto progressivamente.
+- [x] `think: false` movido para o **nível topo** do body do `/api/chat` (o único lugar que o Ollama obedece em modelos thinking; no `/api/generate` o `think` é silenciosamente ignorado).
+- [x] Cliente Ollama migrado para `/api/chat` (`message.content`), pois o `/api/generate` com `think:false` é ignorado em modelos Qwen thinking.
+- [x] Detecção de **"always-thinking"**: quando o modelo deriva/raciocina sem produzir `content` (caso real do `qwen3-vl:4b`, que o Ollama não consegue colocar em modo não-pensante), a API devolve 502 com orientação acionável (sugere `ollama pull qwen2.5vl:3b`). Nada é gravado em silêncio.
+- [x] `gerarDescricaoStream` e `gerarDescricao` lançam erro ao receber `{"error": ...}` → API retorna 502.
+- [x] Agendamento **adaptativo**: `agendarAnalise` aguarda `max(intervalo, duração_última + 500ms)`.
+- [x] Entradas de log com `ms`/`tokens`; UI mostra **tok/s**.
+- [x] Benchmark `npm run bench` espera o modelo em memória antes de medir e **detecta/avisa** quando o modelo não produz resposta (thinking ativo) ou não suporta visão (texto puro).
+- [x] Modelo padrão trocado para `qwen2.5vl:3b` (não-pensante; `qwen2.5vl:4b` não existe no registry — tags: 3b/7b/32b/72b). Validado end-to-end: `POST /api/visao` retorna 200 e grava `descricao` com `ms`/`tokens`.
+- [x] Erro do Ollama padronizado numa classe `ErroOllama` → sempre mapeado para 502 (sem prefixo "Ollama:" duplicado).
+
+## Carga do modelo em memória
+
+- [x] `forcarCarregamento`/`modelosEmMemoria` no cliente Ollama (probe em `/api/ps`).
+- [x] `GET /api/visao/preparar` carrega o modelo e só responde quando pronto; o cliente só inicia o motor Descrição após esse passo.
+- [x] `/api/health` retorna `carregados` (modelos em memória) e o badge da UI exibe.
+- [x] Benchmark espera o modelo estar em memória antes de medir (reporta o tempo da carga) — tok/s não contaminado pelo load.
+
+## Benchmark / expectativa
+
+- [x] Script `scripts/benchmark.mjs` (gera tabela resumo e `--json`).
+- [x] Ajuste automático do intervalo no cliente baseado na duração real das análises.
 
 ---
 

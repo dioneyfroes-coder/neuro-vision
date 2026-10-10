@@ -9,7 +9,7 @@ Todo o processamento roda na sua máquina. A imagem capturada nunca sai do seu c
 | Motor | Onde roda | O que faz |
 | --- | --- | --- |
 | **Detecção** (transformers.js) | Navegador (WebGPU/CPU) | Detecta objetos (pessoa, carro, celular, ...) com caixas e confiança, usando YOLOS ou DETR (COCO). |
-| **Descrição** (Ollama `qwen3-vl`) | Servidor (Ollama local) | Descreve o frame em português, comparando com o frame anterior para evitar repetições. |
+| **Descrição** (Ollama local) | Servidor (Ollama local) | Descreve o frame em português, comparando com o frame anterior para evitar repetições. |
 
 ## Requisitos
 
@@ -22,11 +22,13 @@ Todo o processamento roda na sua máquina. A imagem capturada nunca sai do seu c
 npm install
 ```
 
-Para o modo descrição, baixe o modelo de visão:
+Para o modo descrição, baixe um modelo de visão:
 
 ```bash
-ollama pull qwen3-vl:4b
+ollama pull qwen2.5vl:3b
 ```
+
+> **Nota sobre `qwen3-vl`:** o `qwen3-vl` é um modelo "thinking" e, nos builds atuais do Ollama, o `think:false` é **ignorado** — o modelo gasta o `num_predict` raciocinando e devolve `content` vazio (nenhum log sai da descrição). Por isso a integração usa `/api/chat` com detecção desse caso e recomenda o `qwen2.5vl` (não-pensante) para descrição de frames.
 
 ## Uso
 
@@ -53,7 +55,7 @@ Variáveis de ambiente lidas pelo servidor:
 | `PORT` | `3000` | Porta HTTP. |
 | `HOST` | `127.0.0.1` | Interface de escuta (use `0.0.0.0` para expor na rede). |
 | `OLLAMA_HOST` | `http://localhost:11434` | URL do Ollama. |
-| `OLLAMA_MODEL` | `qwen3-vl:4b` | Modelo de visão usado na descrição. |
+| `OLLAMA_MODEL` | `qwen2.5vl:3b` | Modelo de visão não-pensante usado na descrição. |
 | `LOG_MAX_BYTES` | `5000000` | Tamanho máximo de `visao.jsonl` antes de rotacionar para `.1`. |
 
 Exemplo:
@@ -69,9 +71,10 @@ OLLAMA_MODEL=qwen2.5vl:7b npm start            # bash
 | --- | --- | --- |
 | `POST` | `/api/log` | Grava uma entrada de detecção no arquivo de log. Aceita `snapshot` (data URL) opcional. |
 | `POST` | `/api/visao` | Envia um frame (base64) e recebe a descrição do Ollama em stream NDJSON; grava no log. |
+| `GET` | `/api/visao/preparar` | Carrega o modelo do Ollama na memória (quando necessário) e responde quando estiver pronto: `{ ok, modelo, carregado, carregandoMs }`. |
 | `GET` | `/api/logs?limit=100` | Lista as entradas mais recentes (mais nova primeiro, limite máx. 500). |
 | `DELETE` | `/api/logs` | Limpa o histórico de log. |
-| `GET` | `/api/health` | Status do Ollama (`{ ollama: { online, modelos, erro } }`). |
+| `GET` | `/api/health` | Status do Ollama (`{ ollama: { online, modelos, carregados, erro } }`). |
 | `GET` | `/snapshots/<arquivo>` | Serve os snapshots (thumbnails) gravados. |
 
 As entradas são gravadas em `logs/visao.jsonl` (uma linha JSON por entrada) e os snapshots em `logs/snapshots/`.
@@ -79,14 +82,14 @@ As entradas são gravadas em `logs/visao.jsonl` (uma linha JSON por entrada) e o
 `POST /api/visao` — corpo:
 
 ```json
-{ "imagem": "<base64 ou data URL>", "modelo": "qwen3-vl:4b", "anterior": "descrição anterior", "snapshot": "<data URL opcional>" }
+{ "imagem": "<base64 ou data URL>", "modelo": "qwen2.5vl:3b", "anterior": "descrição anterior", "snapshot": "<data URL opcional>" }
 ```
 
 Resposta: stream NDJSON (`application/x-ndjson`), uma linha por evento:
 
 ```json
 { "type": "chunk", "response": "Uma pessoa" }
-{ "type": "done", "descricao": "Uma pessoa no escritorio.", "modelo": "qwen3-vl:4b", "tokens": 42, "ms": 3120, "snapshot": "/snapshots/123-abc.jpg" }
+{ "type": "done", "descricao": "Uma pessoa no escritorio.", "modelo": "qwen2.5vl:3b", "tokens": 42, "ms": 3120, "snapshot": "/snapshots/123-abc.jpg" }
 ```
 
 Em caso de erro após o início do stream: `{ "type": "erro", "erro": "Ollama: ..." }`.
@@ -121,6 +124,29 @@ logs/
 | `npm run typecheck` | Checagem de tipos (`tsc --noEmit`). |
 | `npm run lint` | ESLint. |
 | `npm run lint:fix` | ESLint com correção automática. |
+| `npm run bench` | Benchmark de velocidade do modelo local (requer Ollama rodando). |
+
+### Benchmark
+
+`npm run bench` mede o que o seu modelo local realmente sustenta (geração em tok/s, prefill da imagem, tempo até a 1ª resposta e total) e recomenda o **intervalo mínimo** para o slider da UI (`totalMs × 1.5`). Opções:
+
+```bash
+npm run bench                                    # usa qwen2.5vl:3b (OLLAMA_MODEL) e um snapshot em logs/snapshots
+npm run bench -- --model qwen2.5vl:7b --iter 5   # outro modelo, mais amostras
+npm run bench -- --image foto.jpg --json         # imagem específica + saída JSON
+```
+
+O cliente **ajusta sozinho** o ritmo: cada análise espera `max(intervalo, duração da análise anterior + 500ms)`, então nunca pede mais rápido que o modelo consegue responder. O status e cada entrada de descrição mostram os **tok/s** medidos.
+
+Medição de referência (`qwen2.5vl:3b`, CPU, snapshot 4K): ~40 tok/s de geração, prefill ~104 tok/s, 1ª resposta ~10,6s, total ~11,5s → **intervalo mínimo recomendado ≥ 18s**.
+
+### Carregamento do modelo
+
+O Ollama carrega o modelo na memória sob demanda (o primeiro request é o lento). O Neuro Vision espera esse carregamento antes de começar:
+
+- Ao clicar **Iniciar** com o motor **Descrição**, o servidor chama `forcarCarregamento` (probe em `/api/ps`) e **só então** o ciclo de análise começa. O status mostra "Carregando modelo... em Ns".
+- O badge do Ollama informa quais modelos estão **em memória** (`/api/health` → `carregados`).
+- O benchmark **só mede com o modelo já em memória** (a primeira etapa carrega e reporta o tempo da carga), para que o tok/s não seja contaminado pelo load.
 
 ## Licença
 

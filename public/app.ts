@@ -130,6 +130,7 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let analisando = false;
 let controller: AbortController | null = null;
 let ultimaDescricao = "";
+let ultimaDuracaoMs = 0;
 
 function setStatus(text: string): void {
   statusEl.textContent = text;
@@ -225,7 +226,12 @@ function criarItem(entry: EntradaLog): HTMLLIElement {
   if (entry.modelo) {
     const meta = document.createElement("span");
     meta.className = "meta";
-    meta.textContent = entry.modelo;
+    let texto = entry.modelo;
+    if (entry.ms && entry.tokens) {
+      const tokS = Math.round(entry.tokens / (entry.ms / 1000));
+      texto += ` · ${entry.tokens} toks em ${Math.round(entry.ms / 1000)}s (${tokS} tok/s)`;
+    }
+    meta.textContent = texto;
     cabecalho.appendChild(meta);
   }
   corpo.appendChild(cabecalho);
@@ -344,7 +350,13 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
   const decoder = new TextDecoder();
   let buffer = "";
   let parcial = "";
-  let resultado: { descricao?: string; modelo?: string; snapshot?: string } | null = null;
+  let resultado: {
+    descricao?: string;
+    modelo?: string;
+    snapshot?: string;
+    tokens?: number;
+    ms?: number;
+  } | null = null;
 
   try {
     for (;;) {
@@ -363,6 +375,8 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
           modelo?: string;
           snapshot?: string;
           erro?: string;
+          tokens?: number;
+          ms?: number;
         };
         if (evt.type === "chunk" && evt.response) {
           parcial += evt.response;
@@ -385,6 +399,7 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
 
   const descricao = resultado?.descricao ?? parcial;
   const ms = Math.round(performance.now() - started);
+  ultimaDuracaoMs = ms;
 
   const entry: EntradaLog = {
     timestamp: new Date().toISOString(),
@@ -393,10 +408,17 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
     resumo: descricao,
     tipo: "descricao",
     snapshot: resultado?.snapshot,
+    ms,
+    tokens: resultado?.tokens,
   };
   ultimaDescricao = descricao;
   addLogEntry(entry);
-  setStatus(`Ollama viu: ${descricao} (${ms} ms)`);
+  if (resultado?.tokens) {
+    const tokS = Math.round(resultado.tokens / (ms / 1000));
+    setStatus(`Ollama viu: ${descricao} (${ms} ms · ${resultado.tokens} toks · ${tokS} tok/s)`);
+  } else {
+    setStatus(`Ollama viu: ${descricao} (${ms} ms)`);
+  }
 }
 
 async function analisar(): Promise<void> {
@@ -434,6 +456,7 @@ async function analisar(): Promise<void> {
     }
     if (signal.aborted) return;
     const ms = Math.round(performance.now() - started);
+    ultimaDuracaoMs = ms;
 
     const objetos: ObjetoVisto[] = detecoes.map((d) => ({
       nome: traduzir(d.label),
@@ -458,6 +481,7 @@ async function analisar(): Promise<void> {
       resumo,
       tipo: "deteccao",
       snapshot: thumb ?? undefined,
+      ms,
     };
 
     addLogEntry(entry);
@@ -479,7 +503,34 @@ async function analisar(): Promise<void> {
 
 function agendarAnalise(intervalMs: number): void {
   if (timer) clearInterval(timer);
-  timer = setInterval(() => void analisar(), intervalMs);
+  const espera = Math.max(intervalMs, ultimaDuracaoMs + 500);
+  timer = setInterval(() => void analisar(), espera);
+}
+
+async function prepararOllama(): Promise<boolean> {
+  try {
+    setSpinner(true);
+    setStatus("Carregando modelo do Ollama na memoria (pode demorar)...");
+    const resposta = await fetch("/api/visao/preparar");
+    if (!resposta.ok) {
+      const corpo = (await resposta.json().catch(() => null)) as { erro?: string } | null;
+      setStatus(corpo?.erro ?? `Falha ao preparar Ollama (${resposta.status})`);
+      return false;
+    }
+    const dados = (await resposta.json()) as { modelo?: string; carregado?: boolean; carregandoMs?: number };
+    const seg = Math.round((dados.carregandoMs ?? 0) / 1000);
+    setStatus(
+      dados.carregado
+        ? `Modelo ${dados.modelo ?? ""} carregado${seg > 0 ? ` em ${seg}s` : " (ja estava em memoria)"}. Pronto!`
+        : "Modelo nao confirmado em memoria; verifique o Ollama."
+    );
+    return dados.carregado === true;
+  } catch (err) {
+    setStatus(`Falha ao preparar Ollama: ${(err as Error).message}`);
+    return false;
+  } finally {
+    setSpinner(false);
+  }
 }
 
 async function start(): Promise<void> {
@@ -497,7 +548,13 @@ async function start(): Promise<void> {
   await video.play();
   placeholder.style.display = "none";
 
-  if (motorSelect.value === "deteccao") {
+  if (motorSelect.value === "ollama") {
+    const preparado = await prepararOllama();
+    if (!preparado) {
+      startBtn.disabled = false;
+      return;
+    }
+  } else {
     try {
       await getDetector(modelSelect.value);
     } catch (err) {
@@ -538,13 +595,19 @@ async function verificarOllama(): Promise<void> {
   try {
     const resposta = await fetch("/api/health");
     const dados = (await resposta.json()) as {
-      ollama?: { online: boolean; modelos: string[]; erro: string };
+      ollama?: {
+        online: boolean;
+        modelos: string[];
+        carregados: string[];
+        erro: string;
+      };
     };
     const o = dados.ollama;
     if (o?.online) {
-      ollamaStatusEl.textContent = `Ollama: online${o.modelos.length ? " (" + o.modelos.join(", ") + ")" : ""}`;
+      const memoria = o.carregados?.length ? ` · em memoria: ${o.carregados.join(", ")}` : "";
+      ollamaStatusEl.textContent = `Ollama: online${o.modelos.length ? " (" + o.modelos.join(", ") + ")" : ""}${memoria}`;
       ollamaStatusEl.className = "health online";
-      ollamaStatusEl.title = o.modelos.join("\n") || "Ollama acessivel";
+      ollamaStatusEl.title = (o.modelos.join("\n") || "Ollama acessivel") + (memoria ? `\n${memoria}` : "");
     } else {
       ollamaStatusEl.textContent = `Ollama: offline${o?.erro ? " — " + o.erro : ""}`;
       ollamaStatusEl.className = "health offline";

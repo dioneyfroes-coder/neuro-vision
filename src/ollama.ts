@@ -41,17 +41,98 @@ export function extrairBase64(imagem: string): string {
 interface RespostaOllama {
   response?: string;
   model?: string;
+  error?: string;
+  message?: { role?: string; content?: string; thinking?: string };
   eval_count?: number;
   eval_duration?: number;
   total_duration?: number;
   done?: boolean;
 }
 
-const MODELO_PADRAO = "qwen3-vl:4b";
+export const MODELO_PADRAO = "qwen2.5vl:3b";
+
+export class ErroOllama extends Error {
+  constructor(mensagem: string) {
+    super(mensagem);
+    this.name = "ErroOllama";
+  }
+}
 
 function resolverHost(opcoes: OpcoesGerarDescricao): string {
   return (opcoes.host ?? process.env.OLLAMA_HOST ?? "http://localhost:11434").replace(/\/+$/, "");
 }
+
+export interface OpcoesOllama {
+  modelo?: string;
+  host?: string;
+  timeoutMs?: number;
+}
+
+function resolverModelo(opcoes: OpcoesOllama): string {
+  return opcoes.modelo ?? process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
+}
+
+export function nomeBaseModelo(nome: string): string {
+  const idx = nome.indexOf(":");
+  return idx > 0 ? nome.slice(0, idx) : nome;
+}
+
+export async function modelosEmMemoria(opcoes: OpcoesOllama = {}): Promise<string[]> {
+  const host = resolverHost(opcoes as OpcoesGerarDescricao);
+  try {
+    const resposta = await fetch(`${host}/api/ps`, {
+      signal: AbortSignal.timeout(opcoes.timeoutMs ?? 5_000),
+    });
+    if (!resposta.ok) return [];
+    const dados = (await resposta.json()) as { models?: { name?: string }[] };
+    return (dados.models ?? []).map((m) => m.name ?? "").filter((n) => n.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+export async function modeloEmMemoria(opcoes: OpcoesOllama = {}): Promise<boolean> {
+  const modelo = resolverModelo(opcoes);
+  const memoria = await modelosEmMemoria(opcoes);
+  const base = nomeBaseModelo(modelo);
+  return memoria.some((m) => nomeBaseModelo(m) === base);
+}
+
+export async function forcarCarregamento(opcoes: OpcoesOllama = {}): Promise<number> {
+  const host = resolverHost(opcoes as OpcoesGerarDescricao);
+  const modelo = resolverModelo(opcoes);
+  const timeoutMs = opcoes.timeoutMs ?? 180_000;
+  if (await modeloEmMemoria(opcoes)) return 0;
+
+  const inicio = performance.now();
+  const corpo = JSON.stringify({
+    model: modelo,
+    messages: [{ role: "user", content: "oi" }],
+    stream: false,
+    think: false,
+    keep_alive: "5m",
+    options: { num_predict: 1, temperature: 0 },
+  });
+  const resposta = await fetch(`${host}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: corpo,
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!resposta.ok) {
+    const texto = await resposta.text().catch(() => "");
+    throw new ErroOllama(`resposta HTTP ${resposta.status}: ${texto.slice(0, 300)}`);
+  }
+  await resposta.json().catch(() => null);
+
+  for (let i = 0; i < 60; i++) {
+    if (await modeloEmMemoria(opcoes)) break;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return Math.round(performance.now() - inicio);
+}
+
+export const NUM_PREDICT_PADRAO = 256;
 
 function montarCorpo(
   imagem: string,
@@ -60,15 +141,34 @@ function montarCorpo(
 ): { modelo: string; corpo: string } {
   const modelo = opcoes.modelo ?? process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
   const prompt = opcoes.prompt ?? montarPromptDescricao(opcoes.anterior);
+  const mensagem: { role: string; content: string; images?: string[] } = {
+    role: "user",
+    content: prompt,
+  };
+  const imagemBase64 = extrairBase64(imagem);
+  if (imagemBase64) mensagem.images = [imagemBase64];
   const corpo = JSON.stringify({
     model: modelo,
-    prompt,
-    images: [extrairBase64(imagem)],
+    messages: [mensagem],
     stream,
+    think: false,
     keep_alive: "5m",
-    options: { temperature: 0.2, think: false, num_predict: 140 },
+    options: { temperature: 0.2, num_predict: NUM_PREDICT_PADRAO },
   });
   return { modelo, corpo };
+}
+
+function lancarSeVazioSemResposta(
+  vistoPensamento: boolean,
+  modelo: string
+): never {
+  if (vistoPensamento) {
+    throw new ErroOllama(
+      `o modelo ${modelo} derivou/raciocinou sem produzir resposta (o Ollama ignorou think:false neste modelo). ` +
+        "Use um modelo de descricao nao-pensante (ex.: `ollama pull qwen2.5vl:3b` e OLLAMA_MODEL=qwen2.5vl:3b)."
+    );
+  }
+  throw new ErroOllama("o modelo nao retornou nenhum token de texto (verifique think/num_predict)");
 }
 
 export async function gerarDescricao(
@@ -80,7 +180,7 @@ export async function gerarDescricao(
   const { modelo, corpo } = montarCorpo(imagem, opcoes, false);
 
   const inicio = performance.now();
-  const resposta = await fetch(`${host}/api/generate`, {
+  const resposta = await fetch(`${host}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: corpo,
@@ -89,14 +189,18 @@ export async function gerarDescricao(
 
   if (!resposta.ok) {
     const texto = await resposta.text().catch(() => "");
-    throw new Error(`Ollama respondeu ${resposta.status}: ${texto.slice(0, 300)}`);
+    throw new ErroOllama(`resposta HTTP ${resposta.status}: ${texto.slice(0, 300)}`);
   }
 
   const dados = (await resposta.json()) as RespostaOllama;
+  if (dados.error) throw new ErroOllama(dados.error);
+  const texto = dados.message?.content ?? dados.response ?? "";
+  const pensou = Boolean(dados.message?.thinking);
+  if (!texto) lancarSeVazioSemResposta(pensou, modelo);
   const duracaoNs = dados.total_duration ?? (performance.now() - inicio) * 1_000_000;
 
   return {
-    texto: dados.response ?? "",
+    texto,
     modelo: dados.model ?? modelo,
     tokens: dados.eval_count ?? 0,
     duracaoMs: Math.round(duracaoNs / 1_000_000),
@@ -118,7 +222,7 @@ export async function* gerarDescricaoStream(
   const { modelo, corpo } = montarCorpo(imagem, opcoes, true);
 
   const inicio = performance.now();
-  const resposta = await fetch(`${host}/api/generate`, {
+  const resposta = await fetch(`${host}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: corpo,
@@ -127,7 +231,7 @@ export async function* gerarDescricaoStream(
 
   if (!resposta.ok) {
     const texto = await resposta.text().catch(() => "");
-    throw new Error(`Ollama respondeu ${resposta.status}: ${texto.slice(0, 300)}`);
+    throw new ErroOllama(`resposta HTTP ${resposta.status}: ${texto.slice(0, 300)}`);
   }
   if (!resposta.body) {
     throw new Error("Ollama nao retornou corpo de streaming");
@@ -139,6 +243,8 @@ export async function* gerarDescricaoStream(
   let modeloFinal = modelo;
   let tokens = 0;
   let duracaoMs = 0;
+  let emitiuTexto = false;
+  let pensou = false;
 
   try {
     while (true) {
@@ -156,8 +262,14 @@ export async function* gerarDescricaoStream(
         } catch {
           continue;
         }
+        if (evt.error) throw new ErroOllama(evt.error);
         if (evt.model) modeloFinal = evt.model;
-        if (evt.response) yield evt.response;
+        const texto = evt.message?.content ?? evt.response;
+        if (texto) {
+          emitiuTexto = true;
+          yield texto;
+        }
+        if (evt.message?.thinking) pensou = true;
         if (evt.done) {
           tokens = evt.eval_count ?? 0;
           duracaoMs = evt.total_duration
@@ -170,5 +282,6 @@ export async function* gerarDescricaoStream(
     reader.releaseLock();
   }
 
+  if (!emitiuTexto) lancarSeVazioSemResposta(pensou, modeloFinal);
   return { modelo: modeloFinal, tokens, duracaoMs };
 }

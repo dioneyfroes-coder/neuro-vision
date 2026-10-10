@@ -219,9 +219,9 @@ describe("createServer", () => {
     let corpoOllama: Record<string, unknown> | null = null;
     const ndjson =
       [
-        JSON.stringify({ response: "Uma pessoa ", model: "qwen3-vl:4b" }),
+        JSON.stringify({ message: { content: "Uma pessoa " }, model: "qwen3-vl:4b" }),
         JSON.stringify({
-          response: "no escritorio.",
+          message: { content: "no escritorio." },
           model: "qwen3-vl:4b",
           eval_count: 10,
           total_duration: 2_000_000_000,
@@ -233,7 +233,7 @@ describe("createServer", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("/api/generate")) {
+        if (url.includes("/api/chat")) {
           if (init?.body) corpoOllama = JSON.parse(String(init.body)) as Record<string, unknown>;
           return { ok: true, body: new Response(ndjson).body };
         }
@@ -270,9 +270,11 @@ describe("createServer", () => {
 
       expect(corpoOllama).not.toBeNull();
       const corpoOllamaVisto = corpoOllama as unknown as Record<string, unknown>;
-      expect(corpoOllamaVisto.prompt).toContain("Uma pessoa no sofa");
+      const mensagens = corpoOllamaVisto.messages as { content: string }[];
+      expect(mensagens[0].content).toContain("Uma pessoa no sofa");
       expect(corpoOllamaVisto.stream).toBe(true);
-      expect(corpoOllamaVisto.options).toMatchObject({ num_predict: 140 });
+      expect(corpoOllamaVisto.think).toBe(false);
+      expect(corpoOllamaVisto.options).toMatchObject({ num_predict: 256 });
 
       const linhas = (await readFile(logFile, "utf8")).trim().split("\n");
       expect(linhas).toHaveLength(1);
@@ -309,7 +311,7 @@ describe("createServer", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("/api/generate")) {
+        if (url.includes("/api/chat")) {
           throw new TypeError("fetch failed");
         }
         return realFetch(input, init);
@@ -327,6 +329,106 @@ describe("createServer", () => {
         body: JSON.stringify({ imagem: "QkxPQ" }),
       });
       expect(res.status).toBe(502);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("POST /api/visao com stream vazio do Ollama retorna 502 e nao grava log", async () => {
+    const ndjson = JSON.stringify({ done: true, eval_count: 0 }) + "\n";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/chat")) return { ok: true, body: new Response(ndjson).body };
+        return realFetch(input, init);
+      })
+    );
+
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const server = createServer({ logFile, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/visao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imagem: "QkxPQ" }),
+      });
+      expect(res.status).toBe(502);
+      const corpo = (await res.json()) as { erro?: string };
+      expect(corpo.erro).toContain("nenhum token de texto");
+      const conteudo = await readFile(logFile, "utf8").catch(() => "");
+      expect(conteudo).toBe("");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("POST /api/visao com modelo always-thinking retorna 502 com orientacao", async () => {
+    const ndjson =
+      [
+        JSON.stringify({ message: { thinking: "Vamos analisar..." }, model: "qwen3-vl:4b" }),
+        JSON.stringify({ model: "qwen3-vl:4b", eval_count: 40, done: true }),
+      ].join("\n") + "\n";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/chat")) return { ok: true, body: new Response(ndjson).body };
+        return realFetch(input, init);
+      })
+    );
+
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const server = createServer({ logFile, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/visao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imagem: "QkxPQ" }),
+      });
+      expect(res.status).toBe(502);
+      const corpo = (await res.json()) as { erro?: string };
+      expect(corpo.erro).toContain("qwen2.5vl:3b");
+      const conteudo = await readFile(logFile, "utf8").catch(() => "");
+      expect(conteudo).toBe("");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("POST /api/visao com evento de erro do Ollama retorna 502 e nao grava log", async () => {
+    const ndjson = JSON.stringify({ error: "model not loaded" }) + "\n";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/chat")) return { ok: true, body: new Response(ndjson).body };
+        return realFetch(input, init);
+      })
+    );
+
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const server = createServer({ logFile, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/visao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imagem: "QkxPQ" }),
+      });
+      expect(res.status).toBe(502);
+      const corpo = (await res.json()) as { erro?: string };
+      expect(corpo.erro).toContain("model not loaded");
+      const conteudo = await readFile(logFile, "utf8").catch(() => "");
+      expect(conteudo).toBe("");
     } finally {
       server.close();
     }
@@ -470,6 +572,73 @@ describe("createServer", () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/health`);
       const corpo = (await res.json()) as { ollama: { online: boolean } };
       expect(corpo.ollama.online).toBe(false);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("GET /api/health lista os modelos que estao em memoria", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/tags")) {
+          return { ok: true, json: async () => ({ models: [{ name: "qwen3-vl:4b" }] }) };
+        }
+        if (url.includes("/api/ps")) {
+          return { ok: true, json: async () => ({ models: [{ name: "qwen3-vl:4b" }] }) };
+        }
+        return realFetch(input, init);
+      })
+    );
+
+    const server = createServer({ publicDir: tmpDir, ollamaUrl: "http://localhost:11434" });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+      expect(res.status).toBe(200);
+      const corpo = (await res.json()) as {
+        ok: boolean;
+        ollama: { online: boolean; carregados: string[] };
+      };
+      expect(corpo.ollama.online).toBe(true);
+      expect(corpo.ollama.carregados).toContain("qwen3-vl:4b");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("GET /api/visao/preparar confirma o modelo em memoria sem disparar geracao", async () => {
+    const geracoes: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/ps")) {
+          return { ok: true, json: async () => ({ models: [{ name: "qwen2.5vl:3b" }] }) };
+        }
+        if (url.includes("/api/chat")) {
+          geracoes.push(url);
+          return { ok: true, json: async () => ({ message: { content: "oi" } }) };
+        }
+        return realFetch(input, init);
+      })
+    );
+
+    const server = createServer({ publicDir: tmpDir, ollamaUrl: "http://localhost:11434" });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/visao/preparar`);
+      expect(res.status).toBe(200);
+      const corpo = (await res.json()) as { ok: boolean; carregado: boolean; carregandoMs: number };
+      expect(corpo.ok).toBe(true);
+      expect(corpo.carregado).toBe(true);
+      expect(corpo.carregandoMs).toBe(0);
+      expect(geracoes).toHaveLength(0);
     } finally {
       server.close();
     }
