@@ -1,0 +1,253 @@
+:root {
+  --bg: #0e1116;
+  --panel: #171c24;
+  --line: #262e3a;
+  --text: #e6edf3;
+  --muted: #8b98a9;
+  --accent: #4f9cf9;
+  --ok: #3fb950;
+  --warn: #d29922;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header {
+  padding: 20px 24px 8px;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.3px;
+}
+
+header .sub {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+main {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 16px;
+  padding: 16px 24px 32px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  main { grid-template-columns: 1fr; }
+}
+
+.viewer {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #05070a;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.stage video,
+.stage canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.stage video { transform: scaleX(-1); }
+.stage canvas { transform: scaleX(-1); pointer-events: none; }
+
+#placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 14px;
+  z-index: 2;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.controls label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.controls select,
+.controls input[type="range"] {
+  accent-color: var(--accent);
+}
+
+.controls select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button#stop { background: #b3403a; }
+
+button.ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+button.ghost:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.status {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--muted);
+  min-height: 18px;
+}
+
+.logpanel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.logpanel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.logpanel h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+}
+
+.count {
+  background: rgba(79, 156, 249, 0.15);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+#log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  font-size: 13px;
+}
+
+#log li {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#log li .time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+#log li .cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#log li .objs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+#log li .tag {
+  background: rgba(79, 156, 249, 0.15);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+#log li .empty { color: var(--muted); }
+
+#log li .desc {
+  background: rgba(63, 185, 80, 0.12);
+  color: var(--ok);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+#log li .meta {
+  color: var(--muted);
+  font-size: 11px;
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+
+#log::-webkit-scrollbar { width: 8px; }
+#log::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 4px;
+}
+#log::-webkit-scrollbar-thumb:hover { background: var(--accent); }

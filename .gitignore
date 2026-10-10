@@ -1,0 +1,6 @@
+node_modules/
+dist/
+public/app.js
+logs/*.jsonl
+.env
+.DS_Store
