@@ -80,11 +80,14 @@ As entradas são gravadas em `logs/visao.jsonl` (uma linha JSON por entrada).
 { "imagem": "<base64 ou data URL>", "modelo": "qwen3-vl:4b", "anterior": "descrição anterior" }
 ```
 
-Resposta:
+Resposta: stream NDJSON (`application/x-ndjson`), uma linha por evento:
 
 ```json
-{ "ok": true, "descricao": "...", "modelo": "qwen3-vl:4b", "tokens": 42, "ms": 3120 }
+{ "type": "chunk", "response": "Uma pessoa" }
+{ "type": "done", "descricao": "Uma pessoa no escritorio.", "modelo": "qwen3-vl:4b", "tokens": 42, "ms": 3120 }
 ```
+
+Em caso de erro após o início do stream: `{ "type": "erro", "erro": "Ollama: ..." }`.
 
 ## Estrutura
 

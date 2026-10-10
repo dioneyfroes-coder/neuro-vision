@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { gerarDescricao } from "./ollama";
+import { gerarDescricaoStream } from "./ollama";
 import type { Caixa, EntradaLog, ObjetoVisto, TipoEntrada } from "./types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -198,50 +198,101 @@ async function handleLog(req: IncomingMessage, res: ServerResponse, logFile: str
   }
 }
 
+async function streamVisao(
+  res: ServerResponse,
+  imagem: string,
+  opcoes: { modelo?: string; host?: string; anterior?: string },
+  logFile: string
+): Promise<void> {
+  const iterador = gerarDescricaoStream(imagem, opcoes);
+  const primeiro = await iterador.next();
+  if (primeiro.done) {
+    throw new Error("Resposta de streaming vazia");
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "application/x-ndjson; charset=utf-8",
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+  });
+
+  let texto = primeiro.value;
+  res.write(JSON.stringify({ type: "chunk", response: primeiro.value }) + "\n");
+
+  let resultado = await iterador.next();
+  while (!resultado.done) {
+    texto += resultado.value;
+    res.write(JSON.stringify({ type: "chunk", response: resultado.value }) + "\n");
+    resultado = await iterador.next();
+  }
+
+  const resumo = resultado.value;
+  const entry: EntradaLog = {
+    timestamp: new Date().toISOString(),
+    modelo: resumo.modelo,
+    objetos: [],
+    resumo: texto,
+    tipo: "descricao",
+  };
+  await appendLogEntry(entry, logFile);
+
+  res.write(
+    JSON.stringify({
+      type: "done",
+      descricao: texto,
+      modelo: resumo.modelo,
+      tokens: resumo.tokens,
+      ms: resumo.duracaoMs,
+    }) + "\n"
+  );
+  res.end();
+}
+
 async function handleVisao(
   req: IncomingMessage,
   res: ServerResponse,
   config: ServerConfig
 ): Promise<void> {
   const logFile = config.logFile ?? LOG_FILE;
+  let payload: unknown;
   try {
     const raw = await readBody(req, 12_000_000);
-    const payload = (JSON.parse(raw || "{}")) as {
-      imagem?: unknown;
-      modelo?: unknown;
-      anterior?: unknown;
-    };
-    const imagem = typeof payload.imagem === "string" ? payload.imagem : "";
-    if (!imagem) {
-      sendJson(res, 400, { ok: false, erro: "campo 'imagem' obrigatorio (base64)" });
-      return;
-    }
-    const descricao = await gerarDescricao(imagem, {
-      modelo: typeof payload.modelo === "string" ? payload.modelo : undefined,
-      host: config.ollamaUrl,
-      anterior: typeof payload.anterior === "string" ? payload.anterior : undefined,
-    });
+    payload = JSON.parse(raw || "{}");
+  } catch (err) {
+    sendJson(res, 400, { ok: false, erro: (err as Error).message });
+    return;
+  }
 
-    const entry: EntradaLog = {
-      timestamp: new Date().toISOString(),
-      modelo: descricao.modelo,
-      objetos: [],
-      resumo: descricao.texto,
-      tipo: "descricao",
-    };
-    await appendLogEntry(entry, logFile);
+  const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
+    string,
+    unknown
+  >;
+  const imagem = typeof p.imagem === "string" ? p.imagem : "";
+  if (!imagem) {
+    sendJson(res, 400, { ok: false, erro: "campo 'imagem' obrigatorio (base64)" });
+    return;
+  }
 
-    sendJson(res, 200, {
-      ok: true,
-      descricao: descricao.texto,
-      modelo: descricao.modelo,
-      tokens: descricao.tokens,
-      ms: descricao.duracaoMs,
-    });
+  try {
+    await streamVisao(
+      res,
+      imagem,
+      {
+        modelo: typeof p.modelo === "string" ? p.modelo : undefined,
+        host: config.ollamaUrl,
+        anterior: typeof p.anterior === "string" ? p.anterior : undefined,
+      },
+      logFile
+    );
   } catch (err) {
     const mensagem = (err as Error).message;
     const status = mensagem.startsWith("Ollama") || err instanceof TypeError ? 502 : 500;
-    sendJson(res, status, { ok: false, erro: "Ollama: " + mensagem });
+    if (!res.headersSent) {
+      sendJson(res, status, { ok: false, erro: "Ollama: " + mensagem });
+    } else {
+      res.write(JSON.stringify({ type: "erro", erro: "Ollama: " + mensagem }) + "\n");
+      res.end();
+    }
   }
 }
 

@@ -42,6 +42,9 @@ const maybeCtx = overlay.getContext("2d");
 if (!maybeCtx) throw new Error("Canvas 2D indisponivel");
 const ctx = maybeCtx;
 
+const frameCanvas = document.createElement("canvas");
+const frameCtx = frameCanvas.getContext("2d");
+
 const placeholder = el<HTMLDivElement>("placeholder");
 const statusEl = el<HTMLDivElement>("status");
 const logEl = el<HTMLUListElement>("log");
@@ -58,6 +61,7 @@ const thresholdValue = el<HTMLSpanElement>("thresholdValue");
 
 let detector: Detector | null = null;
 let loadedModel: string | null = null;
+const detectores = new Map<string, Detector>();
 let stream: MediaStream | null = null;
 let running = false;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -74,7 +78,12 @@ function traduzir(label: string): string {
 }
 
 async function getDetector(modelId: string): Promise<Detector> {
-  if (detector && loadedModel === modelId) return detector;
+  const cacheado = detectores.get(modelId);
+  if (cacheado) {
+    detector = cacheado;
+    loadedModel = modelId;
+    return cacheado;
+  }
 
   const onProgress = (p: ProgressInfo): void => {
     if (p.status === "progress" && p.file) {
@@ -86,14 +95,17 @@ async function getDetector(modelId: string): Promise<Detector> {
   setStatus(`Carregando modelo ${modelId}...`);
   const gpu = (navigator as Navigator & { gpu?: unknown }).gpu;
   const device = gpu ? "webgpu" : "wasm";
+  let novo: Detector;
   try {
-    detector = await pipeline("object-detection", modelId, { device, progress_callback: onProgress });
+    novo = await pipeline("object-detection", modelId, { device, progress_callback: onProgress });
   } catch (err) {
     setStatus(`WebGPU indisponivel, usando CPU: ${(err as Error).message}`);
-    detector = await pipeline("object-detection", modelId, { device: "wasm", progress_callback: onProgress });
+    novo = await pipeline("object-detection", modelId, { device: "wasm", progress_callback: onProgress });
   }
+  detectores.set(modelId, novo);
+  detector = novo;
   loadedModel = modelId;
-  return detector;
+  return novo;
 }
 
 function drawBoxes(detecoes: Deteccao[]): void {
@@ -198,22 +210,22 @@ async function limparHistorico(): Promise<void> {
   }
 }
 
-async function capturarFrame(): Promise<string | null> {
-  const width = video.videoWidth;
-  const height = video.videoHeight;
-  if (!width || !height) return null;
+function capturarFrame(maxWidth = 0): string | null {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (!vw || !vh || !frameCtx) return null;
 
-  const frame = document.createElement("canvas");
-  frame.width = width;
-  frame.height = height;
-  const frameCtx = frame.getContext("2d");
-  if (!frameCtx) return null;
-  frameCtx.drawImage(video, 0, 0, width, height);
-  return frame.toDataURL("image/jpeg", 0.85);
+  const escala = maxWidth > 0 && vw > maxWidth ? maxWidth / vw : 1;
+  const w = Math.round(vw * escala);
+  const h = Math.round(vh * escala);
+  frameCanvas.width = w;
+  frameCanvas.height = h;
+  frameCtx.drawImage(video, 0, 0, w, h);
+  return frameCanvas.toDataURL("image/jpeg", 0.85);
 }
 
 async function descreverViaOllama(signal: AbortSignal): Promise<void> {
-  const dataUrl = await capturarFrame();
+  const dataUrl = capturarFrame(512);
   if (dataUrl === null) return;
   const width = video.videoWidth;
   const height = video.videoHeight;
@@ -241,20 +253,60 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
 
   if (signal.aborted) return;
 
-  if (!resposta.ok) {
+  if (!resposta.ok || !resposta.body) {
     const corpo = (await resposta.json().catch(() => null)) as { erro?: string } | null;
     setStatus(corpo?.erro ?? `Ollama respondeu ${resposta.status}`);
     return;
   }
 
-  const dados = (await resposta.json()) as { descricao?: string; modelo?: string };
+  const reader = resposta.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let parcial = "";
+  let resultado: { descricao?: string; modelo?: string } | null = null;
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        const linha = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!linha) continue;
+        const evt = JSON.parse(linha) as {
+          type?: string;
+          response?: string;
+          descricao?: string;
+          modelo?: string;
+          erro?: string;
+        };
+        if (evt.type === "chunk" && evt.response) {
+          parcial += evt.response;
+          setStatus(`Ollama: ${parcial}`);
+        } else if (evt.type === "done") {
+          resultado = evt;
+        } else if (evt.type === "erro") {
+          setStatus(evt.erro ?? "Erro no Ollama");
+          return;
+        }
+      }
+    }
+  } catch (err) {
+    if ((err as Error).name === "AbortError") return;
+    setStatus(`Erro ao ler resposta do Ollama: ${(err as Error).message}`);
+    return;
+  }
+
   if (signal.aborted) return;
+
+  const descricao = resultado?.descricao ?? parcial;
   const ms = Math.round(performance.now() - started);
-  const descricao = dados.descricao ?? "sem descricao";
 
   const entry: EntradaLog = {
     timestamp: new Date().toISOString(),
-    modelo: dados.modelo ?? "ollama",
+    modelo: resultado?.modelo ?? "ollama",
     objetos: [],
     resumo: descricao,
     tipo: "descricao",
@@ -282,7 +334,7 @@ async function analisar(): Promise<void> {
     overlay.width = width;
     overlay.height = height;
 
-    const dataUrl = await capturarFrame();
+    const dataUrl = capturarFrame();
     if (dataUrl === null) return;
 
     const threshold = Number(thresholdInput.value);

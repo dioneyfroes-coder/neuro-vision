@@ -21,7 +21,7 @@ Lista de melhorias e pendências. `[ ]` = aberto, `[x]` = concluído.
 - [x] Adicionar flag `analisando` em `analisar()` e ignorar tick se já houver análise em andamento.
 - [x] Usar `AbortController`: abortar requisições em `stop()` e ao trocar de motor; passar `signal` aos `fetch` (`/api/visao` e inferência).
 - [x] Feedback imediato na UI: mostrar "analisando…" enquanto processa.
-- [ ] Avaliar log otimista/`stream:true` no Ollama para exibir texto progressivamente.
+- [x] Avaliar log otimista/`stream:true` no Ollama para exibir texto progressivamente.
 
 ---
 
@@ -35,10 +35,10 @@ Lista de melhorias e pendências. `[ ]` = aberto, `[x]` = concluído.
 
 ## Performance
 
-- [ ] Reutilizar um único `<canvas>` de captura em vez de criar um por frame (`capturarFrame`, `public/app.ts:145`).
-- [ ] Reduzir o frame antes de enviar ao Ollama (ex.: ~512px de largura); hoje manda JPEG 1280×720 e chega perto do limite de 12MB do servidor.
-- [ ] `stream:true` no Ollama (`src/ollama.ts:62`) para exibir a descrição progressivamente.
-- [ ] Evitar recarregar modelo de detecção ao alternar motores (cache dedicado por id).
+- [x] Reutilizar um único `<canvas>` de captura em vez de criar um por frame (`capturarFrame`).
+- [x] Reduzir o frame antes de enviar ao Ollama (512px de largura).
+- [x] `stream:true` no Ollama para exibir a descrição progressivamente (endpoint NDJSON).
+- [x] Cache de modelo de detecção por id (não recarrega ao alternar).
 
 ## Produto / UX
 

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   extrairBase64,
   gerarDescricao,
+  gerarDescricaoStream,
   montarPromptDescricao,
   PROMPT_DESCRICAO,
 } from "./ollama";
@@ -81,5 +82,47 @@ describe("gerarDescricao", () => {
     );
 
     await expect(gerarDescricao("AAAA", { modelo: "inexistente" })).rejects.toThrow(/404/);
+  });
+});
+
+describe("gerarDescricaoStream", () => {
+  it("emite os pedacos da resposta e o resumo final", async () => {
+    const ndjson =
+      [
+        JSON.stringify({ response: "Uma ", model: "qwen3-vl:4b" }),
+        JSON.stringify({
+          response: "pessoa.",
+          model: "qwen3-vl:4b",
+          eval_count: 7,
+          total_duration: 1_500_000_000,
+          done: true,
+        }),
+      ].join("\n") + "\n";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, body: new Response(ndjson).body }));
+
+    const iterator = gerarDescricaoStream("data:image/jpeg;base64,QkxPQ", {
+      host: "http://localhost:11434",
+      modelo: "qwen3-vl:4b",
+    });
+
+    const partes: string[] = [];
+    let resultado = await iterator.next();
+    while (!resultado.done) {
+      partes.push(resultado.value);
+      resultado = await iterator.next();
+    }
+
+    expect(partes.join("")).toBe("Uma pessoa.");
+    expect(resultado.value).toMatchObject({ modelo: "qwen3-vl:4b", tokens: 7, duracaoMs: 1500 });
+  });
+
+  it("lanca erro quando o status nao e ok", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => "boom" })
+    );
+
+    const iterator = gerarDescricaoStream("AAAA", { modelo: "x" });
+    await expect(iterator.next()).rejects.toThrow(/500/);
   });
 });

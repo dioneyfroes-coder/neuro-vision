@@ -17,23 +17,6 @@ let tmpDir: string;
 
 const realFetch = globalThis.fetch;
 
-function stubOllamaFetch(
-  resposta: () => Promise<unknown>,
-  captura?: (corpo: Record<string, unknown>) => void
-): void {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes("/api/generate")) {
-        if (init?.body) captura?.(JSON.parse(String(init.body)) as Record<string, unknown>);
-        return { ok: true, json: resposta };
-      }
-      return realFetch(input, init);
-    })
-  );
-}
-
 beforeEach(async () => {
   tmpDir = await mkdtemp(path.join(os.tmpdir(), "neuro-vision-"));
 });
@@ -202,18 +185,30 @@ describe("createServer", () => {
     }
   });
 
-  it("POST /api/visao descreve via Ollama (mock) e grava log", async () => {
+  it("POST /api/visao descreve via Ollama (streaming mock) e grava log", async () => {
     let corpoOllama: Record<string, unknown> | null = null;
-    stubOllamaFetch(
-      async () => ({
-        response: "Uma pessoa no escritorio.",
-        model: "qwen3-vl:4b",
-        eval_count: 10,
-        total_duration: 2_000_000_000,
-      }),
-      (corpo) => {
-        corpoOllama = corpo;
-      }
+    const ndjson =
+      [
+        JSON.stringify({ response: "Uma pessoa ", model: "qwen3-vl:4b" }),
+        JSON.stringify({
+          response: "no escritorio.",
+          model: "qwen3-vl:4b",
+          eval_count: 10,
+          total_duration: 2_000_000_000,
+          done: true,
+        }),
+      ].join("\n") + "\n";
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/generate")) {
+          if (init?.body) corpoOllama = JSON.parse(String(init.body)) as Record<string, unknown>;
+          return { ok: true, body: new Response(ndjson).body };
+        }
+        return realFetch(input, init);
+      })
     );
 
     const logFile = path.join(tmpDir, "visao.jsonl");
@@ -235,12 +230,18 @@ describe("createServer", () => {
         }),
       });
       expect(res.status).toBe(200);
-      const corpo = (await res.json()) as { descricao: string };
-      expect(corpo.descricao).toBe("Uma pessoa no escritorio.");
+      const eventos = (await res.text())
+        .trim()
+        .split("\n")
+        .map((linha) => JSON.parse(linha) as { type: string; descricao?: string; modelo?: string });
+      const done = eventos.find((e) => e.type === "done");
+      expect(done?.descricao).toBe("Uma pessoa no escritorio.");
+      expect(done?.modelo).toBe("qwen3-vl:4b");
 
       expect(corpoOllama).not.toBeNull();
       const corpoOllamaVisto = corpoOllama as unknown as Record<string, unknown>;
       expect(corpoOllamaVisto.prompt).toContain("Uma pessoa no sofa");
+      expect(corpoOllamaVisto.stream).toBe(true);
       expect(corpoOllamaVisto.options).toMatchObject({ num_predict: 140 });
 
       const linhas = (await readFile(logFile, "utf8")).trim().split("\n");
