@@ -1,0 +1,56 @@
+# TODO — Neuro Vision
+
+Lista de melhorias e pendências. `[ ]` = aberto, `[x]` = concluído.
+
+---
+
+## 🔴 Bug atual (reportado) — alta prioridade
+
+**Sintoma:** nenhum log aparece enquanto se usa o motor **Descrição (Ollama qwen3-vl)** e/ou **Detecção (YOLOS tiny)**. As entradas demoram muito para surgir e **continuam surgindo mesmo depois de clicar em Parar**.
+
+**Causas prováveis (diagnóstico):**
+
+1. **Sem guarda de concorrência.** `agendarAnalise()` (`public/app.ts:268`) usa `setInterval` sem checar se a análise anterior terminou. O Ollama pode levar dezenas de segundos, então as chamadas se acumulam a cada `interval` (padrão 4s) e cada uma vira um log quando (e se) completar.
+2. **Sem cancelamento ao parar.** `stop()` (`public/app.ts`) não aborta requisições em voo; `descreverViaOllama()` faz `fetch` sem `AbortController`. Resultado: ao clicar em Parar, os pedidos pendentes seguem e "soltam logs" depois.
+3. **Log só aparece no fim da resposta.** No motor Ollama, `addLogEntry()` só é chamado depois que `/api/visao` responde (`public/app.ts:190-203`). No servidor, o log também só é gravado ao final de `gerarDescricao()` (`handleVisao`, `src/server.ts`). Enquanto processa, a UI fica vazia.
+4. **Fila acumulada = atraso crescente.** Com intervalo menor que o tempo de inferência, a latência percebida só aumenta, dando a sensação de que "nada sai" e depois "sai tudo de uma vez".
+5. **Timeout longo sem feedback.** `timeoutMs` padrão 90s (`src/ollama.ts:56`); ao estourar, retorna erro e **não** grava log.
+
+**Correções propostas:**
+
+- [x] Adicionar flag `analisando` em `analisar()` e ignorar tick se já houver análise em andamento.
+- [x] Usar `AbortController`: abortar requisições em `stop()` e ao trocar de motor; passar `signal` aos `fetch` (`/api/visao` e inferência).
+- [x] Feedback imediato na UI: mostrar "analisando…" enquanto processa.
+- [ ] Avaliar log otimista/`stream:true` no Ollama para exibir texto progressivamente.
+
+---
+
+## Correções e robustez
+
+- [ ] `public/app.ts:83` — teste de WebGPU (`"gpu" in navigator`) não é confiável; checar `navigator.gpu` + `requestAdapter()`.
+- [ ] `src/server.ts` — `listen(PORT)` escuta em `0.0.0.0`. Sem auth, qualquer host da rede aciona a webcam. Bind em `127.0.0.1` por padrão (configurável).
+- [ ] `src/server.ts:77` — `lerLogEntries` lê e faz parse do arquivo inteiro mesmo para `limit=100`. Ler do fim ou rotacionar o log (`visao.jsonl` cresce sem limite).
+- [ ] Validar `score` e `caixa` em `normalizarObjetos` (`src/server.ts:50`) — hoje só exige `nome`.
+- [ ] Rotação/tamanho máximo do log (`logs/visao.jsonl`) e política de retenção.
+
+## Performance
+
+- [ ] Reutilizar um único `<canvas>` de captura em vez de criar um por frame (`capturarFrame`, `public/app.ts:145`).
+- [ ] Reduzir o frame antes de enviar ao Ollama (ex.: ~512px de largura); hoje manda JPEG 1280×720 e chega perto do limite de 12MB do servidor.
+- [ ] `stream:true` no Ollama (`src/ollama.ts:62`) para exibir a descrição progressivamente.
+- [ ] Evitar recarregar modelo de detecção ao alternar motores (cache dedicado por id).
+
+## Produto / UX
+
+- [ ] Salvar *snapshot* (thumbnail JPEG) por entrada de detecção para uma linha do tempo visual.
+- [ ] Endpoint `/api/health` verificando o Ollama (acessível? qual modelo carregado?).
+- [ ] Indicador visual de "analisando…" sobre o vídeo (spinner/overlay) e tempo real de inferência.
+- [ ] Filtro/busca no histórico e opção de exportar o log.
+- [ ] Ampliar o dicionário `COCO_PT` e permitir descrições em outros idiomas.
+
+## Qualidade / testes
+
+- [ ] Testes E2E do cliente (Playwright): fluxo webcam → detecção/descrição → log.
+- [ ] Testes para os novos endpoints `GET`/`DELETE /api/logs` (já cobertos no servidor; falta no fluxo do cliente).
+- [ ] Log estruturado e padronização de mensagens/erros no servidor.
+- [ ] Pipeline de CI (typecheck + lint + test + build).

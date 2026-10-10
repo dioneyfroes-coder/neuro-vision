@@ -61,6 +61,8 @@ let loadedModel: string | null = null;
 let stream: MediaStream | null = null;
 let running = false;
 let timer: ReturnType<typeof setInterval> | null = null;
+let analisando = false;
+let controller: AbortController | null = null;
 let ultimaDescricao = "";
 
 function setStatus(text: string): void {
@@ -209,7 +211,7 @@ async function capturarFrame(): Promise<string | null> {
   return frame.toDataURL("image/jpeg", 0.85);
 }
 
-async function descreverViaOllama(): Promise<void> {
+async function descreverViaOllama(signal: AbortSignal): Promise<void> {
   const dataUrl = await capturarFrame();
   if (dataUrl === null) return;
   const width = video.videoWidth;
@@ -219,7 +221,7 @@ async function descreverViaOllama(): Promise<void> {
   ctx.clearRect(0, 0, width, height);
 
   const base64 = dataUrl.split(",")[1] ?? "";
-  setStatus("Ollama analisando frame...");
+  setStatus("Ollama analisando frame... (pode demorar)");
   const started = performance.now();
 
   let resposta: Response;
@@ -228,11 +230,15 @@ async function descreverViaOllama(): Promise<void> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ imagem: base64, anterior: ultimaDescricao }),
+      signal,
     });
-  } catch {
+  } catch (err) {
+    if ((err as Error).name === "AbortError") return;
     setStatus("Falha ao contactar o servidor (/api/visao)");
     return;
   }
+
+  if (signal.aborted) return;
 
   if (!resposta.ok) {
     const corpo = (await resposta.json().catch(() => null)) as { erro?: string } | null;
@@ -241,6 +247,7 @@ async function descreverViaOllama(): Promise<void> {
   }
 
   const dados = (await resposta.json()) as { descricao?: string; modelo?: string };
+  if (signal.aborted) return;
   const ms = Math.round(performance.now() - started);
   const descricao = dados.descricao ?? "sem descricao";
 
@@ -257,65 +264,77 @@ async function descreverViaOllama(): Promise<void> {
 }
 
 async function analisar(): Promise<void> {
-  if (!running) return;
-  if (motorSelect.value === "ollama") {
-    await descreverViaOllama();
-    return;
-  }
-
-  const width = video.videoWidth;
-  const height = video.videoHeight;
-  if (!width || !height) return;
-
-  overlay.width = width;
-  overlay.height = height;
-
-  const dataUrl = await capturarFrame();
-  if (dataUrl === null) return;
-
-  const threshold = Number(thresholdInput.value);
-  setStatus("Analisando frame...");
-  const started = performance.now();
-  let detecoes: Deteccao[];
+  if (!running || analisando) return;
+  analisando = true;
+  controller = new AbortController();
+  const { signal } = controller;
   try {
-    detecoes = await detector!(dataUrl, { threshold, percentage: false });
-  } catch (err) {
-    setStatus(`Erro na inferencia: ${(err as Error).message}`);
-    return;
+    if (motorSelect.value === "ollama") {
+      await descreverViaOllama(signal);
+      return;
+    }
+
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+    if (!width || !height) return;
+
+    overlay.width = width;
+    overlay.height = height;
+
+    const dataUrl = await capturarFrame();
+    if (dataUrl === null) return;
+
+    const threshold = Number(thresholdInput.value);
+    setStatus("Analisando frame...");
+    const started = performance.now();
+    let detecoes: Deteccao[];
+    try {
+      detecoes = await detector!(dataUrl, { threshold, percentage: false });
+    } catch (err) {
+      if (signal.aborted) return;
+      setStatus(`Erro na inferencia: ${(err as Error).message}`);
+      return;
+    }
+    if (signal.aborted) return;
+    const ms = Math.round(performance.now() - started);
+
+    const objetos: ObjetoVisto[] = detecoes.map((d) => ({
+      nome: traduzir(d.label),
+      rotulo: d.label,
+      score: Number(d.score.toFixed(3)),
+      caixa: d.box,
+    }));
+
+    drawBoxes(detecoes);
+
+    const contagem: Record<string, number> = {};
+    for (const o of objetos) contagem[o.nome] = (contagem[o.nome] ?? 0) + 1;
+    const resumo = objetos.length
+      ? Object.entries(contagem).map(([n, c]) => (c > 1 ? `${c}x ${n}` : n)).join(", ")
+      : "nada reconhecido";
+
+    const entry: EntradaLog = {
+      timestamp: new Date().toISOString(),
+      modelo: loadedModel ?? "desconhecido",
+      objetos,
+      resumo,
+      tipo: "deteccao",
+    };
+
+    addLogEntry(entry);
+    setStatus(`Viu: ${resumo}  (${ms} ms)`);
+
+    fetch("/api/log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    }).catch(() => {
+      if (running) setStatus("Falha ao gravar no log do servidor");
+    });
+  } finally {
+    analisando = false;
+    controller = null;
   }
-  const ms = Math.round(performance.now() - started);
-
-  const objetos: ObjetoVisto[] = detecoes.map((d) => ({
-    nome: traduzir(d.label),
-    rotulo: d.label,
-    score: Number(d.score.toFixed(3)),
-    caixa: d.box,
-  }));
-
-  drawBoxes(detecoes);
-
-  const contagem: Record<string, number> = {};
-  for (const o of objetos) contagem[o.nome] = (contagem[o.nome] ?? 0) + 1;
-  const resumo = objetos.length
-    ? Object.entries(contagem).map(([n, c]) => (c > 1 ? `${c}x ${n}` : n)).join(", ")
-    : "nada reconhecido";
-
-  const entry: EntradaLog = {
-    timestamp: new Date().toISOString(),
-    modelo: loadedModel ?? "desconhecido",
-    objetos,
-    resumo,
-    tipo: "deteccao",
-  };
-
-  addLogEntry(entry);
-  setStatus(`Viu: ${resumo}  (${ms} ms)`);
-
-  fetch("/api/log", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(entry),
-  }).catch(() => setStatus("Falha ao gravar no log do servidor"));
 }
 
 function agendarAnalise(intervalMs: number): void {
@@ -356,6 +375,10 @@ async function start(): Promise<void> {
 
 function stop(): void {
   running = false;
+  if (controller) {
+    controller.abort();
+    controller = null;
+  }
   if (timer) {
     clearInterval(timer);
     timer = null;
