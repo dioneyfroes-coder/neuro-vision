@@ -134,13 +134,15 @@ Hoje `agendarAnalise()` calcula `espera` ao agendar um `setInterval()`. A duraç
 
 Arquivos principais: `src/server.ts`, testes e documentação.
 
-- [ ] Definir limites configuráveis de idade, quantidade ou tamanho total para `logs/snapshots/`.
-- [ ] Remover snapshots órfãos quando apropriado e decidir explicitamente o que acontece ao limpar o histórico JSONL.
-- [ ] Não apagar arquivos ainda referenciados por entradas preservadas no log.
-- [ ] Executar a limpeza de modo seguro, sem bloquear requisições normais por longos períodos.
-- [ ] Adicionar testes para snapshots referenciados, órfãos, expiração e falhas de sistema de arquivos.
+- [x] Definir limites configuráveis de idade, quantidade ou tamanho total para `logs/snapshots/`.
+- [x] Remover snapshots órfãos quando apropriado e decidir explicitamente o que acontece ao limpar o histórico JSONL.
+- [x] Não apagar arquivos ainda referenciados por entradas preservadas no log.
+- [x] Executar a limpeza de modo seguro, sem bloquear requisições normais por longos períodos.
+- [x] Adicionar testes para snapshots referenciados, órfãos, expiração e falhas de sistema de arquivos.
 
 **Aceite:** o uso de disco permanece limitado por uma política documentada.
+
+**Implementação:** `src/server.ts` ganhou a política `PoliticaSnapshots` (`SNAP_MAX_BYTES`, `SNAP_MAX_FILES`, `SNAP_MAX_AGE_DAYS`; `0` desativa um eixo) e `limparSnapshots()`. A limpeza lê o histórico preservado (`visao.jsonl` + rotação `visao.jsonl.1`), extrai os snapshots referenciados de forma segura (`nomeArquivoSnapshot`) e então: mantém os referenciados enquanto estiverem dentro dos limites; remove órfãos; remove expirados por idade (referenciados ou não); e, ao estourar os tetos de quantidade/tamanho, descarta primeiro os mais antigos — os limites são o teto rígido de disco, então o mais antigo cede quando necessário. A limpeza é assíncrona e tolera falhas parciais (`erros` por arquivo, `ENOENT`/`ENOTDIR` sem lançar). Roda em segundo plano: na subida do servidor, de forma oportunista após novas gravações (no máximo a cada `SNAP_CLEAN_INTERVAL_MS`, sem timers nem bloquear a resposta) e ao limpar o histórico. Decisão explícita ao limpar o histórico: `DELETE /api/logs` zera o atual **e** remove a rotação `.1`; como as entradas deixam de existir, todos os snapshots viram órfãos e são removidos de imediato (`limparSnapshots` é chamado e o resultado vai na resposta). Documentado no README (tabela de variáveis + seção "Retenção de snapshots"). Testes: `src/server.test.ts` cobre referenciado (mantido/rotacionado), órfão, expiração, tetos de quantidade e tamanho, diretório ausente, falha de unlink e o `DELETE` limpando histórico+rotação+snapshots (108 testes no total).
 
 ### 1.6 Estabelecer o limite de segurança de rede
 

@@ -24,6 +24,51 @@ export const LOG_MAX_BYTES = Number(process.env.LOG_MAX_BYTES) || 5_000_000;
 export const SNAP_DIR = path.join(LOG_DIR, "snapshots");
 export const SNAP_URL = "/snapshots";
 
+function numeroEnv(nome: string, padrao: number): number {
+  const valor = Number(process.env[nome]);
+  return Number.isFinite(valor) && valor >= 0 ? valor : padrao;
+}
+
+export interface PoliticaSnapshots {
+  /** Tamanho total maximo de `logs/snapshots/` em bytes (0 desativa). */
+  maxBytes: number;
+  /** Quantidade maxima de arquivos (0 desativa). */
+  maxFiles: number;
+  /** Idade maxima em ms (0 desativa). */
+  maxAgeMs: number;
+}
+
+/**
+ * Limites de retencao dos snapshots. Configuraveis por variaveis de ambiente:
+ * `SNAP_MAX_BYTES`, `SNAP_MAX_FILES` e `SNAP_MAX_AGE_DAYS` (0 desativa o limite
+ * correspondente). Os valores precisam ser finitos e nao negativos.
+ */
+export const POLITICA_SNAPSHOTS_PADRAO: PoliticaSnapshots = {
+  maxBytes: numeroEnv("SNAP_MAX_BYTES", 200_000_000),
+  maxFiles: numeroEnv("SNAP_MAX_FILES", 1000),
+  maxAgeMs: numeroEnv("SNAP_MAX_AGE_DAYS", 30) * 24 * 60 * 60 * 1000,
+};
+
+/** Intervalo minimo entre limpezas automaticas disparadas por novas gravacoes. */
+export const SNAP_CLEAN_INTERVAL_MS = numeroEnv("SNAP_CLEAN_INTERVAL_MS", 10 * 60 * 1000);
+
+const EXTENSOES_SNAPSHOT = /\.(jpe?g|png|webp)$/i;
+
+/** Extrai, de forma segura, o nome do arquivo a partir de uma URL `/snapshots/...`. */
+export function nomeArquivoSnapshot(url: unknown): string | null {
+  if (typeof url !== "string") return null;
+  const idx = url.lastIndexOf("/");
+  const nome = idx >= 0 ? url.slice(idx + 1) : url;
+  if (!EXTENSOES_SNAPSHOT.test(nome)) return null;
+  if (!/^[A-Za-z0-9._-]+$/.test(nome)) return null;
+  return nome;
+}
+
+/** Arquivos de log preservaveis: o atual e a ultima rotacao. */
+export function arquivosDeLog(logFile: string): string[] {
+  return [logFile, `${logFile}.1`];
+}
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -180,6 +225,9 @@ export async function lerLogEntries(
 export async function limparLog(filePath: string = LOG_FILE): Promise<void> {
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
   await fs.promises.writeFile(filePath, "", "utf8");
+  // Limpar o historico inclui a ultima rotacao, para que os snapshots que ela
+  // referencia deixem de ser considerados preservados.
+  await fs.promises.unlink(`${filePath}.1`).catch(() => {});
 }
 
 function extrairBase64Imagem(imagem: unknown): string | null {
@@ -199,6 +247,181 @@ export async function salvarSnapshot(
   const nome = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
   await fs.promises.writeFile(path.join(snapDir, nome), Buffer.from(b64, "base64"));
   return `${SNAP_URL}/${nome}`;
+}
+
+interface ArquivoSnapshot {
+  nome: string;
+  caminho: string;
+  tamanho: number;
+  mtimeMs: number;
+  referenciado: boolean;
+}
+
+export interface ResultadoLimpezaSnapshots {
+  removidos: number;
+  mantidos: number;
+  bytesLiberados: number;
+  erros: string[];
+}
+
+export interface OpcoesLimpezaSnapshots {
+  snapDir?: string;
+  logFiles?: string[];
+  politica?: PoliticaSnapshots;
+  agora?: number;
+}
+
+/** Coleta os nomes de snapshot referenciados pela parte preservada do historico. */
+async function coletarSnapshotsReferenciados(logFiles: string[]): Promise<Set<string>> {
+  const referenciados = new Set<string>();
+  for (const arquivo of logFiles) {
+    let conteudo: string;
+    try {
+      conteudo = await fs.promises.readFile(arquivo, "utf8");
+    } catch {
+      continue;
+    }
+    for (const linha of conteudo.split("\n")) {
+      const texto = linha.trim();
+      if (!texto) continue;
+      try {
+        const entrada = JSON.parse(texto) as { snapshot?: unknown };
+        const nome = nomeArquivoSnapshot(entrada.snapshot);
+        if (nome) referenciados.add(nome);
+      } catch {
+        // ignora linhas corrompidas
+      }
+    }
+  }
+  return referenciados;
+}
+
+async function listarSnapshots(snapDir: string): Promise<ArquivoSnapshot[]> {
+  const nomes = await fs.promises.readdir(snapDir);
+  const arquivos: ArquivoSnapshot[] = [];
+  for (const nome of nomes) {
+    if (!nomeArquivoSnapshot(nome)) continue;
+    const caminho = path.join(snapDir, nome);
+    try {
+      const info = await fs.promises.stat(caminho);
+      if (!info.isFile()) continue;
+      arquivos.push({
+        nome,
+        caminho,
+        tamanho: info.size,
+        mtimeMs: info.mtimeMs,
+        referenciado: false,
+      });
+    } catch {
+      // ignora arquivos que sumiram ou estao inacessiveis
+    }
+  }
+  return arquivos;
+}
+
+/**
+ * Aplica a politica de retencao a `logs/snapshots/` sem interromper requisicoes
+ * (toda a funcao e assincrona e tolera falhas parciais do sistema de arquivos).
+ *
+ * Regras:
+ * - snapshots referenciados pelo historico preservado sao mantidos enquanto
+ *   estiverem dentro da idade maxima e dos tetos de quantidade/tamanho;
+ * - snapshots orfaos (nenhuma entrada preservada aponta para eles) sao removidos;
+ * - snapshots expirados por idade sao removidos (referenciados ou nao);
+ * - ao exceder os tetos, os snapshots mais antigos sao descartados primeiro.
+ */
+export async function limparSnapshots(
+  opcoes: OpcoesLimpezaSnapshots = {}
+): Promise<ResultadoLimpezaSnapshots> {
+  const snapDir = opcoes.snapDir ?? SNAP_DIR;
+  const politica = opcoes.politica ?? POLITICA_SNAPSHOTS_PADRAO;
+  const logFiles = opcoes.logFiles ?? arquivosDeLog(LOG_FILE);
+  const agora = opcoes.agora ?? Date.now();
+
+  const referenciados = await coletarSnapshotsReferenciados(logFiles);
+
+  let arquivos: ArquivoSnapshot[];
+  try {
+    arquivos = await listarSnapshots(snapDir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { removidos: 0, mantidos: 0, bytesLiberados: 0, erros: [] };
+    }
+    return { removidos: 0, mantidos: 0, bytesLiberados: 0, erros: [(err as Error).message] };
+  }
+  for (const arquivo of arquivos) {
+    arquivo.referenciado = referenciados.has(arquivo.nome);
+  }
+
+  const remover = new Set<string>();
+  for (const arquivo of arquivos) {
+    const orfao = !arquivo.referenciado;
+    const expirado = politica.maxAgeMs > 0 && agora - arquivo.mtimeMs > politica.maxAgeMs;
+    if (orfao || expirado) remover.add(arquivo.nome);
+  }
+
+  // Aplica os tetos de quantidade/tamanho sobre o que sobrou, mantendo os mais
+  // novos e descartando os mais antigos quando necessario.
+  const sobreviventes = arquivos
+    .filter((a) => !remover.has(a.nome))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  let mantidos = 0;
+  let bytesMantidos = 0;
+  for (const arquivo of sobreviventes) {
+    const estouraCount = politica.maxFiles > 0 && mantidos + 1 > politica.maxFiles;
+    const estouraBytes =
+      politica.maxBytes > 0 && bytesMantidos + arquivo.tamanho > politica.maxBytes;
+    if (estouraCount || estouraBytes) {
+      remover.add(arquivo.nome);
+      continue;
+    }
+    mantidos += 1;
+    bytesMantidos += arquivo.tamanho;
+  }
+
+  let removidos = 0;
+  let bytesLiberados = 0;
+  const erros: string[] = [];
+  for (const arquivo of arquivos) {
+    if (!remover.has(arquivo.nome)) continue;
+    try {
+      await fs.promises.unlink(arquivo.caminho);
+      removidos += 1;
+      bytesLiberados += arquivo.tamanho;
+    } catch (err) {
+      erros.push(`${arquivo.nome}: ${(err as Error).message}`);
+    }
+  }
+
+  return { removidos, mantidos, bytesLiberados, erros };
+}
+
+let ultimaLimpezaSnapshotsMs = 0;
+
+/**
+ * Dispara a limpeza de forma oportunista (apos gravar snapshots), no maximo uma
+ * vez por `SNAP_CLEAN_INTERVAL_MS`, sem manter o processo vivo nem bloquear a
+ * resposta da requisicao.
+ */
+function agendarLimpezaSnapshots(snapDir: string, logFile: string): void {
+  const agora = Date.now();
+  if (agora - ultimaLimpezaSnapshotsMs < SNAP_CLEAN_INTERVAL_MS) return;
+  ultimaLimpezaSnapshotsMs = agora;
+  void limparSnapshots({ snapDir, logFiles: arquivosDeLog(logFile) })
+    .then((resultado) => {
+      if (resultado.removidos > 0) {
+        logEvent("info", "snapshots_limpos", {
+          removidos: resultado.removidos,
+          bytesLiberados: resultado.bytesLiberados,
+        });
+      }
+      if (resultado.erros.length > 0) {
+        logEvent("warn", "snapshots_limpeza_parcial", { erros: resultado.erros });
+      }
+    })
+    .catch((err) => {
+      logEvent("warn", "limpeza_snapshots_falhou", { erro: (err as Error).message });
+    });
 }
 
 export function pathnameDecodificado(rawUrl: string | undefined): string | null {
@@ -269,6 +492,7 @@ async function handleLog(
     const snapshot = await salvarSnapshot(p.snapshot, snapDir);
     if (snapshot) entry.snapshot = snapshot;
     await appendLogEntry(entry, logFile);
+    if (snapshot) agendarLimpezaSnapshots(snapDir, logFile);
     sendJson(res, 200, { ok: true, entrada: entry });
   } catch (err) {
     sendJson(res, 400, { ok: false, erro: (err as Error).message });
@@ -334,6 +558,7 @@ async function streamVisao(
     const snap = await salvarSnapshot(snapshot, snapDir);
     if (snap) entry.snapshot = snap;
     await appendLogEntry(entry, logFile);
+    if (snap) agendarLimpezaSnapshots(snapDir, logFile);
 
     res.write(
       JSON.stringify({
@@ -435,10 +660,20 @@ async function handleListLogs(
   }
 }
 
-async function handleClearLogs(res: ServerResponse, logFile: string): Promise<void> {
+async function handleClearLogs(
+  res: ServerResponse,
+  logFile: string,
+  snapDir: string
+): Promise<void> {
   try {
     await limparLog(logFile);
-    sendJson(res, 200, { ok: true });
+    // Sem historico, todos os snapshots ficam orfaos: a limpeza os remove de
+    // imediato, mantendo o uso de disco limitado pela politica documentada.
+    const snapshots = await limparSnapshots({
+      snapDir,
+      logFiles: arquivosDeLog(logFile),
+    });
+    sendJson(res, 200, { ok: true, snapshots });
   } catch (err) {
     logEvent("error", "limpar_logs_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
@@ -551,7 +786,7 @@ export function createServer(config: ServerConfig = {}): http.Server {
       return;
     }
     if (req.method === "DELETE" && pathname === "/api/logs") {
-      void handleClearLogs(res, logFile);
+      void handleClearLogs(res, logFile, snapDir);
       return;
     }
     if (req.method === "GET" && pathname === "/api/health") {
@@ -575,6 +810,17 @@ const entryUrl = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
 if (import.meta.url === entryUrl) {
   const PORT = Number(process.env.PORT) || 3000;
   const HOST = process.env.HOST || "127.0.0.1";
+  // Limpeza inicial em segundo plano, sem atrasar a subida do servidor.
+  limparSnapshots()
+    .then((resultado) => {
+      if (resultado.removidos > 0) {
+        logEvent("info", "snapshots_limpos", {
+          removidos: resultado.removidos,
+          bytesLiberados: resultado.bytesLiberados,
+        });
+      }
+    })
+    .catch((err) => logEvent("warn", "limpeza_snapshots_falhou", { erro: (err as Error).message }));
   createServer().listen(PORT, HOST, () => {
     logEvent("info", "servidor_iniciado", { host: HOST, port: PORT, logFile: LOG_FILE });
     console.log(`\n  Neuro Vision rodando em http://${HOST}:${PORT}`);

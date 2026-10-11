@@ -60,6 +60,10 @@ Variáveis de ambiente lidas pelo servidor:
 | `OLLAMA_HOST` | `http://localhost:11434` | URL do Ollama. |
 | `OLLAMA_MODEL` | `qwen2.5vl:3b` | Modelo de visão não-pensante usado na descrição. |
 | `LOG_MAX_BYTES` | `5000000` | Tamanho máximo de `visao.jsonl` antes de rotacionar para `.1`. |
+| `SNAP_MAX_BYTES` | `200000000` | Tamanho total máximo de `logs/snapshots/` em bytes (`0` desativa). |
+| `SNAP_MAX_FILES` | `1000` | Quantidade máxima de snapshots (`0` desativa). |
+| `SNAP_MAX_AGE_DAYS` | `30` | Idade máxima de um snapshot em dias (`0` desativa). |
+| `SNAP_CLEAN_INTERVAL_MS` | `600000` | Intervalo mínimo entre limpezas automáticas disparadas por novas gravações. |
 
 Exemplo:
 
@@ -76,7 +80,7 @@ OLLAMA_MODEL=qwen2.5vl:7b npm start            # bash
 | `POST` | `/api/visao` | Envia um frame (base64) e recebe a descrição do Ollama em stream NDJSON; grava no log. |
 | `GET` | `/api/visao/preparar` | Carrega o modelo do Ollama na memória (quando necessário) e responde quando estiver pronto: `{ ok, modelo, carregado, carregandoMs }`. |
 | `GET` | `/api/logs?limit=100` | Lista as entradas mais recentes (mais nova primeiro, limite máx. 500). |
-| `DELETE` | `/api/logs` | Limpa o histórico de log. |
+| `DELETE` | `/api/logs` | Limpa o histórico de log (inclui a rotação `.1`) e remove os snapshots que ficaram órfãos. |
 | `GET` | `/api/health` | Status do Ollama (`{ ollama: { online, modelos, carregados, erro } }`). |
 | `GET` | `/snapshots/<arquivo>` | Serve os snapshots (thumbnails) gravados. |
 
@@ -102,6 +106,19 @@ Resposta: stream NDJSON (`application/x-ndjson`), uma linha por evento:
 No modo roteiro, quando o modelo responde que **nada mudou** (sentinela `INALTERADO`, tolerante a acentos/variações), o servidor devolve `"semMudanca": true` e **não grava** a entrada no log — assim o roteiro não vira ruído.
 
 Em caso de erro após o início do stream: `{ "type": "erro", "erro": "Ollama: ..." }`.
+
+### Retenção de snapshots
+
+Os snapshots em `logs/snapshots/` são limitados por idade, quantidade e tamanho total (variáveis `SNAP_MAX_AGE_DAYS`, `SNAP_MAX_FILES` e `SNAP_MAX_BYTES`; use `0` para desativar um limite). A limpeza:
+
+- considera **preservadas** as entradas do histórico atual e da última rotação (`visao.jsonl` e `visao.jsonl.1`);
+- mantém snapshots ainda referenciados por essas entradas enquanto estiverem dentro dos limites;
+- remove snapshots **órfãos** (sem nenhuma entrada preservada apontando para eles);
+- remove snapshots **expirados** por idade, referenciados ou não;
+- ao exceder os tetos de quantidade/tamanho, descarta primeiro os mais antigos;
+- roda em segundo plano (na subida do servidor, após novas gravações e ao limpar o histórico), sem bloquear requisições e tolerando falhas parciais de sistema de arquivos.
+
+`DELETE /api/logs` limpa o histórico (atual e `.1`) e, como as entradas deixam de existir, remove de imediato os snapshots que ficaram órfãos.
 
 ## Estrutura
 

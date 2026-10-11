@@ -1,18 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import fs from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
 import {
   appendLogEntry,
+  arquivosDeLog,
   createServer,
   lerLogEntries,
   limparLog,
+  limparSnapshots,
   logEvent,
   montarEntrada,
+  nomeArquivoSnapshot,
   resolverCaminhoDentroDaBase,
   resolveStaticFile,
   salvarSnapshot,
+  type PoliticaSnapshots,
 } from "./server";
 import type { EntradaLog } from "./types";
 import { PROMPT_ROTEIRO_BASE } from "./ollama";
@@ -157,6 +162,206 @@ describe("salvarSnapshot", () => {
   it("retorna null quando nao ha imagem", async () => {
     expect(await salvarSnapshot("", tmpDir)).toBeNull();
     expect(await salvarSnapshot(undefined, tmpDir)).toBeNull();
+  });
+});
+
+describe("nomeArquivoSnapshot", () => {
+  it("extrai o nome do arquivo de uma URL de snapshot", () => {
+    expect(nomeArquivoSnapshot("/snapshots/123-abc.jpg")).toBe("123-abc.jpg");
+    expect(nomeArquivoSnapshot("123-abc.jpg")).toBe("123-abc.jpg");
+    expect(nomeArquivoSnapshot("/snapshots/foto.PNG")).toBe("foto.PNG");
+  });
+
+  it("rejeita valores invalidos ou sem extensao de imagem", () => {
+    expect(nomeArquivoSnapshot(undefined)).toBeNull();
+    expect(nomeArquivoSnapshot(42)).toBeNull();
+    expect(nomeArquivoSnapshot("/snapshots/..%2fsegredo.jsonl")).toBeNull();
+    expect(nomeArquivoSnapshot("/snapshots/x.txt")).toBeNull();
+    expect(nomeArquivoSnapshot("/snapshots/")).toBeNull();
+  });
+});
+
+describe("limparSnapshots", () => {
+  const politicaGenerosa: PoliticaSnapshots = { maxBytes: 10_000_000, maxFiles: 100, maxAgeMs: 0 };
+
+  async function criarSnapshot(dir: string, nome: string, conteudo = "BLOB"): Promise<string> {
+    await mkdir(dir, { recursive: true });
+    const caminho = path.join(dir, nome);
+    await writeFile(caminho, conteudo);
+    return caminho;
+  }
+
+  function linhaSnapshot(url: string): string {
+    return (
+      JSON.stringify({
+        timestamp: "x",
+        modelo: "m",
+        objetos: [],
+        resumo: "r",
+        tipo: "deteccao",
+        snapshot: url,
+      }) + "\n"
+    );
+  }
+
+  it("mantem snapshots referenciados dentro da politica", async () => {
+    const snapDir = path.join(tmpDir, "snapshots");
+    await criarSnapshot(snapDir, "a.jpg");
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    await writeFile(logFile, linhaSnapshot("/snapshots/a.jpg"));
+
+    const resultado = await limparSnapshots({
+      snapDir,
+      logFiles: [logFile],
+      politica: politicaGenerosa,
+    });
+    expect(resultado).toMatchObject({ removidos: 0, mantidos: 1, bytesLiberados: 0 });
+    expect(resultado.erros).toEqual([]);
+    expect(await readFile(path.join(snapDir, "a.jpg"), "utf8")).toBe("BLOB");
+  });
+
+  it("remove snapshots orfaos", async () => {
+    const snapDir = path.join(tmpDir, "snapshots");
+    const caminho = await criarSnapshot(snapDir, "orfa.jpg");
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    await writeFile(logFile, "");
+
+    const resultado = await limparSnapshots({
+      snapDir,
+      logFiles: [logFile],
+      politica: politicaGenerosa,
+    });
+    expect(resultado.removidos).toBe(1);
+    expect(resultado.mantidos).toBe(0);
+    await expect(readFile(caminho)).rejects.toThrow();
+  });
+
+  it("remove snapshots expirados mesmo que referenciados", async () => {
+    const snapDir = path.join(tmpDir, "snapshots");
+    const caminho = await criarSnapshot(snapDir, "velho.jpg");
+    const antigo = new Date("2026-01-01T00:00:00.000Z");
+    await utimes(caminho, antigo, antigo);
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    await writeFile(logFile, linhaSnapshot("/snapshots/velho.jpg"));
+
+    const resultado = await limparSnapshots({
+      snapDir,
+      logFiles: [logFile],
+      politica: { maxBytes: 0, maxFiles: 0, maxAgeMs: 24 * 60 * 60 * 1000 },
+      agora: new Date("2026-10-10T00:00:00.000Z").getTime(),
+    });
+    expect(resultado.removidos).toBe(1);
+    await expect(readFile(caminho)).rejects.toThrow();
+  });
+
+  it("respeita o teto de quantidade mantendo os snapshots mais novos", async () => {
+    const snapDir = path.join(tmpDir, "snapshots");
+    const antigo = await criarSnapshot(snapDir, "antigo.jpg");
+    const meio = await criarSnapshot(snapDir, "meio.jpg");
+    const novo = await criarSnapshot(snapDir, "novo.jpg");
+    await utimes(antigo, new Date("2026-10-01T00:00:00Z"), new Date("2026-10-01T00:00:00Z"));
+    await utimes(meio, new Date("2026-10-02T00:00:00Z"), new Date("2026-10-02T00:00:00Z"));
+    await utimes(novo, new Date("2026-10-03T00:00:00Z"), new Date("2026-10-03T00:00:00Z"));
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    await writeFile(
+      logFile,
+      linhaSnapshot("/snapshots/antigo.jpg") +
+        linhaSnapshot("/snapshots/meio.jpg") +
+        linhaSnapshot("/snapshots/novo.jpg")
+    );
+
+    const resultado = await limparSnapshots({
+      snapDir,
+      logFiles: [logFile],
+      politica: { maxBytes: 0, maxFiles: 2, maxAgeMs: 0 },
+    });
+    expect(resultado.removidos).toBe(1);
+    expect(resultado.mantidos).toBe(2);
+    await expect(readFile(antigo)).rejects.toThrow();
+    expect(await readFile(meio, "utf8")).toBe("BLOB");
+    expect(await readFile(novo, "utf8")).toBe("BLOB");
+  });
+
+  it("respeita o teto de tamanho total", async () => {
+    const snapDir = path.join(tmpDir, "snapshots");
+    const antigo = await criarSnapshot(snapDir, "antigo.jpg", "AAAA");
+    const novo = await criarSnapshot(snapDir, "novo.jpg", "BBBB");
+    await utimes(antigo, new Date("2026-10-01T00:00:00Z"), new Date("2026-10-01T00:00:00Z"));
+    await utimes(novo, new Date("2026-10-02T00:00:00Z"), new Date("2026-10-02T00:00:00Z"));
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    await writeFile(
+      logFile,
+      linhaSnapshot("/snapshots/antigo.jpg") + linhaSnapshot("/snapshots/novo.jpg")
+    );
+
+    const resultado = await limparSnapshots({
+      snapDir,
+      logFiles: [logFile],
+      politica: { maxBytes: 4, maxFiles: 0, maxAgeMs: 0 },
+    });
+    expect(resultado.removidos).toBe(1);
+    expect(resultado.mantidos).toBe(1);
+    await expect(readFile(antigo)).rejects.toThrow();
+    expect(await readFile(novo, "utf8")).toBe("BBBB");
+  });
+
+  it("considera as referencias da ultima rotacao (.1)", async () => {
+    const snapDir = path.join(tmpDir, "snapshots");
+    await criarSnapshot(snapDir, "rotacao.jpg");
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    await writeFile(logFile, "");
+    await writeFile(`${logFile}.1`, linhaSnapshot("/snapshots/rotacao.jpg"));
+
+    const resultado = await limparSnapshots({
+      snapDir,
+      logFiles: arquivosDeLog(logFile),
+      politica: politicaGenerosa,
+    });
+    expect(resultado.removidos).toBe(0);
+    expect(resultado.mantidos).toBe(1);
+  });
+
+  it("tolera diretorio ausente e falha de sistema de arquivos", async () => {
+    const ausente = await limparSnapshots({
+      snapDir: path.join(tmpDir, "sem-dir"),
+      logFiles: [],
+    });
+    expect(ausente).toEqual({ removidos: 0, mantidos: 0, bytesLiberados: 0, erros: [] });
+
+    const arquivo = path.join(tmpDir, "nao-e-diretorio");
+    await writeFile(arquivo, "x");
+    const falha = await limparSnapshots({ snapDir: arquivo, logFiles: [] });
+    expect(falha.removidos).toBe(0);
+    expect(falha.erros.length).toBe(1);
+  });
+
+  it("ignora um snapshot que sumiu entre a listagem e a limpeza", async () => {
+    const snapDir = path.join(tmpDir, "snapshots");
+    await criarSnapshot(snapDir, "a.jpg");
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    await writeFile(logFile, "");
+
+    const realUnlink = fs.promises.unlink.bind(fs.promises);
+    const espiao = vi.spyOn(fs.promises, "unlink").mockImplementation(async (p) => {
+      // Simula um arquivo que sumiu (ou nao pode ser removido) entre o stat e o unlink.
+      if (String(p).endsWith("a.jpg")) {
+        const erro = new Error("ENOENT") as NodeJS.ErrnoException;
+        erro.code = "ENOENT";
+        throw erro;
+      }
+      return realUnlink(p as Parameters<typeof realUnlink>[0]);
+    });
+    try {
+      const resultado = await limparSnapshots({
+        snapDir,
+        logFiles: [logFile],
+        politica: politicaGenerosa,
+      });
+      expect(resultado.removidos).toBe(0);
+      expect(resultado.erros).toHaveLength(1);
+    } finally {
+      espiao.mockRestore();
+    }
   });
 });
 
@@ -585,6 +790,43 @@ describe("createServer", () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/logs`, { method: "DELETE" });
       expect(res.status).toBe(200);
       expect(await readFile(logFile, "utf8")).toBe("");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("DELETE /api/logs remove tambem a rotacao e os snapshots orfaos", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const snapDir = path.join(tmpDir, "snapshots");
+    await mkdir(snapDir, { recursive: true });
+    const ref = path.join(snapDir, "ref.jpg");
+    await writeFile(ref, "BLOB");
+    await appendLogEntry(
+      {
+        timestamp: "x",
+        modelo: "m",
+        objetos: [],
+        resumo: "a",
+        tipo: "deteccao",
+        snapshot: "/snapshots/ref.jpg",
+      },
+      logFile
+    );
+    await writeFile(`${logFile}.1`, "historico antigo\n");
+
+    const server = createServer({ logFile, snapDir, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/logs`, { method: "DELETE" });
+      expect(res.status).toBe(200);
+      const corpo = (await res.json()) as { ok: boolean; snapshots: { removidos: number } };
+      expect(corpo.ok).toBe(true);
+      expect(corpo.snapshots.removidos).toBe(1);
+      expect(await readFile(logFile, "utf8")).toBe("");
+      await expect(readFile(`${logFile}.1`)).rejects.toThrow();
+      await expect(readFile(ref)).rejects.toThrow();
     } finally {
       server.close();
     }
