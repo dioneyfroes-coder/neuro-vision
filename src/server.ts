@@ -52,6 +52,15 @@ export const POLITICA_SNAPSHOTS_PADRAO: PoliticaSnapshots = {
 /** Intervalo minimo entre limpezas automaticas disparadas por novas gravacoes. */
 export const SNAP_CLEAN_INTERVAL_MS = numeroEnv("SNAP_CLEAN_INTERVAL_MS", 10 * 60 * 1000);
 
+/** Limite do corpo JSON de `POST /api/log`. */
+export const BODY_MAX_BYTES = numeroEnv("BODY_MAX_BYTES", 1_000_000);
+/** Limite do corpo JSON de `POST /api/visao` (imagem base64 + snapshot). */
+export const VISAO_BODY_MAX_BYTES = numeroEnv("VISAO_BODY_MAX_BYTES", 12_000_000);
+/** Limite de um unico snapshot (data URL/base64) aceito para gravacao. */
+export function limiteUploadSnapshot(): number {
+  return numeroEnv("SNAP_UPLOAD_MAX_BYTES", 5_000_000);
+}
+
 const EXTENSOES_SNAPSHOT = /\.(jpe?g|png|webp)$/i;
 
 /** Extrai, de forma segura, o nome do arquivo a partir de uma URL `/snapshots/...`. */
@@ -67,6 +76,47 @@ export function nomeArquivoSnapshot(url: unknown): string | null {
 /** Arquivos de log preservaveis: o atual e a ultima rotacao. */
 export function arquivosDeLog(logFile: string): string[] {
   return [logFile, `${logFile}.1`];
+}
+
+const LOOPBACK = /^(127(\.\d{1,3}){3}|::1|localhost)$/i;
+
+/**
+ * Um host que nao seja loopback expoe a interface e a API (sem autenticacao) a
+ * rede local. O servidor so aceita esse bind com `NEURO_ALLOW_REMOTE=1`.
+ */
+export function hostExpostoNaRede(host: string): boolean {
+  const limpo = host.trim().replace(/^\[|\]$/g, "");
+  if (!limpo) return true;
+  return !LOOPBACK.test(limpo);
+}
+
+/** Origens extras permitidas alem da propria (CSV em `NEURO_ALLOWED_ORIGINS`). */
+export function origensPermitidas(valor: string | undefined): string[] {
+  return (valor ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0);
+}
+
+/**
+ * Bloqueia requisicoes de origem cruzada. Sem cabecalho `Origin` (mesma origem
+ * ou cliente nao-navegador) a requisicao passa; com `Origin`, ele precisa bater
+ * com o host da requisicao ou estar em `NEURO_ALLOWED_ORIGINS`.
+ */
+export function origemBloqueada(
+  origem: string | undefined,
+  host: string | undefined,
+  permitidas: string[]
+): boolean {
+  if (!origem) return false;
+  let origemHost: string;
+  try {
+    origemHost = new URL(origem).host;
+  } catch {
+    return true;
+  }
+  if (host && origemHost === host) return false;
+  return !permitidas.includes(origem);
 }
 
 const MIME: Record<string, string> = {
@@ -247,6 +297,54 @@ export async function salvarSnapshot(
   const nome = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
   await fs.promises.writeFile(path.join(snapDir, nome), Buffer.from(b64, "base64"));
   return `${SNAP_URL}/${nome}`;
+}
+
+function campoTipoTexto(valor: unknown, campo: string): string | null {
+  if (valor === undefined || valor === null || typeof valor === "string") return null;
+  return `campo '${campo}' deve ser texto`;
+}
+
+/** Valida o tamanho de um snapshot (data URL/base64) antes de gravar. */
+export function validarSnapshot(
+  imagem: unknown,
+  maxBytes = limiteUploadSnapshot()
+): string | null {
+  if (imagem === undefined || imagem === null) return null;
+  if (typeof imagem !== "string") return "campo 'snapshot' deve ser texto (data URL)";
+  const b64 = extrairBase64Imagem(imagem);
+  if (!b64) return null;
+  const bytes = Math.floor((b64.length * 3) / 4);
+  if (bytes > maxBytes) return `snapshot excede o limite de ${maxBytes} bytes`;
+  return null;
+}
+
+/** Valida tipos do payload de `POST /api/log`. Retorna a mensagem de erro ou null. */
+export function validarPayloadLog(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    return "payload deve ser um objeto JSON";
+  }
+  const p = payload as Record<string, unknown>;
+  if (p.objetos !== undefined && !Array.isArray(p.objetos)) {
+    return "campo 'objetos' deve ser uma lista";
+  }
+  const texto = campoTipoTexto(p.resumo, "resumo") ?? campoTipoTexto(p.modelo, "modelo");
+  if (texto) return texto;
+  return validarSnapshot(p.snapshot);
+}
+
+/** Valida tipos do payload de `POST /api/visao`. Retorna a mensagem de erro ou null. */
+export function validarPayloadVisao(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    return "payload deve ser um objeto JSON";
+  }
+  const p = payload as Record<string, unknown>;
+  const texto =
+    campoTipoTexto(p.imagem, "imagem") ??
+    campoTipoTexto(p.modelo, "modelo") ??
+    campoTipoTexto(p.anterior, "anterior") ??
+    campoTipoTexto(p.roteiro, "roteiro");
+  if (texto) return texto;
+  return validarSnapshot(p.snapshot);
 }
 
 interface ArquivoSnapshot {
@@ -482,8 +580,13 @@ async function handleLog(
   snapDir: string
 ): Promise<void> {
   try {
-    const raw = await readBody(req);
+    const raw = await readBody(req, BODY_MAX_BYTES);
     const payload: unknown = JSON.parse(raw || "{}");
+    const erro = validarPayloadLog(payload);
+    if (erro) {
+      sendJson(res, 400, { ok: false, erro });
+      return;
+    }
     const entry = montarEntrada(payload);
     const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
       string,
@@ -597,10 +700,16 @@ async function handleVisao(
 ): Promise<void> {
   let payload: unknown;
   try {
-    const raw = await readBody(req, 12_000_000);
+    const raw = await readBody(req, VISAO_BODY_MAX_BYTES);
     payload = JSON.parse(raw || "{}");
   } catch (err) {
     sendJson(res, 400, { ok: false, erro: (err as Error).message });
+    return;
+  }
+
+  const erroPayload = validarPayloadVisao(payload);
+  if (erroPayload) {
+    sendJson(res, 400, { ok: false, erro: erroPayload });
     return;
   }
 
@@ -765,9 +874,15 @@ export function createServer(config: ServerConfig = {}): http.Server {
   const logFile = config.logFile ?? LOG_FILE;
   const snapDir = config.snapDir ?? SNAP_DIR;
   const publicDir = config.publicDir ?? PUBLIC_DIR;
+  const permitidas = origensPermitidas(process.env.NEURO_ALLOWED_ORIGINS);
 
   return http.createServer((req, res) => {
     const url = req.url ?? "/";
+    if (origemBloqueada(req.headers.origin, req.headers.host, permitidas)) {
+      res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Origem nao permitida");
+      return;
+    }
     const pathname = url.split("?")[0];
     if (req.method === "POST" && url === "/api/log") {
       void handleLog(req, res, logFile, snapDir);
@@ -810,6 +925,22 @@ const entryUrl = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
 if (import.meta.url === entryUrl) {
   const PORT = Number(process.env.PORT) || 3000;
   const HOST = process.env.HOST || "127.0.0.1";
+  if (hostExpostoNaRede(HOST) && process.env.NEURO_ALLOW_REMOTE !== "1") {
+    logEvent("error", "bind_remoto_bloqueado", { host: HOST });
+    console.error(
+      `\n  HOST=${HOST} expoe a interface e a API a rede local, sem autenticacao.\n` +
+        `  Use HOST=127.0.0.1 (padrao) ou defina NEURO_ALLOW_REMOTE=1 para assumir o risco.\n` +
+        `  Ao expor, restrinja o acesso (firewall/reverse proxy com autenticacao) e limite as origens com NEURO_ALLOWED_ORIGINS.\n`
+    );
+    process.exit(1);
+  }
+  if (hostExpostoNaRede(HOST)) {
+    logEvent("warn", "bind_remoto_habilitado", { host: HOST });
+    console.warn(
+      `\n  AVISO: HOST=${HOST} expoe a interface e a API a rede local, sem autenticacao.\n` +
+        `  Restrinja o acesso (firewall/reverse proxy com autenticacao) e limite as origens com NEURO_ALLOWED_ORIGINS.\n`
+    );
+  }
   // Limpeza inicial em segundo plano, sem atrasar a subida do servidor.
   limparSnapshots()
     .then((resultado) => {

@@ -8,15 +8,21 @@ import {
   appendLogEntry,
   arquivosDeLog,
   createServer,
+  hostExpostoNaRede,
   lerLogEntries,
   limparLog,
   limparSnapshots,
   logEvent,
   montarEntrada,
   nomeArquivoSnapshot,
+  origemBloqueada,
+  origensPermitidas,
   resolverCaminhoDentroDaBase,
   resolveStaticFile,
   salvarSnapshot,
+  validarPayloadLog,
+  validarPayloadVisao,
+  validarSnapshot,
   type PoliticaSnapshots,
 } from "./server";
 import type { EntradaLog } from "./types";
@@ -178,6 +184,58 @@ describe("nomeArquivoSnapshot", () => {
     expect(nomeArquivoSnapshot("/snapshots/..%2fsegredo.jsonl")).toBeNull();
     expect(nomeArquivoSnapshot("/snapshots/x.txt")).toBeNull();
     expect(nomeArquivoSnapshot("/snapshots/")).toBeNull();
+  });
+});
+
+describe("seguranca de rede", () => {
+  it("detecta hosts expostos na rede", () => {
+    expect(hostExpostoNaRede("127.0.0.1")).toBe(false);
+    expect(hostExpostoNaRede("127.0.0.5")).toBe(false);
+    expect(hostExpostoNaRede("::1")).toBe(false);
+    expect(hostExpostoNaRede("[::1]")).toBe(false);
+    expect(hostExpostoNaRede("localhost")).toBe(false);
+    expect(hostExpostoNaRede("0.0.0.0")).toBe(true);
+    expect(hostExpostoNaRede("192.168.0.10")).toBe(true);
+    expect(hostExpostoNaRede("::")).toBe(true);
+    expect(hostExpostoNaRede("")).toBe(true);
+  });
+
+  it("lista origens extras a partir de CSV", () => {
+    expect(origensPermitidas(undefined)).toEqual([]);
+    expect(origensPermitidas("")).toEqual([]);
+    expect(origensPermitidas(" http://a.com , http://b.com ")).toEqual([
+      "http://a.com",
+      "http://b.com",
+    ]);
+  });
+
+  it("bloqueia origem cruzada e libera a propria", () => {
+    expect(origemBloqueada(undefined, "127.0.0.1:3000", [])).toBe(false);
+    expect(origemBloqueada("http://127.0.0.1:3000", "127.0.0.1:3000", [])).toBe(false);
+    expect(origemBloqueada("http://evil.example", "127.0.0.1:3000", [])).toBe(true);
+    expect(
+      origemBloqueada("http://evil.example", "127.0.0.1:3000", ["http://evil.example"])
+    ).toBe(false);
+    expect(origemBloqueada("nao-e-url", "127.0.0.1:3000", [])).toBe(true);
+  });
+
+  it("valida tamanho e tipo do snapshot", () => {
+    expect(validarSnapshot(undefined)).toBeNull();
+    expect(validarSnapshot("")).toBeNull();
+    expect(validarSnapshot(123)).toContain("snapshot");
+    // 4 caracteres de base64 representam 3 bytes decodificados.
+    expect(validarSnapshot("QUJD", 3)).toBeNull();
+    expect(validarSnapshot("QUJD", 2)).toContain("limite");
+  });
+
+  it("valida tipos do payload de log e visao", () => {
+    expect(validarPayloadLog([])).toContain("objeto");
+    expect(validarPayloadLog({ objetos: "x" })).toContain("objetos");
+    expect(validarPayloadLog({ resumo: 1 })).toContain("resumo");
+    expect(validarPayloadLog({ objetos: [], resumo: "ok" })).toBeNull();
+
+    expect(validarPayloadVisao({ imagem: 42 })).toContain("imagem");
+    expect(validarPayloadVisao({ imagem: "QkxPQ" })).toBeNull();
   });
 });
 
@@ -859,6 +917,96 @@ describe("createServer", () => {
       expect(await arquivo.text()).toBe("BLOB");
     } finally {
       server.close();
+    }
+  });
+
+  it("POST /api/log rejeita tipos invalidos com 400 e nao grava", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const server = createServer({ logFile, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ objetos: "nao-e-lista", resumo: "x" }),
+      });
+      expect(res.status).toBe(400);
+      const corpo = (await res.json()) as { ok: boolean; erro?: string };
+      expect(corpo.ok).toBe(false);
+      expect(corpo.erro).toContain("objetos");
+      const conteudo = await readFile(logFile, "utf8").catch(() => "");
+      expect(conteudo).toBe("");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("POST /api/log rejeita snapshot acima do limite de upload", async () => {
+    const anterior = process.env.SNAP_UPLOAD_MAX_BYTES;
+    process.env.SNAP_UPLOAD_MAX_BYTES = "8";
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const snapDir = path.join(tmpDir, "snapshots");
+    const server = createServer({ logFile, snapDir, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const snapshot = "data:image/jpeg;base64," + Buffer.from("abcdefghijkl").toString("base64");
+      const res = await fetch(`http://127.0.0.1:${port}/api/log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resumo: "x", snapshot }),
+      });
+      expect(res.status).toBe(400);
+      const corpo = (await res.json()) as { erro?: string };
+      expect(corpo.erro).toContain("limite");
+    } finally {
+      server.close();
+      if (anterior === undefined) delete process.env.SNAP_UPLOAD_MAX_BYTES;
+      else process.env.SNAP_UPLOAD_MAX_BYTES = anterior;
+    }
+  });
+
+  it("bloqueia requisicoes de origem cruzada com 403", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const server = createServer({ logFile, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: "http://evil.example" },
+        body: JSON.stringify({ resumo: "x" }),
+      });
+      expect(res.status).toBe(403);
+      expect(await readFile(logFile, "utf8").catch(() => "")).toBe("");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("libera origem extra configurada em NEURO_ALLOWED_ORIGINS", async () => {
+    const anterior = process.env.NEURO_ALLOWED_ORIGINS;
+    process.env.NEURO_ALLOWED_ORIGINS = "http://parceiro.example";
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const server = createServer({ logFile, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: "http://parceiro.example" },
+        body: JSON.stringify({ resumo: "x" }),
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      server.close();
+      if (anterior === undefined) delete process.env.NEURO_ALLOWED_ORIGINS;
+      else process.env.NEURO_ALLOWED_ORIGINS = anterior;
     }
   });
 

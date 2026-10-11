@@ -56,7 +56,7 @@ Variáveis de ambiente lidas pelo servidor:
 | Variável | Padrão | Descrição |
 | --- | --- | --- |
 | `PORT` | `3000` | Porta HTTP. |
-| `HOST` | `127.0.0.1` | Interface de escuta (use `0.0.0.0` para expor na rede). |
+| `HOST` | `127.0.0.1` | Interface de escuta. Um host não-loopback exige `NEURO_ALLOW_REMOTE=1`. |
 | `OLLAMA_HOST` | `http://localhost:11434` | URL do Ollama. |
 | `OLLAMA_MODEL` | `qwen2.5vl:3b` | Modelo de visão não-pensante usado na descrição. |
 | `LOG_MAX_BYTES` | `5000000` | Tamanho máximo de `visao.jsonl` antes de rotacionar para `.1`. |
@@ -64,6 +64,11 @@ Variáveis de ambiente lidas pelo servidor:
 | `SNAP_MAX_FILES` | `1000` | Quantidade máxima de snapshots (`0` desativa). |
 | `SNAP_MAX_AGE_DAYS` | `30` | Idade máxima de um snapshot em dias (`0` desativa). |
 | `SNAP_CLEAN_INTERVAL_MS` | `600000` | Intervalo mínimo entre limpezas automáticas disparadas por novas gravações. |
+| `SNAP_UPLOAD_MAX_BYTES` | `5000000` | Limite de um único snapshot (data URL/base64) aceito para gravação. |
+| `BODY_MAX_BYTES` | `1000000` | Limite do corpo JSON de `POST /api/log`. |
+| `VISAO_BODY_MAX_BYTES` | `12000000` | Limite do corpo JSON de `POST /api/visao`. |
+| `NEURO_ALLOW_REMOTE` | (vazio) | `1` permite escutar em host não-loopback (assumindo o risco). |
+| `NEURO_ALLOWED_ORIGINS` | (vazio) | CSV de origens extras permitidas além da própria (ex.: `http://host:3000`). |
 
 Exemplo:
 
@@ -119,6 +124,27 @@ Os snapshots em `logs/snapshots/` são limitados por idade, quantidade e tamanho
 - roda em segundo plano (na subida do servidor, após novas gravações e ao limpar o histórico), sem bloquear requisições e tolerando falhas parciais de sistema de arquivos.
 
 `DELETE /api/logs` limpa o histórico (atual e `.1`) e, como as entradas deixam de existir, remove de imediato os snapshots que ficaram órfãos.
+
+### Segurança e exposição na rede
+
+Por padrão o servidor escuta apenas em `127.0.0.1` (loopback), sem autenticação. **Execução local e execução acessível pela rede têm riscos diferentes:**
+
+- **Local (`HOST=127.0.0.1`)**: só processos da máquina alcançam a interface e a API.
+- **Expõe na rede (`HOST=0.0.0.0` ou um IP concreto)**: qualquer host da rede local (e, conforme o firewall, além dele) alcança a interface, a API e os snapshots — ou seja, câmera, descrições e histórico. Não há autenticação embutida.
+
+Para deixar esse limite explícito, o servidor **recusa** escutar em host não-loopback sem um opt-in deliberado:
+
+```bash
+HOST=0.0.0.0 NEURO_ALLOW_REMOTE=1 npm start   # assume o risco
+```
+
+Antes de recomendar exposição na rede, é necessário **implementar autenticação ou outro controle de acesso adequado** (por exemplo, um reverse proxy com autenticação na frente), restringir o firewall à rede confiável e limitar as origens dos navegadores. Enquanto isso não existir, prefira `HOST=127.0.0.1`.
+
+Controles já aplicados:
+
+- Rejeição de **origem cruzada**: requisição com cabeçalho `Origin` só é aceita se bater com o host da requisição ou estiver em `NEURO_ALLOWED_ORIGINS` (resposta `403` caso contrário).
+- **Limites de tamanho**: corpo JSON de `/api/log` (`BODY_MAX_BYTES`), de `/api/visao` (`VISAO_BODY_MAX_BYTES`) e de cada snapshot (`SNAP_UPLOAD_MAX_BYTES`).
+- **Validação de tipos**: payloads com campos de tipo inválido (ex.: `objetos` não-lista, `resumo`/`imagem` não-texto, `snapshot` não-texto ou acima do limite) são recusados com `400`.
 
 ## Estrutura
 

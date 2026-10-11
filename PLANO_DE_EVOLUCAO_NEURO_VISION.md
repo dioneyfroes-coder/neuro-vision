@@ -146,12 +146,14 @@ Arquivos principais: `src/server.ts`, testes e documentação.
 
 ### 1.6 Estabelecer o limite de segurança de rede
 
-- [ ] Manter `HOST=127.0.0.1` como padrão.
-- [ ] Documentar que usar `HOST=0.0.0.0` expõe a interface e endpoints da API à rede local.
-- [ ] Antes de recomendar exposição na rede, implementar autenticação ou outro controle de acesso adequado, limitar origens e validar os payloads recebidos.
-- [ ] Aplicar limites de tamanho também a snapshots e requisições JSON; rejeitar tipos de dados inválidos.
+- [x] Manter `HOST=127.0.0.1` como padrão.
+- [x] Documentar que usar `HOST=0.0.0.0` expõe a interface e endpoints da API à rede local.
+- [x] Antes de recomendar exposição na rede, implementar autenticação ou outro controle de acesso adequado, limitar origens e validar os payloads recebidos.
+- [x] Aplicar limites de tamanho também a snapshots e requisições JSON; rejeitar tipos de dados inválidos.
 
 **Aceite:** o projeto deixa explícito que execução local e execução acessível pela rede têm riscos diferentes.
+
+**Implementação:** o default segue `HOST=127.0.0.1`. Nova guarda de bind: `hostExpostoNaRede()` (loopback = `127.0.0.0/8`/`::1`/`localhost`) faz o servidor **recusar** host não-loopback com mensagem clara, a menos que `NEURO_ALLOW_REMOTE=1` seja definido; com o opt-in, emite aviso de risco. Controle de origem: `origemBloqueada()` rejeita (`403`) requisições cujo `Origin` não case com o `Host` da requisição nem conste em `NEURO_ALLOWED_ORIGINS` (sem `Origin`, passa — mesma origem/cliente não-navegador). Validação de payloads via `validarPayloadLog`/`validarPayloadVisao` (`400` para payload não-objeto, `objetos` não-lista, `resumo`/`modelo`/`imagem`/`anterior`/`roteiro` não-texto) e `validarSnapshot` (`400` para `snapshot` não-texto ou acima de `SNAP_UPLOAD_MAX_BYTES`, lido em tempo de execução). Limites de corpo: `BODY_MAX_BYTES` (`/api/log`) e `VISAO_BODY_MAX_BYTES` (`/api/visao`). README ganhou a tabela de variáveis e a seção "Segurança e exposição na rede" deixando explícito que local e acessível-pela-rede são cenários de risco distintos e que expor exige autenticação/controle de acesso antes. Testes: helpers de host/origem/validação e casos HTTP (`400` por tipo inválido, `400` por snapshot grande, `403` origem cruzada, origem extra liberada) — 117 testes no total.
 
 ---
 
@@ -317,7 +319,7 @@ interface EventoVisual {
 
 Marque aqui as fases inteiras conforme forem concluídas:
 
-- [ ] **Marco 1 — Confiabilidade:** Fase 0 + Fase 1.
+- [x] **Marco 1 — Confiabilidade:** Fase 0 + Fase 1.
 - [ ] **Marco 2 — Código sustentável:** Fase 2.
 - [ ] **Marco 3 — Percepção temporal:** Fase 3.
 - [ ] **Marco 4 — Memória persistente:** Fase 4.
