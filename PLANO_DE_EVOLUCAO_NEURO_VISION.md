@@ -327,8 +327,8 @@ interface EventoVisual {
 
 ## Fase 7 — Validar qualidade e preparar o próximo nível
 
-- [ ] Criar um conjunto de testes visuais próprio, com vídeos curtos de cenas estáticas e mudanças conhecidas.
-- [ ] Anotar eventos esperados para permitir comparação consistente.
+- [x] Criar um conjunto de testes visuais próprio, com vídeos curtos de cenas estáticas e mudanças conhecidas.
+- [x] Anotar eventos esperados para permitir comparação consistente.
 - [x] Calcular precisão/recall dos eventos ou, como mínimo, falsos positivos por minuto e proporção de mudanças não detectadas.
 - [x] Definir metas realistas por hardware antes de otimizar.
 - [x] Rodar regressão após mudanças em prompts, modelos, rastreamento e agendamento.
@@ -336,6 +336,8 @@ interface EventoVisual {
 - [x] Atualizar `README.md` e `TODO.md` quando uma tarefa for concluída; manter este plano como roadmap de médio prazo.
 
 **Implementação 7:** por decisão de escopo, esta fase **construiu o mecanismo de medição e adiou os clipes reais** (a camada de política/rastreamento, que não depende de vídeo, já é medida em `src/qualidade-eventos.test.ts`). O conjunto anotado ganhou convenção em `bench/videos/` (com `exemplo-anotacao.json` e o formato documentado: `inicio`, `duracaoMs`, e `eventos` com `tipo`+`em`) e o comparador `scripts/avaliar-qualidade.mjs` (script `npm run qualidade`). A comparação é **melhor-esforço e determinística**: para cada evento esperado procura a detecção de tipo compatível mais próxima dentro da tolerância (`--tolerancia`, padrão 3000 ms; `"qualquer"` casa com qualquer mudança), com `--offset` para alinhar o início da gravação e `resumo` ignorado por padrão (`--ignorados`). Saída: **precisão**, **recall**, **proporção de mudanças perdidas** e **falsos positivos por minuto** (mais `--json` com cada casamento/perda). `carregarAnotacao`/`parsearEventos` validam a entrada e ignoram linhas corrompidas; 18 testes em `scripts/avaliar-qualidade.test.mjs` cobrem tolerância nas bordas, tipos incompatíveis, `"qualquer"`, resumo ignorado, casamento mais próximo e duração derivada. A **linha de base** ficou em `bench/BASELINE.md` (Xeon E5-2660 v3, 20 threads, ~15,8 GB, Radeon RX 5600 OEM, Windows 10, Node 24), com o procedimento `npm run bench -- --json` e metas iniciais (sem CUDA). O `README.md` ganhou a seção **Qualidade de eventos** (fluxo de regressão: `npm test` + `npm run test:e2e`, depois `npm run bench`/`npm run qualidade` contra a linha de base) e uma seção de **Limitações conhecidas** (oclusão, iluminação, classes não treinadas, alucinações, identificação incerta, fallback de CPU e dados sensíveis). O `TODO.md` foi removido por decisão anterior; o acompanhamento segue por este plano.
+
+**Implementação 7 (clipes reais):** o teste real foi retomado a pedido e agora existe de ponta a ponta. `scripts/gravar-webcam.mjs` (script `npm run gravar:webcam`) grava alguns segundos da webcam em `.webm` sem depender de `ffmpeg`, e `scripts/extrair-frames.mjs` (`npm run extrair:frames`) extrai quadros para conferência/anotação. O spec opt-in `e2e/webcam.spec.ts` reproduz o clipe como “câmera” (canvas + `captureStream`), mantém o clipe parado no 1º quadro até o **modelo real** (`Xenova/yolos-tiny`) carregar e só então o toca, capturando os eventos via `POST /api/eventos`; grava também um sidecar `<eventos>.inicio` com o instante de início do clipe. O `scripts/avaliar-qualidade.mjs` passou a ler esse sidecar como base dos offsets `em` (precedência sidecar > `inicio` da anotação > primeira detecção; helper `resolverBaseMs`, com testes), tornando a comparação reprodutível sem editar a anotação a cada rodada. Para rodar com GPU, o spec aceita `E2E_WEBCAM_CHANNEL` (ex.: `chrome`); sem WebGPU ele esconde `navigator.gpu` para forçar o WASM. **Custo medido:** ~24 s/quadro em WASM/CPU (Chromium do Playwright) contra ~5–6 s/quadro em WebGPU (Chrome instalado) — a cadência entre análises vira a tolerância natural. Com um clipe real de 30 s (pessoa presente que sai do quadro ~19,5 s), a medição de referência deu **precisão 25% · recall 100% · ~6 falsos positivos/min**, com a saída detectada ~3,4 s depois; os falsos positivos foram rótulos instáveis (`gravata`/`forno`) e uma `mudanca_de_cena` espúria. A anotação `bench/videos/webcam-mudanca.json` e a medição ficaram em `bench/videos/README.md` e `bench/BASELINE.md`; o `README.md` ganhou o fluxo do clipe real.
 
 **Aceite da fase:** é possível dizer, com dados, se uma mudança tornou o sistema mais preciso, mais rápido ou mais econômico.
 
@@ -351,7 +353,7 @@ Marque aqui as fases inteiras conforme forem concluídas:
 - [x] **Marco 4 — Memória persistente:** Fase 4.
 - [x] **Marco 5 — Inferência inteligente:** Fase 5.
 - [x] **Marco 6 — Desempenho e operação:** Fase 6.
-- [ ] **Marco 7 — Qualidade mensurável:** Fase 7.
+- [x] **Marco 7 — Qualidade mensurável:** Fase 7.
 
 ## Regras para manter o projeto sob controle
 

@@ -42,6 +42,10 @@ function arredondar(n, casas = 2) {
  *
  * `em` e o instante do evento em **ms desde o inicio da gravacao**. `tipo` pode
  * ser um dos tipos de `EventoVisual` ou `"qualquer"` (casa com qualquer mudanca).
+ *
+ * A base dos offsets vem, por precedencia: do sidecar `<eventos>.inicio` (ISO
+ * gravado junto ao JSONL ao avaliar um clipe real), do campo `inicio` da
+ * anotacao, ou do timestamp detectado mais antigo.
  */
 export function carregarAnotacao(dados) {
   if (typeof dados !== "object" || dados === null || Array.isArray(dados)) {
@@ -91,6 +95,24 @@ export function parsearEventos(texto) {
 
 function tiposCompativeis(esperado, detectado) {
   return esperado === "qualquer" || esperado === detectado;
+}
+
+/**
+ * Resolve a base (ms) para converter timestamps ISO em offsets `em`.
+ *
+ * Precedencia:
+ *   1. `inicioSidecar`: um ISO gravado ao lado do JSONL de eventos (ex.: o
+ *      instante em que o clipe comecou a tocar durante uma avaliacao com clipe
+ *      real). Torna a medicao reprodutivel sem editar a anotacao a cada rodada.
+ *   2. `inicio`: o campo `inicio` da anotacao.
+ *   3. O timestamp detectado mais antigo.
+ *   4. 0, quando nao ha nada.
+ */
+export function resolverBaseMs({ inicio, inicioSidecar, timestamps = [] } = {}) {
+  if (inicioSidecar && Number.isFinite(Date.parse(inicioSidecar))) return Date.parse(inicioSidecar);
+  if (inicio && Number.isFinite(Date.parse(inicio))) return Date.parse(inicio);
+  const validos = timestamps.map((t) => Date.parse(t)).filter((n) => Number.isFinite(n));
+  return validos.length ? Math.min(...validos) : 0;
 }
 
 function taxa(numerador, denominador) {
@@ -224,11 +246,16 @@ async function main() {
   }
 
   const brutos = parsearEventos(texto);
-  const baseMs = anotacao.inicio
-    ? Date.parse(anotacao.inicio)
-    : brutos.length
-      ? Math.min(...brutos.map((e) => Date.parse(e.timestamp)))
-      : 0;
+  // O clipe real deixa um sidecar `<eventos>.inicio` com o instante em que o
+  // clipe comecou a tocar; ele define a base para os offsets `em`.
+  const inicioSidecar = await readFile(`${caminhoEventos}.inicio`, "utf8")
+    .then((t) => t.trim())
+    .catch(() => undefined);
+  const baseMs = resolverBaseMs({
+    inicio: anotacao.inicio,
+    inicioSidecar,
+    timestamps: brutos.map((e) => e.timestamp),
+  });
   const detectados = brutos
     .map((e) => ({ ...e, em: Date.parse(e.timestamp) - baseMs + args.offset }))
     .filter((e) => Number.isFinite(e.em));

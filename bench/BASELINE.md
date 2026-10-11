@@ -42,11 +42,38 @@ execução para que os números sejam comparáveis.
 
 3. Guarde os dois relatórios e a data. Compare sempre com a mesma carga.
 
+## Medição com clipe real (Fase 7)
+
+Fluxo em `bench/videos/README.md`. Clipe `webcam-mudanca.webm` (640×480, ~30 s; a
+pessoa sai do quadro por volta de 19,5 s). O spec `e2e/webcam.spec.ts` reproduz o
+clipe como câmera e roda o modelo real (`Xenova/yolos-tiny`).
+
+Custo por inferência (medido nesta máquina):
+
+| Caminho | Carga do modelo | Por inferência |
+|---------|-----------------|----------------|
+| WASM/CPU (Chromium do Playwright) | ~4 s | ~23–25 s |
+| WebGPU (Chrome instalado) | ~5 s | ~4–8 s |
+
+Resultado da avaliação (WebGPU, 4 análises sobre os 30 s):
+
+| Métrica | Valor |
+|---------|-------|
+| Precisão | 25% |
+| Recall | 100% |
+| Mudanças perdidas | 0 |
+| Falsos positivos/min | 6 |
+| Latência da saída detectada | ~3,4 s (após o instante real) |
+
+Os falsos positivos foram rótulos instáveis do detector (`gravata`, `forno`) e uma
+`mudanca_de_cena` espúria. A variância entre execuções é alta (em 640×480 o
+detector troca de rótulo), então trate estes números como ordem de grandeza.
+
 ## Metas iniciais
 
-Enquanto o conjunto de vídeos reais não é incluído, as metas abaixo são o
-**ponto de partida conservador** para esta máquina; ajuste-as com os primeiros
-números medidos, sem piorar o que já é aceitável:
+As metas abaixo são o **ponto de partida conservador** para esta máquina (o
+conjunto real ainda tem um único clipe); ajuste-as com os primeiros números
+medidos, sem piorar o que já é aceitável:
 
 - **Latência de descrição (Ollama, visão):** manter a mediana dentro de uma
   faixa utilizável para webcam (ordem de poucos segundos por frame analisado).
@@ -54,14 +81,20 @@ números medidos, sem piorar o que já é aceitável:
   absorver a ausência de mudança sem inferência.
 - **Falsos positivos por minuto em cena estática:** 0 (a camada de política já é
   coberta por `src/qualidade-eventos.test.ts`).
-- **Recall de mudanças relevantes:** alto (nenhuma mudança anotada deve passar
-  batido) depois que o conjunto real estiver disponível.
-- **Detecção no navegador:** preferir WebGPU; registrar quando estiver em CPU.
+- **Recall de mudanças relevantes:** alto, com tolerância compatível com a
+  cadência de amostragem (a `mudanca_de_cena`/`desaparecimento` pode chegar
+  segundos depois do instante real).
+- **Detecção no navegador:** preferir WebGPU (~5–6 s/quadro); em CPU/WASM cai
+  para ~24 s/quadro e a qualidade de eventos piora muito. Registrar o caminho.
 
 ## Limitações da linha de base
 
 - Esta máquina **não tem CUDA**; o ganho de WebGPU é medido no próprio navegador.
 - Os números do Ollama dependem do modelo carregado e do estado do servidor;
   um servidor instável contamina a medição.
-- Sem os clipes reais, as metas de qualidade são qualitativas; só a camada de
-  política/rastreamento é medida de forma reproduzível hoje.
+- A cadência de análise é o principal limitador da qualidade de eventos: com
+  ~5 s/quadro em WebGPU (ou ~24 s em CPU), a tolerância precisa acomodar essa
+  janela e a detecção de uma mudança tende a atrasar alguns segundos.
+- O detector (YOLOS-tiny) troca de rótulo com frequência em webcam 640×480 —
+  daí os falsos positivos de `gravata`/`forno`; a variância entre execuções é
+  alta.

@@ -238,6 +238,9 @@ public/
   camera.ts            controle da webcam e assinatura de cena
   motores.ts           adaptadores para o motor de percepção
   style.css            estilos
+e2e/
+  app.spec.ts          fluxos de interface (com o transformers.js substituído)
+  webcam.spec.ts       avaliação com clipe real de webcam (opt-in; modelo real)
 logs/
   visao.jsonl          observações gravadas (ignorado no git)
   eventos.jsonl        eventos estruturados (ignorado no git)
@@ -250,6 +253,8 @@ scripts/
   benchmark.mjs        benchmark do Ollama (latência, tok/s, RAM/VRAM, inferências/min)
   gerar-fixtures-bench.mjs  gera o conjunto fixo de imagens sintéticas
   avaliar-qualidade.mjs     compara eventos gravados com a anotação (precisão/recall/FP por minuto)
+  gravar-webcam.mjs         grava alguns segundos da webcam em .webm (clipe de avaliação)
+  extrair-frames.mjs        extrai quadros de um clipe para anotação
 ```
 
 ## Scripts
@@ -267,6 +272,8 @@ scripts/
 | `npm run lint:fix` | ESLint com correção automática. |
 | `npm run bench` | Benchmark de velocidade do modelo local (requer Ollama rodando). |
 | `npm run qualidade` | Compara os eventos gravados com a anotação de um clipe (precisão/recall, falsos positivos por minuto). |
+| `npm run gravar:webcam` | Grava alguns segundos da webcam em `.webm` (clipe para a avaliação de eventos). |
+| `npm run extrair:frames` | Extrai quadros de um clipe `.webm` para conferência/anotação. |
 
 ### Benchmark
 
@@ -300,6 +307,28 @@ npm run qualidade -- --anotacao bench/videos/sala-com-pessoa.json --json > quali
 
 O formato da anotação, o fluxo de captura e as regras de casamento estão em [`bench/videos/README.md`](./bench/videos/README.md). Os vídeos ficam **locais** (não versionados); a anotação `.json` é versionada para a medição ser reproduzível em qualquer máquina que tenha o mesmo clipe. A camada de política/rastreamento, que não depende de vídeo, também é medida em `src/qualidade-eventos.test.ts`.
 
+**Clipe real (ponta a ponta):** dá para gravar um clipe curto da própria webcam e reproduzi-lo para o app com o modelo de verdade (sem stubs):
+
+```bash
+npm run gravar:webcam -- bench/videos/webcam-mudanca.webm 30                       # grava 30 s da webcam
+npm run extrair:frames -- bench/videos/webcam-mudanca.webm bench/videos/frames 1,5,10,15,20,25  # quadros para anotar
+```
+
+Depois, com estas variáveis de ambiente (no PowerShell, `$env:NOME = "valor"`):
+
+```text
+E2E_WEBCAM_CLIP=bench/videos/webcam-mudanca.webm
+E2E_WEBCAM_CHANNEL=chrome          # usa o Chrome instalado (WebGPU); sem ele, roda em WASM/CPU
+E2E_WEBCAM_EVENTOS=logs/webcam-eventos.jsonl
+```
+
+```bash
+npx playwright test e2e/webcam.spec.ts --workers=1
+npm run qualidade -- --anotacao bench/videos/webcam-mudanca.json --eventos logs/webcam-eventos.jsonl --tolerancia 8000
+```
+
+O modelo real é **pesado**: no Chromium do Playwright (WASM/CPU) uma inferência leva ~24 s; com o Chrome instalado (WebGPU) cai para ~5–6 s. Por isso a tolerância precisa acomodar a cadência entre análises (aqui, `--tolerancia 8000`). A medição de referência desta máquina (clipe de 30 s com uma saída de pessoa; 4 análises via WebGPU) deu **precisão 25% · recall 100% · ~6 falsos positivos/min** — os falsos positivos foram rótulos instáveis do detector e uma `mudanca_de_cena` espúria. Os números e a metodologia estão em [`bench/BASELINE.md`](./bench/BASELINE.md).
+
 **Regressão:** após mudanças em prompts, modelos, rastreamento ou agendamento, rode `npm test` (unitários/integração) e `npm run test:e2e` (fluxos no navegador) — ambos são a rede de segurança principal. Para desempenho e qualidade, compare os relatórios novos com a linha de base de `bench/BASELINE.md` usando `npm run bench -- --json` e `npm run qualidade -- --json`.
 
 ### Carregamento do modelo
@@ -318,7 +347,7 @@ O Ollama carrega o modelo na memória sob demanda (o primeiro request é o lento
 - **Alucinações do modelo de visão:** o Ollama pode descrever coisas que não estão na cena. O texto é tratado como relato do modelo, não como verdade.
 - **Identificação incerta de objetos:** o mesmo objeto pode ser rotulado de formas diferentes entre frames; o rastreamento usa IoU e movimento, não reidentificação de longo prazo.
 - **Cenas estáticas:** a política evita chamar o Ollama sem mudança, mas ruído de sensor/compressão ainda pode disparar `mudanca_de_cena`.
-- **WebSub/WebGPU:** sem WebGPU a detecção roda em CPU (aviso persistente na interface) e fica mais lenta.
+- **WebGPU/CPU:** a detecção prefere WebGPU; sem ele roda em CPU (aviso persistente na interface) e fica bem mais lenta — nesta máquina, ~24 s por inferência em WASM/CPU contra ~5–6 s em WebGPU. Isso limita a cadência de análise, e a janela entre amostras vira a tolerância natural da avaliação de eventos.
 - **`HOST` e dados sensíveis:** o servidor escuta em `127.0.0.1` por padrão; subir para `0.0.0.0` expõe a webcam e os logs. Snapshots e logs podem conter pessoas — trate-os como dados sensíveis.
 
 ## Licença

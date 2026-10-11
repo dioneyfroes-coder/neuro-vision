@@ -4,6 +4,7 @@ import {
   compararEventos,
   formatarRelatorio,
   parsearEventos,
+  resolverBaseMs,
   TIPOS_IGNORADOS_PADRAO,
 } from "./avaliar-qualidade.mjs";
 
@@ -145,6 +146,33 @@ describe("carregarAnotacao", () => {
 
   it("rejeita um array no lugar de um objeto", () => {
     expect(() => carregarAnotacao([])).toThrow();
+  });
+});
+
+describe("resolverBaseMs", () => {
+  it("prefere o sidecar ao inicio da anotacao", () => {
+    const base = resolverBaseMs({
+      inicioSidecar: "2026-10-11T14:49:51.315Z",
+      inicio: "2026-10-11T00:00:00.000Z",
+    });
+    expect(base).toBe(Date.parse("2026-10-11T14:49:51.315Z"));
+  });
+
+  it("usa o inicio da anotacao quando nao ha sidecar", () => {
+    const base = resolverBaseMs({ inicio: "2026-10-11T12:00:00.000Z" });
+    expect(base).toBe(Date.parse("2026-10-11T12:00:00.000Z"));
+  });
+
+  it("usa o timestamp mais antigo quando nao ha inicio", () => {
+    const base = resolverBaseMs({
+      timestamps: ["2026-10-11T12:00:07.000Z", "2026-10-11T12:00:03.000Z"],
+    });
+    expect(base).toBe(Date.parse("2026-10-11T12:00:03.000Z"));
+  });
+
+  it("retorna 0 sem base e sem timestamps validos", () => {
+    expect(resolverBaseMs({})).toBe(0);
+    expect(resolverBaseMs({ timestamps: ["invalido"] })).toBe(0);
   });
 });
 
