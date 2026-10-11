@@ -1,13 +1,15 @@
+import { ErroPercepcao } from "../src/erros";
+
 /**
  * Erro de inicializacao da camera, com a fase que falhou, para mensagens
  * distintas na interface.
  */
-export class ErroCamera extends Error {
+export class ErroCamera extends ErroPercepcao {
   constructor(
     public readonly fase: "acesso" | "video",
     cause: Error
   ) {
-    super(cause.message, { cause });
+    super("camera", cause.message, { cause });
     this.name = "ErroCamera";
   }
 }

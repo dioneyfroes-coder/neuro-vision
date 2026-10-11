@@ -174,12 +174,14 @@ Arquivos principais: `src/server.ts`, testes e documentação.
 
 ### 2.2 Definir interfaces independentes dos modelos
 
-- [ ] Definir uma interface comum para motores de percepção, com operações explícitas de inicialização, análise e encerramento.
-- [ ] Padronizar resultado de inferência: modelo, duração, objetos detectados, descrição opcional e metadados de confiança.
-- [ ] Separar erros de câmera, detector, Ollama, armazenamento e cancelamento.
-- [ ] Evitar que o módulo de memória precise conhecer a API específica do Transformers.js ou do Ollama.
+- [x] Definir uma interface comum para motores de percepção, com operações explícitas de inicialização, análise e encerramento.
+- [x] Padronizar resultado de inferência: modelo, duração, objetos detectados, descrição opcional e metadados de confiança.
+- [x] Separar erros de câmera, detector, Ollama, armazenamento e cancelamento.
+- [x] Evitar que o módulo de memória precise conhecer a API específica do Transformers.js ou do Ollama.
 
 **Aceite da fase:** a interface continua funcional e é possível trocar um motor sem reescrever o histórico ou o agendador.
+
+**Implementação:** `src/percepcao.ts` define `MotorPercepcao` (`inicializar`/`analisar`/`encerrar`), o resultado padronizado `ResultadoPercepcao` (modelo, `duracaoMs`, `objetos`, `descricao`, `snapshot`, `confianca`) e o adaptador de memória `entradaDeResultado(resultado, tipo)`, que converte um `ResultadoPercepcao` em `EntradaLog`. `public/motores.ts` implementa a interface com `MotorDeteccao` (envolve `DetectorObjetos`, mede a duração e converte com `descreverDeteccoes`) e `MotorOllama` (monta o payload de descrição/roteiro e chama `api.descreverFrame`). `src/erros.ts` cria `ErroPercepcao` com `origem` (`camera`/`detector`/`ollama`/`armazenamento`/`cancelamento`) e `ehCancelamento`; `camera.ts`, `api.ts` e `detector.ts` passaram a classificar seus erros. `public/app.ts` agora só escolhe o motor em `start()` e consome `ResultadoPercepcao` — o histórico (`src/types.ts` + `entradaDeResultado`) e o agendador (`public/scheduler.ts`) não conhecem Transformers.js nem Ollama, então trocar de motor não os afeta. Cobertos por `src/percepcao.test.ts`, `src/erros.test.ts` e `src/motores.test.ts` (147 testes; typecheck, lint, build e 7 testes E2E verdes).
 
 ---
 
@@ -322,7 +324,7 @@ interface EventoVisual {
 Marque aqui as fases inteiras conforme forem concluídas:
 
 - [x] **Marco 1 — Confiabilidade:** Fase 0 + Fase 1.
-- [ ] **Marco 2 — Código sustentável:** Fase 2.
+- [x] **Marco 2 — Código sustentável:** Fase 2.
 - [ ] **Marco 3 — Percepção temporal:** Fase 3.
 - [ ] **Marco 4 — Memória persistente:** Fase 4.
 - [ ] **Marco 5 — Inferência inteligente:** Fase 5.

@@ -1,6 +1,7 @@
 import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3";
 import type { Detector, Deteccao, ProgressInfo } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3";
 import type { ObjetoVisto } from "../src/types";
+import { ErroPercepcao } from "../src/erros";
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
@@ -154,10 +155,14 @@ export class DetectorObjetos {
       novo = await pipeline("object-detection", modelId, { device, progress_callback: onProgress });
     } catch (err) {
       aoStatus(`WebGPU indisponivel, usando CPU: ${(err as Error).message}`);
-      novo = await pipeline("object-detection", modelId, {
-        device: "wasm",
-        progress_callback: onProgress,
-      });
+      try {
+        novo = await pipeline("object-detection", modelId, {
+          device: "wasm",
+          progress_callback: onProgress,
+        });
+      } catch (errFallback) {
+        throw new ErroPercepcao("detector", (errFallback as Error).message, { cause: errFallback });
+      }
     }
     this.cache.set(modelId, novo);
     this.atualInterno = novo;
@@ -166,7 +171,7 @@ export class DetectorObjetos {
   }
 
   async executar(imagem: string, opcoes: { threshold: number; percentage: false }): Promise<Deteccao[]> {
-    if (!this.atualInterno) throw new Error("Detector nao carregado");
+    if (!this.atualInterno) throw new ErroPercepcao("detector", "Detector nao carregado");
     return this.atualInterno(imagem, opcoes);
   }
 }

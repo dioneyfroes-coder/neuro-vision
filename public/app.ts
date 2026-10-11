@@ -1,11 +1,13 @@
-import type { Deteccao } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3";
-import type { EntradaLog } from "../src/types";
+import type { EntradaLog, ObjetoVisto } from "../src/types";
 import { colapsarRepeticoes } from "../src/texto";
+import { entradaDeResultado } from "../src/percepcao";
+import type { MotorPercepcao, ResultadoPercepcao } from "../src/percepcao";
+import { ehCancelamento } from "../src/erros";
 import { AgendadorAnalise } from "./scheduler";
 import * as api from "./api";
-import type { PayloadVisao } from "./api";
-import { DetectorObjetos, descreverDeteccoes, traduzir } from "./detector";
+import { DetectorObjetos } from "./detector";
 import { Camera, ErroCamera } from "./camera";
+import { MotorDeteccao, MotorOllama } from "./motores";
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -39,6 +41,7 @@ const thresholdInput = el<HTMLInputElement>("threshold");
 const thresholdValue = el<HTMLSpanElement>("thresholdValue");
 
 const detectorCoco = new DetectorObjetos();
+let motorAtual: MotorPercepcao | null = null;
 let running = false;
 let controller: AbortController | null = null;
 let ultimaDescricao = "";
@@ -61,18 +64,18 @@ function setSpinner(ativo: boolean): void {
   spinnerEl.hidden = !ativo;
 }
 
-function drawBoxes(detecoes: Deteccao[]): void {
+function drawBoxes(objetos: ObjetoVisto[]): void {
   ctx.clearRect(0, 0, overlay.width, overlay.height);
   ctx.lineWidth = 3;
   ctx.font = "16px 'Segoe UI', sans-serif";
   ctx.textBaseline = "top";
 
-  for (const d of detecoes) {
-    const { xmin, ymin, xmax, ymax } = d.box;
+  for (const o of objetos) {
+    const { xmin, ymin, xmax, ymax } = o.caixa;
     ctx.strokeStyle = "#4f9cf9";
     ctx.strokeRect(xmin, ymin, xmax - xmin, ymax - ymin);
 
-    const label = `${traduzir(d.label)} ${(d.score * 100).toFixed(0)}%`;
+    const label = `${o.nome} ${(o.score * 100).toFixed(0)}%`;
     const textWidth = ctx.measureText(label).width;
     ctx.fillStyle = "#4f9cf9";
     ctx.fillRect(xmin, ymin, textWidth + 12, 22);
@@ -185,7 +188,7 @@ async function limparHistorico(): Promise<void> {
   }
 }
 
-async function descreverViaOllama(signal: AbortSignal): Promise<void> {
+async function analisarComOllama(signal: AbortSignal, ehRoteiro: boolean): Promise<void> {
   const dataUrl = camera.capturarFrame(512);
   if (dataUrl === null) return;
   const width = camera.largura;
@@ -196,68 +199,90 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
 
   const base64 = dataUrl.split(",")[1] ?? "";
   setStatus("Ollama analisando frame... (pode demorar)");
-  const started = performance.now();
 
-  const ehRoteiro = motorSelect.value === "roteiro";
-  const roteiro = ehRoteiro ? roteiroBeats.slice(-8).join(" ").slice(0, 1200) : "";
-  const payload: PayloadVisao = { imagem: base64, snapshot: dataUrl };
-  if (ehRoteiro) {
-    payload.modo = "roteiro";
-    payload.roteiro = roteiro;
-    payload.base = roteiroPrimeiro;
-  } else {
-    payload.anterior = ultimaDescricao;
-  }
+  const motor = new MotorOllama({
+    modo: ehRoteiro ? "roteiro" : "descricao",
+    roteiro: ehRoteiro ? roteiroBeats.slice(-8).join(" ").slice(0, 1200) : undefined,
+    base: ehRoteiro ? roteiroPrimeiro : undefined,
+    anterior: ehRoteiro ? undefined : ultimaDescricao,
+  });
 
-  let resultado: api.ResultadoVisao;
+  let resultado: ResultadoPercepcao | null;
   try {
-    resultado = await api.descreverFrame(payload, signal, (parcial) => {
-      setStatus(`Ollama: ${colapsarRepeticoes(parcial)}`);
-    });
+    resultado = await motor.analisar(
+      { imagem: base64, snapshot: dataUrl },
+      signal,
+      (parcial) => setStatus(`Ollama: ${colapsarRepeticoes(parcial)}`)
+    );
   } catch (err) {
-    if ((err as Error).name === "AbortError") return;
+    if (ehCancelamento(err) || signal.aborted) return;
     setStatus((err as Error).message);
     return;
   }
+  if (signal.aborted || !resultado) return;
+  ultimaDuracaoMs = resultado.duracaoMs;
 
-  if (signal.aborted) return;
-
-  const { evento, parcial } = resultado;
-  const descricao = evento?.descricao ?? parcial;
-  const ms = Math.round(performance.now() - started);
-  ultimaDuracaoMs = ms;
-
-  if (ehRoteiro && evento?.semMudanca) {
-    setStatus(`Sem mudancas neste intervalo (${ms} ms).`);
+  if (ehRoteiro && resultado.confianca?.semMudanca) {
+    setStatus(`Sem mudancas neste intervalo (${resultado.duracaoMs} ms).`);
     return;
   }
 
   if (ehRoteiro) {
     if (roteiroPrimeiro) roteiroPrimeiro = false;
-    roteiroBeats.push(colapsarRepeticoes(descricao));
+    roteiroBeats.push(colapsarRepeticoes(resultado.descricao ?? ""));
     if (roteiroBeats.length > 64) roteiroBeats.splice(0, roteiroBeats.length - 64);
   }
 
-  const entradaTipo: EntradaLog["tipo"] = ehRoteiro ? "roteiro" : "descricao";
-  const entry: EntradaLog = {
-    timestamp: new Date().toISOString(),
-    modelo: evento?.modelo ?? "ollama",
-    objetos: [],
-    resumo: descricao,
-    tipo: entradaTipo,
-    papel: ehRoteiro ? (evento?.papel ?? "delta") : undefined,
-    snapshot: evento?.snapshot,
-    ms,
-    tokens: evento?.tokens,
-  };
-  ultimaDescricao = descricao;
+  const entry = entradaDeResultado(resultado, ehRoteiro ? "roteiro" : "descricao");
+  ultimaDescricao = resultado.descricao ?? "";
   addLogEntry(entry);
-  if (evento?.tokens) {
-    const tokS = Math.round(evento.tokens / (ms / 1000));
-    setStatus(`Ollama viu: ${descricao} (${ms} ms · ${evento.tokens} toks · ${tokS} tok/s)`);
+
+  const tokens = resultado.confianca?.tokens;
+  if (tokens) {
+    const tokS =
+      resultado.duracaoMs > 0 ? Math.round(tokens / (resultado.duracaoMs / 1000)) : 0;
+    setStatus(
+      `Ollama viu: ${resultado.descricao} (${resultado.duracaoMs} ms · ${tokens} toks · ${tokS} tok/s)`
+    );
   } else {
-    setStatus(`Ollama viu: ${descricao} (${ms} ms)`);
+    setStatus(`Ollama viu: ${resultado.descricao} (${resultado.duracaoMs} ms)`);
   }
+}
+
+async function analisarDeteccao(signal: AbortSignal): Promise<void> {
+  const width = camera.largura;
+  const height = camera.altura;
+  if (!width || !height) return;
+  overlay.width = width;
+  overlay.height = height;
+
+  const dataUrl = camera.capturarFrame();
+  if (dataUrl === null) return;
+
+  setStatus("Analisando frame...");
+  let resultado: ResultadoPercepcao | null;
+  try {
+    if (!motorAtual) return;
+    resultado = await motorAtual.analisar({ imagem: dataUrl }, signal);
+  } catch (err) {
+    if (ehCancelamento(err) || signal.aborted) return;
+    setStatus(`Erro na inferencia: ${(err as Error).message}`);
+    return;
+  }
+  if (signal.aborted || !resultado) return;
+  ultimaDuracaoMs = resultado.duracaoMs;
+
+  drawBoxes(resultado.objetos);
+
+  const thumb = camera.capturarFrame(240);
+  resultado.snapshot = thumb ?? undefined;
+  const entry = entradaDeResultado(resultado, "deteccao");
+  addLogEntry(entry);
+  setStatus(`Viu: ${entry.resumo}  (${resultado.duracaoMs} ms)`);
+
+  void api.gravarEntrada(entry).catch(() => {
+    if (running) setStatus("Falha ao gravar no log do servidor");
+  });
 }
 
 async function analisar(): Promise<void> {
@@ -267,57 +292,12 @@ async function analisar(): Promise<void> {
   const { signal } = ctrl;
   setSpinner(true);
   try {
-    if (motorSelect.value === "ollama" || motorSelect.value === "roteiro") {
-      await descreverViaOllama(signal);
+    const modo = motorSelect.value;
+    if (modo === "ollama" || modo === "roteiro") {
+      await analisarComOllama(signal, modo === "roteiro");
       return;
     }
-
-    const width = camera.largura;
-    const height = camera.altura;
-    if (!width || !height) return;
-
-    overlay.width = width;
-    overlay.height = height;
-
-    const dataUrl = camera.capturarFrame();
-    if (dataUrl === null) return;
-
-    const threshold = Number(thresholdInput.value);
-    setStatus("Analisando frame...");
-    const started = performance.now();
-    let detecoes: Deteccao[];
-    try {
-      detecoes = await detectorCoco.executar(dataUrl, { threshold, percentage: false });
-    } catch (err) {
-      if (signal.aborted) return;
-      setStatus(`Erro na inferencia: ${(err as Error).message}`);
-      return;
-    }
-    if (signal.aborted) return;
-    const ms = Math.round(performance.now() - started);
-    ultimaDuracaoMs = ms;
-
-    drawBoxes(detecoes);
-
-    const { objetos, resumo } = descreverDeteccoes(detecoes);
-
-    const thumb = camera.capturarFrame(240);
-    const entry: EntradaLog = {
-      timestamp: new Date().toISOString(),
-      modelo: detectorCoco.modelo ?? "desconhecido",
-      objetos,
-      resumo,
-      tipo: "deteccao",
-      snapshot: thumb ?? undefined,
-      ms,
-    };
-
-    addLogEntry(entry);
-    setStatus(`Viu: ${resumo}  (${ms} ms)`);
-
-    void api.gravarEntrada(entry).catch(() => {
-      if (running) setStatus("Falha ao gravar no log do servidor");
-    });
+    await analisarDeteccao(signal);
   } finally {
     if (controller === ctrl) {
       controller = null;
@@ -326,18 +306,10 @@ async function analisar(): Promise<void> {
   }
 }
 
-async function prepararOllama(): Promise<void> {
+async function prepararOllama(motor: MotorPercepcao): Promise<void> {
   setSpinner(true);
-  setStatus("Carregando modelo do Ollama na memoria (pode demorar)...");
   try {
-    const dados = await api.prepararOllama();
-    if (dados.carregado !== true) {
-      throw new Error("modelo nao confirmado em memoria; verifique o Ollama.");
-    }
-    const seg = Math.round((dados.carregandoMs ?? 0) / 1000);
-    setStatus(
-      `Modelo ${dados.modelo ?? ""} carregado${seg > 0 ? ` em ${seg}s` : " (ja estava em memoria)"}. Pronto!`
-    );
+    await motor.inicializar(setStatus);
   } finally {
     setSpinner(false);
   }
@@ -364,15 +336,25 @@ async function start(): Promise<void> {
   placeholder.style.display = "none";
 
   if (motorSelect.value === "ollama" || motorSelect.value === "roteiro") {
+    const motor = new MotorOllama({
+      modo: motorSelect.value === "roteiro" ? "roteiro" : "descricao",
+    });
+    motorAtual = motor;
     try {
-      await prepararOllama();
+      await prepararOllama(motor);
     } catch (err) {
       falharInicializacao(`Falha ao preparar o Ollama: ${(err as Error).message}`);
       return;
     }
   } else {
+    const motor = new MotorDeteccao({
+      detector: detectorCoco,
+      modelo: modelSelect.value,
+      obterThreshold: () => Number(thresholdInput.value),
+    });
+    motorAtual = motor;
     try {
-      await detectorCoco.carregar(modelSelect.value, setStatus);
+      await motor.inicializar(setStatus);
     } catch (err) {
       falharInicializacao(`Falha ao carregar modelo: ${(err as Error).message}`);
       return;
@@ -392,6 +374,8 @@ function encerrarCaptura(): void {
     controller.abort();
     controller = null;
   }
+  motorAtual?.encerrar();
+  motorAtual = null;
   camera.encerrar();
 }
 

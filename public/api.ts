@@ -1,4 +1,5 @@
 import type { EntradaLog } from "../src/types";
+import { ErroPercepcao } from "../src/erros";
 
 export interface InfoOllama {
   online: boolean;
@@ -43,44 +44,75 @@ export interface ResultadoVisao {
 }
 
 /** Erro reportado pelo proprio stream do Ollama (nao deve ser reembrulhado). */
-class ErroEventoVisao extends Error {}
+class ErroEventoVisao extends ErroPercepcao {
+  constructor(mensagem: string) {
+    super("ollama", mensagem);
+    this.name = "ErroEventoVisao";
+  }
+}
 
 /** `POST /api/log` — grava uma entrada no historico do servidor. */
 export async function gravarEntrada(entrada: EntradaLog): Promise<void> {
-  await fetch("/api/log", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(entrada),
-  });
+  try {
+    await fetch("/api/log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entrada),
+    });
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao gravar no log do servidor", { cause: err });
+  }
 }
 
 /** `GET /api/logs` — lista as entradas mais recentes (mais nova primeiro). */
 export async function listarEntradas(limite = 100): Promise<EntradaLog[]> {
-  const resposta = await fetch(`/api/logs?limit=${limite}`);
-  if (!resposta.ok) throw new Error(`HTTP ${resposta.status}`);
+  let resposta: Response;
+  try {
+    resposta = await fetch(`/api/logs?limit=${limite}`);
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao ler o historico", { cause: err });
+  }
+  if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
   const dados = (await resposta.json()) as { entradas?: EntradaLog[] };
   return dados.entradas ?? [];
 }
 
 /** `DELETE /api/logs` — limpa o historico. */
 export async function limparHistorico(): Promise<void> {
-  const resposta = await fetch("/api/logs", { method: "DELETE" });
-  if (!resposta.ok) throw new Error(`HTTP ${resposta.status}`);
+  let resposta: Response;
+  try {
+    resposta = await fetch("/api/logs", { method: "DELETE" });
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao limpar o historico", { cause: err });
+  }
+  if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
 }
 
 /** `GET /api/health` — status do Ollama. */
 export async function saudeOllama(): Promise<InfoOllama | null> {
-  const resposta = await fetch("/api/health");
+  let resposta: Response;
+  try {
+    resposta = await fetch("/api/health");
+  } catch (err) {
+    throw new ErroPercepcao("ollama", "Ollama: servidor indisponivel", { cause: err });
+  }
   const dados = (await resposta.json()) as { ollama?: InfoOllama };
   return dados.ollama ?? null;
 }
 
 /** `GET /api/visao/preparar` — garante o modelo do Ollama em memoria. */
 export async function prepararOllama(): Promise<PreparacaoOllama> {
-  const resposta = await fetch("/api/visao/preparar");
+  let resposta: Response;
+  try {
+    resposta = await fetch("/api/visao/preparar");
+  } catch (err) {
+    throw new ErroPercepcao("ollama", "Falha ao contactar o servidor (/api/visao/preparar)", {
+      cause: err,
+    });
+  }
   if (!resposta.ok) {
     const corpo = (await resposta.json().catch(() => null)) as { erro?: string } | null;
-    throw new Error(corpo?.erro ?? `Falha ao preparar Ollama (${resposta.status})`);
+    throw new ErroPercepcao("ollama", corpo?.erro ?? `Falha ao preparar Ollama (${resposta.status})`);
   }
   return (await resposta.json()) as PreparacaoOllama;
 }
@@ -105,12 +137,12 @@ export async function descreverFrame(
     });
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
-    throw new Error("Falha ao contactar o servidor (/api/visao)", { cause: err });
+    throw new ErroPercepcao("ollama", "Falha ao contactar o servidor (/api/visao)", { cause: err });
   }
 
   if (!resposta.ok || !resposta.body) {
     const corpo = (await resposta.json().catch(() => null)) as { erro?: string } | null;
-    throw new Error(corpo?.erro ?? `Ollama respondeu ${resposta.status}`);
+    throw new ErroPercepcao("ollama", corpo?.erro ?? `Ollama respondeu ${resposta.status}`);
   }
 
   const reader = resposta.body.getReader();
@@ -143,7 +175,9 @@ export async function descreverFrame(
   } catch (err) {
     if (err instanceof ErroEventoVisao) throw err;
     if ((err as Error).name === "AbortError") throw err;
-    throw new Error(`Erro ao ler resposta do Ollama: ${(err as Error).message}`, { cause: err });
+    throw new ErroPercepcao("ollama", `Erro ao ler resposta do Ollama: ${(err as Error).message}`, {
+      cause: err,
+    });
   }
 
   return { evento, parcial };
