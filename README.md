@@ -11,6 +11,7 @@ Todo o processamento roda na sua máquina. A imagem capturada nunca sai do seu c
 | **Detecção** (transformers.js) | Navegador (WebGPU/CPU) | Detecta objetos (pessoa, carro, celular, ...) com caixas e confiança, usando YOLOS ou DETR (COCO). |
 | **Roteiro** (Ollama local) | Servidor (Ollama local) | Faz **uma análise profunda da cena** (base) e, a cada novo frame, registra **apenas o que mudou** em relação ao que já aconteceu — montando um roteiro cronológico. É o motor padrão. |
 | **Descrição** (Ollama local) | Servidor (Ollama local) | Descreve cada frame em português, comparando com o frame anterior para evitar repetições. |
+| **Eventos** (leve + Ollama sob demanda) | Navegador + servidor | Roda a detecção a cada tick e só chama o Ollama quando a **política de eventos** decide: mudança de cena, nova entidade, desaparecimento, movimento, baixa confiança, resumo periódico ou pedido manual — com cooldown e teto de chamadas por minuto.
 
 ## Requisitos
 
@@ -136,6 +137,22 @@ O armazenamento é **JSONL** (`visao.jsonl`, `eventos.jsonl`, `operacional.jsonl
 
 Na inicialização, o cliente usa `GET /api/contexto` para **reidratar** o contexto (roteiro recente, última descrição e um resumo curto separado dos eventos completos), limitado por tamanho e número de itens para nunca enviar todo o histórico ao Ollama.
 
+### Fluxo orientado a eventos (modo **Eventos**)
+
+A percepção leve (detecção + rastreamento + mudança de cena) roda em **todo tick** do agendador; o Ollama só é chamado quando a política decide — o motivo é gravado no log como campo `motivo` (por exemplo, `nova_entidade`, `mudanca_de_cena`, `baixa_confianca`, `resumo_periodico`, `manual`) e aparece como “por …” na interface.
+
+Regras da `PoliticaAnalise` (em `src/politica-analise.ts`, configuração `CONFIG_POLITICA_PADRAO`):
+
+- **Primeira análise**: aciona no primeiro tick de cada sessão.
+- **Eventos críticos**: `aparicao`, `desaparecimento`, `mudanca_de_cena` acionam por si sós; **movimento** só acima de um mínimo por frame.
+- **Baixa confiança**: uma detecção com score menor que `confiancaAlta` (0.6) aciona o Ollama para julgar.
+- **Resumo periódico**: mesmo sem mudança, re-analisa a cada `resumoPeriodicoMs` (60 s).
+- **Cooldown** (10 s) e **teto de chamadas** (4/min, janela deslizante de 60 s) impedem sequências de inferências em cenas instáveis.
+- **“Analisar agora”**: botão que força a análise imediata, ignorando cooldown/janela (respeitando o não-sobrepor).
+- **Falha da percepção leve nunca vira “sem mudança”**: vira registro operacional e motivo `falha_percepcao` (dentro da janela).
+
+Cancelamento: quando o cliente cancela uma análise, ele encerra a leitura do stream e o servidor **propaga o abort ao `fetch` do Ollama** (um `AbortController` ligado ao `close` da resposta), derrubando a inferência em vez de deixá-la consumir recursos.
+
 ### Segurança e exposição na rede
 
 Por padrão o servidor escuta apenas em `127.0.0.1` (loopback), sem autenticação. **Execução local e execução acessível pela rede têm riscos diferentes:**
@@ -155,7 +172,7 @@ Controles já aplicados:
 
 - Rejeição de **origem cruzada**: requisição com cabeçalho `Origin` só é aceita se bater com o host da requisição ou estiver em `NEURO_ALLOWED_ORIGINS` (resposta `403` caso contrário).
 - **Limites de tamanho**: corpo JSON de `/api/log` (`BODY_MAX_BYTES`), de `/api/visao` (`VISAO_BODY_MAX_BYTES`) e de cada snapshot (`SNAP_UPLOAD_MAX_BYTES`).
-- **Validação de tipos**: payloads com campos de tipo inválido (ex.: `objetos` não-lista, `resumo`/`imagem` não-texto, `snapshot` não-texto ou acima do limite) são recusados com `400`.
+- **Validação de tipos**: payloads com campos de tipo inválido (ex.: `objetos` não-lista, `resumo`/`imagem` não-texto, `snapshot` não-texto ou acima do limite, `motivo` fora da lista conhecida) são recusados com `400`.
 
 ## Estrutura
 
@@ -163,6 +180,7 @@ Controles já aplicados:
 src/
   server.ts            servidor HTTP (estático + API) e persistência (memória + snapshots)
   memoria.ts           armazenamento JSONL genérico, eventos, registros operacionais e reidratação de contexto
+  politica-analise.ts  política de análise orientada a eventos (cooldown, janela, motivos)
   percepcao.ts         interface de motor de percepção e resultado normalizado
   erros.ts             taxonomia de erros (origem, cancelamento)
   rastreamento.ts      rastreador de objetos (IDs estáveis, aparição/desaparecimento/movimento)

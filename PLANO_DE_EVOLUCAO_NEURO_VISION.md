@@ -275,16 +275,18 @@ interface EventoVisual {
 
 **Objetivo:** reduzir inferências caras sem sacrificar eventos importantes.
 
-- [ ] Executar a percepção leve em uma frequência adequada ao hardware.
-- [ ] Comparar observações com o estado anterior e filtrar ruído antes de acionar o Ollama.
-- [ ] Chamar o modelo de visão quando houver mudança relevante, baixa confiança, nova entidade ou necessidade de resumo periódico.
-- [ ] Aplicar cooldown e limite máximo de chamadas para impedir uma sequência de inferências em cenas instáveis.
-- [ ] Preservar uma forma de solicitar análise manual imediata pela interface.
-- [ ] Diferenciar “não detectei mudança” de “não consegui analisar”: falhas nunca devem ser registradas como ausência de mudança.
-- [ ] Quando o cliente cancelar uma análise, encerrar a leitura do stream; avaliar também propagar o cancelamento ao `fetch` do Ollama no servidor.
-- [ ] Registrar a razão que acionou a análise, para investigar por que o sistema decidiu chamar o modelo.
+- [x] Executar a percepção leve em uma frequência adequada ao hardware.
+- [x] Comparar observações com o estado anterior e filtrar ruído antes de acionar o Ollama.
+- [x] Chamar o modelo de visão quando houver mudança relevante, baixa confiança, nova entidade ou necessidade de resumo periódico.
+- [x] Aplicar cooldown e limite máximo de chamadas para impedir uma sequência de inferências em cenas instáveis.
+- [x] Preservar uma forma de solicitar análise manual imediata pela interface.
+- [x] Diferenciar “não detectei mudança” de “não consegui analisar”: falhas nunca devem ser registradas como ausência de mudança.
+- [x] Quando o cliente cancelar uma análise, encerrar a leitura do stream; avaliar também propagar o cancelamento ao `fetch` do Ollama no servidor.
+- [x] Registrar a razão que acionou a análise, para investigar por que o sistema decidiu chamar o modelo.
 
 **Aceite da fase:** cenas estáticas geram poucas chamadas ao Ollama, enquanto mudanças relevantes continuam produzindo eventos verificáveis.
+
+**Implementação 5:** novo modo **“Eventos (leve + Ollama sob demanda)”** no seletor de motor. A percepção leve (detecção via `MotorDeteccao` + `RastreadorObjetos` + `DetectorMudancaDeCena`) roda em todo tick do agendador — que já espera a inferência atual terminar antes de reagendar (frequência adequada ao hardware). `src/politica-analise.ts` centraliza a decisão (`PoliticaAnalise`, puro e testado): **cooldown** entre chamadas ao Ollama, **janela deslizante** com teto de chamadas por minuto, prioridade de motivos (`primeira_analise`, `mudanca_de_cena`, `nova_entidade`, `desaparecimento`, `movimento` com mínimo configurável, `baixa_confianca`, `resumo_periodico`, `manual`, `falha_percepcao`). O motivo que acionou a análise vira campo `motivo` em `EntradaLog`, é persistido pelo servidor em `POST /api/visao` e aparece como “por <motivo>” na interface. O botão **“Analisar agora”** (habilitado só no modo Eventos) força a análise imediata via `agendador.disparar()`, ignorando cooldown/janela e respeitando o não-sobrepor. Falha da percepção leve nunca vira “sem mudança”: vira registro operacional e motivo `falha_percepcao` (dentro da janela). Cancelamento: o cliente já encerra a leitura do stream no abort; o servidor agora cria um `AbortController` amarrado a `res.on("close")` e repassa o sinal a `gerarDescricaoStream`, que aborta o `fetch` do Ollama (`AbortSignal.any` combinado com o timeout). Testes: `src/politica-analise.test.ts` (14), `src/server.test.ts` (motivo persistido + rejeito de motivo inválido), `src/ollama.test.ts` (aborto do sinal cancela o fetch), E2E novo “modo eventos … politica e botão manual”.
 
 ---
 
@@ -339,7 +341,7 @@ Marque aqui as fases inteiras conforme forem concluídas:
 - [x] **Marco 2 — Código sustentável:** Fase 2.
 - [x] **Marco 3 — Percepção temporal:** Fase 3.
 - [x] **Marco 4 — Memória persistente:** Fase 4.
-- [ ] **Marco 5 — Inferência inteligente:** Fase 5.
+- [x] **Marco 5 — Inferência inteligente:** Fase 5.
 - [ ] **Marco 6 — Desempenho e operação:** Fase 6.
 - [ ] **Marco 7 — Qualidade mensurável:** Fase 7.
 

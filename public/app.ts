@@ -1,10 +1,11 @@
-import type { Caixa, EntradaLog } from "../src/types";
+import type { Caixa, EntradaLog, MotivoAnalise } from "../src/types";
 import { colapsarRepeticoes } from "../src/texto";
 import { entradaDeResultado } from "../src/percepcao";
 import type { MotorPercepcao, ResultadoPercepcao } from "../src/percepcao";
 import { RastreadorObjetos } from "../src/rastreamento";
 import { DetectorMudancaDeCena } from "../src/cena";
 import { ehCancelamento } from "../src/erros";
+import { PoliticaAnalise, comMotivo, rotuloMotivo } from "../src/politica-analise";
 import { AgendadorAnalise } from "./scheduler";
 import * as api from "./api";
 import { DetectorObjetos } from "./detector";
@@ -35,6 +36,7 @@ const exportBtn = el<HTMLButtonElement>("exportLog");
 const filterInput = el<HTMLInputElement>("filter");
 const startBtn = el<HTMLButtonElement>("start");
 const stopBtn = el<HTMLButtonElement>("stop");
+const analisarAgoraBtn = el<HTMLButtonElement>("analisarAgora");
 const modelSelect = el<HTMLSelectElement>("model");
 const motorSelect = el<HTMLSelectElement>("motor");
 const intervalInput = el<HTMLInputElement>("interval");
@@ -53,6 +55,8 @@ let ultimaDuracaoMs = 0;
 let roteiroBeats: string[] = [];
 let roteiroPrimeiro = true;
 let intervaloMsConfigurado = Number(intervalInput.value) * 1000;
+let manualSolicitado = false;
+const politica = new PoliticaAnalise();
 
 const agendador = new AgendadorAnalise({
   executar: () => analisar(),
@@ -66,6 +70,11 @@ function setStatus(text: string): void {
 
 function setSpinner(ativo: boolean): void {
   spinnerEl.hidden = !ativo;
+}
+
+/** "Analisar agora" so faz sentido no modo eventos, com a sessao rodando. */
+function atualizarBotoesAnalise(): void {
+  analisarAgoraBtn.disabled = !running || motorSelect.value !== "eventos";
 }
 
 function drawBoxes(objetos: ReadonlyArray<{ nome: string; score: number; caixa: Caixa }>): void {
@@ -123,6 +132,9 @@ function criarItem(entry: EntradaLog): HTMLLIElement {
     if (entry.ms && entry.tokens) {
       const tokS = Math.round(entry.tokens / (entry.ms / 1000));
       texto += ` · ${entry.tokens} toks em ${Math.round(entry.ms / 1000)}s (${tokS} tok/s)`;
+    }
+    if (entry.motivo) {
+      texto += ` · por ${rotuloMotivo(entry.motivo)}`;
     }
     meta.textContent = texto;
     cabecalho.appendChild(meta);
@@ -218,7 +230,11 @@ function registrarOperacional(
   void api.gravarOperacional({ nivel, origem, mensagem });
 }
 
-async function analisarComOllama(signal: AbortSignal, ehRoteiro: boolean): Promise<void> {
+async function analisarComOllama(
+  signal: AbortSignal,
+  ehRoteiro: boolean,
+  motivo?: MotivoAnalise | null
+): Promise<void> {
   const dataUrl = camera.capturarFrame(512);
   if (dataUrl === null) return;
   const width = camera.largura;
@@ -235,6 +251,7 @@ async function analisarComOllama(signal: AbortSignal, ehRoteiro: boolean): Promi
     roteiro: ehRoteiro ? roteiroBeats.slice(-8).join(" ").slice(0, 1200) : undefined,
     base: ehRoteiro ? roteiroPrimeiro : undefined,
     anterior: ehRoteiro ? undefined : ultimaDescricao,
+    motivo: motivo ?? undefined,
   });
 
   let resultado: ResultadoPercepcao | null;
@@ -264,7 +281,10 @@ async function analisarComOllama(signal: AbortSignal, ehRoteiro: boolean): Promi
     if (roteiroBeats.length > 64) roteiroBeats.splice(0, roteiroBeats.length - 64);
   }
 
-  const entry = entradaDeResultado(resultado, ehRoteiro ? "roteiro" : "descricao");
+  const entry = comMotivo(
+    entradaDeResultado(resultado, ehRoteiro ? "roteiro" : "descricao"),
+    motivo
+  );
   ultimaDescricao = resultado.descricao ?? "";
   addLogEntry(entry);
 
@@ -342,6 +362,114 @@ async function analisarDeteccao(signal: AbortSignal): Promise<void> {
   });
 }
 
+/**
+ * Fluxo orientado a eventos (Fase 5): a percepcao leve roda a cada tick; o
+ * Ollama so e chamado quando a politica decide que ha motivo (mudanca,
+ * nova entidade, baixa confianca, resumo periodico, pedido manual ou falha
+ * da percepcao — nunca tratada como ausencia de mudanca).
+ */
+async function analisarEventos(signal: AbortSignal): Promise<void> {
+  const width = camera.largura;
+  const height = camera.altura;
+  if (!width || !height) return;
+  overlay.width = width;
+  overlay.height = height;
+
+  const dataUrl = camera.capturarFrame();
+  if (dataUrl === null) return;
+
+  const agora = performance.now();
+  let resultado: ResultadoPercepcao | null;
+  try {
+    if (!motorAtual) return;
+    resultado = await motorAtual.analisar({ imagem: dataUrl }, signal);
+  } catch (err) {
+    if (ehCancelamento(err) || signal.aborted) return;
+    registrarOperacional("erro", "detector", (err as Error).message);
+    // Falha da percepcao leve = estado desconhecido. Nunca vira "sem mudanca":
+    // deixa o Ollama julgar, respeitando a janela de chamadas.
+    const decisao = politica.avaliar({
+      agora,
+      eventos: [],
+      melhorConfianca: null,
+      percepcaoValida: false,
+      manual: manualSolicitado,
+    });
+    manualSolicitado = false;
+    if (decisao.acionar) {
+      politica.registrarChamada(agora);
+      const motivo: MotivoAnalise | undefined =
+        decisao.motivo === "sem_acao" ? undefined : decisao.motivo;
+      setStatus(
+        `Percepcao leve falhou; acionando Ollama por ${rotuloMotivo(motivo ?? "falha_percepcao")}...`
+      );
+      await analisarComOllama(signal, false, motivo);
+    } else {
+      setStatus(`Percepcao leve falhou: ${(err as Error).message}`);
+    }
+    return;
+  }
+  if (signal.aborted || !resultado) return;
+  ultimaDuracaoMs = resultado.duracaoMs;
+
+  const thumb = camera.capturarFrame(240);
+  resultado.snapshot = thumb ?? undefined;
+
+  const timestamp = new Date().toISOString();
+  const quadro = rastreador.processar(resultado.objetos, agora, {
+    timestamp,
+    snapshot: resultado.snapshot,
+    modelo: resultado.modelo,
+  });
+  const sinalCena = detectorCena.avaliar(camera.assinaturaDeCena(), agora, {
+    timestamp,
+    snapshot: resultado.snapshot,
+    modelo: resultado.modelo,
+  });
+  const eventos = sinalCena ? [...quadro.eventos, sinalCena] : quadro.eventos;
+
+  for (const evt of eventos) {
+    // Movimento e o evento mais frequente: grava sem snapshot para poupar disco.
+    const paraGravar = evt.tipo === "movimento" ? { ...evt, snapshot: undefined } : evt;
+    void api.gravarEvento(paraGravar).catch(() => {
+      if (running) setStatus("Falha ao gravar evento no servidor");
+    });
+  }
+
+  const menorScore =
+    resultado.objetos.length > 0
+      ? Math.min(...resultado.objetos.map((o) => o.score))
+      : null;
+  const decisao = politica.avaliar({
+    agora,
+    eventos,
+    melhorConfianca: menorScore,
+    percepcaoValida: true,
+    manual: manualSolicitado,
+  });
+  manualSolicitado = false;
+
+  if (decisao.acionar) {
+    politica.registrarChamada(agora);
+    const motivo: MotivoAnalise | undefined =
+      decisao.motivo === "sem_acao" ? undefined : decisao.motivo;
+    setStatus(`Ollama acionado: ${rotuloMotivo(motivo ?? "manual")}...`);
+    await analisarComOllama(signal, false, motivo);
+    if (signal.aborted) return;
+    // O Ollama limpa o canvas; desenha as caixas de novo por cima.
+    drawBoxes(quadro.objetos);
+    return;
+  }
+
+  drawBoxes(quadro.objetos);
+  const entry = entradaDeResultado(resultado, "deteccao");
+  addLogEntry(entry);
+  setStatus(`Viu: ${entry.resumo} (${resultado.duracaoMs} ms) · sem mudanca relevante`);
+  void api.gravarEntrada(entry).catch(() => {
+    if (running) setStatus("Falha ao gravar no log do servidor");
+  });
+}
+
 async function analisar(): Promise<void> {
   if (!running) return;
   const ctrl = new AbortController();
@@ -352,6 +480,10 @@ async function analisar(): Promise<void> {
     const modo = motorSelect.value;
     if (modo === "ollama" || modo === "roteiro") {
       await analisarComOllama(signal, modo === "roteiro");
+      return;
+    }
+    if (modo === "eventos") {
+      await analisarEventos(signal);
       return;
     }
     await analisarDeteccao(signal);
@@ -425,7 +557,9 @@ async function start(): Promise<void> {
 
   if (!camera.ativa) return;
   running = true;
+  politica.reiniciar();
   stopBtn.disabled = false;
+  atualizarBotoesAnalise();
   await agendador.iniciar();
 }
 
@@ -447,6 +581,7 @@ function restaurarInterfaceIdle(): void {
   placeholder.style.display = "grid";
   startBtn.disabled = false;
   stopBtn.disabled = true;
+  analisarAgoraBtn.disabled = true;
 }
 
 function falharInicializacao(mensagem: string): void {
@@ -511,6 +646,11 @@ async function exportarLog(): Promise<void> {
 
 startBtn.addEventListener("click", () => void start());
 stopBtn.addEventListener("click", stop);
+analisarAgoraBtn.addEventListener("click", () => {
+  if (!running || motorSelect.value !== "eventos") return;
+  manualSolicitado = true;
+  agendador.disparar();
+});
 clearLogBtn.addEventListener("click", () => void limparHistorico());
 exportBtn.addEventListener("click", () => void exportarLog());
 filterInput.addEventListener("input", aplicarFiltro);
@@ -529,6 +669,8 @@ motorSelect.addEventListener("change", () => {
   ultimaDescricao = "";
   roteiroBeats = [];
   roteiroPrimeiro = true;
+  manualSolicitado = false;
+  atualizarBotoesAnalise();
 });
 
 atualizarContagem();

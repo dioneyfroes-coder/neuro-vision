@@ -1,4 +1,4 @@
-import type { EntradaLog, ObjetoVisto } from "./types";
+import type { EntradaLog, MotivoAnalise, ObjetoVisto } from "./types";
 
 /** Metadados de confianca/comportamento de um resultado de inferencia. */
 export interface MetadadosConfianca {
@@ -61,7 +61,8 @@ export interface MotorPercepcao {
 export function entradaDeResultado(
   resultado: ResultadoPercepcao,
   tipo: EntradaLog["tipo"],
-  timestamp = new Date().toISOString()
+  timestamp = new Date().toISOString(),
+  motivo?: MotivoAnalise | null
 ): EntradaLog {
   const papel = resultado.confianca?.papel;
   return {
@@ -74,5 +75,6 @@ export function entradaDeResultado(
     snapshot: resultado.snapshot,
     ms: resultado.duracaoMs,
     tokens: resultado.confianca?.tokens,
+    motivo: motivo ?? undefined,
   };
 }

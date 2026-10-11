@@ -589,6 +589,87 @@ describe("createServer", () => {
     }
   });
 
+  it("POST /api/visao registra o motivo que acionou a analise", async () => {
+    const ndjson =
+      [
+        JSON.stringify({ message: { content: "Pessoa" }, model: "m" }),
+        JSON.stringify({
+          message: { content: " na sala." },
+          model: "m",
+          eval_count: 5,
+          total_duration: 1_000_000,
+          done: true,
+        }),
+      ].join("\n") + "\n";
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/chat")) {
+          return { ok: true, body: new Response(ndjson).body };
+        }
+        return realFetch(input, init);
+      })
+    );
+
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const server = createServer({
+      logFile,
+      publicDir: tmpDir,
+      ollamaUrl: "http://localhost:11434",
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/visao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imagem: "data:image/jpeg;base64,QkxPQ",
+          motivo: "nova_entidade",
+        }),
+      });
+      expect(res.status).toBe(200);
+      const eventos = (await res.text())
+        .trim()
+        .split("\n")
+        .map((linha) => JSON.parse(linha) as { type: string; motivo?: string });
+      expect(eventos.find((e) => e.type === "done")?.motivo).toBe("nova_entidade");
+
+      const linhas = (await readFile(logFile, "utf8")).trim().split("\n");
+      expect(JSON.parse(linhas[0])).toMatchObject({
+        resumo: "Pessoa na sala.",
+        motivo: "nova_entidade",
+      });
+    } finally {
+      server.close();
+    }
+  });
+
+  it("POST /api/visao recusa motivo invalido", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const server = createServer({
+      logFile,
+      publicDir: tmpDir,
+      ollamaUrl: "http://localhost:11434",
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/visao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imagem: "data:image/jpeg;base64,QkxPQ", motivo: "sei-la" }),
+      });
+      expect(res.status).toBe(400);
+    } finally {
+      server.close();
+    }
+  });
+
   it("POST /api/visao no modo roteiro grava a base e colapsa repeticoes nos deltas", async () => {
     const corpos: Record<string, unknown>[] = [];
     vi.stubGlobal(

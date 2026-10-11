@@ -68,6 +68,16 @@ export class AgendadorAnalise {
     this.limparTimer();
   }
 
+  /**
+   * Executa uma analise imediatamente (sem mexer no agendamento pendente).
+   * Usado pelo botao "analisar agora": nenhuma analise em andamento e
+   * interrompida e uma nova nunca sobrepoe a atual.
+   */
+  disparar(): void {
+    if (!this.rodando) return;
+    void this.executarUma();
+  }
+
   /** Reaplica a configuracao ao agendamento pendente (ex.: mudanca de intervalo). */
   reajustar(): void {
     if (!this.rodando) return;

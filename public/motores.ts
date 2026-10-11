@@ -3,6 +3,7 @@ import type {
   MotorPercepcao,
   ResultadoPercepcao,
 } from "../src/percepcao";
+import type { MotivoAnalise } from "../src/types";
 import type { DetectorObjetos } from "./detector";
 import { descreverDeteccoes } from "./detector";
 import * as api from "./api";
@@ -54,6 +55,8 @@ export interface OpcoesMotorOllama {
   base?: boolean;
   /** Descricao anterior (modo descricao). */
   anterior?: string;
+  /** Razao que acionou esta analise (fluxo orientado a eventos). */
+  motivo?: MotivoAnalise;
 }
 
 /** Motor de descricao/roteiro via Ollama, atras da interface comum. */
@@ -90,6 +93,7 @@ export class MotorOllama implements MotorPercepcao {
     } else {
       payload.anterior = this.opcoes.anterior;
     }
+    payload.motivo = this.opcoes.motivo;
 
     const { evento, parcial } = await api.descreverFrame(payload, sinal, aoProgresso);
     const descricao = evento?.descricao ?? parcial;

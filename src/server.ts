@@ -213,33 +213,38 @@ function normalizarObjetos(valor: unknown): ObjetoVisto[] {
   return objetos;
 }
 
+const MOTIVOS_VALIDOS: MotivoAnalise[] = [
+  "primeira_analise",
+  "mudanca_de_cena",
+  "nova_entidade",
+  "desaparecimento",
+  "movimento",
+  "baixa_confianca",
+  "resumo_periodico",
+  "manual",
+  "falha_percepcao",
+];
+
+/** Normaliza um valor de `motivo` para o tipo ou `undefined` quando invalido. */
+export function normalizarMotivo(valor: unknown): MotivoAnalise | undefined {
+  return typeof valor === "string" && MOTIVOS_VALIDOS.includes(valor as MotivoAnalise)
+    ? (valor as MotivoAnalise)
+    : undefined;
+}
+
 export function montarEntrada(payload: unknown): EntradaLog {
   const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
     string,
     unknown
   >;
   const tipo: TipoEntrada = p.tipo === "descricao" ? "descricao" : "deteccao";
-  const motivos: MotivoAnalise[] = [
-    "primeira_analise",
-    "mudanca_de_cena",
-    "nova_entidade",
-    "desaparecimento",
-    "movimento",
-    "baixa_confianca",
-    "resumo_periodico",
-    "manual",
-    "falha_percepcao",
-  ];
   return {
     timestamp: typeof p.timestamp === "string" ? p.timestamp : new Date().toISOString(),
     modelo: typeof p.modelo === "string" ? p.modelo : "desconhecido",
     objetos: normalizarObjetos(p.objetos),
     resumo: typeof p.resumo === "string" ? p.resumo : "",
     tipo,
-    motivo:
-      typeof p.motivo === "string" && motivos.includes(p.motivo as MotivoAnalise)
-        ? (p.motivo as MotivoAnalise)
-        : undefined,
+    motivo: normalizarMotivo(p.motivo),
   };
 }
 
@@ -354,6 +359,9 @@ export function validarPayloadVisao(payload: unknown): string | null {
     campoTipoTexto(p.anterior, "anterior") ??
     campoTipoTexto(p.roteiro, "roteiro");
   if (texto) return texto;
+  if (p.motivo !== undefined && p.motivo !== null && !normalizarMotivo(p.motivo)) {
+    return "campo 'motivo' tem valor invalido";
+  }
   return validarSnapshot(p.snapshot);
 }
 
@@ -764,6 +772,7 @@ async function streamVisao(
     modo?: ModoAnalise;
     roteiro?: string;
     base?: boolean;
+    motivo?: MotivoAnalise;
   },
   logFile: string,
   snapDir: string,
@@ -814,6 +823,7 @@ async function streamVisao(
       papel,
       ms: resumo.duracaoMs,
       tokens: resumo.tokens,
+      motivo: opcoes.motivo,
     };
     const snap = await salvarSnapshot(snapshot, snapDir);
     if (snap) entry.snapshot = snap;
@@ -830,6 +840,7 @@ async function streamVisao(
         snapshot: entry.snapshot,
         tipo,
         papel,
+        motivo: entry.motivo,
         semMudanca: false,
       }) + "\n"
     );
@@ -891,6 +902,7 @@ async function handleVisao(
         modo: p.modo === "roteiro" ? "roteiro" : "descricao",
         roteiro: typeof p.roteiro === "string" ? p.roteiro : undefined,
         base: p.base === true,
+        motivo: normalizarMotivo(p.motivo),
       },
       config.logFile ?? LOG_FILE,
       config.snapDir ?? SNAP_DIR,

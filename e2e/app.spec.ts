@@ -214,3 +214,49 @@ test("inferencia lenta nao sobrepoe analises mesmo com intervalo curto", async (
   await page.locator("#stop").click();
   await expect(page.locator("#start")).toBeEnabled();
 });
+
+test("modo eventos aciona o Ollama pela politica e pelo botao manual", async ({ page }) => {
+  const ndjson =
+    [
+      JSON.stringify({ type: "chunk", response: "Pessoa " }),
+      JSON.stringify({
+        type: "done",
+        descricao: "Pessoa na sala.",
+        modelo: "qwen2.5vl:3b",
+        tokens: 6,
+        ms: 40,
+        tipo: "descricao",
+        semMudanca: false,
+      }),
+    ].join("\n") + "\n";
+
+  await prepararPagina(page);
+  await page.route("**/api/visao", (rota) =>
+    rota.fulfill({ status: 200, contentType: "application/x-ndjson", body: ndjson })
+  );
+  await instalarCameraFalsa(page);
+  await page.goto("/");
+  await page.locator("#motor").selectOption("eventos");
+  await expect(page.locator("#analisarAgora")).toBeDisabled();
+  await page.locator("#start").click();
+
+  // A politica aciona a primeira analise apos o primeiro tick (percepcao leve).
+  await expect(page.locator("#status")).toContainText("Ollama viu: Pessoa na sala.", {
+    timeout: 20_000,
+  });
+  await expect(page.locator("#analisarAgora")).toBeEnabled();
+
+  // O botao manual ignora o cooldown e dispara outra analise imediatamente.
+  await page.locator("#analisarAgora").click();
+  await page.waitForFunction(
+    () => {
+      const itens = Array.from(document.querySelectorAll("#log li"));
+      return itens.filter((li) => li.textContent?.includes("Pessoa na sala.")).length >= 2;
+    },
+    undefined,
+    { timeout: 10_000 }
+  );
+
+  await page.locator("#stop").click();
+  await expect(page.locator("#start")).toBeEnabled();
+});

@@ -1,4 +1,4 @@
-import type { EntradaLog, EventoVisual } from "../src/types";
+import type { EntradaLog, EventoVisual, MotivoAnalise } from "../src/types";
 import { ErroPercepcao } from "../src/erros";
 
 export interface InfoOllama {
@@ -36,6 +36,8 @@ export interface PayloadVisao {
   modo?: "roteiro" | "descricao";
   roteiro?: string;
   base?: boolean;
+  /** Razao que acionou esta analise (fluxo orientado a eventos). */
+  motivo?: MotivoAnalise;
 }
 
 export interface ResultadoVisao {
