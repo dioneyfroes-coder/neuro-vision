@@ -329,11 +329,13 @@ interface EventoVisual {
 
 - [ ] Criar um conjunto de testes visuais próprio, com vídeos curtos de cenas estáticas e mudanças conhecidas.
 - [ ] Anotar eventos esperados para permitir comparação consistente.
-- [ ] Calcular precisão/recall dos eventos ou, como mínimo, falsos positivos por minuto e proporção de mudanças não detectadas.
-- [ ] Definir metas realistas por hardware antes de otimizar.
-- [ ] Rodar regressão após mudanças em prompts, modelos, rastreamento e agendamento.
-- [ ] Documentar limitações conhecidas: oclusão, iluminação, classes não treinadas, alucinações do modelo e identificação incerta de objetos.
-- [ ] Atualizar `README.md` e `TODO.md` quando uma tarefa for concluída; manter este plano como roadmap de médio prazo.
+- [x] Calcular precisão/recall dos eventos ou, como mínimo, falsos positivos por minuto e proporção de mudanças não detectadas.
+- [x] Definir metas realistas por hardware antes de otimizar.
+- [x] Rodar regressão após mudanças em prompts, modelos, rastreamento e agendamento.
+- [x] Documentar limitações conhecidas: oclusão, iluminação, classes não treinadas, alucinações do modelo e identificação incerta de objetos.
+- [x] Atualizar `README.md` e `TODO.md` quando uma tarefa for concluída; manter este plano como roadmap de médio prazo.
+
+**Implementação 7:** por decisão de escopo, esta fase **construiu o mecanismo de medição e adiou os clipes reais** (a camada de política/rastreamento, que não depende de vídeo, já é medida em `src/qualidade-eventos.test.ts`). O conjunto anotado ganhou convenção em `bench/videos/` (com `exemplo-anotacao.json` e o formato documentado: `inicio`, `duracaoMs`, e `eventos` com `tipo`+`em`) e o comparador `scripts/avaliar-qualidade.mjs` (script `npm run qualidade`). A comparação é **melhor-esforço e determinística**: para cada evento esperado procura a detecção de tipo compatível mais próxima dentro da tolerância (`--tolerancia`, padrão 3000 ms; `"qualquer"` casa com qualquer mudança), com `--offset` para alinhar o início da gravação e `resumo` ignorado por padrão (`--ignorados`). Saída: **precisão**, **recall**, **proporção de mudanças perdidas** e **falsos positivos por minuto** (mais `--json` com cada casamento/perda). `carregarAnotacao`/`parsearEventos` validam a entrada e ignoram linhas corrompidas; 18 testes em `scripts/avaliar-qualidade.test.mjs` cobrem tolerância nas bordas, tipos incompatíveis, `"qualquer"`, resumo ignorado, casamento mais próximo e duração derivada. A **linha de base** ficou em `bench/BASELINE.md` (Xeon E5-2660 v3, 20 threads, ~15,8 GB, Radeon RX 5600 OEM, Windows 10, Node 24), com o procedimento `npm run bench -- --json` e metas iniciais (sem CUDA). O `README.md` ganhou a seção **Qualidade de eventos** (fluxo de regressão: `npm test` + `npm run test:e2e`, depois `npm run bench`/`npm run qualidade` contra a linha de base) e uma seção de **Limitações conhecidas** (oclusão, iluminação, classes não treinadas, alucinações, identificação incerta, fallback de CPU e dados sensíveis). O `TODO.md` foi removido por decisão anterior; o acompanhamento segue por este plano.
 
 **Aceite da fase:** é possível dizer, com dados, se uma mudança tornou o sistema mais preciso, mais rápido ou mais econômico.
 

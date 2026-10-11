@@ -8,3 +8,8 @@ logs/snapshots/
 test-results/
 playwright-report/
 .playwright/
+# Videos de avaliacao ficam locais (binarios/potencialmente sensiveis); as
+# anotacoes .json e o README permanecem versionados.
+bench/videos/*
+!bench/videos/README.md
+!bench/videos/*.json

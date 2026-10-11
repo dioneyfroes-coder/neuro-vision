@@ -244,9 +244,12 @@ logs/
   operacional.jsonl    registros operacionais (ignorado no git)
 bench/
   imagens/             conjunto fixo de imagens do benchmark (reproduzível)
+  videos/              anotações dos clipes de avaliação de eventos (vídeos ficam locais)
+  BASELINE.md          máquina de referência e metas realistas por hardware
 scripts/
   benchmark.mjs        benchmark do Ollama (latência, tok/s, RAM/VRAM, inferências/min)
   gerar-fixtures-bench.mjs  gera o conjunto fixo de imagens sintéticas
+  avaliar-qualidade.mjs     compara eventos gravados com a anotação (precisão/recall/FP por minuto)
 ```
 
 ## Scripts
@@ -263,6 +266,7 @@ scripts/
 | `npm run lint` | ESLint. |
 | `npm run lint:fix` | ESLint com correção automática. |
 | `npm run bench` | Benchmark de velocidade do modelo local (requer Ollama rodando). |
+| `npm run qualidade` | Compara os eventos gravados com a anotação de um clipe (precisão/recall, falsos positivos por minuto). |
 
 ### Benchmark
 
@@ -283,6 +287,21 @@ O cliente **ajusta sozinho** o ritmo: cada análise espera `max(intervalo, dura�
 
 Medição de referência (`qwen2.5vl:3b`, CPU, snapshot 4K): ~40 tok/s de geração, prefill ~104 tok/s, 1ª resposta ~10,6s, total ~11,5s → **intervalo mínimo recomendado ≥ 18s**.
 
+As especificações da **máquina de referência** e as metas realistas por hardware (com o procedimento para recapturá-las) ficam em [`bench/BASELINE.md`](./bench/BASELINE.md).
+
+### Qualidade de eventos
+
+`npm run qualidade` compara os **eventos que o app gravou** (`logs/eventos.jsonl`) com a **anotação de um clipe** e calcula **precisão**, **recall**, **proporção de mudanças perdidas** e **falsos positivos por minuto**:
+
+```bash
+npm run qualidade -- --anotacao bench/videos/sala-com-pessoa.json
+npm run qualidade -- --anotacao bench/videos/sala-com-pessoa.json --json > qualidade.json
+```
+
+O formato da anotação, o fluxo de captura e as regras de casamento estão em [`bench/videos/README.md`](./bench/videos/README.md). Os vídeos ficam **locais** (não versionados); a anotação `.json` é versionada para a medição ser reproduzível em qualquer máquina que tenha o mesmo clipe. A camada de política/rastreamento, que não depende de vídeo, também é medida em `src/qualidade-eventos.test.ts`.
+
+**Regressão:** após mudanças em prompts, modelos, rastreamento ou agendamento, rode `npm test` (unitários/integração) e `npm run test:e2e` (fluxos no navegador) — ambos são a rede de segurança principal. Para desempenho e qualidade, compare os relatórios novos com a linha de base de `bench/BASELINE.md` usando `npm run bench -- --json` e `npm run qualidade -- --json`.
+
 ### Carregamento do modelo
 
 O Ollama carrega o modelo na memória sob demanda (o primeiro request é o lento). O Neuro Vision espera esse carregamento antes de começar:
@@ -290,6 +309,17 @@ O Ollama carrega o modelo na memória sob demanda (o primeiro request é o lento
 - Ao clicar **Iniciar** com o motor **Descrição**, o servidor chama `forcarCarregamento` (probe em `/api/ps`) e **só então** o ciclo de análise começa. O status mostra "Carregando modelo... em Ns".
 - O badge do Ollama informa quais modelos estão **em memória** (`/api/health` → `carregados`).
 - O benchmark **só mede com o modelo já em memória** (a primeira etapa carrega e reporta o tempo da carga), para que o tok/s não seja contaminado pelo load.
+
+## Limitações conhecidas
+
+- **Classes não treinadas:** a detecção usa modelos COCO (YOLOS/DETR). Objetos fora dessas classes simplesmente não são vistos — não é uma falha de configuração.
+- **Oclusão:** objetos parcialmente escondidos podem oscilar entre aparecer/desaparecer, gerando eventos espúrios.
+- **Iluminação:** cenas escuras, estouro de luz ou contraluz reduzem confiança e aumentam mudanças perdidas.
+- **Alucinações do modelo de visão:** o Ollama pode descrever coisas que não estão na cena. O texto é tratado como relato do modelo, não como verdade.
+- **Identificação incerta de objetos:** o mesmo objeto pode ser rotulado de formas diferentes entre frames; o rastreamento usa IoU e movimento, não reidentificação de longo prazo.
+- **Cenas estáticas:** a política evita chamar o Ollama sem mudança, mas ruído de sensor/compressão ainda pode disparar `mudanca_de_cena`.
+- **WebSub/WebGPU:** sem WebGPU a detecção roda em CPU (aviso persistente na interface) e fica mais lenta.
+- **`HOST` e dados sensíveis:** o servidor escuta em `127.0.0.1` por padrão; subir para `0.0.0.0` expõe a webcam e os logs. Snapshots e logs podem conter pessoas — trate-os como dados sensíveis.
 
 ## Licença
 

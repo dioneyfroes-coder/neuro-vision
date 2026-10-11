@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "bench": "node scripts/benchmark.mjs",
+    "qualidade": "node scripts/avaliar-qualidade.mjs",
     "build": "npm run clean && npm run build:server && npm run build:client",
     "build:server": "esbuild src/server.ts --bundle --platform=node --format=esm --outfile=dist/server.js --external:node:*",
     "build:client": "esbuild public/app.ts --bundle --format=esm --outfile=public/app.js --external:https://*",

@@ -1,0 +1,11 @@
+{
+  "clip": "exemplo-sala-com-pessoa.mp4",
+  "inicio": "2026-10-11T12:00:00.000Z",
+  "duracaoMs": 60000,
+  "notas": "Exemplo de anotacao: pessoa entra pela direita, atravessa a cena e sai pela esquerda. Substitua pelo clipe real.",
+  "eventos": [
+    { "tipo": "aparicao", "em": 5000, "descricao": "pessoa entra pela direita" },
+    { "tipo": "movimento", "em": 20000, "descricao": "pessoa atravessa a cena" },
+    { "tipo": "desaparecimento", "em": 40000, "descricao": "pessoa sai pela esquerda" }
+  ]
+}
