@@ -1,0 +1,345 @@
+# Plano de evolução do Neuro Vision
+
+> **Objetivo:** transformar o Neuro Vision de um sistema que analisa frames isolados em um sistema que mantém uma representação temporal do ambiente, registra eventos úteis e usa modelos pesados somente quando agregam valor.
+>
+> **Como usar:** marque cada item (`[x]`) somente depois de implementar e validar. Execute as fases na ordem; cada fase deve terminar com testes passando e um commit separado.
+
+## Visão do destino
+
+```text
+Webcam
+  ↓
+Captura e normalização dos frames
+  ↓
+Percepção leve: detecção + comparação com o estado anterior
+  ↓
+Rastreamento dos objetos e identificação de mudanças
+  ↓
+Decisor: ignorar ruído ou solicitar interpretação ao Ollama
+  ↓
+Eventos estruturados + snapshots + memória persistente
+  ↓
+Histórico consultável e resumo do estado atual
+```
+
+**Princípio de arquitetura:** detecção, rastreamento, interpretação com IA, memória e interface devem ser módulos separados. Nenhuma parte deve depender diretamente de uma implementação específica de modelo.
+
+---
+
+## Fase 0 — Preparar o repositório e estabelecer uma linha de base
+
+**Objetivo:** garantir que mudanças futuras possam ser comparadas e revertidas.
+
+- [x] Criar uma branch para o trabalho, por exemplo `feat/temporal-perception`.
+- [x] Fazer backup dos logs e snapshots importantes. Eles podem conter imagens privadas; não os incluir em commits.
+- [x] Instalar as dependências a partir do lockfile: `npm ci`.
+- [x] Executar `npm run typecheck` e registrar o resultado.
+- [x] Executar `npm run lint` e registrar o resultado.
+- [x] Executar `npm test` e registrar a quantidade de testes aprovados/falhos.
+- [x] Executar `npm run build`.
+- [x] Executar `npm run test:e2e` conforme a configuração do Playwright; resolver previamente qualquer requisito de servidor ou navegador informado pelo teste.
+- [x] Iniciar o projeto com `npm run dev` e testar manualmente os motores de detecção, descrição e roteiro.
+- [x] Registrar um benchmark de referência com `npm run bench`, usando sempre o mesmo modelo, hardware e imagem de teste.
+
+**Critério de conclusão:** resultados iniciais documentados e erros preexistentes separados dos que surgirem nas mudanças.
+
+### Linha de base registrada
+
+Ambiente: Windows, Node.js v24.19.0, npm 11.17.0. Ollama local com `qwen2.5vl:3b`, `qwen3-vl:4b` e `qwen2.5-coder:3b`. Branch de trabalho: `feat/temporal-perception`.
+
+| Verificação | Resultado |
+| --- | --- |
+| `npm ci` | 162 pacotes, 0 vulnerabilidades (aviso de `allow-scripts` do esbuild; build funcionou) |
+| `npm run typecheck` | OK (0 erros) |
+| `npm run lint` | OK (0 avisos/erros) |
+| `npm test` | 68 aprovados / 0 falhos (3 arquivos, ~1,1s) |
+| `npm run build` | OK (`dist/server.js` 24,5kb; `public/app.js` 19,9kb) |
+| `npm run test:e2e` | 3 aprovados / 0 falhos (Playwright chromium, ~8,3s) |
+| `npm run dev` | Servidor em `127.0.0.1:3300`; `/api/health` OK (Ollama online, 3 modelos) |
+| `POST /api/visao` (roteiro base) | 200; grava `tipo:"roteiro"`, `papel:"base"`, `qwen2.5vl:3b`, ~224 tokens, ~6,7s |
+
+Benchmark de referência (`npm run bench`, imagem `logs/snapshots/1791652184472-dg64nl.jpg`):
+
+| Modelo | Responde? | Geração (tok/s) | Prefill (tok/s) | 1ª resposta (ms) | Total (ms) | Carga (s) |
+| --- | --- | --- | --- | --- | --- | --- |
+| `qwen2.5vl:3b` (padrão) | sim | 40,2 | 40790 (warm) / 97 (cold) | 86 (warm) / ~11000 (cold) | 1598 (warm) / 12389 (cold) | 20,1 |
+| `qwen3-vl:4b` | não (thinking) | — | — | — | — | 23,9 |
+| `qwen2.5-coder:3b` | sem visão (texto puro) | — | — | — | — | 15,7 |
+
+Notas: o slider da UI usa `max(intervalo, duração da última análise + 500ms)`; o benchmark sugere intervalo mínimo de 3s (warm) a 19s (cold) para o `qwen2.5vl:3b`. A "1ª resposta" no cold start inclui o prefill da imagem (4K), por isso é muito maior que no warm.
+
+**Erros preexistentes (não são regressões do código):**
+
+- Instabilidade transitória do Ollama/`llama-server`: após o benchmark carregar/descarregar vários modelos, requisições de visão passaram a retornar HTTP 500 (`error reading llama-server response ... wsarecv`) até o modelo ser descarregado (`keep_alive: 0`) e recarregado. Após o reload, tudo voltou a funcionar. Investigar na Fase 6 (diagnóstico/estabilidade).
+- Teste manual de webcam no navegador não é executável neste ambiente headless; validado por E2E (Playwright com stub do transformers.js) e por chamada real a `/api/visao`.
+
+---
+
+## Fase 1 — Corrigir consistência e segurança antes de adicionar inteligência
+
+### 1.1 Corrigir a validação de caminhos do servidor
+
+Arquivos principais: `src/server.ts` e `src/server.test.ts`.
+
+- [ ] Substituir a checagem `filePath.startsWith(diretorioBase)` por uma validação baseada em `path.relative()` ou em caminhos absolutos resolvidos.
+- [ ] Aplicar a mesma regra aos arquivos estáticos e à rota `/snapshots/`.
+- [ ] Rejeitar caminhos que saiam do diretório permitido, inclusive quando apontarem para um diretório irmão cujo nome compartilhe o prefixo do diretório permitido.
+- [ ] Tratar URLs com codificação inválida sem derrubar a requisição nem o servidor.
+- [ ] Adicionar testes de regressão para `..`, separadores codificados, caminhos absolutos e nomes semelhantes ao diretório autorizado.
+
+**Aceite:** nenhuma requisição consegue ler arquivos fora de `public/` ou `logs/snapshots/` por meio dessas rotas.
+
+### 1.2 Liberar corretamente a webcam quando a inicialização falhar
+
+Arquivo principal: `public/app.ts`.
+
+- [ ] Criar uma única função para encerrar a captura: parar todas as tracks, limpar `video.srcObject`, cancelar o agendamento e abortar a análise em andamento.
+- [ ] Usar essa função se `video.play()`, a preparação do Ollama ou o carregamento do detector falhar.
+- [ ] Garantir que o estado dos botões e a mensagem de status voltem a um estado coerente em todas as saídas de erro.
+- [ ] Testar falhas de acesso à câmera, falha de carregamento do modelo, botão **Parar** durante uma inferência e nova tentativa de **Iniciar**.
+
+**Aceite:** nenhuma falha de inicialização deixa a webcam ligada sem necessidade ou bloqueia uma nova tentativa.
+
+### 1.3 Comparar a identidade completa do modelo Ollama
+
+Arquivo principal: `src/ollama.ts` e seus testes.
+
+- [ ] Rever `nomeBaseModelo()` e `modeloEmMemoria()`: retirar a tag do nome pode confundir, por exemplo, `qwen2.5vl:3b` com `qwen2.5vl:7b`.
+- [ ] Implementar uma normalização que preserve tags diferentes e trate explicitamente apenas os aliases documentados, como uma tag ausente equivalente a `latest`, se aplicável ao retorno real da API do Ollama.
+- [ ] Criar testes para modelo igual, tags diferentes, tag ausente e nomes retornados por `/api/ps`.
+- [ ] Confirmar que `/api/visao/preparar` só declara pronto o modelo solicitado.
+
+**Aceite:** um modelo diferente nunca é informado como carregado por engano.
+
+### 1.4 Tornar o agendamento realmente adaptativo
+
+Arquivo principal: `public/app.ts`.
+
+Hoje `agendarAnalise()` calcula `espera` ao agendar um `setInterval()`. A duração da análise é atualizada depois, mas o período do timer existente não é recalculado a cada ciclo; quando a inferência demora, ticks podem ser descartados pelo bloqueio `analisando`.
+
+- [ ] Trocar o ciclo periódico por um agendamento de uma execução (`setTimeout`) após a conclusão da análise anterior.
+- [ ] Calcular em cada ciclo o próximo atraso usando a configuração do usuário e a duração real da inferência, por exemplo `max(intervaloConfigurado, ultimaDuracaoMs + margemMs)`.
+- [ ] Impedir que o início imediato e o timer iniciem análises duplicadas.
+- [ ] Ao parar, limpar o timer e garantir que nenhuma análise nova comece.
+- [ ] Ao mudar o intervalo na interface, aplicar o novo valor no próximo agendamento.
+- [ ] Adicionar testes cobrindo inferência lenta, mudança de intervalo, parada durante a inferência e ausência de sobreposição.
+
+**Aceite:** uma única análise pode estar em execução por vez; o próximo ciclo é calculado depois da conclusão do atual.
+
+### 1.5 Definir política de retenção dos snapshots
+
+Arquivos principais: `src/server.ts`, testes e documentação.
+
+- [ ] Definir limites configuráveis de idade, quantidade ou tamanho total para `logs/snapshots/`.
+- [ ] Remover snapshots órfãos quando apropriado e decidir explicitamente o que acontece ao limpar o histórico JSONL.
+- [ ] Não apagar arquivos ainda referenciados por entradas preservadas no log.
+- [ ] Executar a limpeza de modo seguro, sem bloquear requisições normais por longos períodos.
+- [ ] Adicionar testes para snapshots referenciados, órfãos, expiração e falhas de sistema de arquivos.
+
+**Aceite:** o uso de disco permanece limitado por uma política documentada.
+
+### 1.6 Estabelecer o limite de segurança de rede
+
+- [ ] Manter `HOST=127.0.0.1` como padrão.
+- [ ] Documentar que usar `HOST=0.0.0.0` expõe a interface e endpoints da API à rede local.
+- [ ] Antes de recomendar exposição na rede, implementar autenticação ou outro controle de acesso adequado, limitar origens e validar os payloads recebidos.
+- [ ] Aplicar limites de tamanho também a snapshots e requisições JSON; rejeitar tipos de dados inválidos.
+
+**Aceite:** o projeto deixa explícito que execução local e execução acessível pela rede têm riscos diferentes.
+
+---
+
+## Fase 2 — Separar responsabilidades sem reescrever o projeto inteiro
+
+**Objetivo:** permitir evolução incremental, preservando a interface e os testes existentes.
+
+### 2.1 Extrair módulos pequenos do cliente
+
+- [ ] Mover o controle da webcam para um módulo próprio, por exemplo `public/camera.ts`.
+- [ ] Mover o agendamento e a guarda contra concorrência para `public/scheduler.ts`.
+- [ ] Isolar as chamadas HTTP (`/api/log`, `/api/visao`, `/api/health`) em `public/api.ts`.
+- [ ] Isolar a lógica de detecção e conversão do resultado em `public/detector.ts`.
+- [ ] Manter `public/app.ts` responsável principalmente por coordenar estado e interface.
+- [ ] Fazer uma extração por commit; rodar typecheck, lint e testes após cada uma.
+
+### 2.2 Definir interfaces independentes dos modelos
+
+- [ ] Definir uma interface comum para motores de percepção, com operações explícitas de inicialização, análise e encerramento.
+- [ ] Padronizar resultado de inferência: modelo, duração, objetos detectados, descrição opcional e metadados de confiança.
+- [ ] Separar erros de câmera, detector, Ollama, armazenamento e cancelamento.
+- [ ] Evitar que o módulo de memória precise conhecer a API específica do Transformers.js ou do Ollama.
+
+**Aceite da fase:** a interface continua funcional e é possível trocar um motor sem reescrever o histórico ou o agendador.
+
+---
+
+## Fase 3 — Construir percepção temporal de objetos e mudanças
+
+**Objetivo:** deixar de tratar cada frame como observação isolada.
+
+### 3.1 Criar uma representação do estado observado
+
+- [ ] Definir tipos para `ObjetoRastreado`, `Observacao` e `EventoVisual` em `src/types.ts` ou módulos especializados.
+- [ ] Guardar, para cada objeto rastreado, rótulo, caixa delimitadora, confiança, última observação e identificador estável dentro da sessão.
+- [ ] Distinguir claramente uma detecção de um evento: detectar uma pessoa em dois frames não deve gerar automaticamente duas aparições.
+
+### 3.2 Associar detecções entre frames
+
+- [ ] Implementar uma primeira associação simples por classe/rótulo e sobreposição das caixas (IoU) ou distância entre centros.
+- [ ] Atribuir um ID de rastreamento aos objetos associados entre frames.
+- [ ] Definir limiares configuráveis e tempo de expiração para objetos que deixam de ser detectados.
+- [ ] Criar testes com caixas deslocadas, objetos da mesma classe, detecções ausentes por um frame e objetos que reaparecem.
+- [ ] Avaliar um rastreador dedicado somente se a associação simples não atingir a qualidade desejada.
+
+### 3.3 Gerar eventos estruturados
+
+- [ ] Começar com os tipos `aparicao`, `desaparecimento` e `movimento`.
+- [ ] Registrar `mudanca_de_cena` apenas como sinal para uma análise adicional, não como prova semântica de que algo específico aconteceu.
+- [ ] Estabelecer limiares de movimento e persistência para reduzir falsos positivos causados por ruído ou pequenas oscilações da caixa.
+- [ ] Armazenar a origem do evento (`detector`, `rastreador` ou `ollama`) e a confiança associada.
+- [ ] Testar cenas controladas com movimentação real, câmera parada, alteração de iluminação e oclusão parcial.
+
+**Aceite da fase:** o sistema diferencia “o objeto continua presente” de “um objeto apareceu, sumiu ou se moveu”.
+
+---
+
+## Fase 4 — Transformar logs em memória persistente e consultável
+
+**Objetivo:** preservar contexto entre ciclos e reinicializações.
+
+### 4.1 Padronizar o evento salvo
+
+- [ ] Adotar um contrato semelhante a este e ajustá-lo às necessidades reais:
+
+```ts
+interface EventoVisual {
+  id: string;
+  timestamp: string;
+  tipo: "aparicao" | "desaparecimento" | "movimento" | "mudanca" | "resumo";
+  objetoId?: string;
+  descricao: string;
+  confianca?: number;
+  origem: "detector" | "rastreador" | "ollama";
+  snapshot?: string;
+  modelo?: string;
+}
+```
+
+- [ ] Separar os eventos estruturados das mensagens de status da interface.
+- [ ] Registrar falhas e métricas operacionais sem tratá-las como acontecimentos visuais.
+
+### 4.2 Recuperar contexto depois de reiniciar
+
+- [ ] Na inicialização, reconstruir o contexto recente usando o histórico persistido, não apenas a variável de sessão `roteiroBeats`.
+- [ ] Manter um resumo curto do estado atual separado do histórico completo de eventos.
+- [ ] Definir uma janela máxima de contexto por tamanho e/ou número de eventos para o prompt do Ollama.
+- [ ] Evitar enviar indefinidamente todo o histórico ao modelo.
+- [ ] Adicionar testes para reidratação do contexto, log vazio, linhas inválidas e histórico truncado.
+
+### 4.3 Escolher armazenamento por necessidade
+
+- [ ] Manter JSONL enquanto a necessidade principal for escrita sequencial e leitura recente.
+- [ ] Migrar para SQLite quando filtros por data, objeto, tipo de evento e consultas combinadas se tornarem relevantes.
+- [ ] Se migrar, preservar exportação para JSONL e criar migração/testes de integridade.
+- [ ] Adicionar busca semântica ou embeddings apenas quando consultas em linguagem natural trouxerem benefício mensurável.
+
+**Aceite da fase:** após reiniciar o aplicativo, o sistema recupera um contexto recente coerente sem depender da memória volátil da página.
+
+---
+
+## Fase 5 — Implementar o fluxo de análise orientado a eventos
+
+**Objetivo:** reduzir inferências caras sem sacrificar eventos importantes.
+
+- [ ] Executar a percepção leve em uma frequência adequada ao hardware.
+- [ ] Comparar observações com o estado anterior e filtrar ruído antes de acionar o Ollama.
+- [ ] Chamar o modelo de visão quando houver mudança relevante, baixa confiança, nova entidade ou necessidade de resumo periódico.
+- [ ] Aplicar cooldown e limite máximo de chamadas para impedir uma sequência de inferências em cenas instáveis.
+- [ ] Preservar uma forma de solicitar análise manual imediata pela interface.
+- [ ] Diferenciar “não detectei mudança” de “não consegui analisar”: falhas nunca devem ser registradas como ausência de mudança.
+- [ ] Quando o cliente cancelar uma análise, encerrar a leitura do stream; avaliar também propagar o cancelamento ao `fetch` do Ollama no servidor.
+- [ ] Registrar a razão que acionou a análise, para investigar por que o sistema decidiu chamar o modelo.
+
+**Aceite da fase:** cenas estáticas geram poucas chamadas ao Ollama, enquanto mudanças relevantes continuam produzindo eventos verificáveis.
+
+---
+
+## Fase 6 — Melhorar instalação, operação e desempenho
+
+### 6.1 Clarificar o funcionamento offline
+
+- [ ] Documentar o que roda localmente e quais recursos precisam ser baixados na primeira execução.
+- [ ] Fixar uma versão específica de Transformers.js, evitando depender de uma versão flutuante na URL do CDN.
+- [ ] Avaliar instalar/bundlar a biblioteca localmente e disponibilizar os pesos necessários em cache local.
+- [ ] Documentar como preparar os modelos antes de usar o aplicativo sem internet.
+- [ ] Testar o comportamento com a rede desconectada depois da preparação dos recursos.
+
+### 6.2 Medir antes de trocar modelos
+
+- [ ] Escolher um pequeno conjunto fixo de imagens e clipes representativos.
+- [ ] Medir latência de inferência, tempo até o primeiro resultado, uso de RAM/VRAM e inferências por minuto.
+- [ ] Medir qualidade dos eventos: mudanças detectadas, mudanças perdidas e falsos positivos por minuto.
+- [ ] Comparar configurações/modelos sob as mesmas condições com `npm run bench` e testes reproduzíveis.
+- [ ] Registrar hardware, modelo, configurações e resultados junto com cada benchmark.
+
+### 6.3 Tornar o diagnóstico visível
+
+- [ ] Mostrar no estado de saúde qual motor está ativo, qual modelo foi solicitado e qual está carregado.
+- [ ] Diferenciar tempo de carregamento do modelo, inferência e persistência.
+- [ ] Incluir logs claros para timeout, cancelamento, falha de câmera e erro do modelo.
+- [ ] Exibir avisos quando o processamento local estiver usando fallback de CPU em vez de WebGPU.
+
+**Aceite da fase:** os resultados são reproduzíveis e os requisitos de conectividade e hardware estão documentados.
+
+---
+
+## Fase 7 — Validar qualidade e preparar o próximo nível
+
+- [ ] Criar um conjunto de testes visuais próprio, com vídeos curtos de cenas estáticas e mudanças conhecidas.
+- [ ] Anotar eventos esperados para permitir comparação consistente.
+- [ ] Calcular precisão/recall dos eventos ou, como mínimo, falsos positivos por minuto e proporção de mudanças não detectadas.
+- [ ] Definir metas realistas por hardware antes de otimizar.
+- [ ] Rodar regressão após mudanças em prompts, modelos, rastreamento e agendamento.
+- [ ] Documentar limitações conhecidas: oclusão, iluminação, classes não treinadas, alucinações do modelo e identificação incerta de objetos.
+- [ ] Atualizar `README.md` e `TODO.md` quando uma tarefa for concluída; manter este plano como roadmap de médio prazo.
+
+**Aceite da fase:** é possível dizer, com dados, se uma mudança tornou o sistema mais preciso, mais rápido ou mais econômico.
+
+---
+
+## Ordem recomendada de execução
+
+Marque aqui as fases inteiras conforme forem concluídas:
+
+- [ ] **Marco 1 — Confiabilidade:** Fase 0 + Fase 1.
+- [ ] **Marco 2 — Código sustentável:** Fase 2.
+- [ ] **Marco 3 — Percepção temporal:** Fase 3.
+- [ ] **Marco 4 — Memória persistente:** Fase 4.
+- [ ] **Marco 5 — Inferência inteligente:** Fase 5.
+- [ ] **Marco 6 — Desempenho e operação:** Fase 6.
+- [ ] **Marco 7 — Qualidade mensurável:** Fase 7.
+
+## Regras para manter o projeto sob controle
+
+- [ ] Não implementar rastreamento, banco vetorial e agente autônomo na mesma mudança.
+- [ ] Não substituir um componente funcional sem benchmark ou teste que justifique a troca.
+- [ ] Cada correção deve incluir um teste de regressão quando for viável.
+- [ ] Cada marco deve terminar com `npm run typecheck`, `npm run lint`, `npm test` e `npm run build` aprovados.
+- [ ] Preservar o funcionamento atual dos modos Detecção, Descrição e Roteiro durante a migração.
+- [ ] Tratar imagens e logs como dados potencialmente sensíveis; manter a execução local por padrão.
+
+## Comandos de validação
+
+Execute na raiz do repositório:
+
+```bash
+npm ci
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run test:e2e
+npm run bench
+```
+
+O benchmark pode exigir que o Ollama esteja instalado, em execução e com o modelo escolhido baixado. Os testes E2E podem exigir a instalação dos navegadores do Playwright conforme a mensagem apresentada pelo comando.
