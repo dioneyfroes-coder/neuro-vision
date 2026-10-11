@@ -81,11 +81,11 @@ Notas: o slider da UI usa `max(intervalo, duração da última análise + 500ms)
 
 Arquivos principais: `src/server.ts` e `src/server.test.ts`.
 
-- [ ] Substituir a checagem `filePath.startsWith(diretorioBase)` por uma validação baseada em `path.relative()` ou em caminhos absolutos resolvidos.
-- [ ] Aplicar a mesma regra aos arquivos estáticos e à rota `/snapshots/`.
-- [ ] Rejeitar caminhos que saiam do diretório permitido, inclusive quando apontarem para um diretório irmão cujo nome compartilhe o prefixo do diretório permitido.
-- [ ] Tratar URLs com codificação inválida sem derrubar a requisição nem o servidor.
-- [ ] Adicionar testes de regressão para `..`, separadores codificados, caminhos absolutos e nomes semelhantes ao diretório autorizado.
+- [x] Substituir a checagem `filePath.startsWith(diretorioBase)` por uma validação baseada em `path.relative()` ou em caminhos absolutos resolvidos.
+- [x] Aplicar a mesma regra aos arquivos estáticos e à rota `/snapshots/`.
+- [x] Rejeitar caminhos que saiam do diretório permitido, inclusive quando apontarem para um diretório irmão cujo nome compartilhe o prefixo do diretório permitido.
+- [x] Tratar URLs com codificação inválida sem derrubar a requisição nem o servidor.
+- [x] Adicionar testes de regressão para `..`, separadores codificados, caminhos absolutos e nomes semelhantes ao diretório autorizado.
 
 **Aceite:** nenhuma requisição consegue ler arquivos fora de `public/` ou `logs/snapshots/` por meio dessas rotas.
 

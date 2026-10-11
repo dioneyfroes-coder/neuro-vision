@@ -201,12 +201,36 @@ export async function salvarSnapshot(
   return `${SNAP_URL}/${nome}`;
 }
 
+export function pathnameDecodificado(rawUrl: string | undefined): string | null {
+  try {
+    return decodeURIComponent(new URL(rawUrl ?? "/", "http://localhost").pathname);
+  } catch {
+    return null;
+  }
+}
+
+export function resolverCaminhoDentroDaBase(baseDir: string, relPath: string): string | null {
+  if (relPath.includes("\0")) return null;
+  const base = path.resolve(baseDir);
+  const destino = path.resolve(base, relPath);
+  const relativo = path.relative(base, destino);
+  if (
+    relativo === "" ||
+    relativo === ".." ||
+    relativo.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativo)
+  ) {
+    return null;
+  }
+  return destino;
+}
+
 export function resolveStaticFile(rawUrl: string, publicDir: string = PUBLIC_DIR): string | null {
-  const pathname = decodeURIComponent(new URL(rawUrl, "http://localhost").pathname);
-  const relPath = pathname === "/" ? "/index.html" : pathname;
-  const filePath = path.normalize(path.join(publicDir, relPath));
-  if (!filePath.startsWith(publicDir)) return null;
-  return filePath;
+  const pathname = pathnameDecodificado(rawUrl);
+  if (pathname === null) return null;
+  const relPath = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+  if (!relPath) return null;
+  return resolverCaminhoDentroDaBase(publicDir, relPath);
 }
 
 function serveStatic(req: IncomingMessage, res: ServerResponse, publicDir: string): void {
@@ -467,10 +491,15 @@ function serveSnapshot(
   res: ServerResponse,
   snapDir: string
 ): void {
-  const pathname = decodeURIComponent(new URL(req.url ?? "/", "http://localhost").pathname);
+  const pathname = pathnameDecodificado(req.url);
+  if (pathname === null) {
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Requisicao invalida");
+    return;
+  }
   const rel = pathname.replace(/^\/snapshots\/?/, "");
-  const filePath = path.normalize(path.join(snapDir, rel));
-  if (!rel || !filePath.startsWith(snapDir)) {
+  const filePath = resolverCaminhoDentroDaBase(snapDir, rel);
+  if (!filePath) {
     res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("Acesso negado");
     return;

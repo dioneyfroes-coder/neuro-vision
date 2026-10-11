@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
@@ -10,6 +10,7 @@ import {
   limparLog,
   logEvent,
   montarEntrada,
+  resolverCaminhoDentroDaBase,
   resolveStaticFile,
   salvarSnapshot,
 } from "./server";
@@ -164,12 +165,35 @@ describe("resolveStaticFile", () => {
     expect(resolveStaticFile("/", tmpDir)).toBe(path.join(tmpDir, "index.html"));
   });
 
+  it("resolve um arquivo dentro da base", () => {
+    expect(resolveStaticFile("/style.css", tmpDir)).toBe(path.join(tmpDir, "style.css"));
+  });
+
   it("bloqueia path traversal", () => {
     expect(resolveStaticFile("/..%2fpackage.json", tmpDir)).toBeNull();
     expect(resolveStaticFile("/%2e%2e%2f%2e%2e%2fpackage.json", tmpDir)).toBeNull();
     const colapsado = resolveStaticFile("/%2e%2e/package.json", tmpDir);
-    expect(colapsado).not.toBeNull();
-    expect(colapsado!.startsWith(tmpDir)).toBe(true);
+    expect(colapsado).toBe(path.join(tmpDir, "package.json"));
+  });
+
+  it("bloqueia separador do Windows codificado", () => {
+    expect(resolveStaticFile("/..%5cpackage.json", tmpDir)).toBeNull();
+  });
+
+  it("bloqueia caminho absoluto para fora da base", () => {
+    const absoluto = path.resolve(tmpDir, "..", "fora.txt");
+    expect(resolverCaminhoDentroDaBase(tmpDir, absoluto)).toBeNull();
+  });
+
+  it("bloqueia irmao que compartilha o prefixo do diretorio permitido", () => {
+    const irmao = `..${path.sep}${path.basename(tmpDir)}-segredo${path.sep}x.txt`;
+    expect(resolverCaminhoDentroDaBase(tmpDir, irmao)).toBeNull();
+    expect(resolveStaticFile(`/..%2f${path.basename(tmpDir)}-segredo%2fx.txt`, tmpDir)).toBeNull();
+  });
+
+  it("nao lanca com codificacao invalida", () => {
+    expect(resolveStaticFile("/%E0%A4%A", tmpDir)).toBeNull();
+    expect(resolveStaticFile("/%zz", tmpDir)).toBeNull();
   });
 });
 
@@ -596,14 +620,79 @@ describe("createServer", () => {
     }
   });
 
-  it("GET /snapshots bloqueia path traversal", async () => {
-    const server = createServer({ snapDir: path.join(tmpDir, "snapshots"), publicDir: tmpDir });
+  it("GET /snapshots bloqueia traversal, separadores codificados e irmaos semelhantes", async () => {
+    const snapDir = path.join(tmpDir, "snapshots");
+    const snapIrmao = path.join(tmpDir, "snapshots-irmanos");
+    await mkdir(snapDir, { recursive: true });
+    await mkdir(snapIrmao, { recursive: true });
+    await writeFile(path.join(snapDir, "ok.jpg"), "BLOB");
+    await writeFile(path.join(tmpDir, "segredo.jsonl"), "TOPSECRET");
+    await writeFile(path.join(snapIrmao, "x.jpg"), "TOPSECRET");
+
+    const server = createServer({ snapDir, publicDir: tmpDir });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const { port } = server.address() as AddressInfo;
+    const base = `http://127.0.0.1:${port}`;
+
+    const tentarLer = async (url: string): Promise<Response> => fetch(base + url);
 
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/snapshots/..%2f..%2fpackage.json`);
-      expect([403, 404]).toContain(res.status);
+      const ok = await tentarLer("/snapshots/ok.jpg");
+      expect(ok.status).toBe(200);
+      expect(await ok.text()).toBe("BLOB");
+
+      const ataques = [
+        "/snapshots/..%2fsegredo.jsonl",
+        "/snapshots/%2e%2e%2fsegredo.jsonl",
+        "/snapshots/..%5csegredo.jsonl",
+        "/snapshots/..%2fsnapshots-irmanos%2fx.jpg",
+        "/snapshots/%2e%2e%2fsnapshots-irmanos%2fx.jpg",
+        "/snapshots/..%2f..%2fsegredo.jsonl",
+      ];
+      for (const url of ataques) {
+        const res = await tentarLer(url);
+        expect(res.status).not.toBe(200);
+        expect(await res.text()).not.toContain("TOPSECRET");
+      }
+
+      const invalido = await tentarLer("/snapshots/%E0%A4%A");
+      expect([400, 403]).toContain(invalido.status);
+
+      const ainda = await tentarLer("/snapshots/ok.jpg");
+      expect(ainda.status).toBe(200);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("GET de estatico bloqueia traversal e codificacao invalida sem derrubar o servidor", async () => {
+    const publicDir = path.join(tmpDir, "public");
+    await mkdir(publicDir, { recursive: true });
+    await writeFile(path.join(publicDir, "index.html"), "<html>ok</html>");
+    await writeFile(path.join(tmpDir, "segredo.txt"), "TOPSECRET");
+
+    const server = createServer({ publicDir, logFile: path.join(tmpDir, "visao.jsonl") });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+    const base = `http://127.0.0.1:${port}`;
+
+    try {
+      const raiz = await fetch(`${base}/`);
+      expect(raiz.status).toBe(200);
+      expect(await raiz.text()).toContain("ok");
+
+      const ataques = ["/..%2fsegredo.txt", "/%2e%2e%2fsegredo.txt", "/..%5csegredo.txt"];
+      for (const url of ataques) {
+        const res = await fetch(base + url);
+        expect(res.status).not.toBe(200);
+        expect(await res.text()).not.toContain("TOPSECRET");
+      }
+
+      const invalido = await fetch(`${base}/%E0%A4%A`);
+      expect([400, 403]).toContain(invalido.status);
+
+      const ainda = await fetch(`${base}/`);
+      expect(ainda.status).toBe(200);
     } finally {
       server.close();
     }
