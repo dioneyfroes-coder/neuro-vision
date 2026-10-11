@@ -29,6 +29,8 @@ const placeholder = el<HTMLDivElement>("placeholder");
 const statusEl = el<HTMLDivElement>("status");
 const spinnerEl = el<HTMLDivElement>("spinner");
 const ollamaStatusEl = el<HTMLSpanElement>("ollamaStatus");
+const diagInfoEl = el<HTMLSpanElement>("diagInfo");
+const gpuWarningEl = el<HTMLDivElement>("gpuWarning");
 const logEl = el<HTMLUListElement>("log");
 const logCountEl = el<HTMLSpanElement>("logCount");
 const clearLogBtn = el<HTMLButtonElement>("clearLog");
@@ -58,6 +60,13 @@ let intervaloMsConfigurado = Number(intervalInput.value) * 1000;
 let manualSolicitado = false;
 const politica = new PoliticaAnalise();
 
+/** Ultimo status do Ollama conhecido (motor/modelos/carregados), para o diagnostico. */
+let infoOllama: api.InfoOllama | null = null;
+/** Tempo de carregamento do modelo na ultima inicializacao (ms). */
+let ultimaCargaMs = 0;
+/** Tempo da ultima gravacao no servidor (persistencia), em ms. */
+let ultimaPersistenciaMs = 0;
+
 const agendador = new AgendadorAnalise({
   executar: () => analisar(),
   obterIntervaloMs: () => intervaloMsConfigurado,
@@ -70,6 +79,57 @@ function setStatus(text: string): void {
 
 function setSpinner(ativo: boolean): void {
   spinnerEl.hidden = !ativo;
+}
+
+/** Modelo de deteccao em uso no navegador, ou "—" quando o motor nao precisa dele. */
+function modeloDeDeteccaoAtivo(): string | null {
+  const modo = motorSelect.value;
+  return modo === "deteccao" || modo === "eventos" ? modelSelect.value : null;
+}
+
+/**
+ * Linha de diagnostico (Fase 6.3): mostra o motor ativo, o modelo solicitado,
+ * o modelo carregado no Ollama e separa **carga**, **inferencia** e
+ * **persistencia** — para distinguir lentidao de modelo de lentidao de disco.
+ */
+function atualizarDiagnostico(): void {
+  const motor = running ? motorSelect.value : "parado";
+  const deteccao = modeloDeDeteccaoAtivo();
+  const modeloOllama = infoOllama?.modelo ?? "?";
+  const modelo =
+    motorSelect.value === "eventos"
+      ? `${deteccao} + ${modeloOllama}`
+      : deteccao ?? modeloOllama;
+  const carregados = !infoOllama
+    ? "?"
+    : infoOllama.online === false
+      ? "offline"
+      : infoOllama.carregados?.length
+        ? infoOllama.carregados.join(", ")
+        : "nenhum";
+
+  const partes = [`motor ${motor}`, `modelo ${modelo}`, `Ollama carregado: ${carregados}`];
+  if (ultimaCargaMs > 0) partes.push(`carga ${(ultimaCargaMs / 1000).toFixed(1)}s`);
+  if (ultimaDuracaoMs > 0) partes.push(`inferencia ${ultimaDuracaoMs} ms`);
+  if (ultimaPersistenciaMs > 0) partes.push(`persistencia ${ultimaPersistenciaMs} ms`);
+
+  diagInfoEl.textContent = `Diagnostico: ${partes.join(" · ")}`;
+  diagInfoEl.title = partes.join("\n");
+}
+
+/**
+ * Aviso persistente de fallback de CPU (Fase 6.3): mostrado quando a deteccao
+ * roda em WASM em vez de WebGPU. Nao e escondido depois — permanece ate
+ * recarregar a pagina, para o usuario saber que a lentidao e esperada.
+ */
+function mostrarAvisoDispositivo(): void {
+  if (modeloDeDeteccaoAtivo() === null) return;
+  if (detectorCoco.dispositivo !== "wasm") return;
+  const temGpu = Boolean((navigator as Navigator & { gpu?: unknown }).gpu);
+  gpuWarningEl.textContent = temGpu
+    ? "Aviso: o WebGPU não pôde ser usado — a detecção está rodando na CPU (WASM) e será mais lenta."
+    : "Aviso: este navegador não oferece WebGPU — a detecção está rodando na CPU (WASM) e será mais lenta.";
+  gpuWarningEl.hidden = false;
 }
 
 /** "Analisar agora" so faz sentido no modo eventos, com a sessao rodando. */
@@ -230,6 +290,21 @@ function registrarOperacional(
   void api.gravarOperacional({ nivel, origem, mensagem });
 }
 
+/**
+ * Persiste uma entrada no servidor medindo o tempo de gravacao (persistencia),
+ * para diferenciar essa etapa da inferencia no diagnostico.
+ */
+async function persistirEntrada(entry: EntradaLog): Promise<void> {
+  const inicio = performance.now();
+  try {
+    await api.gravarEntrada(entry);
+    ultimaPersistenciaMs = Math.round(performance.now() - inicio);
+  } catch {
+    if (running) setStatus("Falha ao gravar no log do servidor");
+  }
+  atualizarDiagnostico();
+}
+
 async function analisarComOllama(
   signal: AbortSignal,
   ehRoteiro: boolean,
@@ -357,9 +432,7 @@ async function analisarDeteccao(signal: AbortSignal): Promise<void> {
     });
   }
 
-  void api.gravarEntrada(entry).catch(() => {
-    if (running) setStatus("Falha ao gravar no log do servidor");
-  });
+  void persistirEntrada(entry);
 }
 
 /**
@@ -465,9 +538,7 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
   const entry = entradaDeResultado(resultado, "deteccao");
   addLogEntry(entry);
   setStatus(`Viu: ${entry.resumo} (${resultado.duracaoMs} ms) · sem mudanca relevante`);
-  void api.gravarEntrada(entry).catch(() => {
-    if (running) setStatus("Falha ao gravar no log do servidor");
-  });
+  void persistirEntrada(entry);
 }
 
 async function analisar(): Promise<void> {
@@ -532,8 +603,10 @@ async function start(): Promise<void> {
       modo: motorSelect.value === "roteiro" ? "roteiro" : "descricao",
     });
     motorAtual = motor;
+    const inicioCarga = performance.now();
     try {
       await prepararOllama(motor);
+      ultimaCargaMs = Math.round(performance.now() - inicioCarga);
     } catch (err) {
       registrarOperacional("erro", "ollama", (err as Error).message);
       falharInicializacao(`Falha ao preparar o Ollama: ${(err as Error).message}`);
@@ -546,13 +619,16 @@ async function start(): Promise<void> {
       obterThreshold: () => Number(thresholdInput.value),
     });
     motorAtual = motor;
+    const inicioCarga = performance.now();
     try {
       await motor.inicializar(setStatus);
+      ultimaCargaMs = Math.round(performance.now() - inicioCarga);
     } catch (err) {
       registrarOperacional("erro", "detector", (err as Error).message);
       falharInicializacao(`Falha ao carregar modelo: ${(err as Error).message}`);
       return;
     }
+    mostrarAvisoDispositivo();
   }
 
   if (!camera.ativa) return;
@@ -560,6 +636,9 @@ async function start(): Promise<void> {
   politica.reiniciar();
   stopBtn.disabled = false;
   atualizarBotoesAnalise();
+  atualizarDiagnostico();
+  // Atualiza o "carregado" do Ollama agora que o modelo pode ter subido.
+  void verificarOllama();
   await agendador.iniciar();
 }
 
@@ -587,18 +666,21 @@ function restaurarInterfaceIdle(): void {
 function falharInicializacao(mensagem: string): void {
   encerrarCaptura();
   restaurarInterfaceIdle();
+  atualizarDiagnostico();
   setStatus(mensagem);
 }
 
 function stop(): void {
   encerrarCaptura();
   restaurarInterfaceIdle();
+  atualizarDiagnostico();
   setStatus("Parado.");
 }
 
 async function verificarOllama(): Promise<void> {
   try {
     const o = await api.saudeOllama();
+    infoOllama = o;
     if (o?.online) {
       const memoria = o.carregados?.length ? ` · em memoria: ${o.carregados.join(", ")}` : "";
       ollamaStatusEl.textContent = `Ollama: online${o.modelos.length ? " (" + o.modelos.join(", ") + ")" : ""}${memoria}`;
@@ -607,11 +689,15 @@ async function verificarOllama(): Promise<void> {
     } else {
       ollamaStatusEl.textContent = `Ollama: offline${o?.erro ? " — " + o.erro : ""}`;
       ollamaStatusEl.className = "health offline";
+      ollamaStatusEl.title = o?.erro ?? "Ollama inacessivel";
     }
   } catch {
+    infoOllama = null;
     ollamaStatusEl.textContent = "Ollama: servidor indisponivel";
     ollamaStatusEl.className = "health offline";
+    ollamaStatusEl.title = "Servidor indisponivel";
   }
+  atualizarDiagnostico();
 }
 
 function aplicarFiltro(): void {
@@ -671,9 +757,11 @@ motorSelect.addEventListener("change", () => {
   roteiroPrimeiro = true;
   manualSolicitado = false;
   atualizarBotoesAnalise();
+  atualizarDiagnostico();
 });
 
 atualizarContagem();
+atualizarDiagnostico();
 void carregarHistorico();
 void carregarContexto();
 void verificarOllama();

@@ -13,6 +13,7 @@ import {
   type ModoAnalise,
 } from "./ollama";
 import { colapsarRepeticoes, cortarFraseIncompleta, ehSemMudanca } from "./texto";
+import { ehCancelamento } from "./erros";
 import {
   appendJsonl,
   lerUltimosJsonl,
@@ -910,13 +911,22 @@ async function handleVisao(
       p.snapshot
     );
   } catch (err) {
+    // Cancelamento (cliente desconectou/fechou a pagina) nao e falha: o fetch
+    // do Ollama foi abortado de proposito. Registra explicitamente para o
+    // diagnostico, sem responder a um cliente que ja foi embora.
+    if (ehCancelamento(err)) {
+      logEvent("info", "visao_cancelada", { cancelada: true });
+      if (!res.writableEnded && res.headersSent) res.end();
+      return;
+    }
     const mensagem = (err as Error).message;
+    const timeout = (err as Error).name === "TimeoutError";
     const status = err instanceof TypeError || err instanceof ErroOllama ? 502 : 500;
-    logEvent("error", "visao_falhou", { status, erro: mensagem });
+    logEvent("error", timeout ? "visao_timeout" : "visao_falhou", { status, erro: mensagem, timeout });
     if (!res.headersSent) {
-      sendJson(res, status, { ok: false, erro: "Ollama: " + mensagem });
+      sendJson(res, status, { ok: false, erro: timeout ? `Ollama: tempo esgotado — ${mensagem}` : "Ollama: " + mensagem });
     } else {
-      res.write(JSON.stringify({ type: "erro", erro: "Ollama: " + mensagem }) + "\n");
+      res.write(JSON.stringify({ type: "erro", erro: (timeout ? "Ollama: tempo esgotado — " : "Ollama: ") + mensagem }) + "\n");
       res.end();
     }
   }
@@ -963,6 +973,8 @@ async function handleClearLogs(
 
 interface InfoOllama {
   online: boolean;
+  /** Modelo de visao solicitado ao Ollama (OLLAMA_MODEL ou o padrao). */
+  modelo: string;
   modelos: string[];
   carregados: string[];
   erro: string;
@@ -970,17 +982,18 @@ interface InfoOllama {
 
 async function consultarOllama(host?: string): Promise<InfoOllama> {
   const base = (host ?? process.env.OLLAMA_HOST ?? "http://localhost:11434").replace(/\/+$/, "");
+  const modelo = process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
   try {
     const resposta = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(3000) });
-    if (!resposta.ok) return { online: false, modelos: [], carregados: [], erro: `HTTP ${resposta.status}` };
+    if (!resposta.ok) return { online: false, modelo, modelos: [], carregados: [], erro: `HTTP ${resposta.status}` };
     const dados = (await resposta.json()) as { models?: { name?: string }[] };
     const modelos = (dados.models ?? [])
       .map((m) => m.name ?? "")
       .filter((n) => n.length > 0);
     const carregados = await modelosEmMemoria({ host: base, timeoutMs: 3000 });
-    return { online: true, modelos, carregados, erro: "" };
+    return { online: true, modelo, modelos, carregados, erro: "" };
   } catch (err) {
-    return { online: false, modelos: [], carregados: [], erro: (err as Error).message };
+    return { online: false, modelo, modelos: [], carregados: [], erro: (err as Error).message };
   }
 }
 

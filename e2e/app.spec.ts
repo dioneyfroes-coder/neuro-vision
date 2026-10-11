@@ -16,6 +16,18 @@ export async function pipeline() {
 }
 `;
 
+// Simula WebGPU indisponivel: a carga em WebGPU falha e o detector cai para
+// WASM (CPU). O aviso persistente de fallback deve aparecer.
+const FALHA_WEBGPU_TRANSFORMERS = `
+export const env = {};
+export async function pipeline(_tarefa, _modelo, opcoes) {
+  if (opcoes && opcoes.device === "webgpu") {
+    throw new Error("WebGPU indisponivel");
+  }
+  return async () => [];
+}
+`;
+
 const DETECTOR_LENTO = `
 export const env = {};
 export async function pipeline() {
@@ -62,7 +74,13 @@ async function prepararPagina(page: Page, transformersBody = STUB_TRANSFORMERS):
       contentType: "application/json",
       body: JSON.stringify({
         ok: true,
-        ollama: { online: false, modelos: [], erro: "desligado" },
+        ollama: {
+          online: false,
+          modelo: "qwen2.5vl:3b",
+          modelos: [],
+          carregados: [],
+          erro: "desligado",
+        },
       }),
     })
   );
@@ -286,4 +304,54 @@ test("rede offline nao quebra a pagina e a deteccao falha com mensagem clara", a
     () => (window as unknown as { __testStream: MediaStream }).__testStream.getTracks()[0].readyState
   );
   expect(estado).toBe("ended");
+});
+
+test("mostra no diagnostico o motor, o modelo e o Ollama carregado", async ({ page }) => {
+  await prepararPagina(page, DETECTOR_LENTO);
+  // Sobrescreve o health padrao (offline) para exercitar a linha de diagnostico.
+  await page.route("**/api/health", (rota) =>
+    rota.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        ollama: {
+          online: true,
+          modelo: "qwen2.5vl:3b",
+          modelos: ["qwen2.5vl:3b"],
+          carregados: ["qwen2.5vl:3b"],
+          erro: "",
+        },
+      }),
+    })
+  );
+  await instalarCameraFalsa(page);
+  await page.goto("/");
+
+  const diag = page.locator("#diagInfo");
+  await expect(diag).toContainText("motor parado");
+  await expect(diag).toContainText("qwen2.5vl:3b");
+
+  // No motor de deteccao o modelo solicitado passa a ser o do navegador e a
+  // inferencia medida entra no diagnostico (separada da carga e da persistencia).
+  await page.locator("#motor").selectOption("deteccao");
+  await expect(diag).toContainText("Xenova/yolos-tiny");
+  await page.locator("#start").click();
+  await expect(diag).toContainText("motor deteccao");
+  await expect(diag).toContainText("inferencia", { timeout: 15_000 });
+  await page.locator("#stop").click();
+});
+
+test("avisa quando a deteccao cai para CPU ao falhar o WebGPU", async ({ page }) => {
+  await prepararPagina(page, FALHA_WEBGPU_TRANSFORMERS);
+  await instalarCameraFalsa(page);
+  await page.goto("/");
+
+  await expect(page.locator("#gpuWarning")).toBeHidden();
+  await page.locator("#motor").selectOption("deteccao");
+  await page.locator("#start").click();
+
+  await expect(page.locator("#gpuWarning")).toBeVisible();
+  await expect(page.locator("#gpuWarning")).toContainText("CPU");
+  await page.locator("#stop").click();
 });

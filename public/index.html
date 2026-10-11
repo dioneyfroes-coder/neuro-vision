@@ -11,6 +11,7 @@
     <h1>Neuro Vision</h1>
     <p class="sub">Visao computacional local — a webcam enxerga e registra o que ve.</p>
     <span id="ollamaStatus" class="health" title="Status do Ollama">Ollama: verificando...</span>
+    <span id="diagInfo" class="diag" title="Diagnostico da sessao">Diagnostico: —</span>
   </header>
 
   <main>
@@ -53,6 +54,9 @@
         </label>
       </div>
       <div id="status" class="status">Pronto.</div>
+      <div id="gpuWarning" class="aviso" hidden>
+        Aviso: o WebGPU não está disponível — a detecção está rodando na CPU (WASM) e será mais lenta.
+      </div>
     </section>
 
     <aside class="logpanel">

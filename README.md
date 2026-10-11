@@ -179,7 +179,19 @@ Regras da `PoliticaAnalise` (em `src/politica-analise.ts`, configuração `CONFI
 - **“Analisar agora”**: botão que força a análise imediata, ignorando cooldown/janela (respeitando o não-sobrepor).
 - **Falha da percepção leve nunca vira “sem mudança”**: vira registro operacional e motivo `falha_percepcao` (dentro da janela).
 
-Cancelamento: quando o cliente cancela uma análise, ele encerra a leitura do stream e o servidor **propaga o abort ao `fetch` do Ollama** (um `AbortController` ligado ao `close` da resposta), derrubando a inferência em vez de deixá-la consumir recursos.
+Cancelamento: quando o cliente cancela uma análise, ele encerra a leitura do stream e o servidor **propaga o abort ao `fetch` do Ollama** (um `AbortController` ligado ao `close` da resposta), derrubando a inferência em vez de deixá-la consumir recursos. O cancelamento é registrado como `visao_cancelada` no log operacional; timeout vira `visao_timeout`.
+
+### Diagnóstico
+
+O cabeçalho mostra uma **linha de diagnóstico** com o **motor ativo** (ou “parado”), o **modelo solicitado** (o do navegador nos modos detecção/eventos; o `OLLAMA_MODEL` nos modos Ollama) e os **modelos carregados** no Ollama (via `GET /api/health`, que também informa o `modelo` configurado).
+
+Ela separa três tempos para localizar a lentidão:
+
+- **carga** — quanto o modelo levou para inicializar (`inicializar`);
+- **inferência** — `duracaoMs` do resultado da análise;
+- **persistência** — quanto levou para gravar a entrada no servidor.
+
+Quando a detecção de objetos **não consegue usar WebGPU** e roda em CPU (WASM), aparece um **aviso persistente** (que só sai ao recarregar a página), com texto específico conforme o navegador ofereça ou não WebGPU.
 
 ### Segurança e exposição na rede
 

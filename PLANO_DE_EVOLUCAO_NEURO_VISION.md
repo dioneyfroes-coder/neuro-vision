@@ -314,10 +314,12 @@ interface EventoVisual {
 
 ### 6.3 Tornar o diagnóstico visível
 
-- [ ] Mostrar no estado de saúde qual motor está ativo, qual modelo foi solicitado e qual está carregado.
-- [ ] Diferenciar tempo de carregamento do modelo, inferência e persistência.
-- [ ] Incluir logs claros para timeout, cancelamento, falha de câmera e erro do modelo.
-- [ ] Exibir avisos quando o processamento local estiver usando fallback de CPU em vez de WebGPU.
+- [x] Mostrar no estado de saúde qual motor está ativo, qual modelo foi solicitado e qual está carregado.
+- [x] Diferenciar tempo de carregamento do modelo, inferência e persistência.
+- [x] Incluir logs claros para timeout, cancelamento, falha de câmera e erro do modelo.
+- [x] Exibir avisos quando o processamento local estiver usando fallback de CPU em vez de WebGPU.
+
+**Implementação 6.3:** o cabeçalho ganhou uma **linha de diagnóstico** (`#diagInfo`) com o motor ativo (ou “parado”), o **modelo solicitado** (o do navegador nos modos detecção/eventos; o `OLLAMA_MODEL` nos modos Ollama) e os **modelos carregados** no Ollama. Para isso, `GET /api/health` passou a devolver também `modelo` (o `OLLAMA_MODEL`/padrão do servidor), e `public/api.ts` reflete o novo campo. A linha separa **carga** (tempo de `inicializar`), **inferência** (`duracaoMs` do resultado) e **persistência** (tempo do `gravarEntrada` no cliente, cronometrado por `persistirEntrada`), deixando claro se a lentidão vem do modelo, da inferência ou do disco. O **fallback de CPU** virou um aviso persistente (`#gpuWarning`): quando `DetectorObjetos.dispositivo === "wasm"` a detecção mostrou aviso — com texto específico conforme o WebGPU exista ou não no navegador — e ele permanece até recarregar a página. No servidor, o **cancelamento** do cliente (que já abortava o `fetch` do Ollama via `res.on("close")`) agora é registrado explicitamente como `visao_cancelada` (`info`) sem tentar responder a quem já foi embora; o **timeout** do Ollama vira `visao_timeout` (com mensagem “tempo esgotado” para o usuário); **falha de câmera** e **erro do modelo** já eram registrados operacionalmente (`camera`/`detector`/`ollama`). Durante os testes E2E foi pego um bug introduzido nesta linha de diagnóstico: `atualizarDiagnostico` lançava quando o `/api/health` vinha sem `carregados`, o que rejeitava `start()` antes de iniciar o agendador (a detecção nunca rodava); agora o payload parcial é tratado. Testes: `src/server.test.ts` (`visao_cancelada` ao desconectar + `modelo` no health) e E2E “mostra no diagnostico …” e “avisa quando a deteccao cai para CPU …”.
 
 **Aceite da fase:** os resultados são reproduzíveis e os requisitos de conectividade e hardware estão documentados.
 
@@ -346,7 +348,7 @@ Marque aqui as fases inteiras conforme forem concluídas:
 - [x] **Marco 3 — Percepção temporal:** Fase 3.
 - [x] **Marco 4 — Memória persistente:** Fase 4.
 - [x] **Marco 5 — Inferência inteligente:** Fase 5.
-- [ ] **Marco 6 — Desempenho e operação:** Fase 6.
+- [x] **Marco 6 — Desempenho e operação:** Fase 6.
 - [ ] **Marco 7 — Qualidade mensurável:** Fase 7.
 
 ## Regras para manter o projeto sob controle

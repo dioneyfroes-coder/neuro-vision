@@ -1202,10 +1202,11 @@ describe("createServer", () => {
       expect(res.status).toBe(200);
       const corpo = (await res.json()) as {
         ok: boolean;
-        ollama: { online: boolean; modelos: string[] };
+        ollama: { online: boolean; modelos: string[]; modelo: string };
       };
       expect(corpo.ollama.online).toBe(true);
       expect(corpo.ollama.modelos).toContain("qwen3-vl:4b");
+      expect(corpo.ollama.modelo).toBeTruthy();
     } finally {
       server.close();
     }
@@ -1263,6 +1264,70 @@ describe("createServer", () => {
       expect(corpo.ollama.online).toBe(true);
       expect(corpo.ollama.carregados).toContain("qwen3-vl:4b");
     } finally {
+      server.close();
+    }
+  });
+
+  it("POST /api/visao registra visao_cancelada quando o cliente desconecta", async () => {
+    let sinalizarInicio: () => void = () => {};
+    const iniciou = new Promise<void>((resolve) => {
+      sinalizarInicio = resolve;
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/chat")) {
+          // Simula uma inferencia longa: o fetch so "termina" quando o sinal e
+          // abortado (como o fetch real do Node), permitindo testar a
+          // propagacao de cancelamento quando o cliente desconecta.
+          sinalizarInicio();
+          return new Promise((_resolve, reject) => {
+            const sinal = init?.signal ?? undefined;
+            const erro = new DOMException("abortado", "AbortError");
+            if (sinal?.aborted) {
+              reject(erro);
+              return;
+            }
+            sinal?.addEventListener("abort", () => reject(erro));
+          });
+        }
+        return realFetch(input, init);
+      })
+    );
+
+    const espiao = vi.spyOn(console, "log").mockImplementation(() => {});
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const server = createServer({ logFile, publicDir: tmpDir, ollamaUrl: "http://localhost:11434" });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const controle = new AbortController();
+      const pedido = fetch(`http://127.0.0.1:${port}/api/visao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imagem: "data:image/jpeg;base64,QkxPQ" }),
+        signal: controle.signal,
+      }).catch(() => null);
+
+      await iniciou;
+      controle.abort();
+      await pedido;
+
+      await vi.waitFor(() => {
+        const cancelou = espiao.mock.calls.some((call) =>
+          String(call[0]).includes("visao_cancelada")
+        );
+        expect(cancelou).toBe(true);
+      });
+
+      // Cancelar nao grava entrada no historico.
+      const conteudo = await readFile(logFile, "utf8").catch(() => "");
+      expect(conteudo).toBe("");
+    } finally {
+      espiao.mockRestore();
       server.close();
     }
   });
