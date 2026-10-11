@@ -5,11 +5,16 @@ import os from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
 import {
+  appendEvento,
   appendLogEntry,
+  appendOperacional,
   arquivosDeLog,
+  arquivosDeMemoria,
   createServer,
   hostExpostoNaRede,
+  lerEventos,
   lerLogEntries,
+  lerOperacional,
   limparLog,
   limparSnapshots,
   logEvent,
@@ -20,6 +25,7 @@ import {
   resolverCaminhoDentroDaBase,
   resolveStaticFile,
   salvarSnapshot,
+  validarPayloadEvento,
   validarPayloadLog,
   validarPayloadVisao,
   validarSnapshot,
@@ -1244,5 +1250,187 @@ describe("createServer", () => {
       if (modeloAnterior === undefined) delete process.env.OLLAMA_MODEL;
       else process.env.OLLAMA_MODEL = modeloAnterior;
     }
+  });
+});
+
+describe("memoria persistente (eventos e operacional)", () => {
+  it("validarPayloadEvento exige tipo, origem e descricao", () => {
+    expect(validarPayloadEvento(null)).toBeTruthy();
+    expect(validarPayloadEvento({ tipo: "aparicao" })).toBeTruthy();
+    expect(validarPayloadEvento({ tipo: 1, origem: "rastreador", descricao: "x" })).toBeTruthy();
+    expect(
+      validarPayloadEvento({ tipo: "aparicao", origem: "rastreador", descricao: "apareceu" })
+    ).toBeNull();
+  });
+
+  it("POST /api/eventos grava o evento e salva o snapshot", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const eventosFile = path.join(tmpDir, "eventos.jsonl");
+    const snapDir = path.join(tmpDir, "snapshots");
+    const server = createServer({ logFile, eventosFile, snapDir, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/eventos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tipo: "aparicao",
+          origem: "rastreador",
+          descricao: "apareceu pessoa",
+          objetoId: "obj-1",
+          confianca: 0.9,
+          snapshot: "data:image/jpeg;base64,AAAA",
+        }),
+      });
+      expect(res.status).toBe(200);
+      const corpo = (await res.json()) as { ok: boolean; evento: { snapshot?: string } };
+      expect(corpo.ok).toBe(true);
+      expect(corpo.evento.snapshot).toMatch(/^\/snapshots\//);
+
+      const evento = await lerEventos(eventosFile, 10);
+      expect(evento).toHaveLength(1);
+      expect(evento[0]).toMatchObject({ tipo: "aparicao", objetoId: "obj-1" });
+    } finally {
+      server.close();
+    }
+  });
+
+  it("POST /api/eventos rejeita evento invalido", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const eventosFile = path.join(tmpDir, "eventos.jsonl");
+    const server = createServer({ logFile, eventosFile, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/eventos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tipo: "inexistente", origem: "rastreador", descricao: "x" }),
+      });
+      expect(res.status).toBe(400);
+      expect(await lerEventos(eventosFile, 10)).toHaveLength(0);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("GET /api/eventos lista os ultimos eventos (mais recente primeiro)", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const eventosFile = path.join(tmpDir, "eventos.jsonl");
+    await appendEvento(
+      { id: "e1", timestamp: "t1", tipo: "aparicao", descricao: "primeiro", origem: "rastreador" },
+      eventosFile
+    );
+    await appendEvento(
+      { id: "e2", timestamp: "t2", tipo: "desaparecimento", descricao: "segundo", origem: "rastreador" },
+      eventosFile
+    );
+
+    const server = createServer({ logFile, eventosFile, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/eventos?limit=1`);
+      expect(res.status).toBe(200);
+      const corpo = (await res.json()) as { ok: boolean; eventos: { id: string }[] };
+      expect(corpo.ok).toBe(true);
+      expect(corpo.eventos).toHaveLength(1);
+      expect(corpo.eventos[0].id).toBe("e2");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("appendOperacional/lerOperacional guardam registros operacionais", async () => {
+    const operacionalFile = path.join(tmpDir, "operacional.jsonl");
+    await appendOperacional(
+      { timestamp: "t1", nivel: "aviso", origem: "servidor", mensagem: "primeiro" },
+      operacionalFile
+    );
+    await appendOperacional(
+      { timestamp: "t2", nivel: "erro", origem: "cliente", mensagem: "segundo" },
+      operacionalFile
+    );
+    const lidos = await lerOperacional(operacionalFile, 10);
+    expect(lidos.map((r) => r.mensagem)).toEqual(["segundo", "primeiro"]);
+  });
+
+  it("POST /api/operacional grava um registro sem virar evento visual", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const eventosFile = path.join(tmpDir, "eventos.jsonl");
+    const operacionalFile = path.join(tmpDir, "operacional.jsonl");
+    const server = createServer({ logFile, eventosFile, operacionalFile, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/operacional`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nivel: "erro", origem: "cliente", mensagem: "falha ao gravar" }),
+      });
+      expect(res.status).toBe(200);
+      const conteudo = await readFile(operacionalFile, "utf8");
+      expect(conteudo).toContain("falha ao gravar");
+      expect(await lerEventos(eventosFile, 10)).toHaveLength(0);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("DELETE /api/logs limpa tambem os eventos", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const eventosFile = path.join(tmpDir, "eventos.jsonl");
+    await appendLogEntry(
+      { timestamp: "x", modelo: "m", objetos: [], resumo: "a", tipo: "deteccao" },
+      logFile
+    );
+    await appendEvento(
+      { id: "e1", timestamp: "t", tipo: "aparicao", descricao: "x", origem: "rastreador" },
+      eventosFile
+    );
+
+    const server = createServer({ logFile, eventosFile, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/logs`, { method: "DELETE" });
+      expect(res.status).toBe(200);
+      expect(await readFile(logFile, "utf8")).toBe("");
+      expect(await readFile(eventosFile, "utf8")).toBe("");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("limparSnapshots preserva snapshot referenciado por um evento", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const eventosFile = path.join(tmpDir, "eventos.jsonl");
+    const snapDir = path.join(tmpDir, "snapshots");
+    await mkdir(snapDir, { recursive: true });
+    await writeFile(path.join(snapDir, "vinculado.jpg"), "BLOB");
+    await appendEvento(
+      {
+        id: "e1",
+        timestamp: "t",
+        tipo: "aparicao",
+        descricao: "apareceu",
+        origem: "rastreador",
+        snapshot: "/snapshots/vinculado.jpg",
+      },
+      eventosFile
+    );
+
+    const resultado = await limparSnapshots({
+      snapDir,
+      logFiles: arquivosDeMemoria(logFile, eventosFile),
+    });
+    expect(resultado.removidos).toBe(0);
+    expect(resultado.mantidos).toBe(1);
   });
 });

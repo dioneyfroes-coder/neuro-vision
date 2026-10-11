@@ -13,13 +13,23 @@ import {
   type ModoAnalise,
 } from "./ollama";
 import { colapsarRepeticoes, cortarFraseIncompleta, ehSemMudanca } from "./texto";
-import type { Caixa, EntradaLog, ObjetoVisto, TipoEntrada } from "./types";
+import {
+  appendJsonl,
+  lerUltimosJsonl,
+  limparJsonl,
+  montarEvento,
+  montarOperacional,
+} from "./memoria";
+import type { RegistroOperacional } from "./memoria";
+import type { Caixa, EntradaLog, EventoVisual, ObjetoVisto, TipoEntrada } from "./types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const PUBLIC_DIR = path.join(ROOT, "public");
 export const LOG_DIR = path.join(ROOT, "logs");
 export const LOG_FILE = path.join(LOG_DIR, "visao.jsonl");
+export const EVENTOS_FILE = path.join(LOG_DIR, "eventos.jsonl");
+export const OPERACIONAL_FILE = path.join(LOG_DIR, "operacional.jsonl");
 export const LOG_MAX_BYTES = Number(process.env.LOG_MAX_BYTES) || 5_000_000;
 export const SNAP_DIR = path.join(LOG_DIR, "snapshots");
 export const SNAP_URL = "/snapshots";
@@ -76,6 +86,14 @@ export function nomeArquivoSnapshot(url: unknown): string | null {
 /** Arquivos de log preservaveis: o atual e a ultima rotacao. */
 export function arquivosDeLog(logFile: string): string[] {
   return [logFile, `${logFile}.1`];
+}
+
+/**
+ * Arquivos cujos `snapshot` precisam ser preservados: o historico de
+ * observacoes e o de eventos estruturados (ambos podem referenciar snapshots).
+ */
+export function arquivosDeMemoria(logFile: string, eventosFile: string): string[] {
+  return [...arquivosDeLog(logFile), ...arquivosDeLog(eventosFile)];
 }
 
 const LOOPBACK = /^(127(\.\d{1,3}){3}|::1|localhost)$/i;
@@ -209,75 +227,51 @@ export function montarEntrada(payload: unknown): EntradaLog {
   };
 }
 
-async function rotacionarSeNecessario(filePath: string): Promise<void> {
-  try {
-    const info = await fs.promises.stat(filePath);
-    if (info.size < LOG_MAX_BYTES) return;
-  } catch {
-    return;
-  }
-  await fs.promises.rename(filePath, `${filePath}.1`).catch(() => {});
-}
-
 export async function appendLogEntry(entry: EntradaLog, filePath: string = LOG_FILE): Promise<void> {
-  await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-  await rotacionarSeNecessario(filePath);
-  await fs.promises.appendFile(filePath, JSON.stringify(entry) + "\n", "utf8");
-}
-
-async function lerUltimasLinhas(filePath: string, alvo: number): Promise<string[]> {
-  const handle = await fs.promises.open(filePath, "r");
-  try {
-    let tamanho = (await handle.stat()).size;
-    const chunkSize = 64 * 1024;
-    let buffer = Buffer.alloc(0);
-    let linhas: string[] = [];
-    while (tamanho > 0 && linhas.length <= alvo) {
-      const leitura = Math.min(chunkSize, tamanho);
-      tamanho -= leitura;
-      const chunk = Buffer.alloc(leitura);
-      await handle.read(chunk, 0, leitura, tamanho);
-      buffer = Buffer.concat([chunk, buffer]);
-      linhas = buffer.toString("utf8").split("\n");
-    }
-    return linhas;
-  } finally {
-    await handle.close();
-  }
+  await appendJsonl(entry, filePath, LOG_MAX_BYTES);
 }
 
 export async function lerLogEntries(
   filePath: string = LOG_FILE,
   limit = 100
 ): Promise<EntradaLog[]> {
-  const n = Math.max(0, Math.trunc(limit));
-  if (n === 0) return [];
-  let linhas: string[];
-  try {
-    linhas = await lerUltimasLinhas(filePath, n);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw err;
-  }
-  const entradas: EntradaLog[] = [];
-  for (const linha of linhas) {
-    const texto = linha.trim();
-    if (!texto) continue;
-    try {
-      entradas.push(JSON.parse(texto) as EntradaLog);
-    } catch {
-      // ignora linhas corrompidas
-    }
-  }
-  return entradas.slice(-n).reverse();
+  return lerUltimosJsonl<EntradaLog>(filePath, limit);
 }
 
 export async function limparLog(filePath: string = LOG_FILE): Promise<void> {
-  await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.promises.writeFile(filePath, "", "utf8");
-  // Limpar o historico inclui a ultima rotacao, para que os snapshots que ela
-  // referencia deixem de ser considerados preservados.
-  await fs.promises.unlink(`${filePath}.1`).catch(() => {});
+  await limparJsonl(filePath);
+}
+
+export async function appendEvento(
+  evento: EventoVisual,
+  filePath: string = EVENTOS_FILE
+): Promise<void> {
+  await appendJsonl(evento, filePath, LOG_MAX_BYTES);
+}
+
+export async function lerEventos(
+  filePath: string = EVENTOS_FILE,
+  limit = 100
+): Promise<EventoVisual[]> {
+  return lerUltimosJsonl<EventoVisual>(filePath, limit);
+}
+
+export async function limparEventos(filePath: string = EVENTOS_FILE): Promise<void> {
+  await limparJsonl(filePath);
+}
+
+export async function appendOperacional(
+  registro: RegistroOperacional,
+  filePath: string = OPERACIONAL_FILE
+): Promise<void> {
+  await appendJsonl(registro, filePath, LOG_MAX_BYTES);
+}
+
+export async function lerOperacional(
+  filePath: string = OPERACIONAL_FILE,
+  limit = 100
+): Promise<RegistroOperacional[]> {
+  return lerUltimosJsonl<RegistroOperacional>(filePath, limit);
 }
 
 function extrairBase64Imagem(imagem: unknown): string | null {
@@ -433,7 +427,7 @@ export async function limparSnapshots(
 ): Promise<ResultadoLimpezaSnapshots> {
   const snapDir = opcoes.snapDir ?? SNAP_DIR;
   const politica = opcoes.politica ?? POLITICA_SNAPSHOTS_PADRAO;
-  const logFiles = opcoes.logFiles ?? arquivosDeLog(LOG_FILE);
+  const logFiles = opcoes.logFiles ?? arquivosDeMemoria(LOG_FILE, EVENTOS_FILE);
   const agora = opcoes.agora ?? Date.now();
 
   const referenciados = await coletarSnapshotsReferenciados(logFiles);
@@ -501,11 +495,15 @@ let ultimaLimpezaSnapshotsMs = 0;
  * vez por `SNAP_CLEAN_INTERVAL_MS`, sem manter o processo vivo nem bloquear a
  * resposta da requisicao.
  */
-function agendarLimpezaSnapshots(snapDir: string, logFile: string): void {
+function agendarLimpezaSnapshots(
+  snapDir: string,
+  logFile: string,
+  eventosFile: string
+): void {
   const agora = Date.now();
   if (agora - ultimaLimpezaSnapshotsMs < SNAP_CLEAN_INTERVAL_MS) return;
   ultimaLimpezaSnapshotsMs = agora;
-  void limparSnapshots({ snapDir, logFiles: arquivosDeLog(logFile) })
+  void limparSnapshots({ snapDir, logFiles: arquivosDeMemoria(logFile, eventosFile) })
     .then((resultado) => {
       if (resultado.removidos > 0) {
         logEvent("info", "snapshots_limpos", {
@@ -577,7 +575,8 @@ async function handleLog(
   req: IncomingMessage,
   res: ServerResponse,
   logFile: string,
-  snapDir: string
+  snapDir: string,
+  eventosFile: string
 ): Promise<void> {
   try {
     const raw = await readBody(req, BODY_MAX_BYTES);
@@ -595,8 +594,109 @@ async function handleLog(
     const snapshot = await salvarSnapshot(p.snapshot, snapDir);
     if (snapshot) entry.snapshot = snapshot;
     await appendLogEntry(entry, logFile);
-    if (snapshot) agendarLimpezaSnapshots(snapDir, logFile);
+    if (snapshot) agendarLimpezaSnapshots(snapDir, logFile, eventosFile);
     sendJson(res, 200, { ok: true, entrada: entry });
+  } catch (err) {
+    sendJson(res, 400, { ok: false, erro: (err as Error).message });
+  }
+}
+
+/** Valida o payload de um evento estruturado vindo do cliente. */
+export function validarPayloadEvento(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    return "payload deve ser um objeto";
+  }
+  const p = payload as Record<string, unknown>;
+  const erroTipo = campoTipoTexto(p.descricao, "descricao");
+  if (erroTipo) return erroTipo;
+  if (typeof p.descricao !== "string" || !p.descricao) return "campo 'descricao' obrigatorio";
+  if (typeof p.tipo !== "string") return "campo 'tipo' obrigatorio";
+  if (typeof p.origem !== "string") return "campo 'origem' obrigatorio";
+  return null;
+}
+
+async function handleEventos(
+  req: IncomingMessage,
+  res: ServerResponse,
+  eventosFile: string,
+  snapDir: string,
+  logFile: string
+): Promise<void> {
+  try {
+    const raw = await readBody(req, BODY_MAX_BYTES);
+    const payload: unknown = JSON.parse(raw || "{}");
+    const erro = validarPayloadEvento(payload);
+    if (erro) {
+      sendJson(res, 400, { ok: false, erro });
+      return;
+    }
+    const evento = montarEvento(payload);
+    if (!evento) {
+      sendJson(res, 400, { ok: false, erro: "evento invalido (tipo ou origem desconhecidos)" });
+      return;
+    }
+    const p = payload as Record<string, unknown>;
+    const snapshot = await salvarSnapshot(p.snapshot, snapDir);
+    if (snapshot) evento.snapshot = snapshot;
+    await appendEvento(evento, eventosFile);
+    if (snapshot) agendarLimpezaSnapshots(snapDir, logFile, eventosFile);
+    sendJson(res, 200, { ok: true, evento });
+  } catch (err) {
+    sendJson(res, 400, { ok: false, erro: (err as Error).message });
+  }
+}
+
+async function handleListEventos(
+  req: IncomingMessage,
+  res: ServerResponse,
+  eventosFile: string
+): Promise<void> {
+  try {
+    const url = new URL(req.url ?? "/api/eventos", "http://localhost");
+    const limitParam = Number(url.searchParams.get("limit"));
+    const limite = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 500) : 100;
+    const eventos = await lerEventos(eventosFile, limite);
+    sendJson(res, 200, { ok: true, total: eventos.length, eventos });
+  } catch (err) {
+    logEvent("error", "listar_eventos_falhou", { erro: (err as Error).message });
+    sendJson(res, 500, { ok: false, erro: (err as Error).message });
+  }
+}
+
+async function handleClearEventos(
+  res: ServerResponse,
+  eventosFile: string,
+  snapDir: string,
+  logFile: string
+): Promise<void> {
+  try {
+    await limparEventos(eventosFile);
+    const snapshots = await limparSnapshots({
+      snapDir,
+      logFiles: arquivosDeMemoria(logFile, eventosFile),
+    });
+    sendJson(res, 200, { ok: true, snapshots });
+  } catch (err) {
+    logEvent("error", "limpar_eventos_falhou", { erro: (err as Error).message });
+    sendJson(res, 500, { ok: false, erro: (err as Error).message });
+  }
+}
+
+async function handleOperacional(
+  req: IncomingMessage,
+  res: ServerResponse,
+  operacionalFile: string
+): Promise<void> {
+  try {
+    const raw = await readBody(req, BODY_MAX_BYTES);
+    const payload: unknown = JSON.parse(raw || "{}");
+    const registro = montarOperacional(payload);
+    if (!registro) {
+      sendJson(res, 400, { ok: false, erro: "campo 'mensagem' obrigatorio" });
+      return;
+    }
+    await appendOperacional(registro, operacionalFile);
+    sendJson(res, 200, { ok: true, registro });
   } catch (err) {
     sendJson(res, 400, { ok: false, erro: (err as Error).message });
   }
@@ -615,6 +715,7 @@ async function streamVisao(
   },
   logFile: string,
   snapDir: string,
+  eventosFile: string,
   snapshot: unknown
 ): Promise<void> {
   const iterador = gerarDescricaoStream(imagem, opcoes);
@@ -661,7 +762,7 @@ async function streamVisao(
     const snap = await salvarSnapshot(snapshot, snapDir);
     if (snap) entry.snapshot = snap;
     await appendLogEntry(entry, logFile);
-    if (snap) agendarLimpezaSnapshots(snapDir, logFile);
+    if (snap) agendarLimpezaSnapshots(snapDir, logFile, eventosFile);
 
     res.write(
       JSON.stringify({
@@ -737,6 +838,7 @@ async function handleVisao(
       },
       config.logFile ?? LOG_FILE,
       config.snapDir ?? SNAP_DIR,
+      config.eventosFile ?? EVENTOS_FILE,
       p.snapshot
     );
   } catch (err) {
@@ -772,15 +874,17 @@ async function handleListLogs(
 async function handleClearLogs(
   res: ServerResponse,
   logFile: string,
-  snapDir: string
+  snapDir: string,
+  eventosFile: string
 ): Promise<void> {
   try {
     await limparLog(logFile);
-    // Sem historico, todos os snapshots ficam orfaos: a limpeza os remove de
-    // imediato, mantendo o uso de disco limitado pela politica documentada.
+    await limparEventos(eventosFile);
+    // Sem historico nem eventos, todos os snapshots ficam orfaos: a limpeza os
+    // remove de imediato, mantendo o uso de disco limitado pela politica.
     const snapshots = await limparSnapshots({
       snapDir,
-      logFiles: arquivosDeLog(logFile),
+      logFiles: arquivosDeMemoria(logFile, eventosFile),
     });
     sendJson(res, 200, { ok: true, snapshots });
   } catch (err) {
@@ -868,12 +972,19 @@ export interface ServerConfig {
   snapDir?: string;
   publicDir?: string;
   ollamaUrl?: string;
+  /** Arquivo de eventos estruturados. Padrao: `eventos.jsonl` ao lado do log. */
+  eventosFile?: string;
+  /** Arquivo de registros operacionais. Padrao: `operacional.jsonl` ao lado do log. */
+  operacionalFile?: string;
 }
 
 export function createServer(config: ServerConfig = {}): http.Server {
   const logFile = config.logFile ?? LOG_FILE;
   const snapDir = config.snapDir ?? SNAP_DIR;
   const publicDir = config.publicDir ?? PUBLIC_DIR;
+  const eventosFile = config.eventosFile ?? path.join(path.dirname(logFile), "eventos.jsonl");
+  const operacionalFile =
+    config.operacionalFile ?? path.join(path.dirname(logFile), "operacional.jsonl");
   const permitidas = origensPermitidas(process.env.NEURO_ALLOWED_ORIGINS);
 
   return http.createServer((req, res) => {
@@ -885,11 +996,27 @@ export function createServer(config: ServerConfig = {}): http.Server {
     }
     const pathname = url.split("?")[0];
     if (req.method === "POST" && url === "/api/log") {
-      void handleLog(req, res, logFile, snapDir);
+      void handleLog(req, res, logFile, snapDir, eventosFile);
       return;
     }
     if (req.method === "POST" && url === "/api/visao") {
-      void handleVisao(req, res, config);
+      void handleVisao(req, res, { ...config, eventosFile });
+      return;
+    }
+    if (req.method === "POST" && url === "/api/eventos") {
+      void handleEventos(req, res, eventosFile, snapDir, logFile);
+      return;
+    }
+    if (req.method === "GET" && pathname === "/api/eventos") {
+      void handleListEventos(req, res, eventosFile);
+      return;
+    }
+    if (req.method === "DELETE" && pathname === "/api/eventos") {
+      void handleClearEventos(res, eventosFile, snapDir, logFile);
+      return;
+    }
+    if (req.method === "POST" && url === "/api/operacional") {
+      void handleOperacional(req, res, operacionalFile);
       return;
     }
     if (req.method === "GET" && pathname === "/api/visao/preparar") {
@@ -901,7 +1028,7 @@ export function createServer(config: ServerConfig = {}): http.Server {
       return;
     }
     if (req.method === "DELETE" && pathname === "/api/logs") {
-      void handleClearLogs(res, logFile, snapDir);
+      void handleClearLogs(res, logFile, snapDir, eventosFile);
       return;
     }
     if (req.method === "GET" && pathname === "/api/health") {

@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   descreverFrame,
+  gravarEvento,
+  gravarOperacional,
   listarEntradas,
+  listarEventos,
   limparHistorico,
   prepararOllama,
   saudeOllama,
@@ -127,5 +130,63 @@ describe("api de leitura", () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({ erro: "Ollama: modelo indisponivel" }, 502)));
 
     await expect(prepararOllama()).rejects.toThrow("Ollama: modelo indisponivel");
+  });
+});
+
+describe("api de eventos e operacional", () => {
+  it("gravarEvento envia o evento como JSON para /api/eventos", async () => {
+    const fetchMock = vi.fn(
+      async (_entrada: RequestInfo | URL, _init?: RequestInit) => json({ ok: true })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await gravarEvento({
+      id: "e1",
+      timestamp: "t",
+      tipo: "aparicao",
+      descricao: "apareceu pessoa",
+      origem: "rastreador",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/eventos",
+      expect.objectContaining({ method: "POST" })
+    );
+    const init = fetchMock.mock.calls[0]?.[1];
+    const corpo = JSON.parse((init?.body as string) ?? "{}") as { tipo: string };
+    expect(corpo.tipo).toBe("aparicao");
+  });
+
+  it("gravarEvento sinaliza falha de rede", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("fetch failed");
+      })
+    );
+
+    await expect(
+      gravarEvento({ id: "e1", timestamp: "t", tipo: "movimento", descricao: "x", origem: "rastreador" })
+    ).rejects.toThrow("Falha ao gravar evento no servidor");
+  });
+
+  it("listarEventos devolve os eventos do servidor", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json({ eventos: [{ id: "e1" }, { id: "e2" }] }))
+    );
+
+    expect(await listarEventos(5)).toEqual([{ id: "e1" }, { id: "e2" }]);
+  });
+
+  it("gravarOperacional e best-effort e nao lanca em falha de rede", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("fetch failed");
+      })
+    );
+
+    await expect(gravarOperacional({ nivel: "erro", mensagem: "falha" })).resolves.toBeUndefined();
   });
 });

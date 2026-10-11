@@ -192,6 +192,15 @@ async function limparHistorico(): Promise<void> {
   }
 }
 
+/** Registra uma falha/metrica operacional (nao e um acontecimento visual). */
+function registrarOperacional(
+  nivel: "info" | "aviso" | "erro",
+  origem: string,
+  mensagem: string
+): void {
+  void api.gravarOperacional({ nivel, origem, mensagem });
+}
+
 async function analisarComOllama(signal: AbortSignal, ehRoteiro: boolean): Promise<void> {
   const dataUrl = camera.capturarFrame(512);
   if (dataUrl === null) return;
@@ -220,6 +229,7 @@ async function analisarComOllama(signal: AbortSignal, ehRoteiro: boolean): Promi
     );
   } catch (err) {
     if (ehCancelamento(err) || signal.aborted) return;
+    registrarOperacional("erro", "ollama", (err as Error).message);
     setStatus((err as Error).message);
     return;
   }
@@ -270,6 +280,7 @@ async function analisarDeteccao(signal: AbortSignal): Promise<void> {
     resultado = await motorAtual.analisar({ imagem: dataUrl }, signal);
   } catch (err) {
     if (ehCancelamento(err) || signal.aborted) return;
+    registrarOperacional("erro", "detector", (err as Error).message);
     setStatus(`Erro na inferencia: ${(err as Error).message}`);
     return;
   }
@@ -300,6 +311,14 @@ async function analisarDeteccao(signal: AbortSignal): Promise<void> {
   setStatus(
     `Viu: ${entry.resumo}  (${resultado.duracaoMs} ms)${resumoEventos ? ` · ${resumoEventos}` : ""}`
   );
+
+  for (const evt of eventos) {
+    // Movimento e o evento mais frequente: grava sem snapshot para poupar disco.
+    const paraGravar = evt.tipo === "movimento" ? { ...evt, snapshot: undefined } : evt;
+    void api.gravarEvento(paraGravar).catch(() => {
+      if (running) setStatus("Falha ao gravar evento no servidor");
+    });
+  }
 
   void api.gravarEntrada(entry).catch(() => {
     if (running) setStatus("Falha ao gravar no log do servidor");
@@ -349,6 +368,7 @@ async function start(): Promise<void> {
   try {
     await camera.iniciar();
   } catch (err) {
+    registrarOperacional("erro", "camera", (err as Error).message);
     if (err instanceof ErroCamera && err.fase === "video") {
       falharInicializacao(`Falha ao iniciar o video: ${err.message}`);
     } else {
@@ -366,6 +386,7 @@ async function start(): Promise<void> {
     try {
       await prepararOllama(motor);
     } catch (err) {
+      registrarOperacional("erro", "ollama", (err as Error).message);
       falharInicializacao(`Falha ao preparar o Ollama: ${(err as Error).message}`);
       return;
     }
@@ -379,6 +400,7 @@ async function start(): Promise<void> {
     try {
       await motor.inicializar(setStatus);
     } catch (err) {
+      registrarOperacional("erro", "detector", (err as Error).message);
       falharInicializacao(`Falha ao carregar modelo: ${(err as Error).message}`);
       return;
     }

@@ -1,4 +1,4 @@
-import type { EntradaLog } from "../src/types";
+import type { EntradaLog, EventoVisual } from "../src/types";
 import { ErroPercepcao } from "../src/erros";
 
 export interface InfoOllama {
@@ -86,6 +86,50 @@ export async function limparHistorico(): Promise<void> {
     throw new ErroPercepcao("armazenamento", "Falha ao limpar o historico", { cause: err });
   }
   if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
+}
+
+/** `POST /api/eventos` — grava um evento estruturado (distinto do historico). */
+export async function gravarEvento(evento: EventoVisual): Promise<void> {
+  try {
+    await fetch("/api/eventos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(evento),
+    });
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao gravar evento no servidor", { cause: err });
+  }
+}
+
+/** `GET /api/eventos` — lista os eventos mais recentes (mais novo primeiro). */
+export async function listarEventos(limite = 100): Promise<EventoVisual[]> {
+  let resposta: Response;
+  try {
+    resposta = await fetch(`/api/eventos?limit=${limite}`);
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao ler os eventos", { cause: err });
+  }
+  if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
+  const dados = (await resposta.json()) as { eventos?: EventoVisual[] };
+  return dados.eventos ?? [];
+}
+
+/** `POST /api/operacional` — registra falha/metrica operacional (nao e evento visual). */
+export async function gravarOperacional(registro: {
+  nivel?: "info" | "aviso" | "erro";
+  origem?: string;
+  mensagem: string;
+  detalhe?: string;
+}): Promise<void> {
+  try {
+    await fetch("/api/operacional", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(registro),
+    });
+  } catch {
+    // Registro operacional e best-effort: nao interrompe a captura.
+  }
 }
 
 /** `GET /api/health` — status do Ollama. */

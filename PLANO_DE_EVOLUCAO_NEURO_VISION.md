@@ -227,13 +227,13 @@ Arquivos principais: `src/server.ts`, testes e documentação.
 
 ### 4.1 Padronizar o evento salvo
 
-- [ ] Adotar um contrato semelhante a este e ajustá-lo às necessidades reais:
+- [x] Adotar um contrato semelhante a este e ajustá-lo às necessidades reais:
 
 ```ts
 interface EventoVisual {
   id: string;
   timestamp: string;
-  tipo: "aparicao" | "desaparecimento" | "movimento" | "mudanca" | "resumo";
+  tipo: "aparicao" | "desaparecimento" | "movimento" | "mudanca_de_cena" | "resumo";
   objetoId?: string;
   descricao: string;
   confianca?: number;
@@ -243,8 +243,10 @@ interface EventoVisual {
 }
 ```
 
-- [ ] Separar os eventos estruturados das mensagens de status da interface.
-- [ ] Registrar falhas e métricas operacionais sem tratá-las como acontecimentos visuais.
+- [x] Separar os eventos estruturados das mensagens de status da interface.
+- [x] Registrar falhas e métricas operacionais sem tratá-las como acontecimentos visuais.
+
+**Implementação 4.1:** O contrato de `EventoVisual` (`src/types.ts`) foi adotado com `mudanca_de_cena` no lugar de `mudanca` (nome já usado na Fase 3) e o novo tipo `resumo`. `src/memoria.ts` centraliza o armazenamento JSONL genérico (rotação por tamanho, leitura das últimas linhas, tolerância a linhas corrompidas) e define `RegistroOperacional` (`nivel`/`origem`/`mensagem`/`detalhe`) separado dos eventos visuais. O servidor passou a persistir `eventos.jsonl` e `operacional.jsonl` ao lado de `visao.jsonl`, com os endpoints `POST/GET/DELETE /api/eventos` e `POST /api/operacional`; os snapshots referenciados por eventos também entram na retenção (`arquivosDeMemoria`). No cliente, `api.gravarEvento`/`listarEventos`/`gravarOperacional` foram adicionados e o `public/app.ts` publica cada evento do rastreador (movimento sem snapshot, por ser o mais frequente) e registra falhas de câmera/detector/Ollama como operacionais — o status da interface continua sendo só texto, separado da memória. Cobertos por `src/memoria.test.ts`, `src/api.test.ts` e `src/server.test.ts`.
 
 ### 4.2 Recuperar contexto depois de reiniciar
 

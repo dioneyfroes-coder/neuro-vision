@@ -59,7 +59,12 @@ export interface Observacao {
 }
 
 /** Tipos de evento visual derivados do rastreamento. */
-export type TipoEventoVisual = "aparicao" | "desaparecimento" | "movimento" | "mudanca_de_cena";
+export type TipoEventoVisual =
+  | "aparicao"
+  | "desaparecimento"
+  | "movimento"
+  | "mudanca_de_cena"
+  | "resumo";
 
 /** Subsistema que originou o evento. */
 export type OrigemEvento = "detector" | "rastreador" | "ollama";
