@@ -191,17 +191,21 @@ Arquivos principais: `src/server.ts`, testes e documentação.
 
 ### 3.1 Criar uma representação do estado observado
 
-- [ ] Definir tipos para `ObjetoRastreado`, `Observacao` e `EventoVisual` em `src/types.ts` ou módulos especializados.
-- [ ] Guardar, para cada objeto rastreado, rótulo, caixa delimitadora, confiança, última observação e identificador estável dentro da sessão.
-- [ ] Distinguir claramente uma detecção de um evento: detectar uma pessoa em dois frames não deve gerar automaticamente duas aparições.
+- [x] Definir tipos para `ObjetoRastreado`, `Observacao` e `EventoVisual` em `src/types.ts` ou módulos especializados.
+- [x] Guardar, para cada objeto rastreado, rótulo, caixa delimitadora, confiança, última observação e identificador estável dentro da sessão.
+- [x] Distinguir claramente uma detecção de um evento: detectar uma pessoa em dois frames não deve gerar automaticamente duas aparições.
+
+**Implementação 3.1:** `src/types.ts` ganhou `ObjetoRastreado` (id, rótulo, nome, `score`, `caixa`, `primeiraObservacao`, `ultimaObservacao`, `framesVisto`, `framesAusente`), `Observacao` e `EventoVisual` (+ `TipoEventoVisual`, `OrigemEvento`). A distinção detecção/evento é garantida pelo rastreador: só o primeiro frame associado gera `aparicao`; frames seguintes apenas incrementam `framesVisto`.
 
 ### 3.2 Associar detecções entre frames
 
-- [ ] Implementar uma primeira associação simples por classe/rótulo e sobreposição das caixas (IoU) ou distância entre centros.
-- [ ] Atribuir um ID de rastreamento aos objetos associados entre frames.
-- [ ] Definir limiares configuráveis e tempo de expiração para objetos que deixam de ser detectados.
-- [ ] Criar testes com caixas deslocadas, objetos da mesma classe, detecções ausentes por um frame e objetos que reaparecem.
-- [ ] Avaliar um rastreador dedicado somente se a associação simples não atingir a qualidade desejada.
+- [x] Implementar uma primeira associação simples por classe/rótulo e sobreposição das caixas (IoU) ou distância entre centros.
+- [x] Atribuir um ID de rastreamento aos objetos associados entre frames.
+- [x] Definir limiares configuráveis e tempo de expiração para objetos que deixam de ser detectados.
+- [x] Criar testes com caixas deslocadas, objetos da mesma classe, detecções ausentes por um frame e objetos que reaparecem.
+- [x] Avaliar um rastreador dedicado somente se a associação simples não atingir a qualidade desejada.
+
+**Implementação 3.2:** `src/rastreamento.ts` cria `RastreadorObjetos` (associação mesma-classe por IoU com distância entre centros como alternativa, IDs `obj-N` estáveis) com `ConfigRastreamento` configurável (`iouMinimo`, `distanciaMaximaCentros`, `maxFramesAusente`, `expiracaoMs`, `movimentoMinimoRelativo`, `confiancaMinima`) e `CONFIG_RASTREAMENTO_PADRAO`. O agendador do cliente passa cada frame de detecção pelo rastreador (`public/app.ts`), desenha as caixas rastreadas e mostra os eventos do frame no status. `src/rastreamento.test.ts` cobre caixas deslocadas, objetos da mesma classe, ausência por um frame, desaparecimento, reaparecimento e expiração. Decisão: a associação simples atendeu aos casos testados, então **não** foi adicionado rastreador dedicado (a avaliação fica registrada para quando houver dados reais que a justifiquem).
 
 ### 3.3 Gerar eventos estruturados
 

@@ -25,3 +25,55 @@ export interface EntradaLog {
   ms?: number;
   tokens?: number;
 }
+
+/** Objeto acompanhado ao longo de varios frames dentro de uma sessao. */
+export interface ObjetoRastreado {
+  /** Identificador estavel dentro da sessao (ex.: `obj-1`). */
+  id: string;
+  /** Rotulo original do detector (ex.: `person`). */
+  rotulo: string;
+  /** Rotulo traduzido para exibicao (ex.: `pessoa`). */
+  nome: string;
+  /** Confianca da ultima observacao. */
+  score: number;
+  /** Ultima caixa delimitadora observada. */
+  caixa: Caixa;
+  /** Momento (ms) em que o objeto foi visto pela primeira vez. */
+  primeiraObservacao: number;
+  /** Momento (ms) da ultima vez em que o objeto foi visto. */
+  ultimaObservacao: number;
+  /** Quantidade de frames em que o objeto foi associado. */
+  framesVisto: number;
+  /** Frames consecutivos em que o objeto deixou de ser detectado. */
+  framesAusente: number;
+}
+
+/** Deteccoes de um unico frame, base para a associacao temporal. */
+export interface Observacao {
+  /** Instante ISO do frame. */
+  timestamp: string;
+  /** Instante monotonico (ms) usado nos limiares temporais. */
+  tempoMs: number;
+  /** Objetos detectados no frame. */
+  objetos: ObjetoVisto[];
+}
+
+/** Tipos de evento visual derivados do rastreamento. */
+export type TipoEventoVisual = "aparicao" | "desaparecimento" | "movimento" | "mudanca_de_cena";
+
+/** Subsistema que originou o evento. */
+export type OrigemEvento = "detector" | "rastreador" | "ollama";
+
+/** Acontecimento estruturado, distinto de uma deteccao crua. */
+export interface EventoVisual {
+  id: string;
+  timestamp: string;
+  tipo: TipoEventoVisual;
+  /** Objeto rastreado relacionado, quando aplicavel. */
+  objetoId?: string;
+  descricao: string;
+  confianca?: number;
+  origem: OrigemEvento;
+  snapshot?: string;
+  modelo?: string;
+}

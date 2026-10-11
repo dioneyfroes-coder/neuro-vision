@@ -1,7 +1,8 @@
-import type { EntradaLog, ObjetoVisto } from "../src/types";
+import type { Caixa, EntradaLog } from "../src/types";
 import { colapsarRepeticoes } from "../src/texto";
 import { entradaDeResultado } from "../src/percepcao";
 import type { MotorPercepcao, ResultadoPercepcao } from "../src/percepcao";
+import { RastreadorObjetos } from "../src/rastreamento";
 import { ehCancelamento } from "../src/erros";
 import { AgendadorAnalise } from "./scheduler";
 import * as api from "./api";
@@ -41,6 +42,7 @@ const thresholdInput = el<HTMLInputElement>("threshold");
 const thresholdValue = el<HTMLSpanElement>("thresholdValue");
 
 const detectorCoco = new DetectorObjetos();
+const rastreador = new RastreadorObjetos();
 let motorAtual: MotorPercepcao | null = null;
 let running = false;
 let controller: AbortController | null = null;
@@ -64,7 +66,7 @@ function setSpinner(ativo: boolean): void {
   spinnerEl.hidden = !ativo;
 }
 
-function drawBoxes(objetos: ObjetoVisto[]): void {
+function drawBoxes(objetos: ReadonlyArray<{ nome: string; score: number; caixa: Caixa }>): void {
   ctx.clearRect(0, 0, overlay.width, overlay.height);
   ctx.lineWidth = 3;
   ctx.font = "16px 'Segoe UI', sans-serif";
@@ -272,13 +274,22 @@ async function analisarDeteccao(signal: AbortSignal): Promise<void> {
   if (signal.aborted || !resultado) return;
   ultimaDuracaoMs = resultado.duracaoMs;
 
-  drawBoxes(resultado.objetos);
-
   const thumb = camera.capturarFrame(240);
   resultado.snapshot = thumb ?? undefined;
+
+  const quadro = rastreador.processar(resultado.objetos, performance.now(), {
+    timestamp: new Date().toISOString(),
+    snapshot: resultado.snapshot,
+    modelo: resultado.modelo,
+  });
+  drawBoxes(quadro.objetos);
+
   const entry = entradaDeResultado(resultado, "deteccao");
   addLogEntry(entry);
-  setStatus(`Viu: ${entry.resumo}  (${resultado.duracaoMs} ms)`);
+  const resumoEventos = quadro.eventos.map((e) => e.descricao).join(", ");
+  setStatus(
+    `Viu: ${entry.resumo}  (${resultado.duracaoMs} ms)${resumoEventos ? ` · ${resumoEventos}` : ""}`
+  );
 
   void api.gravarEntrada(entry).catch(() => {
     if (running) setStatus("Falha ao gravar no log do servidor");
@@ -322,6 +333,7 @@ async function start(): Promise<void> {
   ultimaDuracaoMs = 0;
   roteiroBeats = [];
   roteiroPrimeiro = true;
+  rastreador.reiniciar();
 
   try {
     await camera.iniciar();
