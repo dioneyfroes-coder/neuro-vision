@@ -22,7 +22,7 @@ import {
   reidratarContexto,
 } from "./memoria";
 import type { RegistroOperacional } from "./memoria";
-import type { Caixa, EntradaLog, EventoVisual, ObjetoVisto, TipoEntrada } from "./types";
+import type { Caixa, EntradaLog, EventoVisual, MotivoAnalise, ObjetoVisto, TipoEntrada } from "./types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -219,12 +219,27 @@ export function montarEntrada(payload: unknown): EntradaLog {
     unknown
   >;
   const tipo: TipoEntrada = p.tipo === "descricao" ? "descricao" : "deteccao";
+  const motivos: MotivoAnalise[] = [
+    "primeira_analise",
+    "mudanca_de_cena",
+    "nova_entidade",
+    "desaparecimento",
+    "movimento",
+    "baixa_confianca",
+    "resumo_periodico",
+    "manual",
+    "falha_percepcao",
+  ];
   return {
     timestamp: typeof p.timestamp === "string" ? p.timestamp : new Date().toISOString(),
     modelo: typeof p.modelo === "string" ? p.modelo : "desconhecido",
     objetos: normalizarObjetos(p.objetos),
     resumo: typeof p.resumo === "string" ? p.resumo : "",
     tipo,
+    motivo:
+      typeof p.motivo === "string" && motivos.includes(p.motivo as MotivoAnalise)
+        ? (p.motivo as MotivoAnalise)
+        : undefined,
   };
 }
 

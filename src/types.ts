@@ -14,6 +14,18 @@ export interface ObjetoVisto {
 
 export type TipoEntrada = "deteccao" | "descricao" | "roteiro";
 
+/** Razao que acionou uma analise do modelo de visao (Fase 5). */
+export type MotivoAnalise =
+  | "primeira_analise"
+  | "mudanca_de_cena"
+  | "nova_entidade"
+  | "desaparecimento"
+  | "movimento"
+  | "baixa_confianca"
+  | "resumo_periodico"
+  | "manual"
+  | "falha_percepcao";
+
 export interface EntradaLog {
   timestamp: string;
   modelo: string;
@@ -24,6 +36,8 @@ export interface EntradaLog {
   snapshot?: string;
   ms?: number;
   tokens?: number;
+  /** Motivo que acionou esta analise (somente descricao/roteiro). */
+  motivo?: MotivoAnalise;
 }
 
 /** Objeto acompanhado ao longo de varios frames dentro de uma sessao. */

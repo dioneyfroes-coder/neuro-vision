@@ -80,6 +80,12 @@ describe("montarEntrada", () => {
     expect(entrada.objetos).toHaveLength(1);
     expect(entrada.objetos[0].nome).toBe("ok");
   });
+
+  it("propaga o motivo valido que acionou a analise", () => {
+    expect(montarEntrada({ motivo: "nova_entidade", resumo: "x" }).motivo).toBe("nova_entidade");
+    expect(montarEntrada({ motivo: "qualquer-coisa" }).motivo).toBeUndefined();
+    expect(montarEntrada({}).motivo).toBeUndefined();
+  });
 });
 
 describe("appendLogEntry", () => {
