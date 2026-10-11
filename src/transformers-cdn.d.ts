@@ -1,4 +1,4 @@
-declare module "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3" {
+declare module "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1" {
   export interface ProgressInfo {
     status: string;
     file?: string;

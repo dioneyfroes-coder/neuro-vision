@@ -1,10 +1,40 @@
-import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3";
-import type { Detector, Deteccao, ProgressInfo } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3";
+import type { Detector, Deteccao, ProgressInfo } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1";
 import type { ObjetoVisto } from "../src/types";
 import { ErroPercepcao } from "../src/erros";
 
-env.allowLocalModels = false;
-env.useBrowserCache = true;
+/**
+ * Transformers.js vem do CDN com versao fixa (`3.8.1`) em vez do tag flutuante
+ * `@3`, para que o comportamento nao mude sem aviso. O carregamento e **sob
+ * demanda**: a biblioteca so e baixada quando um modo de deteccao/eventos for
+ * usado. Antes, o import estatico fazia a pagina inteira falhar ao carregar
+ * quando o CDN estava inacessivel (rede offline) — hoje os modos Ollama seguem
+ * funcionando e a deteccao falha com mensagem clara. A URL fica literal no
+ * `import()` para o vite/vitest conseguirem aplicar o alias de teste e o
+ * esbuild manter o carregamento externo no bundle do cliente.
+ */
+type TipoPipeline = (
+  tarefa: "object-detection",
+  modelo: string,
+  opcoes?: { device?: "webgpu" | "wasm"; progress_callback?: (info: ProgressInfo) => void }
+) => Promise<Detector>;
+
+interface ModuloTransformers {
+  pipeline: TipoPipeline;
+  env: { allowLocalModels: boolean; useBrowserCache: boolean };
+}
+
+let promessaModulo: Promise<ModuloTransformers> | null = null;
+
+function carregarTransformers(): Promise<ModuloTransformers> {
+  promessaModulo ??= import(
+    "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1"
+  ).then((mod) => {
+    mod.env.allowLocalModels = false;
+    mod.env.useBrowserCache = true;
+    return mod as ModuloTransformers;
+  });
+  return promessaModulo;
+}
 
 const COCO_PT: Record<string, string> = {
   person: "pessoa",
@@ -127,9 +157,15 @@ export class DetectorObjetos {
   private readonly cache = new Map<string, Detector>();
   private atualInterno: Detector | null = null;
   private modeloAtual: string | null = null;
+  private dispositivoInterno: "webgpu" | "wasm" | null = null;
 
   get modelo(): string | null {
     return this.modeloAtual;
+  }
+
+  /** Dispositivo realmente usado na ultima carga ("webgpu" ou fallback "wasm"). */
+  get dispositivo(): "webgpu" | "wasm" | null {
+    return this.dispositivoInterno;
   }
 
   async carregar(modelId: string, aoStatus: (mensagem: string) => void): Promise<Detector> {
@@ -150,9 +186,11 @@ export class DetectorObjetos {
     aoStatus(`Carregando modelo ${modelId}...`);
     const gpu = (navigator as Navigator & { gpu?: unknown }).gpu;
     const device = gpu ? "webgpu" : "wasm";
+    const { pipeline } = await carregarTransformers();
     let novo: Detector;
     try {
       novo = await pipeline("object-detection", modelId, { device, progress_callback: onProgress });
+      this.dispositivoInterno = gpu ? "webgpu" : "wasm";
     } catch (err) {
       aoStatus(`WebGPU indisponivel, usando CPU: ${(err as Error).message}`);
       try {
@@ -160,6 +198,7 @@ export class DetectorObjetos {
           device: "wasm",
           progress_callback: onProgress,
         });
+        this.dispositivoInterno = "wasm";
       } catch (errFallback) {
         throw new ErroPercepcao("detector", (errFallback as Error).message, { cause: errFallback });
       }

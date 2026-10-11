@@ -260,3 +260,30 @@ test("modo eventos aciona o Ollama pela politica e pelo botao manual", async ({ 
   await page.locator("#stop").click();
   await expect(page.locator("#start")).toBeEnabled();
 });
+
+test("rede offline nao quebra a pagina e a deteccao falha com mensagem clara", async ({
+  page,
+}) => {
+  await prepararPagina(page);
+  // CDN inacessivel (sem rede): a dependencia do Transformers.js agora e sob
+  // demanda, entao apenas os modos de deteccao/eventos sao afetados.
+  await page.route(CDN_TRANSFORMERS, (rota) => rota.abort("failed"));
+  await instalarCameraFalsa(page);
+  await page.goto("/");
+
+  // A pagina carrega normalmente (historico + controles + status do Ollama).
+  await expect(page.locator("#start")).toBeEnabled();
+  await expect(page.locator("#log li")).toHaveCount(2);
+
+  // A deteccao falha com mensagem clara, libera a webcam e devolve a UI.
+  await page.locator("#motor").selectOption("deteccao");
+  await page.locator("#start").click();
+  await expect(page.locator("#status")).toContainText("Falha ao carregar modelo");
+  await expect(page.locator("#start")).toBeEnabled();
+  await expect(page.locator("#stop")).toBeDisabled();
+
+  const estado = await page.evaluate(
+    () => (window as unknown as { __testStream: MediaStream }).__testStream.getTracks()[0].readyState
+  );
+  expect(estado).toBe("ended");
+});

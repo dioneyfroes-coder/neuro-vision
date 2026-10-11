@@ -34,6 +34,34 @@ ollama pull qwen2.5vl:3b
 
 > **Repetição:** o motor de descrição costumava repetir/fundir frases. As causas eram do próprio modelo, agravadas por reinjetar a descrição anterior inteira. Mitigações: `repeat_penalty: 1.3`, `repeat_last_n: 128`, `top_p: 0.9`, `num_predict` reduzido no delta do roteiro e pós-processamento (`colapsarRepeticoes` + `cortarFraseIncompleta`) no servidor.
 
+## Funcionamento offline
+
+**O que roda localmente:** o servidor Node (API + arquivos estáticos), a inferência do Ollama e a detecção de objetos no navegador (WebGPU ou CPU via Transformers.js). A imagem da webcam nunca sai da máquina: os modos de detecção rodam no navegador e os de descrição/roteiro conversam apenas com o Ollama local.
+
+**O que é baixado na primeira execução:**
+
+| Recurso | De onde | Quando | Fica em cache? |
+| --- | --- | --- | --- |
+| Bibliotecas de desenvolvimento (`esbuild`, `tsx`, `vitest`, `playwright`) | npm | `npm install` | `node_modules/` |
+| Transformers.js **3.8.1** (fixado) | CDN (`cdn.jsdelivr.net`) | ao usar um modo de detecção/eventos (import sob demanda) | cache HTTP do navegador |
+| Pesos do modelo de detecção (ex.: `Xenova/yolos-tiny`) | Hugging Face Hub | na primeira carga do modelo | cache do navegador (`useBrowserCache`) |
+| Modelo de visão (ex.: `qwen2.5vl:3b`) | Ollama | `ollama pull` | pasta do Ollama |
+
+**Como preparar antes de ficar offline:**
+
+1. `ollama pull qwen2.5vl:3b` uma vez, com internet.
+2. Subir o app, escolher o motor **Detecção** (ou **Eventos**) e clicar **Iniciar** até o modelo carregar — isso popula o cache do navegador com a biblioteca e os pesos. Repita no mesmo navegador/perfil que será usado offline.
+
+**Comportamento com a rede desconectada (após a preparação):**
+
+- **Roteiro** e **Descrição** funcionam offline — dependem apenas do Ollama local já instalado.
+- **Detecção** e **Eventos** funcionam offline se a biblioteca e os pesos ainda estiverem no cache do navegador.
+- Se o CDN estiver inacessível e **não** houver cache, a **página continua carregando normalmente** (a dependência é carregada sob demanda, não no carregamento da página) e apenas a detecção falha, com mensagem clara (`Falha ao carregar modelo: ...`) e a webcam liberada. Os modos Ollama seguem utilizáveis.
+
+A versão do Transformers.js é **fixa** (`3.8.1`), em vez do tag flutuante `@3`, para que o comportamento não mude sem aviso.
+
+> **Avaliação (empacotar localmente):** hospedar a biblioteca e os pesos no servidor eliminaria a dependência do CDN e do cache do navegador, mas exigiria embarcar dezenas de MB no repositório/instalação e um passo próprio de download de pesos. A opção escolhida — CDN com versão fixa + cache do navegador + carregamento sob demanda — cobre o uso offline após a preparação com o menor custo e sem inflar o projeto. A decisão pode ser revista se o offline passar a ser requisito primário.
+
 ## Uso
 
 Desenvolvimento (servidor com hot-reload + build do cliente em watch):

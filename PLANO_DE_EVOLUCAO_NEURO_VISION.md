@@ -294,11 +294,13 @@ interface EventoVisual {
 
 ### 6.1 Clarificar o funcionamento offline
 
-- [ ] Documentar o que roda localmente e quais recursos precisam ser baixados na primeira execução.
-- [ ] Fixar uma versão específica de Transformers.js, evitando depender de uma versão flutuante na URL do CDN.
-- [ ] Avaliar instalar/bundlar a biblioteca localmente e disponibilizar os pesos necessários em cache local.
-- [ ] Documentar como preparar os modelos antes de usar o aplicativo sem internet.
-- [ ] Testar o comportamento com a rede desconectada depois da preparação dos recursos.
+- [x] Documentar o que roda localmente e quais recursos precisam ser baixados na primeira execução.
+- [x] Fixar uma versão específica de Transformers.js, evitando depender de uma versão flutuante na URL do CDN.
+- [x] Avaliar instalar/bundlar a biblioteca localmente e disponibilizar os pesos necessários em cache local.
+- [x] Documentar como preparar os modelos antes de usar o aplicativo sem internet.
+- [x] Testar o comportamento com a rede desconectada depois da preparação dos recursos.
+
+**Implementação 6.1:** a versão do Transformers.js passou do tag flutuante `@3` para **`3.8.1`** (última 3.x), atualizando também o shim de tipos (`src/transformers-cdn.d.ts`) e o alias de teste (`vitest.config.ts`). O import passou de **estático** para **sob demanda** (`carregarTransformers()` em `public/detector.ts`): antes, qualquer página carregava a biblioteca do CDN e, offline, o grafo de módulos inteiro falhava (app em branco). Agora os modos Ollama funcionam offline e só a detecção falha, com mensagem clara e webcam liberada. `DetectorObjetos` passou a expor `dispositivo` (`webgpu`/`wasm`) — usado no aviso de fallback de CPU (6.3). Documentação nova no README (**Funcionamento offline**: o que roda local, tabela do que é baixado, preparação offline, comportamento com e sem cache, decisão de **não** bundlar localmente por ora). Testes: E2E “rede offline nao quebra a pagina e a deteccao falha com mensagem clara” (CDN abortado → página carrega, histórico intacto, detecção falha graciosamente).
 
 ### 6.2 Medir antes de trocar modelos
 
