@@ -304,11 +304,13 @@ interface EventoVisual {
 
 ### 6.2 Medir antes de trocar modelos
 
-- [ ] Escolher um pequeno conjunto fixo de imagens e clipes representativos.
-- [ ] Medir latência de inferência, tempo até o primeiro resultado, uso de RAM/VRAM e inferências por minuto.
-- [ ] Medir qualidade dos eventos: mudanças detectadas, mudanças perdidas e falsos positivos por minuto.
-- [ ] Comparar configurações/modelos sob as mesmas condições com `npm run bench` e testes reproduzíveis.
-- [ ] Registrar hardware, modelo, configurações e resultados junto com cada benchmark.
+- [x] Escolher um pequeno conjunto fixo de imagens e clipes representativos.
+- [x] Medir latência de inferência, tempo até o primeiro resultado, uso de RAM/VRAM e inferências por minuto.
+- [x] Medir qualidade dos eventos: mudanças detectadas, mudanças perdidas e falsos positivos por minuto.
+- [x] Comparar configurações/modelos sob as mesmas condições com `npm run bench` e testes reproduzíveis.
+- [x] Registrar hardware, modelo, configurações e resultados junto com cada benchmark.
+
+**Implementação 6.2:** o benchmark passou a rodar sobre um **conjunto fixo de imagens** versionado em `bench/imagens/` (duas cenas sintéticas em resoluções típicas de webcam, geradas de forma determinística por `scripts/gerar-fixtures-bench.mjs`; convenção e como trocar por cenas reais em `bench/README.md`). `scripts/benchmark.mjs` ganhou: `--image` repetível + `--images-dir`; iteração sobre o conjunto com **mediana entre as imagens** (`visaoPorImagem` guarda cada uma); **inferências por minuto** (`inferenciasPorMinuto`, respeitando o ritmo `max(total + 500 ms, intervalo)`); **RAM/VRAM** do modelo carregado via `/api/ps` (`memoriaDoModelo`); e um cabeçalho de **ambiente** (`montarAmbiente`: CPU, núcleos lógicos, RAM total, plataforma, versão do Node) gravado junto aos resultados — no modo `--json` sai em `ambiente` + `resultados`. `main()` só roda quando o arquivo é executado diretamente, permitindo testar os helpers puros (`scripts/benchmark.test.mjs`). A **qualidade dos eventos** é medida de forma reproduzível em `src/qualidade-eventos.test.ts`: a percepção leve (rastreador + política) roda sobre roteiros sintéticos com mudanças conhecidas e reporta mudanças detectadas, perdidas e falsos positivos por minuto (cena estática → 0 FP após a primeira análise; aparecer/mover/desaparecer → 100% detectado, 0 FP). A validação com **vídeo real anotado** (precisão/recall de verdade) fica na Fase 7.
 
 ### 6.3 Tornar o diagnóstico visível
 

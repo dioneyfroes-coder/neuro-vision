@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { readFile, readdir } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,7 +16,7 @@ const PROMPT_VISAO =
 const SVG_BASE = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
 
 function lerArgs() {
-  const mapa = { model: [], iter: 3, timeout: 120000, numPredict: 256 };
+  const mapa = { model: [], image: [], iter: 3, timeout: 120000, numPredict: 256 };
   const lista = process.argv.slice(2);
   for (let i = 0; i < lista.length; i++) {
     const a = lista[i];
@@ -23,7 +24,8 @@ function lerArgs() {
     if (a === "--host") mapa.host = proximo();
     else if (a === "--model") mapa.model.push(proximo());
     else if (a === "--iter") mapa.iter = Math.max(1, Number(proximo()) || 1);
-    else if (a === "--image") mapa.image = proximo();
+    else if (a === "--image") mapa.image.push(proximo());
+    else if (a === "--images-dir") mapa.imagesDir = proximo();
     else if (a === "--prompt") mapa.prompt = proximo();
     else if (a === "--num-predict") mapa.numPredict = Math.max(1, Number(proximo()) || 1);
     else if (a === "--timeout") mapa.timeout = Math.max(1000, Number(proximo()) || 120000);
@@ -44,22 +46,76 @@ function arredondar(n, casas = 1) {
   return Math.round(n * fator) / fator;
 }
 
-const nsParaMs = (ns) => (typeof ns === "number" ? ns / 1_000_000 : 0);
-const nsParaSeg = (ns) => (typeof ns === "number" ? ns / 1_000_000_000 : 0);
+/**
+ * Inferencias por minuto sustentaveis pelo modelo, respeitando o ritmo do
+ * cliente: cada analise espera `max(total + 500ms, intervalo minimo)`.
+ */
+export function inferenciasPorMinuto(totalMs, intervaloMinSeg) {
+  const espera = Math.max((totalMs ?? 0) + 500, (intervaloMinSeg ?? 1) * 1000);
+  return arredondar(60_000 / espera, 1);
+}
 
-async function resolverImagem(caminho) {
-  if (caminho) {
+/**
+ * Metadados de ambiente gravados junto a cada benchmark, para que os numeros
+ * sejam comparaveis (mesmo hardware, modelo e configuracoes).
+ */
+export function montarAmbiente() {
+  const cpus = os.cpus();
+  return {
+    dataHora: new Date().toISOString(),
+    node: process.version,
+    plataforma: `${os.platform()} ${os.release()}`,
+    arquitetura: os.arch(),
+    cpu: (cpus[0]?.model ?? "desconhecido").trim(),
+    nucleosLogicos: cpus.length,
+    memoriaTotalBytes: os.totalmem(),
+  };
+}
+
+/** Resolve o conjunto fixo de imagens: caminhos explicitos ou um dos diretorios. */
+export async function resolverImagens(explicitas, dirs = []) {
+  const paraObjeto = async (caminho) => {
     const abs = path.resolve(ROOT, caminho);
     const dados = await readFile(abs);
     return { nome: path.basename(abs), base64: dados.toString("base64") };
+  };
+
+  if (explicitas?.length) {
+    return Promise.all(explicitas.map(paraObjeto));
   }
-  const dir = path.join(ROOT, "logs", "snapshots");
-  const arquivos = (await readdir(dir).catch(() => []))
-    .filter((f) => /\.(jpg|jpeg|png)$/i.test(f))
-    .sort();
-  if (!arquivos.length) return null;
-  const dados = await readFile(path.join(dir, arquivos[0]));
-  return { nome: arquivos[0], base64: dados.toString("base64") };
+
+  for (const pasta of dirs.filter(Boolean)) {
+    const absoluta = path.resolve(ROOT, pasta);
+    const arquivos = (await readdir(absoluta).catch(() => []))
+      .filter((f) => /\.(jpg|jpeg|png)$/i.test(f))
+      .sort();
+    if (arquivos.length) {
+      return Promise.all(arquivos.map((f) => paraObjeto(path.join(pasta, f))));
+    }
+  }
+  return [];
+}
+
+const nsParaMs = (ns) => (typeof ns === "number" ? ns / 1_000_000 : 0);
+const nsParaSeg = (ns) => (typeof ns === "number" ? ns / 1_000_000_000 : 0);
+
+/** Memoria efetivamente ocupada pelo modelo carregado (RAM total e VRAM). */
+async function memoriaDoModelo(host, modelo) {
+  try {
+    const resposta = await fetch(`${host}/api/ps`, { signal: AbortSignal.timeout(5_000) });
+    if (!resposta.ok) return null;
+    const dados = await resposta.json();
+    const alvo = (dados.models ?? []).find((m) =>
+      mesmoModelo(m.name ?? m.model ?? "", modelo)
+    );
+    if (!alvo) return null;
+    return {
+      bytes: Number(alvo.size) || 0,
+      vramBytes: Number(alvo.size_vram) || 0,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function listarModelos(host) {
@@ -174,9 +230,10 @@ async function chamarGerar(host, modelo, opcoes) {
   return { primeiroMs, mensagens: contagem, textoUnico, pensou, ...final };
 }
 
-async function executarIteracoes(host, modelo, setup, iter, json, tolerante = false) {
+async function executarIteracoes(host, modelo, setup, iter, json, tolerante = false, rotulo = "") {
   const resultados = [];
   let ultimoErro = "";
+  const prefixo = rotulo ? `${rotulo} · ` : "";
   for (let i = 0; i < iter; i++) {
     try {
       const r = await chamarGerar(host, modelo, { ...setup, stream: true, timeoutMs: 120000 });
@@ -188,11 +245,11 @@ async function executarIteracoes(host, modelo, setup, iter, json, tolerante = fa
           `geracao ${arredondar(geracaoSeg > 0 ? r.eval_count / geracaoSeg : 0, 1)} tok/s`,
           `total ${arredondar(nsParaMs(r.total_duration), 0)} ms`,
         ];
-        console.log(`    iteracao ${i + 1}/${iter}: ${detalhe.join(" | ")}`);
+        console.log(`    ${prefixo}iteracao ${i + 1}/${iter}: ${detalhe.join(" | ")}`);
       }
     } catch (err) {
       ultimoErro = err.message;
-      console.error(`    iteracao ${i + 1}/${iter} falhou: ${err.message}`);
+      console.error(`    ${prefixo}iteracao ${i + 1}/${iter} falhou: ${err.message}`);
       if (iter === 1 && !tolerante) throw err;
     }
   }
@@ -241,6 +298,28 @@ async function executarIteracoes(host, modelo, setup, iter, json, tolerante = fa
     tokens: Math.round(mediana(tokens)),
     textoChars: Math.round(mediana(chars)),
     intervaloMinSeg,
+    inferenciasPorMinuto: inferenciasPorMinuto(totalMs, intervaloMinSeg),
+  };
+}
+
+/** Agrega as medisoes de visao de varias imagens (mediana entre imagens). */
+export function agregarVisoes(porImagem) {
+  const ok = porImagem.filter((v) => v && !v.semVisao && !v.semResposta && v.geracaoTokS > 0);
+  if (!ok.length) return porImagem[0] ?? {};
+  const med = (campo, casas = 1) => arredondar(mediana(ok.map((v) => v[campo] ?? 0)), casas);
+  const totalMs = med("totalMs", 0);
+  const intervaloMinSeg = Math.max(1, Math.ceil((totalMs * 1.5) / 1000));
+  return {
+    ...ok[0],
+    geracaoTokS: med("geracaoTokS"),
+    prefillTokS: med("prefillTokS"),
+    primeiroMs: med("primeiroMs", 0),
+    totalMs,
+    tokens: Math.round(med("tokens", 0)),
+    textoChars: Math.round(med("textoChars", 0)),
+    intervaloMinSeg,
+    inferenciasPorMinuto: inferenciasPorMinuto(totalMs, intervaloMinSeg),
+    imagens: ok.length,
   };
 }
 
@@ -270,17 +349,26 @@ async function main() {
     modelos = args.model;
   }
 
-  const imagem = await resolverImagem(args.image);
-  if (!imagem) {
+  const imagens = await resolverImagens(args.image, [
+    args.imagesDir,
+    "bench/imagens",
+    "logs/snapshots",
+  ]);
+  if (!imagens.length) {
     console.warn(
-      "ATENCAO: nenhum snapshot em logs/snapshots e nenhum --image; usando imagem sintetica 1x1 para o teste de visao."
+      "ATENCAO: nenhuma imagem em --image/--images-dir/bench/imagens/logs/snapshots; usando imagem sintetica 1x1 para o teste de visao."
     );
   }
-  const imgBase = imagem?.base64 ?? SVG_BASE;
+  const conjunto = imagens.length ? imagens : [{ nome: "sintetica-1x1", base64: SVG_BASE }];
   const promptVisao = args.prompt ?? PROMPT_VISAO;
+  const ambiente = montarAmbiente();
 
-  if (imagem) console.log(`Imagem usada para visao: logs/snapshots/${imagem.nome}`);
-  console.log(`Host: ${host} | iteracoes: ${iter} | num_predict: ${args.numPredict}\n`);
+  if (imagens.length) {
+    console.log(`Conjunto fixo de imagens (${imagens.length}): ${imagens.map((i) => i.nome).join(", ")}`);
+  }
+  console.log(
+    `Host: ${host} | iteracoes: ${iter} | num_predict: ${args.numPredict} | inicio: ${ambiente.dataHora}\n`
+  );
 
   const linhas = [];
 
@@ -313,18 +401,30 @@ async function main() {
       json
     );
 
-    if (!json) console.log("  visao (com imagem):");
-    medidas.visao = await executarIteracoes(
-      host,
-      modelo,
-      { prompt: promptVisao, base64: imgBase, numPredict: args.numPredict, timeoutMs: args.timeout },
-      iter,
-      json,
-      true
-    );
+    if (!json) console.log(`  visao (${conjunto.length} imagem(ns)):`);
+    medidas.visaoPorImagem = [];
+    for (const img of conjunto) {
+      const r = await executarIteracoes(
+        host,
+        modelo,
+        { prompt: promptVisao, base64: img.base64, numPredict: args.numPredict, timeoutMs: args.timeout },
+        iter,
+        json,
+        true,
+        img.nome
+      );
+      medidas.visaoPorImagem.push({ imagem: img.nome, ...r });
+    }
+    medidas.visao = agregarVisoes(medidas.visaoPorImagem);
+
+    medidas.memoria = await memoriaDoModelo(host, modelo);
 
     if (!json) {
       const v = medidas.visao;
+      const mem = medidas.memoria;
+      const memTexto = mem
+        ? ` | memoria ~${arredondar(mem.bytes / 1024 ** 2, 0)} MB (VRAM ~${arredondar(mem.vramBytes / 1024 ** 2, 0)} MB)`
+        : "";
       if (v.semVisao) {
         console.log(`    AVISO: o modelo nao processa visao (texto puro). Detalhe: ${v.erro}\n`);
       } else if (v.semResposta) {
@@ -336,7 +436,7 @@ async function main() {
         );
       } else {
         console.log(
-          `    RESULTADO: geracao ${v.geracaoTokS} tok/s | prefill ${v.prefillTokS} tok/s | 1a resposta ${v.primeiroMs} ms | total ${v.totalMs} ms | texto ${v.textoChars} chars | intervalo minimo >= ${v.intervaloMinSeg}s\n`
+          `    RESULTADO (mediana entre imagens): geracao ${v.geracaoTokS} tok/s | prefill ${v.prefillTokS} tok/s | 1a resposta ${v.primeiroMs} ms | total ${v.totalMs} ms | inferencias/min ~${v.inferenciasPorMinuto}${memTexto}\n`
         );
       }
     }
@@ -345,7 +445,7 @@ async function main() {
   }
 
   if (json) {
-    console.log(JSON.stringify({ host, iter, resultados: linhas }, null, 2));
+    console.log(JSON.stringify({ ambiente, host, iter, numPredict: args.numPredict, imagens: conjunto.map((i) => i.nome), resultados: linhas }, null, 2));
     return;
   }
 
@@ -353,6 +453,7 @@ async function main() {
   console.table(
     linhas.map((l) => {
       const v = l.visao ?? {};
+      const mem = l.memoria;
       return {
         modelo: l.modelo,
         "carga inicial (s)": arredondar((l.cargaMs ?? 0) / 1000, 1),
@@ -361,6 +462,9 @@ async function main() {
         "visao: prefill (tok/s)": v.prefillTokS,
         "1a resposta (ms)": v.primeiroMs,
         "total (ms)": v.totalMs,
+        "inferencias/min": v.inferenciasPorMinuto,
+        "RAM (MB)": mem ? arredondar(mem.bytes / 1024 ** 2, 0) : "-",
+        "VRAM (MB)": mem ? arredondar(mem.vramBytes / 1024 ** 2, 0) : "-",
         "intervalo minimo (s)": v.intervaloMinSeg,
       };
     })
@@ -368,9 +472,18 @@ async function main() {
   console.log(
     "\nDefina o intervalo da UI (slider) com valor >= 'intervalo minimo (s)' ou mantenha o ajuste automatico do cliente."
   );
+  console.log(
+    `Ambiente: ${ambiente.cpu} (${ambiente.nucleosLogicos} nucleos logicos), ${arredondar(ambiente.memoriaTotalBytes / 1024 ** 3, 1)} GB RAM, ${ambiente.plataforma}, Node ${ambiente.node}.`
+  );
 }
 
-main().catch((err) => {
-  console.error(`ERRO: ${err.message}`);
-  process.exit(1);
-});
+const caminhoDoModulo = fileURLToPath(import.meta.url);
+const executadoDiretamente =
+  Boolean(process.argv[1]) && path.resolve(process.argv[1]) === caminhoDoModulo;
+
+if (executadoDiretamente) {
+  main().catch((err) => {
+    console.error(`ERRO: ${err.message}`);
+    process.exit(1);
+  });
+}

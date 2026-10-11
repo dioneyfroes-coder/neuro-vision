@@ -230,6 +230,11 @@ logs/
   visao.jsonl          observações gravadas (ignorado no git)
   eventos.jsonl        eventos estruturados (ignorado no git)
   operacional.jsonl    registros operacionais (ignorado no git)
+bench/
+  imagens/             conjunto fixo de imagens do benchmark (reproduzível)
+scripts/
+  benchmark.mjs        benchmark do Ollama (latência, tok/s, RAM/VRAM, inferências/min)
+  gerar-fixtures-bench.mjs  gera o conjunto fixo de imagens sintéticas
 ```
 
 ## Scripts
@@ -249,13 +254,18 @@ logs/
 
 ### Benchmark
 
-`npm run bench` mede o que o seu modelo local realmente sustenta (geração em tok/s, prefill da imagem, tempo até a 1ª resposta e total) e recomenda o **intervalo mínimo** para o slider da UI (`totalMs × 1.5`). Opções:
+`npm run bench` mede o que o seu modelo local realmente sustenta (geração em tok/s, prefill da imagem, tempo até a 1ª resposta, total, **inferências por minuto** e **uso de RAM/VRAM**) e recomenda o **intervalo mínimo** para o slider da UI (`totalMs × 1.5`). Opções:
 
 ```bash
-npm run bench                                    # usa qwen2.5vl:3b (OLLAMA_MODEL) e um snapshot em logs/snapshots
-npm run bench -- --model qwen2.5vl:7b --iter 5   # outro modelo, mais amostras
-npm run bench -- --image foto.jpg --json         # imagem específica + saída JSON
+npm run bench                                     # conjunto fixo em bench/imagens/ (ou o snapshot mais recente)
+npm run bench -- --model qwen2.5vl:7b --iter 5    # outro modelo, mais amostras
+npm run bench -- --image foto.jpg --json          # uma imagem específica + saída JSON
+npm run bench -- --images-dir minhas-cenas        # diretório próprio de imagens fixas
 ```
+
+O benchmark roda sobre o **conjunto fixo de imagens** em [`bench/imagens/`](./bench/imagens) (gerado por `node scripts/gerar-fixtures-bench.mjs`) para ser reproduzível sem depender dos seus snapshots; veja [`bench/README.md`](./bench/README.md) para trocar por cenas reais. Por padrão ele mede cada modelo no conjunto inteiro e reporta a **mediana entre as imagens**.
+
+Cada execução registra o **ambiente** (CPU, núcleos, RAM, plataforma, versão do Node), o host, o modelo e as configurações (`num_predict`, iterações) junto aos números — no modo `--json` sai um objeto `ambiente` + `resultados` pronto para versionar. O `uso de RAM/VRAM` vem de `/api/ps` (memória realmente ocupada pelo modelo carregado).
 
 O cliente **ajusta sozinho** o ritmo: cada análise espera `max(intervalo, duração da análise anterior + 500ms)`, então nunca pede mais rápido que o modelo consegue responder. O status e cada entrada de descrição mostram os **tok/s** medidos.
 
