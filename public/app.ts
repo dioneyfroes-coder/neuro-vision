@@ -2,6 +2,7 @@ import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transfo
 import type { Detector, Deteccao, ProgressInfo } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3";
 import type { EntradaLog, ObjetoVisto } from "../src/types";
 import { colapsarRepeticoes } from "../src/texto";
+import { AgendadorAnalise } from "./scheduler";
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
@@ -127,13 +128,18 @@ let loadedModel: string | null = null;
 const detectores = new Map<string, Detector>();
 let stream: MediaStream | null = null;
 let running = false;
-let timer: ReturnType<typeof setInterval> | null = null;
-let analisando = false;
 let controller: AbortController | null = null;
 let ultimaDescricao = "";
 let ultimaDuracaoMs = 0;
 let roteiroBeats: string[] = [];
 let roteiroPrimeiro = true;
+let intervaloMsConfigurado = Number(intervalInput.value) * 1000;
+
+const agendador = new AgendadorAnalise({
+  executar: () => analisar(),
+  obterIntervaloMs: () => intervaloMsConfigurado,
+  obterUltimaDuracaoMs: () => ultimaDuracaoMs,
+});
 
 function setStatus(text: string): void {
   statusEl.textContent = text;
@@ -461,8 +467,7 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
 }
 
 async function analisar(): Promise<void> {
-  if (!running || analisando) return;
-  analisando = true;
+  if (!running) return;
   const ctrl = new AbortController();
   controller = ctrl;
   const { signal } = ctrl;
@@ -536,17 +541,10 @@ async function analisar(): Promise<void> {
     });
   } finally {
     if (controller === ctrl) {
-      analisando = false;
       controller = null;
       setSpinner(false);
     }
   }
-}
-
-function agendarAnalise(intervalMs: number): void {
-  if (timer) clearInterval(timer);
-  const espera = Math.max(intervalMs, ultimaDuracaoMs + 500);
-  timer = setInterval(() => void analisar(), espera);
 }
 
 async function prepararOllama(): Promise<void> {
@@ -575,6 +573,7 @@ async function start(): Promise<void> {
   if (running) return;
   startBtn.disabled = true;
   ultimaDescricao = "";
+  ultimaDuracaoMs = 0;
   roteiroBeats = [];
   roteiroPrimeiro = true;
 
@@ -613,17 +612,12 @@ async function start(): Promise<void> {
   if (!stream) return;
   running = true;
   stopBtn.disabled = false;
-  agendarAnalise(Number(intervalInput.value) * 1000);
-  await analisar();
+  await agendador.iniciar();
 }
 
 function encerrarCaptura(): void {
   running = false;
-  analisando = false;
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
-  }
+  agendador.parar();
   if (controller) {
     controller.abort();
     controller = null;
@@ -721,7 +715,8 @@ filterInput.addEventListener("input", aplicarFiltro);
 
 intervalInput.addEventListener("input", () => {
   intervalValue.textContent = `${intervalInput.value}s`;
-  if (running) agendarAnalise(Number(intervalInput.value) * 1000);
+  intervaloMsConfigurado = Number(intervalInput.value) * 1000;
+  agendador.reajustar();
 });
 
 thresholdInput.addEventListener("input", () => {

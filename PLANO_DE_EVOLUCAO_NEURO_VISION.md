@@ -119,14 +119,16 @@ Arquivo principal: `public/app.ts`.
 
 Hoje `agendarAnalise()` calcula `espera` ao agendar um `setInterval()`. A duração da análise é atualizada depois, mas o período do timer existente não é recalculado a cada ciclo; quando a inferência demora, ticks podem ser descartados pelo bloqueio `analisando`.
 
-- [ ] Trocar o ciclo periódico por um agendamento de uma execução (`setTimeout`) após a conclusão da análise anterior.
-- [ ] Calcular em cada ciclo o próximo atraso usando a configuração do usuário e a duração real da inferência, por exemplo `max(intervaloConfigurado, ultimaDuracaoMs + margemMs)`.
-- [ ] Impedir que o início imediato e o timer iniciem análises duplicadas.
-- [ ] Ao parar, limpar o timer e garantir que nenhuma análise nova comece.
-- [ ] Ao mudar o intervalo na interface, aplicar o novo valor no próximo agendamento.
-- [ ] Adicionar testes cobrindo inferência lenta, mudança de intervalo, parada durante a inferência e ausência de sobreposição.
+- [x] Trocar o ciclo periódico por um agendamento de uma execução (`setTimeout`) após a conclusão da análise anterior.
+- [x] Calcular em cada ciclo o próximo atraso usando a configuração do usuário e a duração real da inferência, por exemplo `max(intervaloConfigurado, ultimaDuracaoMs + margemMs)`.
+- [x] Impedir que o início imediato e o timer iniciem análises duplicadas.
+- [x] Ao parar, limpar o timer e garantir que nenhuma análise nova comece.
+- [x] Ao mudar o intervalo na interface, aplicar o novo valor no próximo agendamento.
+- [x] Adicionar testes cobrindo inferência lenta, mudança de intervalo, parada durante a inferência e ausência de sobreposição.
 
 **Aceite:** uma única análise pode estar em execução por vez; o próximo ciclo é calculado depois da conclusão do atual.
+
+**Implementação:** criado `public/scheduler.ts` (livre de DOM) com `calcularEspera()` e a classe `AgendadorAnalise`, que encadeia `setTimeout` após cada análise e nunca sobrepõe execuções (guarda via promessa da execução atual). `public/app.ts` passa a delegar o agendamento ao `AgendadorAnalise`; `start()` roda a análise imediata e só então arma o primeiro ciclo, e a mudança de intervalo chama `reajustar()`. Se uma sessão for interrompida durante inferência não cancelável, o reinício aguarda a execução anterior terminar antes de iniciar a nova (sem pular a análise imediata nem sobrepor). Testes: 8 casos em `src/agendador.test.ts` (fake timers: inferência lenta sem sobreposição e com próximo ciclo após a conclusão, mudança de intervalo, parada durante a inferência, início duplo e reinício durante execução) e um E2E novo em `e2e/app.spec.ts` que verifica ausência de sobreposição com intervalo curto.
 
 ### 1.5 Definir política de retenção dos snapshots
 
@@ -158,7 +160,7 @@ Arquivos principais: `src/server.ts`, testes e documentação.
 ### 2.1 Extrair módulos pequenos do cliente
 
 - [ ] Mover o controle da webcam para um módulo próprio, por exemplo `public/camera.ts`.
-- [ ] Mover o agendamento e a guarda contra concorrência para `public/scheduler.ts`.
+- [x] Mover o agendamento e a guarda contra concorrência para `public/scheduler.ts`.
 - [ ] Isolar as chamadas HTTP (`/api/log`, `/api/visao`, `/api/health`) em `public/api.ts`.
 - [ ] Isolar a lógica de detecção e conversão do resultado em `public/detector.ts`.
 - [ ] Manter `public/app.ts` responsável principalmente por coordenar estado e interface.

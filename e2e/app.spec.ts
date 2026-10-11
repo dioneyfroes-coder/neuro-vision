@@ -20,8 +20,14 @@ const DETECTOR_LENTO = `
 export const env = {};
 export async function pipeline() {
   return async () => {
-    window.__deteccoes = (window.__deteccoes || 0) + 1;
+    const w = window;
+    w.__deteccoes = (w.__deteccoes || 0) + 1;
+    if (w.__emExecucao) w.__sobreposicoes = (w.__sobreposicoes || 0) + 1;
+    w.__emExecucao = true;
+    w.__inicios = w.__inicios || [];
+    w.__inicios.push(Date.now());
     await new Promise((resolve) => setTimeout(resolve, 2500));
+    w.__emExecucao = false;
     return [];
   };
 }
@@ -172,6 +178,39 @@ test("parar durante a inferencia libera a webcam e permite iniciar de novo", asy
     { timeout: 15_000 }
   );
   await expect(page.locator("#stop")).toBeEnabled();
+  await page.locator("#stop").click();
+  await expect(page.locator("#start")).toBeEnabled();
+});
+
+test("inferencia lenta nao sobrepoe analises mesmo com intervalo curto", async ({ page }) => {
+  await prepararPagina(page, DETECTOR_LENTO);
+  await instalarCameraFalsa(page);
+  await page.goto("/");
+  await page.locator("#motor").selectOption("deteccao");
+  await page.locator("#interval").evaluate((el) => {
+    const input = el as HTMLInputElement;
+    input.value = "1";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.locator("#start").click();
+
+  await page.waitForFunction(
+    () => ((window as unknown as { __deteccoes?: number }).__deteccoes ?? 0) >= 3,
+    undefined,
+    { timeout: 25_000 }
+  );
+
+  const resultado = await page.evaluate(() => {
+    const w = window as unknown as { __sobreposicoes?: number; __inicios?: number[] };
+    return { sobreposicoes: w.__sobreposicoes ?? 0, inicios: w.__inicios ?? [] };
+  });
+
+  expect(resultado.sobreposicoes).toBe(0);
+  for (let i = 1; i < resultado.inicios.length; i++) {
+    // Cada ciclo so comeca apos a inferencia anterior (2,5s) terminar.
+    expect(resultado.inicios[i] - resultado.inicios[i - 1]).toBeGreaterThanOrEqual(2500);
+  }
+
   await page.locator("#stop").click();
   await expect(page.locator("#start")).toBeEnabled();
 });
