@@ -93,10 +93,10 @@ Arquivos principais: `src/server.ts` e `src/server.test.ts`.
 
 Arquivo principal: `public/app.ts`.
 
-- [ ] Criar uma única função para encerrar a captura: parar todas as tracks, limpar `video.srcObject`, cancelar o agendamento e abortar a análise em andamento.
-- [ ] Usar essa função se `video.play()`, a preparação do Ollama ou o carregamento do detector falhar.
-- [ ] Garantir que o estado dos botões e a mensagem de status voltem a um estado coerente em todas as saídas de erro.
-- [ ] Testar falhas de acesso à câmera, falha de carregamento do modelo, botão **Parar** durante uma inferência e nova tentativa de **Iniciar**.
+- [x] Criar uma única função para encerrar a captura: parar todas as tracks, limpar `video.srcObject`, cancelar o agendamento e abortar a análise em andamento.
+- [x] Usar essa função se `video.play()`, a preparação do Ollama ou o carregamento do detector falhar.
+- [x] Garantir que o estado dos botões e a mensagem de status voltem a um estado coerente em todas as saídas de erro.
+- [x] Testar falhas de acesso à câmera, falha de carregamento do modelo, botão **Parar** durante uma inferência e nova tentativa de **Iniciar**.
 
 **Aceite:** nenhuma falha de inicialização deixa a webcam ligada sem necessidade ou bloqueia uma nova tentativa.
 

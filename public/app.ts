@@ -463,8 +463,9 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
 async function analisar(): Promise<void> {
   if (!running || analisando) return;
   analisando = true;
-  controller = new AbortController();
-  const { signal } = controller;
+  const ctrl = new AbortController();
+  controller = ctrl;
+  const { signal } = ctrl;
   setSpinner(true);
   try {
     if (motorSelect.value === "ollama" || motorSelect.value === "roteiro") {
@@ -534,9 +535,11 @@ async function analisar(): Promise<void> {
       if (running) setStatus("Falha ao gravar no log do servidor");
     });
   } finally {
-    analisando = false;
-    controller = null;
-    setSpinner(false);
+    if (controller === ctrl) {
+      analisando = false;
+      controller = null;
+      setSpinner(false);
+    }
   }
 }
 
@@ -546,27 +549,23 @@ function agendarAnalise(intervalMs: number): void {
   timer = setInterval(() => void analisar(), espera);
 }
 
-async function prepararOllama(): Promise<boolean> {
+async function prepararOllama(): Promise<void> {
+  setSpinner(true);
+  setStatus("Carregando modelo do Ollama na memoria (pode demorar)...");
   try {
-    setSpinner(true);
-    setStatus("Carregando modelo do Ollama na memoria (pode demorar)...");
     const resposta = await fetch("/api/visao/preparar");
     if (!resposta.ok) {
       const corpo = (await resposta.json().catch(() => null)) as { erro?: string } | null;
-      setStatus(corpo?.erro ?? `Falha ao preparar Ollama (${resposta.status})`);
-      return false;
+      throw new Error(corpo?.erro ?? `Falha ao preparar Ollama (${resposta.status})`);
     }
     const dados = (await resposta.json()) as { modelo?: string; carregado?: boolean; carregandoMs?: number };
+    if (dados.carregado !== true) {
+      throw new Error("modelo nao confirmado em memoria; verifique o Ollama.");
+    }
     const seg = Math.round((dados.carregandoMs ?? 0) / 1000);
     setStatus(
-      dados.carregado
-        ? `Modelo ${dados.modelo ?? ""} carregado${seg > 0 ? ` em ${seg}s` : " (ja estava em memoria)"}. Pronto!`
-        : "Modelo nao confirmado em memoria; verifique o Ollama."
+      `Modelo ${dados.modelo ?? ""} carregado${seg > 0 ? ` em ${seg}s` : " (ja estava em memoria)"}. Pronto!`
     );
-    return dados.carregado === true;
-  } catch (err) {
-    setStatus(`Falha ao preparar Ollama: ${(err as Error).message}`);
-    return false;
   } finally {
     setSpinner(false);
   }
@@ -578,57 +577,81 @@ async function start(): Promise<void> {
   ultimaDescricao = "";
   roteiroBeats = [];
   roteiroPrimeiro = true;
+
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
   } catch (err) {
-    setStatus(`Nao foi possivel acessar a webcam: ${(err as Error).message}`);
-    startBtn.disabled = false;
+    falharInicializacao(`Nao foi possivel acessar a webcam: ${(err as Error).message}`);
     return;
   }
+
   video.srcObject = stream;
-  await video.play();
+  try {
+    await video.play();
+  } catch (err) {
+    falharInicializacao(`Falha ao iniciar o video: ${(err as Error).message}`);
+    return;
+  }
   placeholder.style.display = "none";
 
   if (motorSelect.value === "ollama" || motorSelect.value === "roteiro") {
-    const preparado = await prepararOllama();
-    if (!preparado) {
-      startBtn.disabled = false;
+    try {
+      await prepararOllama();
+    } catch (err) {
+      falharInicializacao(`Falha ao preparar o Ollama: ${(err as Error).message}`);
       return;
     }
   } else {
     try {
       await getDetector(modelSelect.value);
     } catch (err) {
-      setStatus(`Falha ao carregar modelo: ${(err as Error).message}`);
-      startBtn.disabled = false;
+      falharInicializacao(`Falha ao carregar modelo: ${(err as Error).message}`);
       return;
     }
   }
 
+  if (!stream) return;
   running = true;
   stopBtn.disabled = false;
   agendarAnalise(Number(intervalInput.value) * 1000);
   await analisar();
 }
 
-function stop(): void {
+function encerrarCaptura(): void {
   running = false;
-  setSpinner(false);
-  if (controller) {
-    controller.abort();
-    controller = null;
-  }
+  analisando = false;
   if (timer) {
     clearInterval(timer);
     timer = null;
   }
-  if (stream) stream.getTracks().forEach((t) => t.stop());
-  stream = null;
+  if (controller) {
+    controller.abort();
+    controller = null;
+  }
+  if (stream) {
+    stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+  }
   video.srcObject = null;
+}
+
+function restaurarInterfaceIdle(): void {
+  setSpinner(false);
   ctx.clearRect(0, 0, overlay.width, overlay.height);
   placeholder.style.display = "grid";
   startBtn.disabled = false;
   stopBtn.disabled = true;
+}
+
+function falharInicializacao(mensagem: string): void {
+  encerrarCaptura();
+  restaurarInterfaceIdle();
+  setStatus(mensagem);
+}
+
+function stop(): void {
+  encerrarCaptura();
+  restaurarInterfaceIdle();
   setStatus("Parado.");
 }
 
