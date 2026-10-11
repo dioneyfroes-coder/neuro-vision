@@ -22,6 +22,7 @@ export class Camera {
   private stream: MediaStream | null = null;
   private readonly frameCanvas = document.createElement("canvas");
   private readonly frameCtx: CanvasRenderingContext2D | null;
+  private assinaturaCanvas: HTMLCanvasElement | null = null;
 
   constructor(private readonly video: HTMLVideoElement) {
     this.frameCtx = this.frameCanvas.getContext("2d");
@@ -86,5 +87,35 @@ export class Camera {
     this.frameCanvas.height = h;
     this.frameCtx.drawImage(this.video, 0, 0, w, h);
     return this.frameCanvas.toDataURL("image/jpeg", 0.85);
+  }
+
+  /**
+   * Assinatura de cena (luminancia media por celula de uma grade) para detectar
+   * mudancas amplas. Retorna null se o video ainda nao tem frame ou se os pixels
+   * nao estao acessiveis.
+   */
+  assinaturaDeCena(grade = 4): number[] | null {
+    const vw = this.video.videoWidth;
+    const vh = this.video.videoHeight;
+    if (!vw || !vh) return null;
+    try {
+      if (!this.assinaturaCanvas) this.assinaturaCanvas = document.createElement("canvas");
+      const canvas = this.assinaturaCanvas;
+      canvas.width = grade;
+      canvas.height = grade;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(this.video, 0, 0, grade, grade);
+      const dados = ctx.getImageData(0, 0, grade, grade).data;
+      const assinatura: number[] = [];
+      for (let i = 0; i < dados.length; i += 4) {
+        assinatura.push(
+          0.2126 * dados[i] + 0.7152 * dados[i + 1] + 0.0722 * dados[i + 2]
+        );
+      }
+      return assinatura;
+    } catch {
+      return null;
+    }
   }
 }

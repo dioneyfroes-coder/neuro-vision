@@ -127,4 +127,44 @@ describe("RastreadorObjetos", () => {
     expect(f.objetos[0].id).toBe("obj-1");
     expect(f.objetos[0].framesVisto).toBe(1);
   });
+
+  it("persistencia de aparicao filtra deteccoes isoladas", () => {
+    const r = new RastreadorObjetos({ framesParaConfirmarAparicao: 2 });
+    const f1 = r.processar([pessoa()], 1000);
+    expect(f1.eventos).toEqual([]);
+    const f2 = r.processar([pessoa()], 1100);
+    expect(f2.eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
+
+    const r2 = new RastreadorObjetos({ framesParaConfirmarAparicao: 2 });
+    r2.processar([pessoa()], 1000);
+    const some = r2.processar([], 1100);
+    expect(some.eventos).toEqual([]);
+    expect(some.objetos).toHaveLength(1);
+    const confirmaSumico = r2.processar([], 1200);
+    expect(confirmaSumico.eventos).toEqual([]);
+    expect(confirmaSumico.objetos).toHaveLength(0);
+  });
+
+  it("camera parada mantem um unico objeto sem eventos apos a aparicao", () => {
+    const r = new RastreadorObjetos();
+    expect(r.processar([pessoa()], 1000).eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
+    const f2 = r.processar([pessoa()], 1100);
+    const f3 = r.processar([pessoa()], 1200);
+    expect(f2.eventos).toEqual([]);
+    expect(f3.eventos).toEqual([]);
+    expect(f3.objetos).toHaveLength(1);
+    expect(f3.objetos[0].framesVisto).toBe(3);
+  });
+
+  it("oclusao parcial mantem a identidade do objeto", () => {
+    const r = new RastreadorObjetos({ movimentoMinimoRelativo: 0.5 });
+    r.processar([pessoa(0, 0)], 1000);
+    // Metade inferior ocluida: caixa menor, ainda sobreposta.
+    const ocluido = det("person", { xmin: 0, ymin: 0, xmax: 100, ymax: 60 }, 0.9, "pessoa");
+    const f2 = r.processar([ocluido], 1100);
+    expect(f2.objetos).toHaveLength(1);
+    expect(f2.objetos[0].id).toBe("obj-1");
+    expect(f2.objetos[0].caixa.ymax).toBe(60);
+    expect(f2.eventos.some((e) => e.tipo === "aparicao")).toBe(false);
+  });
 });

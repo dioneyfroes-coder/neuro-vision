@@ -20,6 +20,8 @@ export interface ConfigRastreamento {
   movimentoMinimoRelativo: number;
   /** Confianca minima da deteccao para entrar no rastreamento. */
   confiancaMinima: number;
+  /** Frames em que o objeto precisa aparecer antes de emitir `aparicao` (reduz ruido). */
+  framesParaConfirmarAparicao: number;
 }
 
 export const CONFIG_RASTREAMENTO_PADRAO: ConfigRastreamento = {
@@ -29,6 +31,7 @@ export const CONFIG_RASTREAMENTO_PADRAO: ConfigRastreamento = {
   expiracaoMs: 2000,
   movimentoMinimoRelativo: 0.15,
   confiancaMinima: 0.25,
+  framesParaConfirmarAparicao: 1,
 };
 
 /** Resultado de processar um frame. */
@@ -76,6 +79,7 @@ export function distanciaCentros(a: Caixa, b: Caixa): number {
 export class RastreadorObjetos {
   private readonly config: ConfigRastreamento;
   private objetos: ObjetoRastreado[] = [];
+  private readonly aparicoesEmitidas = new Set<string>();
   private proximoId = 1;
   private proximoEvento = 1;
 
@@ -95,6 +99,7 @@ export class RastreadorObjetos {
   /** Zera o rastreamento (novo ciclo/sessao). */
   reiniciar(): void {
     this.objetos = [];
+    this.aparicoesEmitidas.clear();
     this.proximoId = 1;
     this.proximoEvento = 1;
   }
@@ -139,6 +144,16 @@ export class RastreadorObjetos {
       objeto.framesVisto += 1;
       objeto.framesAusente = 0;
 
+      if (
+        !this.aparicoesEmitidas.has(objeto.id) &&
+        objeto.framesVisto >= this.config.framesParaConfirmarAparicao
+      ) {
+        this.aparicoesEmitidas.add(objeto.id);
+        eventos.push(
+          this.criarEvento("aparicao", timestamp, objeto, deteccao.score, contexto, `apareceu ${objeto.nome}`)
+        );
+      }
+
       if (deslocamento >= this.config.movimentoMinimoRelativo) {
         eventos.push(
           this.criarEvento("movimento", timestamp, objeto, deteccao.score, contexto, `movimento de ${objeto.nome}`)
@@ -161,9 +176,12 @@ export class RastreadorObjetos {
       };
       this.objetos.push(objeto);
       associados.add(objeto);
-      eventos.push(
-        this.criarEvento("aparicao", timestamp, objeto, deteccao.score, contexto, `apareceu ${objeto.nome}`)
-      );
+      if (this.config.framesParaConfirmarAparicao <= 1) {
+        this.aparicoesEmitidas.add(objeto.id);
+        eventos.push(
+          this.criarEvento("aparicao", timestamp, objeto, deteccao.score, contexto, `apareceu ${objeto.nome}`)
+        );
+      }
     }
 
     const restantes: ObjetoRastreado[] = [];
@@ -175,9 +193,12 @@ export class RastreadorObjetos {
       objeto.framesAusente += 1;
       const expirou = agoraMs - objeto.ultimaObservacao > this.config.expiracaoMs;
       if (objeto.framesAusente > this.config.maxFramesAusente || expirou) {
-        eventos.push(
-          this.criarEvento("desaparecimento", timestamp, objeto, objeto.score, contexto, `desapareceu ${objeto.nome}`)
-        );
+        if (this.aparicoesEmitidas.has(objeto.id)) {
+          eventos.push(
+            this.criarEvento("desaparecimento", timestamp, objeto, objeto.score, contexto, `desapareceu ${objeto.nome}`)
+          );
+        }
+        this.aparicoesEmitidas.delete(objeto.id);
         continue;
       }
       restantes.push(objeto);

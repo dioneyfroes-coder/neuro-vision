@@ -3,6 +3,7 @@ import { colapsarRepeticoes } from "../src/texto";
 import { entradaDeResultado } from "../src/percepcao";
 import type { MotorPercepcao, ResultadoPercepcao } from "../src/percepcao";
 import { RastreadorObjetos } from "../src/rastreamento";
+import { DetectorMudancaDeCena } from "../src/cena";
 import { ehCancelamento } from "../src/erros";
 import { AgendadorAnalise } from "./scheduler";
 import * as api from "./api";
@@ -43,6 +44,7 @@ const thresholdValue = el<HTMLSpanElement>("thresholdValue");
 
 const detectorCoco = new DetectorObjetos();
 const rastreador = new RastreadorObjetos();
+const detectorCena = new DetectorMudancaDeCena();
 let motorAtual: MotorPercepcao | null = null;
 let running = false;
 let controller: AbortController | null = null;
@@ -277,16 +279,24 @@ async function analisarDeteccao(signal: AbortSignal): Promise<void> {
   const thumb = camera.capturarFrame(240);
   resultado.snapshot = thumb ?? undefined;
 
-  const quadro = rastreador.processar(resultado.objetos, performance.now(), {
-    timestamp: new Date().toISOString(),
+  const timestamp = new Date().toISOString();
+  const agora = performance.now();
+  const quadro = rastreador.processar(resultado.objetos, agora, {
+    timestamp,
     snapshot: resultado.snapshot,
     modelo: resultado.modelo,
   });
+  const sinalCena = detectorCena.avaliar(camera.assinaturaDeCena(), agora, {
+    timestamp,
+    snapshot: resultado.snapshot,
+    modelo: resultado.modelo,
+  });
+  const eventos = sinalCena ? [...quadro.eventos, sinalCena] : quadro.eventos;
   drawBoxes(quadro.objetos);
 
   const entry = entradaDeResultado(resultado, "deteccao");
   addLogEntry(entry);
-  const resumoEventos = quadro.eventos.map((e) => e.descricao).join(", ");
+  const resumoEventos = eventos.map((e) => e.descricao).join(", ");
   setStatus(
     `Viu: ${entry.resumo}  (${resultado.duracaoMs} ms)${resumoEventos ? ` · ${resumoEventos}` : ""}`
   );
@@ -334,6 +344,7 @@ async function start(): Promise<void> {
   roteiroBeats = [];
   roteiroPrimeiro = true;
   rastreador.reiniciar();
+  detectorCena.reiniciar();
 
   try {
     await camera.iniciar();

@@ -209,13 +209,15 @@ Arquivos principais: `src/server.ts`, testes e documentação.
 
 ### 3.3 Gerar eventos estruturados
 
-- [ ] Começar com os tipos `aparicao`, `desaparecimento` e `movimento`.
-- [ ] Registrar `mudanca_de_cena` apenas como sinal para uma análise adicional, não como prova semântica de que algo específico aconteceu.
-- [ ] Estabelecer limiares de movimento e persistência para reduzir falsos positivos causados por ruído ou pequenas oscilações da caixa.
-- [ ] Armazenar a origem do evento (`detector`, `rastreador` ou `ollama`) e a confiança associada.
-- [ ] Testar cenas controladas com movimentação real, câmera parada, alteração de iluminação e oclusão parcial.
+- [x] Começar com os tipos `aparicao`, `desaparecimento` e `movimento`.
+- [x] Registrar `mudanca_de_cena` apenas como sinal para uma análise adicional, não como prova semântica de que algo específico aconteceu.
+- [x] Estabelecer limiares de movimento e persistência para reduzir falsos positivos causados por ruído ou pequenas oscilações da caixa.
+- [x] Armazenar a origem do evento (`detector`, `rastreador` ou `ollama`) e a confiança associada.
+- [x] Testar cenas controladas com movimentação real, câmera parada, alteração de iluminação e oclusão parcial.
 
 **Aceite da fase:** o sistema diferencia “o objeto continua presente” de “um objeto apareceu, sumiu ou se moveu”.
+
+**Implementação 3.3:** O rastreador emite `aparicao`, `desaparecimento` e `movimento` (`origem: "rastreador"`, `confianca` = score da deteccao, `objetoId`). A persistencia `framesParaConfirmarAparicao` (configuravel) filtra deteccoes isoladas e `movimentoMinimoRelativo` limita movimentos pequenos; um objeto nao confirmado desaparece sem gerar eventos. `src/cena.ts` cria `DetectorMudancaDeCena` + `diferencaDeCena`: compara a assinatura de luminancia do frame (`Camera.assinaturaDeCena`) e emite `mudanca_de_cena` (`origem: "detector"`) apenas como sinal, com limiar e intervalo minimo configuraveis. `public/app.ts` alimenta rastreador e detector de cena e mostra os eventos do frame no status. Testes: `src/rastreamento.test.ts` (camera parada, movimento, oclusao parcial, mesma classe, ausencia/reaparecimento/confirmacao) e `src/cena.test.ts` (camera parada vs. mudanca de iluminacao, throttle). A movimentacao com webcam real permanece como verificacao manual.
 
 ---
 
@@ -329,7 +331,7 @@ Marque aqui as fases inteiras conforme forem concluídas:
 
 - [x] **Marco 1 — Confiabilidade:** Fase 0 + Fase 1.
 - [x] **Marco 2 — Código sustentável:** Fase 2.
-- [ ] **Marco 3 — Percepção temporal:** Fase 3.
+- [x] **Marco 3 — Percepção temporal:** Fase 3.
 - [ ] **Marco 4 — Memória persistente:** Fase 4.
 - [ ] **Marco 5 — Inferência inteligente:** Fase 5.
 - [ ] **Marco 6 — Desempenho e operação:** Fase 6.
