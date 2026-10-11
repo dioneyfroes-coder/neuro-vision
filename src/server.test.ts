@@ -817,4 +817,42 @@ describe("createServer", () => {
       server.close();
     }
   });
+
+  it("GET /api/visao/preparar nao confunde modelos de mesma base com tags diferentes", async () => {
+    const modeloAnterior = process.env.OLLAMA_MODEL;
+    process.env.OLLAMA_MODEL = "qwen2.5vl:3b";
+    const chats: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/ps")) {
+          // Outra tag do mesmo modelo base esta carregada: nao e o solicitado.
+          return { ok: true, json: async () => ({ models: [{ name: "qwen2.5vl:7b" }] }) };
+        }
+        if (url.includes("/api/chat")) {
+          chats.push(url);
+          return { ok: false, status: 500, text: async (): Promise<string> => "boom" };
+        }
+        return realFetch(input, init);
+      })
+    );
+
+    const server = createServer({ publicDir: tmpDir, ollamaUrl: "http://localhost:11434" });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/visao/preparar`);
+      // Nao declara pronto: tenta carregar o modelo solicitado e a carga falha.
+      expect(res.status).toBe(502);
+      expect(chats.length).toBeGreaterThan(0);
+      const corpo = (await res.json()) as { ok: boolean };
+      expect(corpo.ok).toBe(false);
+    } finally {
+      server.close();
+      if (modeloAnterior === undefined) delete process.env.OLLAMA_MODEL;
+      else process.env.OLLAMA_MODEL = modeloAnterior;
+    }
+  });
 });

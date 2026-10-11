@@ -104,12 +104,14 @@ Arquivo principal: `public/app.ts`.
 
 Arquivo principal: `src/ollama.ts` e seus testes.
 
-- [ ] Rever `nomeBaseModelo()` e `modeloEmMemoria()`: retirar a tag do nome pode confundir, por exemplo, `qwen2.5vl:3b` com `qwen2.5vl:7b`.
-- [ ] Implementar uma normalização que preserve tags diferentes e trate explicitamente apenas os aliases documentados, como uma tag ausente equivalente a `latest`, se aplicável ao retorno real da API do Ollama.
-- [ ] Criar testes para modelo igual, tags diferentes, tag ausente e nomes retornados por `/api/ps`.
-- [ ] Confirmar que `/api/visao/preparar` só declara pronto o modelo solicitado.
+- [x] Rever `nomeBaseModelo()` e `modeloEmMemoria()`: retirar a tag do nome pode confundir, por exemplo, `qwen2.5vl:3b` com `qwen2.5vl:7b`.
+- [x] Implementar uma normalização que preserve tags diferentes e trate explicitamente apenas os aliases documentados, como uma tag ausente equivalente a `latest`, se aplicável ao retorno real da API do Ollama.
+- [x] Criar testes para modelo igual, tags diferentes, tag ausente e nomes retornados por `/api/ps`.
+- [x] Confirmar que `/api/visao/preparar` só declara pronto o modelo solicitado.
 
 **Aceite:** um modelo diferente nunca é informado como carregado por engano.
+
+**Implementação:** `nomeBaseModelo()` foi substituída por `normalizarNomeModelo()` (preserva a tag) e `mesmoModelo()` em `src/ollama.ts`. A ausência de tag passa a equivaler a `latest`, confirmado com a API real (`qwen2.5-coder` e `qwen2.5-coder:latest` retornam 404, enquanto `qwen2.5-coder:3b` existe). `modelosEmMemoria()` aceita `name` ou `model` do `/api/ps` (verificado no retorno real, que traz ambos com tag). O mesmo ajuste foi replicado em `scripts/benchmark.mjs`. Testes: 21 novos casos em `src/ollama.test.ts` (normalização, `mesmoModelo`, `modeloEmMemoria`) e um teste de regressão em `src/server.test.ts` que garante que `/api/visao/preparar` não confunde tags diferentes.
 
 ### 1.4 Tornar o agendamento realmente adaptativo
 

@@ -74,20 +74,32 @@ async function modelosEmMemoria(host) {
     const resposta = await fetch(`${host}/api/ps`, { signal: AbortSignal.timeout(5_000) });
     if (!resposta.ok) return [];
     const dados = await resposta.json();
-    return (dados.models ?? []).map((m) => m.name ?? "").filter((n) => n.length > 0);
+    return (dados.models ?? []).map((m) => m.name ?? m.model ?? "").filter((n) => n.length > 0);
   } catch {
     return [];
   }
 }
 
-function nomeBaseModelo(nome) {
-  const idx = nome.indexOf(":");
-  return idx > 0 ? nome.slice(0, idx) : nome;
+function normalizarNomeModelo(nome) {
+  const texto = String(nome ?? "").trim();
+  if (!texto) return "";
+  const idx = texto.lastIndexOf(":");
+  const sufixo = idx === -1 ? "" : texto.slice(idx + 1);
+  if (idx === -1 || sufixo.length === 0 || sufixo.includes("/")) {
+    return `${texto}:latest`;
+  }
+  return texto;
+}
+
+function mesmoModelo(a, b) {
+  const na = normalizarNomeModelo(a);
+  const nb = normalizarNomeModelo(b);
+  return na.length > 0 && na === nb;
 }
 
 async function garantirCarga(host, modelo, timeoutMs) {
   const emMemoria = await modelosEmMemoria(host);
-  if (emMemoria.some((m) => nomeBaseModelo(m) === nomeBaseModelo(modelo))) {
+  if (emMemoria.some((m) => mesmoModelo(m, modelo))) {
     return { jaCarregado: true, cargaMs: 0 };
   }
   const inicio = performance.now();
@@ -95,7 +107,7 @@ async function garantirCarga(host, modelo, timeoutMs) {
   const cargaMs = performance.now() - inicio;
   for (let i = 0; i < 60; i++) {
     const agora = await modelosEmMemoria(host);
-    if (agora.some((m) => nomeBaseModelo(m) === nomeBaseModelo(modelo))) break;
+    if (agora.some((m) => mesmoModelo(m, modelo))) break;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   return { jaCarregado: false, cargaMs };

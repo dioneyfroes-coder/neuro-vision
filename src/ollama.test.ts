@@ -4,9 +4,12 @@ import {
   forcarCarregamento,
   gerarDescricao,
   gerarDescricaoStream,
+  mesmoModelo,
+  modeloEmMemoria,
   modelosEmMemoria,
   montarPromptDescricao,
   montarPromptRoteiro,
+  normalizarNomeModelo,
   NUM_PREDICT_BASE,
   PROMPT_DESCRICAO,
   PROMPT_ROTEIRO_BASE,
@@ -204,6 +207,104 @@ describe("modelosEmMemoria", () => {
   it("retorna lista vazia quando /api/ps falha", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
     await expect(modelosEmMemoria()).resolves.toEqual([]);
+  });
+});
+
+describe("normalizarNomeModelo", () => {
+  it("preserva a tag do modelo", () => {
+    expect(normalizarNomeModelo("qwen2.5vl:3b")).toBe("qwen2.5vl:3b");
+    expect(normalizarNomeModelo("qwen3-vl:4b")).toBe("qwen3-vl:4b");
+  });
+
+  it("trata a ausencia de tag como latest", () => {
+    expect(normalizarNomeModelo("qwen2.5vl")).toBe("qwen2.5vl:latest");
+  });
+
+  it("ignora espacos nas extremidades", () => {
+    expect(normalizarNomeModelo("  qwen2.5vl:3b  ")).toBe("qwen2.5vl:3b");
+  });
+
+  it("nao confunde porta de registry com tag", () => {
+    expect(normalizarNomeModelo("localhost:5000/qwen2.5vl")).toBe("localhost:5000/qwen2.5vl:latest");
+    expect(normalizarNomeModelo("localhost:5000/qwen2.5vl:3b")).toBe("localhost:5000/qwen2.5vl:3b");
+  });
+
+  it("retorna vazio para nome vazio", () => {
+    expect(normalizarNomeModelo("")).toBe("");
+    expect(normalizarNomeModelo("   ")).toBe("");
+  });
+});
+
+describe("mesmoModelo", () => {
+  it("considera o mesmo modelo com a mesma tag", () => {
+    expect(mesmoModelo("qwen2.5vl:3b", "qwen2.5vl:3b")).toBe(true);
+  });
+
+  it("distingue modelos com tags diferentes", () => {
+    expect(mesmoModelo("qwen2.5vl:3b", "qwen2.5vl:7b")).toBe(false);
+    expect(mesmoModelo("qwen2.5vl:3b", "qwen2.5vl:4b")).toBe(false);
+  });
+
+  it("equipara nome sem tag a latest", () => {
+    expect(mesmoModelo("qwen2.5vl", "qwen2.5vl:latest")).toBe(true);
+    expect(mesmoModelo("qwen2.5vl:latest", "qwen2.5vl")).toBe(true);
+  });
+
+  it("nao considera um modelo sem tag igual a uma tag concreta", () => {
+    expect(mesmoModelo("qwen2.5vl", "qwen2.5vl:3b")).toBe(false);
+  });
+
+  it("retorna falso quando algum nome e vazio", () => {
+    expect(mesmoModelo("", "")).toBe(false);
+    expect(mesmoModelo("", "qwen2.5vl:3b")).toBe(false);
+  });
+});
+
+describe("modeloEmMemoria", () => {
+  it("confirma apenas o modelo solicitado quando o /api/ps usa name", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ models: [{ name: "qwen2.5vl:3b" }] }),
+      })
+    );
+
+    await expect(modeloEmMemoria({ modelo: "qwen2.5vl:3b" })).resolves.toBe(true);
+    await expect(modeloEmMemoria({ modelo: "qwen2.5vl:7b" })).resolves.toBe(false);
+  });
+
+  it("aceita os nomes retornados por /api/ps no campo model", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ models: [{ model: "qwen2.5vl:3b" }] }),
+      })
+    );
+
+    await expect(modeloEmMemoria({ modelo: "qwen2.5vl:3b" })).resolves.toBe(true);
+  });
+
+  it("equipara nome sem tag a latest em /api/ps", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ models: [{ name: "qwen2.5vl:latest" }] }),
+      })
+    );
+
+    await expect(modeloEmMemoria({ modelo: "qwen2.5vl" })).resolves.toBe(true);
+  });
+
+  it("nao informa carregado quando a memoria esta vazia", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ models: [] }) })
+    );
+
+    await expect(modeloEmMemoria({ modelo: "qwen2.5vl:3b" })).resolves.toBe(false);
   });
 });
 

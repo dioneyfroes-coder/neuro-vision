@@ -97,9 +97,32 @@ function resolverModelo(opcoes: OpcoesOllama): string {
   return opcoes.modelo ?? process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
 }
 
-export function nomeBaseModelo(nome: string): string {
-  const idx = nome.indexOf(":");
-  return idx > 0 ? nome.slice(0, idx) : nome;
+/**
+ * Normaliza o nome de um modelo do Ollama preservando a tag.
+ *
+ * Retirar a tag confundiria modelos diferentes com o mesmo nome base
+ * (por exemplo `qwen2.5vl:3b` e `qwen2.5vl:7b`). O unico alias tratado
+ * explicitamente e a ausencia de tag, que a API do Ollama interpreta como
+ * `latest`.
+ */
+export function normalizarNomeModelo(nome: string): string {
+  const texto = nome.trim();
+  if (!texto) return "";
+  const idx = texto.lastIndexOf(":");
+  const sufixo = idx === -1 ? "" : texto.slice(idx + 1);
+  // Um sufixo vazio ou com "/" nao e uma tag (pode ser uma porta de registry),
+  // entao o nome e tratado como sem tag.
+  if (idx === -1 || sufixo.length === 0 || sufixo.includes("/")) {
+    return `${texto}:latest`;
+  }
+  return texto;
+}
+
+/** Compara a identidade completa de dois modelos, preservando a tag. */
+export function mesmoModelo(a: string, b: string): boolean {
+  const na = normalizarNomeModelo(a);
+  const nb = normalizarNomeModelo(b);
+  return na.length > 0 && na === nb;
 }
 
 export async function modelosEmMemoria(opcoes: OpcoesOllama = {}): Promise<string[]> {
@@ -109,8 +132,10 @@ export async function modelosEmMemoria(opcoes: OpcoesOllama = {}): Promise<strin
       signal: AbortSignal.timeout(opcoes.timeoutMs ?? 5_000),
     });
     if (!resposta.ok) return [];
-    const dados = (await resposta.json()) as { models?: { name?: string }[] };
-    return (dados.models ?? []).map((m) => m.name ?? "").filter((n) => n.length > 0);
+    const dados = (await resposta.json()) as { models?: { name?: string; model?: string }[] };
+    return (dados.models ?? [])
+      .map((m) => m.name ?? m.model ?? "")
+      .filter((n) => n.length > 0);
   } catch {
     return [];
   }
@@ -118,9 +143,9 @@ export async function modelosEmMemoria(opcoes: OpcoesOllama = {}): Promise<strin
 
 export async function modeloEmMemoria(opcoes: OpcoesOllama = {}): Promise<boolean> {
   const modelo = resolverModelo(opcoes);
+  if (!normalizarNomeModelo(modelo)) return false;
   const memoria = await modelosEmMemoria(opcoes);
-  const base = nomeBaseModelo(modelo);
-  return memoria.some((m) => nomeBaseModelo(m) === base);
+  return memoria.some((m) => mesmoModelo(m, modelo));
 }
 
 export async function forcarCarregamento(opcoes: OpcoesOllama = {}): Promise<number> {
