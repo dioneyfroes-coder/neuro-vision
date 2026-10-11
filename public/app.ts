@@ -3,6 +3,8 @@ import type { Detector, Deteccao, ProgressInfo } from "https://cdn.jsdelivr.net/
 import type { EntradaLog, ObjetoVisto } from "../src/types";
 import { colapsarRepeticoes } from "../src/texto";
 import { AgendadorAnalise } from "./scheduler";
+import * as api from "./api";
+import type { PayloadVisao } from "./api";
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
@@ -287,10 +289,7 @@ function limparLista(): void {
 
 async function carregarHistorico(): Promise<void> {
   try {
-    const resposta = await fetch("/api/logs?limit=100");
-    if (!resposta.ok) return;
-    const dados = (await resposta.json()) as { entradas?: EntradaLog[] };
-    const entradas = dados.entradas ?? [];
+    const entradas = await api.listarEntradas(100);
     logEl.replaceChildren(...entradas.map(criarItem));
     atualizarContagem();
   } catch {
@@ -301,8 +300,7 @@ async function carregarHistorico(): Promise<void> {
 async function limparHistorico(): Promise<void> {
   clearLogBtn.disabled = true;
   try {
-    const resposta = await fetch("/api/logs", { method: "DELETE" });
-    if (!resposta.ok) throw new Error(`HTTP ${resposta.status}`);
+    await api.limparHistorico();
     limparLista();
     atualizarContagem();
     setStatus("Historico limpo.");
@@ -341,99 +339,34 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
 
   const ehRoteiro = motorSelect.value === "roteiro";
   const roteiro = ehRoteiro ? roteiroBeats.slice(-8).join(" ").slice(0, 1200) : "";
-  const corpo: Record<string, unknown> = { imagem: base64, snapshot: dataUrl };
+  const payload: PayloadVisao = { imagem: base64, snapshot: dataUrl };
   if (ehRoteiro) {
-    corpo.modo = "roteiro";
-    corpo.roteiro = roteiro;
-    corpo.base = roteiroPrimeiro;
+    payload.modo = "roteiro";
+    payload.roteiro = roteiro;
+    payload.base = roteiroPrimeiro;
   } else {
-    corpo.anterior = ultimaDescricao;
+    payload.anterior = ultimaDescricao;
   }
 
-  let resposta: Response;
+  let resultado: api.ResultadoVisao;
   try {
-    resposta = await fetch("/api/visao", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(corpo),
-      signal,
+    resultado = await api.descreverFrame(payload, signal, (parcial) => {
+      setStatus(`Ollama: ${colapsarRepeticoes(parcial)}`);
     });
   } catch (err) {
     if ((err as Error).name === "AbortError") return;
-    setStatus("Falha ao contactar o servidor (/api/visao)");
+    setStatus((err as Error).message);
     return;
   }
 
   if (signal.aborted) return;
 
-  if (!resposta.ok || !resposta.body) {
-    const corpo = (await resposta.json().catch(() => null)) as { erro?: string } | null;
-    setStatus(corpo?.erro ?? `Ollama respondeu ${resposta.status}`);
-    return;
-  }
-
-  const reader = resposta.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let parcial = "";
-  let resultado: {
-    descricao?: string;
-    modelo?: string;
-    snapshot?: string;
-    tokens?: number;
-    ms?: number;
-    tipo?: string;
-    papel?: "base" | "delta";
-    semMudanca?: boolean;
-  } | null = null;
-
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let idx: number;
-      while ((idx = buffer.indexOf("\n")) >= 0) {
-        const linha = buffer.slice(0, idx).trim();
-        buffer = buffer.slice(idx + 1);
-        if (!linha) continue;
-        const evt = JSON.parse(linha) as {
-          type?: string;
-          response?: string;
-          descricao?: string;
-          modelo?: string;
-          snapshot?: string;
-          erro?: string;
-          tokens?: number;
-          ms?: number;
-          tipo?: string;
-          papel?: "base" | "delta";
-          semMudanca?: boolean;
-        };
-        if (evt.type === "chunk" && evt.response) {
-          parcial += evt.response;
-          setStatus(`Ollama: ${colapsarRepeticoes(parcial)}`);
-        } else if (evt.type === "done") {
-          resultado = evt;
-        } else if (evt.type === "erro") {
-          setStatus(evt.erro ?? "Erro no Ollama");
-          return;
-        }
-      }
-    }
-  } catch (err) {
-    if ((err as Error).name === "AbortError") return;
-    setStatus(`Erro ao ler resposta do Ollama: ${(err as Error).message}`);
-    return;
-  }
-
-  if (signal.aborted) return;
-
-  const descricao = resultado?.descricao ?? parcial;
+  const { evento, parcial } = resultado;
+  const descricao = evento?.descricao ?? parcial;
   const ms = Math.round(performance.now() - started);
   ultimaDuracaoMs = ms;
 
-  if (ehRoteiro && resultado?.semMudanca) {
+  if (ehRoteiro && evento?.semMudanca) {
     setStatus(`Sem mudancas neste intervalo (${ms} ms).`);
     return;
   }
@@ -447,20 +380,20 @@ async function descreverViaOllama(signal: AbortSignal): Promise<void> {
   const entradaTipo: EntradaLog["tipo"] = ehRoteiro ? "roteiro" : "descricao";
   const entry: EntradaLog = {
     timestamp: new Date().toISOString(),
-    modelo: resultado?.modelo ?? "ollama",
+    modelo: evento?.modelo ?? "ollama",
     objetos: [],
     resumo: descricao,
     tipo: entradaTipo,
-    papel: ehRoteiro ? (resultado?.papel ?? "delta") : undefined,
-    snapshot: resultado?.snapshot,
+    papel: ehRoteiro ? (evento?.papel ?? "delta") : undefined,
+    snapshot: evento?.snapshot,
     ms,
-    tokens: resultado?.tokens,
+    tokens: evento?.tokens,
   };
   ultimaDescricao = descricao;
   addLogEntry(entry);
-  if (resultado?.tokens) {
-    const tokS = Math.round(resultado.tokens / (ms / 1000));
-    setStatus(`Ollama viu: ${descricao} (${ms} ms · ${resultado.tokens} toks · ${tokS} tok/s)`);
+  if (evento?.tokens) {
+    const tokS = Math.round(evento.tokens / (ms / 1000));
+    setStatus(`Ollama viu: ${descricao} (${ms} ms · ${evento.tokens} toks · ${tokS} tok/s)`);
   } else {
     setStatus(`Ollama viu: ${descricao} (${ms} ms)`);
   }
@@ -532,11 +465,7 @@ async function analisar(): Promise<void> {
     addLogEntry(entry);
     setStatus(`Viu: ${resumo}  (${ms} ms)`);
 
-    fetch("/api/log", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(entry),
-    }).catch(() => {
+    void api.gravarEntrada(entry).catch(() => {
       if (running) setStatus("Falha ao gravar no log do servidor");
     });
   } finally {
@@ -551,12 +480,7 @@ async function prepararOllama(): Promise<void> {
   setSpinner(true);
   setStatus("Carregando modelo do Ollama na memoria (pode demorar)...");
   try {
-    const resposta = await fetch("/api/visao/preparar");
-    if (!resposta.ok) {
-      const corpo = (await resposta.json().catch(() => null)) as { erro?: string } | null;
-      throw new Error(corpo?.erro ?? `Falha ao preparar Ollama (${resposta.status})`);
-    }
-    const dados = (await resposta.json()) as { modelo?: string; carregado?: boolean; carregandoMs?: number };
+    const dados = await api.prepararOllama();
     if (dados.carregado !== true) {
       throw new Error("modelo nao confirmado em memoria; verifique o Ollama.");
     }
@@ -651,16 +575,7 @@ function stop(): void {
 
 async function verificarOllama(): Promise<void> {
   try {
-    const resposta = await fetch("/api/health");
-    const dados = (await resposta.json()) as {
-      ollama?: {
-        online: boolean;
-        modelos: string[];
-        carregados: string[];
-        erro: string;
-      };
-    };
-    const o = dados.ollama;
+    const o = await api.saudeOllama();
     if (o?.online) {
       const memoria = o.carregados?.length ? ` · em memoria: ${o.carregados.join(", ")}` : "";
       ollamaStatusEl.textContent = `Ollama: online${o.modelos.length ? " (" + o.modelos.join(", ") + ")" : ""}${memoria}`;
@@ -687,9 +602,8 @@ function aplicarFiltro(): void {
 async function exportarLog(): Promise<void> {
   exportBtn.disabled = true;
   try {
-    const resposta = await fetch("/api/logs?limit=500");
-    const dados = (await resposta.json()) as { entradas?: EntradaLog[] };
-    const blob = new Blob([JSON.stringify(dados.entradas ?? [], null, 2)], {
+    const entradas = await api.listarEntradas(500);
+    const blob = new Blob([JSON.stringify(entradas, null, 2)], {
       type: "application/json",
     });
     const url = URL.createObjectURL(blob);

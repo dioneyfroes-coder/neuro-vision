@@ -165,7 +165,7 @@ Arquivos principais: `src/server.ts`, testes e documentação.
 
 - [ ] Mover o controle da webcam para um módulo próprio, por exemplo `public/camera.ts`.
 - [x] Mover o agendamento e a guarda contra concorrência para `public/scheduler.ts`.
-- [ ] Isolar as chamadas HTTP (`/api/log`, `/api/visao`, `/api/health`) em `public/api.ts`.
+- [x] Isolar as chamadas HTTP (`/api/log`, `/api/visao`, `/api/health`) em `public/api.ts`.
 - [ ] Isolar a lógica de detecção e conversão do resultado em `public/detector.ts`.
 - [ ] Manter `public/app.ts` responsável principalmente por coordenar estado e interface.
 - [ ] Fazer uma extração por commit; rodar typecheck, lint e testes após cada uma.
