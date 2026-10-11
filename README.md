@@ -59,13 +59,13 @@ Variáveis de ambiente lidas pelo servidor:
 | `HOST` | `127.0.0.1` | Interface de escuta. Um host não-loopback exige `NEURO_ALLOW_REMOTE=1`. |
 | `OLLAMA_HOST` | `http://localhost:11434` | URL do Ollama. |
 | `OLLAMA_MODEL` | `qwen2.5vl:3b` | Modelo de visão não-pensante usado na descrição. |
-| `LOG_MAX_BYTES` | `5000000` | Tamanho máximo de `visao.jsonl` antes de rotacionar para `.1`. |
+| `LOG_MAX_BYTES` | `5000000` | Tamanho máximo de cada JSONL (`visao.jsonl`, `eventos.jsonl`, `operacional.jsonl`) antes de rotacionar para `.1`. |
 | `SNAP_MAX_BYTES` | `200000000` | Tamanho total máximo de `logs/snapshots/` em bytes (`0` desativa). |
 | `SNAP_MAX_FILES` | `1000` | Quantidade máxima de snapshots (`0` desativa). |
 | `SNAP_MAX_AGE_DAYS` | `30` | Idade máxima de um snapshot em dias (`0` desativa). |
 | `SNAP_CLEAN_INTERVAL_MS` | `600000` | Intervalo mínimo entre limpezas automáticas disparadas por novas gravações. |
 | `SNAP_UPLOAD_MAX_BYTES` | `5000000` | Limite de um único snapshot (data URL/base64) aceito para gravação. |
-| `BODY_MAX_BYTES` | `1000000` | Limite do corpo JSON de `POST /api/log`. |
+| `BODY_MAX_BYTES` | `1000000` | Limite do corpo JSON de `POST /api/log`, `/api/eventos` e `/api/operacional`. |
 | `VISAO_BODY_MAX_BYTES` | `12000000` | Limite do corpo JSON de `POST /api/visao`. |
 | `NEURO_ALLOW_REMOTE` | (vazio) | `1` permite escutar em host não-loopback (assumindo o risco). |
 | `NEURO_ALLOWED_ORIGINS` | (vazio) | CSV de origens extras permitidas além da própria (ex.: `http://host:3000`). |
@@ -85,11 +85,16 @@ OLLAMA_MODEL=qwen2.5vl:7b npm start            # bash
 | `POST` | `/api/visao` | Envia um frame (base64) e recebe a descrição do Ollama em stream NDJSON; grava no log. |
 | `GET` | `/api/visao/preparar` | Carrega o modelo do Ollama na memória (quando necessário) e responde quando estiver pronto: `{ ok, modelo, carregado, carregandoMs }`. |
 | `GET` | `/api/logs?limit=100` | Lista as entradas mais recentes (mais nova primeiro, limite máx. 500). |
-| `DELETE` | `/api/logs` | Limpa o histórico de log (inclui a rotação `.1`) e remove os snapshots que ficaram órfãos. |
+| `DELETE` | `/api/logs` | Limpa o histórico de log (inclui a rotação `.1`) **e** os eventos estruturados, removendo os snapshots que ficaram órfãos. |
+| `POST` | `/api/eventos` | Grava um evento visual estruturado (`EventoVisual`). Aceita `snapshot` (data URL) opcional. |
+| `GET` | `/api/eventos?limit=100` | Lista os eventos mais recentes (mais novo primeiro, limite máx. 500). |
+| `DELETE` | `/api/eventos` | Limpa os eventos estruturados e remove os snapshots que ficaram órfãos. |
+| `POST` | `/api/operacional` | Grava um registro operacional (falha/métrica) que **não** é acontecimento visual. |
+| `GET` | `/api/contexto` | Reidrata um contexto curto do estado recente (`{ resumo, roteiro, ultimaDescricao, entradas, eventos }`) com janela por `maxEntradas`/`maxEventos`/`maxCaracteres`. |
 | `GET` | `/api/health` | Status do Ollama (`{ ollama: { online, modelos, carregados, erro } }`). |
 | `GET` | `/snapshots/<arquivo>` | Serve os snapshots (thumbnails) gravados. |
 
-As entradas são gravadas em `logs/visao.jsonl` (uma linha JSON por entrada) e os snapshots em `logs/snapshots/`.
+As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jsonl` e os registros operacionais em `logs/operacional.jsonl` (uma linha JSON por registro, própria política de rotação); os snapshots ficam em `logs/snapshots/`.
 
 `POST /api/visao` — corpo:
 
@@ -116,14 +121,20 @@ Em caso de erro após o início do stream: `{ "type": "erro", "erro": "Ollama: .
 
 Os snapshots em `logs/snapshots/` são limitados por idade, quantidade e tamanho total (variáveis `SNAP_MAX_AGE_DAYS`, `SNAP_MAX_FILES` e `SNAP_MAX_BYTES`; use `0` para desativar um limite). A limpeza:
 
-- considera **preservadas** as entradas do histórico atual e da última rotação (`visao.jsonl` e `visao.jsonl.1`);
+- considera **preservadas** as entradas do histórico atual e da última rotação, tanto de `visao.jsonl` (observações) quanto de `eventos.jsonl` (eventos estruturados);
 - mantém snapshots ainda referenciados por essas entradas enquanto estiverem dentro dos limites;
 - remove snapshots **órfãos** (sem nenhuma entrada preservada apontando para eles);
 - remove snapshots **expirados** por idade, referenciados ou não;
 - ao exceder os tetos de quantidade/tamanho, descarta primeiro os mais antigos;
 - roda em segundo plano (na subida do servidor, após novas gravações e ao limpar o histórico), sem bloquear requisições e tolerando falhas parciais de sistema de arquivos.
 
-`DELETE /api/logs` limpa o histórico (atual e `.1`) e, como as entradas deixam de existir, remove de imediato os snapshots que ficaram órfãos.
+`DELETE /api/logs` limpa o histórico e os eventos (atuais e `.1`) e, como as entradas deixam de existir, remove de imediato os snapshots que ficaram órfãos.
+
+### Memória persistente
+
+O armazenamento é **JSONL** (`visao.jsonl`, `eventos.jsonl`, `operacional.jsonl`): escrita sequencial append-only e leitura recente, sem dependências e com inspeção trivial. A decisão foi: manter JSONL enquanto essas forem as necessidades; migrar para **SQLite** apenas quando filtros combinados (data **e** objeto **e** tipo de evento) ou agregações sobre um volume maior virarem requisito recorrente — nesse caso preservando a exportação para JSONL e criando migração com teste de integridade. Busca semântica/embeddings fica adiada até haver uma consulta em linguagem natural com ganho mensurável.
+
+Na inicialização, o cliente usa `GET /api/contexto` para **reidratar** o contexto (roteiro recente, última descrição e um resumo curto separado dos eventos completos), limitado por tamanho e número de itens para nunca enviar todo o histórico ao Ollama.
 
 ### Segurança e exposição na rede
 
@@ -150,18 +161,29 @@ Controles já aplicados:
 
 ```
 src/
-  server.ts            servidor HTTP (estático + API) e persistência do log
+  server.ts            servidor HTTP (estático + API) e persistência (memória + snapshots)
+  memoria.ts           armazenamento JSONL genérico, eventos, registros operacionais e reidratação de contexto
+  percepcao.ts         interface de motor de percepção e resultado normalizado
+  erros.ts             taxonomia de erros (origem, cancelamento)
+  rastreamento.ts      rastreador de objetos (IDs estáveis, aparição/desaparecimento/movimento)
+  cena.ts              detecção de mudança de cena (sinal)
   ollama.ts            cliente do Ollama e montagem dos prompts (descrição e roteiro)
   texto.ts             pós-processamento: colapsa repetições, detecta "sem mudança", corta frase incompleta
-  types.ts             tipos compartilhados (EntradaLog, ObjetoVisto, ...)
+  types.ts             tipos compartilhados (EntradaLog, ObjetoVisto, EventoVisual, ...)
   *.test.ts            testes (vitest)
   transformers-cdn.d.ts  tipos para o transformers.js via CDN
 public/
   index.html           interface
-  app.ts               lógica do cliente (captura, detecção, descrição)
+  app.ts               coordenação da interface (captura, motores, rastreamento, eventos)
+  api.ts               cliente HTTP (histórico, eventos, contexto, Ollama)
+  detector.ts          detecção de objetos (Transformers.js/CDN)
+  camera.ts            controle da webcam e assinatura de cena
+  motores.ts           adaptadores para o motor de percepção
   style.css            estilos
 logs/
-  visao.jsonl          histórico gravado (ignorado no git)
+  visao.jsonl          observações gravadas (ignorado no git)
+  eventos.jsonl        eventos estruturados (ignorado no git)
+  operacional.jsonl    registros operacionais (ignorado no git)
 ```
 
 ## Scripts

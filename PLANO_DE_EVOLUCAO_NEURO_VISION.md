@@ -260,10 +260,12 @@ interface EventoVisual {
 
 ### 4.3 Escolher armazenamento por necessidade
 
-- [ ] Manter JSONL enquanto a necessidade principal for escrita sequencial e leitura recente.
-- [ ] Migrar para SQLite quando filtros por data, objeto, tipo de evento e consultas combinadas se tornarem relevantes.
-- [ ] Se migrar, preservar exportação para JSONL e criar migração/testes de integridade.
-- [ ] Adicionar busca semântica ou embeddings apenas quando consultas em linguagem natural trouxerem benefício mensurável.
+- [x] Manter JSONL enquanto a necessidade principal for escrita sequencial e leitura recente.
+- [x] Migrar para SQLite quando filtros por data, objeto, tipo de evento e consultas combinadas se tornarem relevantes.
+- [x] Se migrar, preservar exportação para JSONL e criar migração/testes de integridade.
+- [x] Adicionar busca semântica ou embeddings apenas quando consultas em linguagem natural trouxerem benefício mensurável.
+
+**Decisão 4.3:** manter **JSONL** por enquanto. A necessidade atual é escrita sequencial append-only e leitura recente, o que o JSONL entrega com baixo custo, inspeção trivial (texto puro) e sem dependências — já coberto por `src/memoria.ts` (rotação por tamanho, leitura das últimas linhas em blocos de 64 KB, tolerância a linhas corrompidas) e pelas políticas de retenção da Fase 1. **Critério de migração para SQLite:** quando consultas combinadas (data **e** objeto **e** tipo de evento), agregações/estatísticas ou busca sobre um volume que a leitura reversa deixa de atender virarem um requisito recorrente. **Se migrar:** preservar a exportação para JSONL (endpoints `GET /api/logs`/`GET /api/eventos` e o export do cliente) e criar script de migração com teste de integridade (paridade linha-a-linha JSONL ↔ SQLite). **Busca semântica/embeddings:** adiada até existir uma consulta em linguagem natural com ganho mensurável nos benchmarks da Fase 6; hoje seria complexidade sem demanda comprovada.
 
 **Aceite da fase:** após reiniciar o aplicativo, o sistema recupera um contexto recente coerente sem depender da memória volátil da página.
 
@@ -336,7 +338,7 @@ Marque aqui as fases inteiras conforme forem concluídas:
 - [x] **Marco 1 — Confiabilidade:** Fase 0 + Fase 1.
 - [x] **Marco 2 — Código sustentável:** Fase 2.
 - [x] **Marco 3 — Percepção temporal:** Fase 3.
-- [ ] **Marco 4 — Memória persistente:** Fase 4.
+- [x] **Marco 4 — Memória persistente:** Fase 4.
 - [ ] **Marco 5 — Inferência inteligente:** Fase 5.
 - [ ] **Marco 6 — Desempenho e operação:** Fase 6.
 - [ ] **Marco 7 — Qualidade mensurável:** Fase 7.
