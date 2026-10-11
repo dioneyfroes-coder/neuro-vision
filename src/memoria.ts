@@ -201,3 +201,37 @@ export function resumirContexto(
   const resumo = bruto.length > maxCaracteres ? bruto.slice(0, maxCaracteres).trimEnd() : bruto;
   return { entradas: entradasLimitadas, eventos: eventosLimitados, resumo };
 }
+
+/** Estado de sessao reconstruido a partir da memoria persistida. */
+export interface SessaoReidratada extends ContextoMemoria {
+  /** Ultimos passos do roteiro (deltas), em ordem cronologica, para o prompt. */
+  roteiro: string[];
+  /** Ultima descricao/roteiro, usada como referencia da observacao anterior. */
+  ultimaDescricao: string;
+}
+
+/**
+ * Reidrata o contexto recente a partir do historico e dos eventos persistidos
+ * (nao da memoria volatil da pagina). As compensacoes de janela sao aplicadas
+ * por `resumirContexto`, evitando enviar todo o historico ao modelo.
+ */
+export function reidratarContexto(
+  entradas: EntradaLog[],
+  eventos: EventoVisual[],
+  opcoes: OpcoesContexto = {}
+): SessaoReidratada {
+  const base = resumirContexto(entradas, eventos, opcoes);
+  const cronologico = [...entradas].reverse();
+  const roteiro = cronologico
+    .filter((e) => e.tipo === "roteiro" && e.papel !== "base")
+    .map((e) => e.resumo)
+    .filter((r) => r.length > 0)
+    .slice(-8);
+  const ultimaDescricao =
+    cronologico
+      .filter((e) => e.tipo === "descricao" || e.tipo === "roteiro")
+      .map((e) => e.resumo)
+      .filter((r) => r.length > 0)
+      .at(-1) ?? "";
+  return { ...base, roteiro, ultimaDescricao };
+}

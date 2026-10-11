@@ -8,6 +8,7 @@ import {
   limparJsonl,
   montarEvento,
   montarOperacional,
+  reidratarContexto,
   resumirContexto,
 } from "./memoria";
 import type { EntradaLog, EventoVisual } from "./types";
@@ -176,5 +177,45 @@ describe("resumirContexto", () => {
     expect(contexto.resumo).toBe("");
     expect(contexto.entradas).toEqual([]);
     expect(contexto.eventos).toEqual([]);
+  });
+});
+
+describe("reidratarContexto", () => {
+  const entrada = (parcial: Partial<EntradaLog>): EntradaLog => ({
+    timestamp: "2026-10-11T00:00:00.000Z",
+    modelo: "m",
+    objetos: [],
+    resumo: "",
+    tipo: "deteccao",
+    ...parcial,
+  });
+
+  it("reconstroi roteiro e ultima descricao a partir do historico (mais novo primeiro)", () => {
+    const entradas = [
+      entrada({ tipo: "roteiro", papel: "delta", resumo: "passo 2" }),
+      entrada({ tipo: "roteiro", papel: "delta", resumo: "passo 1" }),
+      entrada({ tipo: "roteiro", papel: "base", resumo: "roteiro base" }),
+      entrada({ tipo: "descricao", resumo: "pessoa na sala" }),
+    ];
+    const contexto = reidratarContexto(entradas, []);
+    expect(contexto.roteiro).toEqual(["passo 1", "passo 2"]);
+    expect(contexto.ultimaDescricao).toBe("passo 2");
+    expect(contexto.resumo).toContain("pessoa na sala");
+  });
+
+  it("lida com historico vazio", () => {
+    const contexto = reidratarContexto([], []);
+    expect(contexto.roteiro).toEqual([]);
+    expect(contexto.ultimaDescricao).toBe("");
+    expect(contexto.resumo).toBe("");
+  });
+
+  it("respeita a janela maxima de entradas e caracteres", () => {
+    const entradas = Array.from({ length: 10 }, (_, i) =>
+      entrada({ tipo: "descricao", resumo: `descricao ${i}` })
+    );
+    const contexto = reidratarContexto(entradas, [], { maxEntradas: 2, maxCaracteres: 30 });
+    expect(contexto.entradas).toHaveLength(2);
+    expect(contexto.resumo.length).toBeLessThanOrEqual(30);
   });
 });

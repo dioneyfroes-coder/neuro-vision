@@ -179,10 +179,27 @@ async function carregarHistorico(): Promise<void> {
   }
 }
 
+/**
+ * Reidrata o contexto da sessao a partir da memoria persistida (roteiro recente
+ * e ultima descricao), em vez de comecar sempre do zero.
+ */
+async function carregarContexto(): Promise<void> {
+  try {
+    const contexto = await api.obterContexto();
+    if (!contexto) return;
+    roteiroBeats = contexto.roteiro.slice(-64);
+    ultimaDescricao = contexto.ultimaDescricao;
+  } catch {
+    // memoria indisponivel; segue sem contexto reidratado
+  }
+}
+
 async function limparHistorico(): Promise<void> {
   clearLogBtn.disabled = true;
   try {
     await api.limparHistorico();
+    ultimaDescricao = "";
+    roteiroBeats = [];
     limparLista();
     atualizarContagem();
     setStatus("Historico limpo.");
@@ -358,10 +375,10 @@ async function prepararOllama(motor: MotorPercepcao): Promise<void> {
 async function start(): Promise<void> {
   if (running) return;
   startBtn.disabled = true;
-  ultimaDescricao = "";
+  // `roteiroBeats`/`ultimaDescricao` vem do contexto reidratado (`carregarContexto`):
+  // se ja existe roteiro persistido, o proximo beat e um delta, nao a base.
   ultimaDuracaoMs = 0;
-  roteiroBeats = [];
-  roteiroPrimeiro = true;
+  roteiroPrimeiro = roteiroBeats.length === 0;
   rastreador.reiniciar();
   detectorCena.reiniciar();
 
@@ -516,4 +533,5 @@ motorSelect.addEventListener("change", () => {
 
 atualizarContagem();
 void carregarHistorico();
+void carregarContexto();
 void verificarOllama();

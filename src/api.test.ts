@@ -6,6 +6,7 @@ import {
   listarEntradas,
   listarEventos,
   limparHistorico,
+  obterContexto,
   prepararOllama,
   saudeOllama,
 } from "../public/api";
@@ -188,5 +189,41 @@ describe("api de eventos e operacional", () => {
     );
 
     await expect(gravarOperacional({ nivel: "erro", mensagem: "falha" })).resolves.toBeUndefined();
+  });
+
+  it("obterContexto normaliza o contexto recuperado", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json({
+          ok: true,
+          resumo: "Descricoes recentes: x",
+          roteiro: ["passo 1"],
+          ultimaDescricao: "pessoa na sala",
+          entradas: [{ resumo: "pessoa na sala" }],
+          eventos: [{ id: "e1" }],
+        })
+      )
+    );
+
+    const contexto = await obterContexto();
+    expect(contexto).toMatchObject({
+      resumo: "Descricoes recentes: x",
+      roteiro: ["passo 1"],
+      ultimaDescricao: "pessoa na sala",
+    });
+    expect(contexto?.entradas).toHaveLength(1);
+    expect(contexto?.eventos).toHaveLength(1);
+  });
+
+  it("obterContexto sinaliza falha de rede", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("fetch failed");
+      })
+    );
+
+    await expect(obterContexto()).rejects.toThrow("Falha ao recuperar o contexto");
   });
 });

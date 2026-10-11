@@ -250,11 +250,13 @@ interface EventoVisual {
 
 ### 4.2 Recuperar contexto depois de reiniciar
 
-- [ ] Na inicialização, reconstruir o contexto recente usando o histórico persistido, não apenas a variável de sessão `roteiroBeats`.
-- [ ] Manter um resumo curto do estado atual separado do histórico completo de eventos.
-- [ ] Definir uma janela máxima de contexto por tamanho e/ou número de eventos para o prompt do Ollama.
-- [ ] Evitar enviar indefinidamente todo o histórico ao modelo.
-- [ ] Adicionar testes para reidratação do contexto, log vazio, linhas inválidas e histórico truncado.
+- [x] Na inicialização, reconstruir o contexto recente usando o histórico persistido, não apenas a variável de sessão `roteiroBeats`.
+- [x] Manter um resumo curto do estado atual separado do histórico completo de eventos.
+- [x] Definir uma janela máxima de contexto por tamanho e/ou número de eventos para o prompt do Ollama.
+- [x] Evitar enviar indefinidamente todo o histórico ao modelo.
+- [x] Adicionar testes para reidratação do contexto, log vazio, linhas inválidas e histórico truncado.
+
+**Implementação 4.2:** `src/memoria.ts` ganhou `reidratarContexto(entradas, eventos, opcoes)`, que reusa `resumirContexto` (resumo curto **separado** dos arrays `entradas`/`eventos`) e ainda deriva `roteiro` (últimos deltas em ordem cronológica) e `ultimaDescricao` (última descrição/roteiro, a mesma referência que o app usa em `anterior`). O servidor expõe `GET /api/contexto`, com janelas por query (`maxEntradas`/`maxEventos`/`maxCaracteres`, com padrões 20/20/1200 e limites duros), lendo `visao.jsonl` e `eventos.jsonl`. No cliente, `api.obterContexto()` e `carregarContexto()` reidratam `roteiroBeats` e `ultimaDescricao` na inicialização — assim o primeiro beat após reiniciar já é um delta e a descrição reaproveita a observação anterior — e `limparHistorico` zera esse estado. O contexto nunca envia o histórico inteiro: além da janela do endpoint, o prompt continua limitado por `roteiroBeats.slice(-8).join(" ").slice(0, 1200)`. Testes: `src/memoria.test.ts` (reidratação, histórico vazio e truncado), `src/server.test.ts` (contexto com dados, log vazio e linhas inválidas) e `src/api.test.ts` (`obterContexto`).
 
 ### 4.3 Escolher armazenamento por necessidade
 

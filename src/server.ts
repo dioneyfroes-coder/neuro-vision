@@ -19,6 +19,7 @@ import {
   limparJsonl,
   montarEvento,
   montarOperacional,
+  reidratarContexto,
 } from "./memoria";
 import type { RegistroOperacional } from "./memoria";
 import type { Caixa, EntradaLog, EventoVisual, ObjetoVisto, TipoEntrada } from "./types";
@@ -682,6 +683,42 @@ async function handleClearEventos(
   }
 }
 
+function inteiroLimitado(valor: string | null, padrao: number, min: number, max: number): number {
+  const n = Number(valor);
+  if (!Number.isFinite(n)) return padrao;
+  return Math.min(Math.max(Math.trunc(n), min), max);
+}
+
+/**
+ * `GET /api/contexto` — reconstroi um contexto curto do estado recente a partir
+ * do historico e dos eventos persistidos, com janelas limitadas por tamanho e
+ * contagem para nao enviar indefinidamente todo o historico ao modelo.
+ */
+async function handleContexto(
+  req: IncomingMessage,
+  res: ServerResponse,
+  logFile: string,
+  eventosFile: string
+): Promise<void> {
+  try {
+    const url = new URL(req.url ?? "/api/contexto", "http://localhost");
+    const maxEntradas = inteiroLimitado(url.searchParams.get("maxEntradas"), 20, 1, 200);
+    const maxEventos = inteiroLimitado(url.searchParams.get("maxEventos"), 20, 0, 200);
+    const maxCaracteres = inteiroLimitado(url.searchParams.get("maxCaracteres"), 1200, 200, 8000);
+    const entradas = await lerLogEntries(logFile, maxEntradas);
+    const eventos = await lerEventos(eventosFile, maxEventos);
+    const contexto = reidratarContexto(entradas, eventos, {
+      maxEntradas,
+      maxEventos,
+      maxCaracteres,
+    });
+    sendJson(res, 200, { ok: true, ...contexto });
+  } catch (err) {
+    logEvent("error", "contexto_falhou", { erro: (err as Error).message });
+    sendJson(res, 500, { ok: false, erro: (err as Error).message });
+  }
+}
+
 async function handleOperacional(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1017,6 +1054,10 @@ export function createServer(config: ServerConfig = {}): http.Server {
     }
     if (req.method === "POST" && url === "/api/operacional") {
       void handleOperacional(req, res, operacionalFile);
+      return;
+    }
+    if (req.method === "GET" && pathname === "/api/contexto") {
+      void handleContexto(req, res, logFile, eventosFile);
       return;
     }
     if (req.method === "GET" && pathname === "/api/visao/preparar") {
