@@ -163,12 +163,14 @@ Arquivos principais: `src/server.ts`, testes e documentação.
 
 ### 2.1 Extrair módulos pequenos do cliente
 
-- [ ] Mover o controle da webcam para um módulo próprio, por exemplo `public/camera.ts`.
+- [x] Mover o controle da webcam para um módulo próprio, por exemplo `public/camera.ts`.
 - [x] Mover o agendamento e a guarda contra concorrência para `public/scheduler.ts`.
 - [x] Isolar as chamadas HTTP (`/api/log`, `/api/visao`, `/api/health`) em `public/api.ts`.
 - [x] Isolar a lógica de detecção e conversão do resultado em `public/detector.ts`.
-- [ ] Manter `public/app.ts` responsável principalmente por coordenar estado e interface.
-- [ ] Fazer uma extração por commit; rodar typecheck, lint e testes após cada uma.
+- [x] Manter `public/app.ts` responsável principalmente por coordenar estado e interface.
+- [x] Fazer uma extração por commit; rodar typecheck, lint e testes após cada uma.
+
+**Implementação:** `public/app.ts` agora coordena estado e interface e delega para módulos livres de UI: `public/scheduler.ts` (agendamento), `public/api.ts` (HTTP e parsing do stream NDJSON), `public/detector.ts` (`DetectorObjetos` com cache/fallback e `descreverDeteccoes`) e `public/camera.ts` (`Camera`: stream, tamanho do vídeo, captura de frame e `ErroCamera` distinguindo falha de acesso da falha de reprodução). Cada extração foi um commit próprio (`refactor(client): ...`) com typecheck, lint, testes (134) e E2E (7) verdes. Os testes unitários usam o alias de `vitest.config.ts` para trocar a URL do CDN do Transformers por `src/transformers.stub.ts`.
 
 ### 2.2 Definir interfaces independentes dos modelos
 

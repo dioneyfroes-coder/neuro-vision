@@ -5,6 +5,7 @@ import { AgendadorAnalise } from "./scheduler";
 import * as api from "./api";
 import type { PayloadVisao } from "./api";
 import { DetectorObjetos, descreverDeteccoes, traduzir } from "./detector";
+import { Camera, ErroCamera } from "./camera";
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -17,9 +18,7 @@ const overlay = el<HTMLCanvasElement>("overlay");
 const maybeCtx = overlay.getContext("2d");
 if (!maybeCtx) throw new Error("Canvas 2D indisponivel");
 const ctx = maybeCtx;
-
-const frameCanvas = document.createElement("canvas");
-const frameCtx = frameCanvas.getContext("2d");
+const camera = new Camera(video);
 
 const placeholder = el<HTMLDivElement>("placeholder");
 const statusEl = el<HTMLDivElement>("status");
@@ -40,7 +39,6 @@ const thresholdInput = el<HTMLInputElement>("threshold");
 const thresholdValue = el<HTMLSpanElement>("thresholdValue");
 
 const detectorCoco = new DetectorObjetos();
-let stream: MediaStream | null = null;
 let running = false;
 let controller: AbortController | null = null;
 let ultimaDescricao = "";
@@ -187,25 +185,11 @@ async function limparHistorico(): Promise<void> {
   }
 }
 
-function capturarFrame(maxWidth = 0): string | null {
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
-  if (!vw || !vh || !frameCtx) return null;
-
-  const escala = maxWidth > 0 && vw > maxWidth ? maxWidth / vw : 1;
-  const w = Math.round(vw * escala);
-  const h = Math.round(vh * escala);
-  frameCanvas.width = w;
-  frameCanvas.height = h;
-  frameCtx.drawImage(video, 0, 0, w, h);
-  return frameCanvas.toDataURL("image/jpeg", 0.85);
-}
-
 async function descreverViaOllama(signal: AbortSignal): Promise<void> {
-  const dataUrl = capturarFrame(512);
+  const dataUrl = camera.capturarFrame(512);
   if (dataUrl === null) return;
-  const width = video.videoWidth;
-  const height = video.videoHeight;
+  const width = camera.largura;
+  const height = camera.altura;
   overlay.width = width;
   overlay.height = height;
   ctx.clearRect(0, 0, width, height);
@@ -288,14 +272,14 @@ async function analisar(): Promise<void> {
       return;
     }
 
-    const width = video.videoWidth;
-    const height = video.videoHeight;
+    const width = camera.largura;
+    const height = camera.altura;
     if (!width || !height) return;
 
     overlay.width = width;
     overlay.height = height;
 
-    const dataUrl = capturarFrame();
+    const dataUrl = camera.capturarFrame();
     if (dataUrl === null) return;
 
     const threshold = Number(thresholdInput.value);
@@ -317,7 +301,7 @@ async function analisar(): Promise<void> {
 
     const { objetos, resumo } = descreverDeteccoes(detecoes);
 
-    const thumb = capturarFrame(240);
+    const thumb = camera.capturarFrame(240);
     const entry: EntradaLog = {
       timestamp: new Date().toISOString(),
       modelo: detectorCoco.modelo ?? "desconhecido",
@@ -368,17 +352,13 @@ async function start(): Promise<void> {
   roteiroPrimeiro = true;
 
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+    await camera.iniciar();
   } catch (err) {
-    falharInicializacao(`Nao foi possivel acessar a webcam: ${(err as Error).message}`);
-    return;
-  }
-
-  video.srcObject = stream;
-  try {
-    await video.play();
-  } catch (err) {
-    falharInicializacao(`Falha ao iniciar o video: ${(err as Error).message}`);
+    if (err instanceof ErroCamera && err.fase === "video") {
+      falharInicializacao(`Falha ao iniciar o video: ${err.message}`);
+    } else {
+      falharInicializacao(`Nao foi possivel acessar a webcam: ${(err as Error).message}`);
+    }
     return;
   }
   placeholder.style.display = "none";
@@ -399,7 +379,7 @@ async function start(): Promise<void> {
     }
   }
 
-  if (!stream) return;
+  if (!camera.ativa) return;
   running = true;
   stopBtn.disabled = false;
   await agendador.iniciar();
@@ -412,11 +392,7 @@ function encerrarCaptura(): void {
     controller.abort();
     controller = null;
   }
-  if (stream) {
-    stream.getTracks().forEach((t) => t.stop());
-    stream = null;
-  }
-  video.srcObject = null;
+  camera.encerrar();
 }
 
 function restaurarInterfaceIdle(): void {
