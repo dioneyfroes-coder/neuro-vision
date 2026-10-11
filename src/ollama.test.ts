@@ -167,6 +167,38 @@ describe("gerarDescricaoStream", () => {
     await expect(iterator.next()).rejects.toThrow(/500/);
   });
 
+  it("abortar o sinal cancela o fetch do Ollama", async () => {
+    const sinaisRecebidos: AbortSignal[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: unknown, init?: RequestInit) => {
+        const sinal = init?.signal;
+        sinaisRecebidos.push(sinal as AbortSignal);
+        return new Promise((_resolve, reject) => {
+          if (sinal?.aborted) {
+            reject(new DOMException("Aborted", "AbortError"));
+            return;
+          }
+          sinal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError"))
+          );
+        });
+      })
+    );
+
+    const controle = new AbortController();
+    const iterator = gerarDescricaoStream("AAAA", { modelo: "x", signal: controle.signal });
+    const pendente = iterator.next();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sinaisRecebidos).toHaveLength(1);
+    expect(sinaisRecebidos[0].aborted).toBe(false);
+
+    controle.abort();
+    await expect(pendente).rejects.toThrow(/Aborted/);
+    expect(sinaisRecebidos[0].aborted).toBe(true);
+  });
+
   it("lança erro quando o stream emite um evento de erro", async () => {
     const ndjson = JSON.stringify({ error: "model not loaded" }) + "\n";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, body: new Response(ndjson).body }));

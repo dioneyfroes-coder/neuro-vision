@@ -770,7 +770,11 @@ async function streamVisao(
   eventosFile: string,
   snapshot: unknown
 ): Promise<void> {
-  const iterador = gerarDescricaoStream(imagem, opcoes);
+  // Se o cliente desconectar (cancelar/fechar a pagina), aborta o fetch do
+  // Ollama em vez de deixar a inferencia continuar consumindo recursos.
+  const controle = new AbortController();
+  res.once("close", () => controle.abort());
+  const iterador = gerarDescricaoStream(imagem, { ...opcoes, signal: controle.signal });
   const primeiro = await iterador.next();
   if (primeiro.done) {
     throw new Error(

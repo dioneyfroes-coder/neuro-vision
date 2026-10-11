@@ -9,6 +9,8 @@ export interface OpcoesGerarDescricao {
   modo?: ModoAnalise;
   roteiro?: string;
   base?: boolean;
+  /** Cancela o fetch do Ollama (ex.: cliente desconectou do stream). */
+  signal?: AbortSignal;
 }
 
 export interface ResultadoDescricao {
@@ -288,11 +290,13 @@ export async function* gerarDescricaoStream(
   const { modelo, corpo } = montarCorpo(imagem, opcoes, true);
 
   const inicio = performance.now();
+  const sinais: AbortSignal[] = [AbortSignal.timeout(timeoutMs)];
+  if (opcoes.signal) sinais.push(opcoes.signal);
   const resposta = await fetch(`${host}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: corpo,
-    signal: AbortSignal.timeout(timeoutMs),
+    signal: AbortSignal.any(sinais),
   });
 
   if (!resposta.ok) {
