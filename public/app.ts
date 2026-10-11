@@ -1,96 +1,10 @@
-import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3";
-import type { Detector, Deteccao, ProgressInfo } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3";
-import type { EntradaLog, ObjetoVisto } from "../src/types";
+import type { Deteccao } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3";
+import type { EntradaLog } from "../src/types";
 import { colapsarRepeticoes } from "../src/texto";
 import { AgendadorAnalise } from "./scheduler";
 import * as api from "./api";
 import type { PayloadVisao } from "./api";
-
-env.allowLocalModels = false;
-env.useBrowserCache = true;
-
-const COCO_PT: Record<string, string> = {
-  person: "pessoa",
-  bicycle: "bicicleta",
-  car: "carro",
-  motorcycle: "moto",
-  airplane: "aviao",
-  bus: "onibus",
-  train: "trem",
-  truck: "caminhao",
-  boat: "barco",
-  "traffic light": "semaforo",
-  "fire hydrant": "hidrante",
-  "stop sign": "placa de pare",
-  "parking meter": "parquimetro",
-  bench: "banco",
-  cat: "gato",
-  dog: "cachorro",
-  bird: "passaro",
-  horse: "cavalo",
-  sheep: "ovelha",
-  cow: "vaca",
-  elephant: "elefante",
-  bear: "urso",
-  zebra: "zebra",
-  giraffe: "girafa",
-  backpack: "mochila",
-  umbrella: "guarda-chuva",
-  handbag: "bolsa",
-  tie: "gravata",
-  suitcase: "mala",
-  frisbee: "frisbee",
-  skis: "esquis",
-  snowboard: "snowboard",
-  "sports ball": "bola",
-  kite: "pipa",
-  "baseball bat": "bastao",
-  "baseball glove": "luva",
-  skateboard: "skate",
-  surfboard: "prancha",
-  "tennis racket": "raquete",
-  bottle: "garrafa",
-  "wine glass": "taca",
-  cup: "copo",
-  fork: "garfo",
-  knife: "faca",
-  spoon: "colher",
-  bowl: "tigela",
-  banana: "banana",
-  apple: "maca",
-  sandwich: "sanduiche",
-  orange: "laranja",
-  broccoli: "brocolis",
-  carrot: "cenoura",
-  "hot dog": "cachorro-quente",
-  pizza: "pizza",
-  donut: "rosquinha",
-  cake: "bolo",
-  chair: "cadeira",
-  couch: "sofa",
-  "potted plant": "planta",
-  bed: "cama",
-  "dining table": "mesa",
-  toilet: "vaso sanitario",
-  tv: "televisao",
-  laptop: "notebook",
-  mouse: "mouse",
-  remote: "controle",
-  keyboard: "teclado",
-  "cell phone": "celular",
-  microwave: "micro-ondas",
-  oven: "forno",
-  toaster: "torradeira",
-  sink: "pia",
-  refrigerator: "geladeira",
-  book: "livro",
-  clock: "relogio",
-  vase: "vaso",
-  scissors: "tesoura",
-  "teddy bear": "urso de pelucia",
-  "hair drier": "secador",
-  toothbrush: "escova de dentes",
-};
+import { DetectorObjetos, descreverDeteccoes, traduzir } from "./detector";
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -125,9 +39,7 @@ const intervalValue = el<HTMLSpanElement>("intervalValue");
 const thresholdInput = el<HTMLInputElement>("threshold");
 const thresholdValue = el<HTMLSpanElement>("thresholdValue");
 
-let detector: Detector | null = null;
-let loadedModel: string | null = null;
-const detectores = new Map<string, Detector>();
+const detectorCoco = new DetectorObjetos();
 let stream: MediaStream | null = null;
 let running = false;
 let controller: AbortController | null = null;
@@ -149,41 +61,6 @@ function setStatus(text: string): void {
 
 function setSpinner(ativo: boolean): void {
   spinnerEl.hidden = !ativo;
-}
-
-function traduzir(label: string): string {
-  return COCO_PT[label] ?? label;
-}
-
-async function getDetector(modelId: string): Promise<Detector> {
-  const cacheado = detectores.get(modelId);
-  if (cacheado) {
-    detector = cacheado;
-    loadedModel = modelId;
-    return cacheado;
-  }
-
-  const onProgress = (p: ProgressInfo): void => {
-    if (p.status === "progress" && p.file) {
-      const pct = p.progress ? Math.round(p.progress) : 0;
-      setStatus(`Baixando ${p.file}... ${pct}%`);
-    }
-  };
-
-  setStatus(`Carregando modelo ${modelId}...`);
-  const gpu = (navigator as Navigator & { gpu?: unknown }).gpu;
-  const device = gpu ? "webgpu" : "wasm";
-  let novo: Detector;
-  try {
-    novo = await pipeline("object-detection", modelId, { device, progress_callback: onProgress });
-  } catch (err) {
-    setStatus(`WebGPU indisponivel, usando CPU: ${(err as Error).message}`);
-    novo = await pipeline("object-detection", modelId, { device: "wasm", progress_callback: onProgress });
-  }
-  detectores.set(modelId, novo);
-  detector = novo;
-  loadedModel = modelId;
-  return novo;
 }
 
 function drawBoxes(detecoes: Deteccao[]): void {
@@ -426,7 +303,7 @@ async function analisar(): Promise<void> {
     const started = performance.now();
     let detecoes: Deteccao[];
     try {
-      detecoes = await detector!(dataUrl, { threshold, percentage: false });
+      detecoes = await detectorCoco.executar(dataUrl, { threshold, percentage: false });
     } catch (err) {
       if (signal.aborted) return;
       setStatus(`Erro na inferencia: ${(err as Error).message}`);
@@ -436,25 +313,14 @@ async function analisar(): Promise<void> {
     const ms = Math.round(performance.now() - started);
     ultimaDuracaoMs = ms;
 
-    const objetos: ObjetoVisto[] = detecoes.map((d) => ({
-      nome: traduzir(d.label),
-      rotulo: d.label,
-      score: Number(d.score.toFixed(3)),
-      caixa: d.box,
-    }));
-
     drawBoxes(detecoes);
 
-    const contagem: Record<string, number> = {};
-    for (const o of objetos) contagem[o.nome] = (contagem[o.nome] ?? 0) + 1;
-    const resumo = objetos.length
-      ? Object.entries(contagem).map(([n, c]) => (c > 1 ? `${c}x ${n}` : n)).join(", ")
-      : "nada reconhecido";
+    const { objetos, resumo } = descreverDeteccoes(detecoes);
 
     const thumb = capturarFrame(240);
     const entry: EntradaLog = {
       timestamp: new Date().toISOString(),
-      modelo: loadedModel ?? "desconhecido",
+      modelo: detectorCoco.modelo ?? "desconhecido",
       objetos,
       resumo,
       tipo: "deteccao",
@@ -526,7 +392,7 @@ async function start(): Promise<void> {
     }
   } else {
     try {
-      await getDetector(modelSelect.value);
+      await detectorCoco.carregar(modelSelect.value, setStatus);
     } catch (err) {
       falharInicializacao(`Falha ao carregar modelo: ${(err as Error).message}`);
       return;
