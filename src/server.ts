@@ -5,11 +5,16 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   ErroOllama,
+  escolherModelo,
   forcarCarregamento,
   gerarDescricaoStream,
+  melhorModeloDisponivel,
+  mesmoModelo,
   modeloEmMemoria,
   modelosEmMemoria,
   MODELO_PADRAO,
+  traduzirTexto,
+  deveTraduzir,
   type ModoAnalise,
 } from "./ollama";
 import { colapsarRepeticoes, cortarFraseIncompleta, ehSemMudanca } from "./texto";
@@ -881,12 +886,18 @@ async function streamVisao(
   }
 
   const resumo = resultado.value;
-  const limpo = colapsarRepeticoes(cortarFraseIncompleta(texto));
+  let limpo = colapsarRepeticoes(cortarFraseIncompleta(texto));
   const tipo: TipoEntrada = opcoes.modo === "roteiro" ? "roteiro" : "descricao";
   const papel = opcoes.modo === "roteiro" ? (opcoes.base === true ? "base" : "delta") : undefined;
   const semMudanca = papel === "delta" && ehSemMudanca(limpo);
 
   if (!semMudanca) {
+    if (deveTraduzir(limpo)) {
+      const traduzido = await traduzirTexto({ texto: limpo, host: opcoes.host });
+      if (traduzido && traduzido !== limpo) {
+        limpo = traduzido;
+      }
+    }
     const entry: EntradaLog = {
       timestamp: new Date().toISOString(),
       modelo: resumo.modelo,
@@ -965,12 +976,23 @@ async function handleVisao(
     return;
   }
 
+  const escolha =
+    typeof p.modelo === "string"
+      ? { solicitado: p.modelo, modelo: p.modelo, alternativo: false }
+      : await escolherModelo({ host: config.ollamaUrl });
+  if (escolha.alternativo) {
+    logEvent("info", "modelo_fallback", {
+      solicitado: escolha.solicitado,
+      modelo: escolha.modelo,
+    });
+  }
+
   try {
     await streamVisao(
       res,
       imagem,
       {
-        modelo: typeof p.modelo === "string" ? p.modelo : undefined,
+        modelo: escolha.modelo,
         host: config.ollamaUrl,
         anterior: typeof p.anterior === "string" ? p.anterior : undefined,
         modo: p.modo === "roteiro" ? "roteiro" : "descricao",
@@ -1047,7 +1069,9 @@ async function handleClearLogs(
 
 interface InfoOllama {
   online: boolean;
-  /** Modelo de visao solicitado ao Ollama (OLLAMA_MODEL ou o padrao). */
+  /** Modelo de visao configurado (OLLAMA_MODEL ou o padrao). */
+  solicitado: string;
+  /** Modelo efetivamente usado (o solicitado ou o melhor disponivel). */
   modelo: string;
   modelos: string[];
   carregados: string[];
@@ -1056,23 +1080,51 @@ interface InfoOllama {
 
 async function consultarOllama(host?: string): Promise<InfoOllama> {
   const base = (host ?? process.env.OLLAMA_HOST ?? "http://localhost:11434").replace(/\/+$/, "");
-  const modelo = process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
+  const solicitado = process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
   try {
     const resposta = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(3000) });
-    if (!resposta.ok) return { online: false, modelo, modelos: [], carregados: [], erro: `HTTP ${resposta.status}` };
+    if (!resposta.ok) {
+      return {
+        online: false,
+        solicitado,
+        modelo: solicitado,
+        modelos: [],
+        carregados: [],
+        erro: `HTTP ${resposta.status}`,
+      };
+    }
     const dados = (await resposta.json()) as { models?: { name?: string }[] };
     const modelos = (dados.models ?? [])
       .map((m) => m.name ?? "")
       .filter((n) => n.length > 0);
+    // Configurado instalado? Usa ele. Senao, cai para o melhor disponivel.
+    const modelo =
+      modelos.length === 0 || modelos.some((m) => mesmoModelo(m, solicitado))
+        ? solicitado
+        : melhorModeloDisponivel(modelos) || solicitado;
     const carregados = await modelosEmMemoria({ host: base, timeoutMs: 3000 });
-    return { online: true, modelo, modelos, carregados, erro: "" };
+    return { online: true, solicitado, modelo, modelos, carregados, erro: "" };
   } catch (err) {
-    return { online: false, modelo, modelos: [], carregados: [], erro: (err as Error).message };
+    return {
+      online: false,
+      solicitado,
+      modelo: solicitado,
+      modelos: [],
+      carregados: [],
+      erro: (err as Error).message,
+    };
   }
 }
 
 async function handlePreparar(res: ServerResponse, config: ServerConfig): Promise<void> {
-  const modelo = process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
+  const escolha = await escolherModelo({ host: config.ollamaUrl });
+  const modelo = escolha.modelo;
+  if (escolha.alternativo) {
+    logEvent("info", "modelo_fallback", {
+      solicitado: escolha.solicitado,
+      modelo,
+    });
+  }
   try {
     const carregandoMs = await forcarCarregamento({ modelo, host: config.ollamaUrl });
     const emMemoria = await modeloEmMemoria({ modelo, host: config.ollamaUrl });

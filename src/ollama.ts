@@ -76,7 +76,32 @@ interface RespostaOllama {
   done?: boolean;
 }
 
-export const MODELO_PADRAO = "qwen2.5vl:3b";
+/**
+ * Modelo de visao padrao (configuracao global). Pode ser trocado por
+ * `OLLAMA_MODEL`; se o modelo resultante nao estiver instalado no Ollama,
+ * `escolherModelo` cai para o melhor modelo disponivel.
+ */
+export const MODELO_PADRAO = "moondream:latest";
+
+/**
+ * Ordem de preferencia usada quando o modelo configurado nao esta instalado.
+ * Sao modelos de visao conhecidos; o primeiro prefixo que casar com um modelo
+ * instalado vence. Modelos nao-pensantes vem antes dos "thinking".
+ */
+export const PREFERENCIA_MODELOS = [
+  "moondream",
+  "qwen2.5vl",
+  "qwen2.5-vl",
+  "qwen2-vl",
+  "llava",
+  "bakllava",
+  "minicpm-v",
+  "gemma3",
+  "qwen3-vl",
+];
+
+export const MODELO_TRADUCAO_PADRAO = "SparkLLM/Spark-X2.5-1.7B";
+export const TRADUZIR_HABILITADO_PADRAO = true;
 
 export class ErroOllama extends Error {
   constructor(mensagem: string) {
@@ -125,6 +150,140 @@ export function mesmoModelo(a: string, b: string): boolean {
   const na = normalizarNomeModelo(a);
   const nb = normalizarNomeModelo(b);
   return na.length > 0 && na === nb;
+}
+
+/**
+ * Escolhe o "melhor" modelo entre os instalados segundo `PREFERENCIA_MODELOS`.
+ * Se nenhum prefixo conhecido casar, devolve o primeiro da lista (melhor
+ * esforco) e, se a lista estiver vazia, devolve string vazia.
+ */
+export function melhorModeloDisponivel(instalados: string[]): string {
+  if (instalados.length === 0) return "";
+  for (const prefixo of PREFERENCIA_MODELOS) {
+    const achado = instalados.find((nome) =>
+      normalizarNomeModelo(nome).toLowerCase().startsWith(prefixo)
+    );
+    if (achado) return achado;
+  }
+  return instalados[0];
+}
+
+/** Lista os modelos instalados no Ollama via `GET /api/tags`. */
+export async function modelosInstalados(opcoes: OpcoesOllama = {}): Promise<string[]> {
+  const host = resolverHost(opcoes as OpcoesGerarDescricao);
+  try {
+    const resposta = await fetch(`${host}/api/tags`, {
+      signal: AbortSignal.timeout(opcoes.timeoutMs ?? 5_000),
+    });
+    if (!resposta.ok) return [];
+    const dados = (await resposta.json()) as { models?: { name?: string; model?: string }[] };
+    return (dados.models ?? [])
+      .map((m) => m.name ?? m.model ?? "")
+      .filter((n) => n.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+export interface ModeloEscolhido {
+  /** Modelo configurado (`OLLAMA_MODEL` ou `MODELO_PADRAO`). */
+  solicitado: string;
+  /** Modelo efetivamente usado (pode ser o melhor disponivel). */
+  modelo: string;
+  /** `true` quando o solicitado nao estava instalado e houve substituicao. */
+  alternativo: boolean;
+}
+
+const CACHE_MODELO_MS = 30_000;
+let cacheModelo: { chave: string; valor: ModeloEscolhido; expira: number } | null = null;
+
+/** Descarta a cache de escolha de modelo (usado em testes). */
+export function limparCacheModelo(): void {
+  cacheModelo = null;
+}
+
+/**
+ * Resolve o modelo efetivo: usa o configurado quando instalado; se nao estiver
+ * (e o Ollama responder com a lista), escolhe o melhor disponivel. Um modelo
+ * passado explicitamente em `opcoes.modelo` e sempre respeitado, sem fallback.
+ */
+export async function escolherModelo(opcoes: OpcoesOllama = {}): Promise<ModeloEscolhido> {
+  const solicitado = opcoes.modelo ?? process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
+  if (opcoes.modelo) return { solicitado, modelo: solicitado, alternativo: false };
+
+  const host = resolverHost(opcoes as OpcoesGerarDescricao);
+  const chave = `${host}|${solicitado}`;
+  const agora = Date.now();
+  if (cacheModelo && cacheModelo.chave === chave && cacheModelo.expira > agora) {
+    return cacheModelo.valor;
+  }
+
+  const instalados = await modelosInstalados(opcoes);
+  let valor: ModeloEscolhido = { solicitado, modelo: solicitado, alternativo: false };
+  if (instalados.length > 0 && !instalados.some((m) => mesmoModelo(m, solicitado))) {
+    const melhor = melhorModeloDisponivel(instalados);
+    if (melhor) valor = { solicitado, modelo: melhor, alternativo: true };
+  }
+  cacheModelo = { chave, valor, expira: agora + CACHE_MODELO_MS };
+  return valor;
+}
+
+export interface OpcoesTraduzir {
+  texto: string;
+  host?: string;
+  timeoutMs?: number;
+  modelo?: string;
+}
+
+export async function traduzirTexto(opcoes: OpcoesTraduzir): Promise<string> {
+  const host = resolverHost(opcoes as unknown as OpcoesGerarDescricao);
+  const modelo =
+    opcoes.modelo ?? process.env.OLLAMA_TRANSLATE_MODEL ?? "SparkLLM/Spark-X2.5-1.7B";
+  const texto = opcoes.texto.trim();
+  if (!texto) return texto;
+
+  const prompt =
+    "You are a professional English to Brazilian Portuguese translator. Translate accurately preserving meaning and nuance. " +
+    "Only output the Portuguese translation, no explanations. " +
+    `Text: ${texto}`;
+
+  const corpo = JSON.stringify({
+    model: modelo,
+    messages: [{ role: "user", content: prompt }],
+    stream: false,
+    think: false,
+    keep_alive: "5m",
+    options: { temperature: 0, top_p: 0.9, num_predict: 256 },
+  });
+
+  try {
+    const resposta = await fetch(`${host}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: corpo,
+      signal: AbortSignal.timeout(opcoes.timeoutMs ?? 60_000),
+    });
+    if (!resposta.ok) return texto;
+    const dados = (await resposta.json()) as RespostaOllama;
+    const traduzido = (dados.message?.content ?? dados.response ?? "").trim();
+    return traduzido.length > 0 ? traduzido : texto;
+  } catch {
+    return texto;
+  }
+}
+
+export function deveTraduzir(texto: string, habilitado?: boolean): boolean {
+  const flag =
+    habilitado ??
+    (process.env.OLLAMA_TRANSLATE_ENABLED === "false" ||
+    process.env.OLLAMA_TRANSLATE_ENABLED === "0"
+      ? false
+      : true);
+  if (!flag) return false;
+  if (!texto.trim()) return false;
+  const lower = texto.toLowerCase();
+  const padroesIngles = / (the|a|an|and|or|of|to|in|on|is|are|was|were|this|that|these|those|has|have|with|for|from|into|about|over|under|behind|between|through|people|person|object|objects|background|table|chair|door|window|room|wall|floor|ceiling|light|lights|color|colors|red|blue|green|yellow|black|white|gray|grey|man|woman|men|women|child|children|hand|hands|head|arm|arms|leg|legs|body|face|shirt|jacket|glasses|phone|cell|car|cars|truck|bike|bicycle|tree|trees|sky|grass|building|buildings|computer|laptop|book|books|cup|bottle|dog|cat|bird|camera|webcam|frame|image|scene) /;
+  return padroesIngles.test(` ${lower} `);
 }
 
 export async function modelosEmMemoria(opcoes: OpcoesOllama = {}): Promise<string[]> {
@@ -193,7 +352,7 @@ function montarCorpo(
   opcoes: OpcoesGerarDescricao,
   stream: boolean
 ): { modelo: string; corpo: string } {
-  const modelo = opcoes.modelo ?? process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
+  const modelo = resolverModelo(opcoes);
   const roteiro = opcoes.modo === "roteiro";
   const prompt =
     opcoes.prompt ??
@@ -233,7 +392,7 @@ function lancarSeVazioSemResposta(
   if (vistoPensamento) {
     throw new ErroOllama(
       `o modelo ${modelo} derivou/raciocinou sem produzir resposta (o Ollama ignorou think:false neste modelo). ` +
-        "Use um modelo de descricao nao-pensante (ex.: `ollama pull qwen2.5vl:3b` e OLLAMA_MODEL=qwen2.5vl:3b)."
+        "Use um modelo de descricao nao-pensante (ex.: `ollama pull moondream` e OLLAMA_MODEL=moondream)."
     );
   }
   throw new ErroOllama("o modelo nao retornou nenhum token de texto (verifique think/num_predict)");

@@ -34,7 +34,7 @@ import {
   type PoliticaSnapshots,
 } from "./server";
 import type { EntradaLog } from "./types";
-import { PROMPT_ROTEIRO_BASE } from "./ollama";
+import { limparCacheModelo, PROMPT_ROTEIRO_BASE } from "./ollama";
 
 let tmpDir: string;
 
@@ -42,6 +42,7 @@ const realFetch = globalThis.fetch;
 
 beforeEach(async () => {
   tmpDir = await mkdtemp(path.join(os.tmpdir(), "neuro-vision-"));
+  limparCacheModelo();
 });
 
 afterEach(async () => {
@@ -946,7 +947,7 @@ describe("createServer", () => {
       });
       expect(res.status).toBe(502);
       const corpo = (await res.json()) as { erro?: string };
-      expect(corpo.erro).toContain("qwen2.5vl:3b");
+      expect(corpo.erro).toContain("moondream");
       const conteudo = await readFile(logFile, "utf8").catch(() => "");
       expect(conteudo).toBe("");
     } finally {
@@ -1299,6 +1300,36 @@ describe("createServer", () => {
     }
   });
 
+  it("GET /api/health troca pelo melhor modelo quando o padrao nao esta instalado", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/tags")) {
+          return { ok: true, json: async () => ({ models: [{ name: "qwen2.5vl:7b" }] }) };
+        }
+        if (url.includes("/api/ps")) return { ok: true, json: async () => ({ models: [] }) };
+        return realFetch(input, init);
+      })
+    );
+
+    const server = createServer({ publicDir: tmpDir, ollamaUrl: "http://localhost:11434" });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+      expect(res.status).toBe(200);
+      const corpo = (await res.json()) as {
+        ollama: { solicitado: string; modelo: string; modelos: string[] };
+      };
+      expect(corpo.ollama.solicitado).toBe("moondream:latest");
+      expect(corpo.ollama.modelo).toBe("qwen2.5vl:7b");
+    } finally {
+      server.close();
+    }
+  });
+
   it("GET /api/health reporta Ollama offline quando falha", async () => {
     vi.stubGlobal(
       "fetch",
@@ -1425,6 +1456,9 @@ describe("createServer", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/tags")) {
+          return { ok: true, json: async () => ({ models: [{ name: "qwen2.5vl:3b" }] }) };
+        }
         if (url.includes("/api/ps")) {
           return { ok: true, json: async () => ({ models: [{ name: "qwen2.5vl:3b" }] }) };
         }

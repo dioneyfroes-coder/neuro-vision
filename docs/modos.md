@@ -17,13 +17,14 @@ A troca de motor é centralizada em `public/modos.ts` (registro `MODOS`): cada m
 
 O app usa **um modelo de visão por vez**, definido pelo ambiente (não há seletor na interface):
 
-- **Padrão:** `qwen2.5vl:3b` (`MODELO_PADRAO` em `src/ollama.ts`).
+- **Padrão:** `moondream:latest` (`MODELO_PADRAO` em `src/ollama.ts`).
 - **Troca:** variável `OLLAMA_MODEL` (ex.: `OLLAMA_MODEL=qwen2.5vl:7b npm start`).
+- **Fallback automático:** se o modelo configurado **não estiver instalado**, o app escolhe o melhor disponível (`melhorModeloDisponivel`), preferindo modelos de visão não-pensantes na ordem de `PREFERENCIA_MODELOS` (`moondream`, `qwen2.5vl`, `qwen2.5-vl`, `llava`, `minicpm-v`, `gemma3`, ... e `qwen3-vl` por último). Sem Ollama acessível, mantém o configurado.
 - **Requisito:** modelo **multimodal (visão) e não-pensante**. O servidor chama `/api/chat` com `think:false` e detecta quando o modelo "só pensa" (devolve `content` vazio).
 
-> **Nota sobre `qwen3-vl`:** o `qwen3-vl` é um modelo "thinking" e, nos builds atuais do Ollama, o `think:false` é **ignorado** — o modelo gasta o `num_predict` raciocinando e devolve `content` vazio (nenhum log sai da descrição). Por isso a integração usa `/api/chat` com detecção desse caso e recomenda o `qwen2.5vl` (não-pensante) para descrição de frames. O `qwen2.5-coder` (texto puro, sem visão) também não serve.
+> **Nota sobre `qwen3-vl`:** o `qwen3-vl` é um modelo "thinking" e, nos builds atuais do Ollama, o `think:false` é **ignorado** — o modelo gasta o `num_predict` raciocinando e devolve `content` vazio (nenhum log sai da descrição). Por isso a integração usa `/api/chat` com detecção desse caso e recomenda o `moondream`/`qwen2.5vl` (não-pensantes) para descrição de frames. O `qwen2.5-coder` (texto puro, sem visão) também não serve.
 
-A linha de diagnóstico mostra o **modelo solicitado** (o `OLLAMA_MODEL`/padrão) e os **modelos carregados** — via `GET /api/health`, que lista o que está instalado (`/api/tags`) e em memória (`/api/ps`). Modelos instalados no Ollama além do configurado aparecem lá, mas **não são selecionáveis**: descrição/roteiro sempre usam o `OLLAMA_MODEL`.
+A linha de diagnóstico mostra o **modelo em uso** (o `OLLAMA_MODEL`/padrão, ou o substituto) e os **modelos carregados** — via `GET /api/health`, que lista o que está instalado (`/api/tags`), informa o `solicitado` e o `modelo` efetivo e mostra o que está em memória (`/api/ps`). Quando há substituição, a linha indica `fallback de <solicitado>`.
 
 ## Modelos de detecção (navegador)
 

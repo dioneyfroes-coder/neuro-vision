@@ -1,16 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  escolherModelo,
   extrairBase64,
   forcarCarregamento,
   gerarDescricao,
   gerarDescricaoStream,
+  limparCacheModelo,
+  melhorModeloDisponivel,
   mesmoModelo,
   modeloEmMemoria,
   modelosEmMemoria,
+  modelosInstalados,
   montarPromptDescricao,
   montarPromptRoteiro,
   normalizarNomeModelo,
   NUM_PREDICT_BASE,
+  MODELO_PADRAO,
   PROMPT_DESCRICAO,
   PROMPT_ROTEIRO_BASE,
   PROMPT_ROTEIRO_DELTA,
@@ -18,6 +23,7 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  limparCacheModelo();
 });
 
 describe("extrairBase64", () => {
@@ -289,6 +295,112 @@ describe("mesmoModelo", () => {
   it("retorna falso quando algum nome e vazio", () => {
     expect(mesmoModelo("", "")).toBe(false);
     expect(mesmoModelo("", "qwen2.5vl:3b")).toBe(false);
+  });
+});
+
+describe("melhorModeloDisponivel", () => {
+  it("prefere o moondream quando presente", () => {
+    expect(melhorModeloDisponivel(["qwen2.5vl:3b", "moondream:latest"])).toBe("moondream:latest");
+  });
+
+  it("cai para o qwen2.5vl quando o moondream falta", () => {
+    expect(melhorModeloDisponivel(["qwen3-vl:4b", "qwen2.5vl:7b"])).toBe("qwen2.5vl:7b");
+  });
+
+  it("prefere modelo nao-pensante a um thinking", () => {
+    expect(melhorModeloDisponivel(["qwen3-vl:4b", "llava:7b"])).toBe("llava:7b");
+  });
+
+  it("usa o primeiro da lista quando nenhum prefixo conhecido casa", () => {
+    expect(melhorModeloDisponivel(["foo:1", "bar:2"])).toBe("foo:1");
+  });
+
+  it("devolve vazio quando nao ha instalados", () => {
+    expect(melhorModeloDisponivel([])).toBe("");
+  });
+});
+
+describe("modelosInstalados", () => {
+  it("lista os modelos via /api/tags", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ models: [{ name: "moondream:latest" }, { name: "qwen2.5vl:3b" }] }),
+      })
+    );
+    await expect(modelosInstalados({ host: "http://localhost:11434" })).resolves.toEqual([
+      "moondream:latest",
+      "qwen2.5vl:3b",
+    ]);
+  });
+
+  it("devolve lista vazia quando /api/tags falha", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+    await expect(modelosInstalados()).resolves.toEqual([]);
+  });
+});
+
+describe("escolherModelo", () => {
+  it("respeita modelo explicito sem consultar o Ollama", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(escolherModelo({ modelo: "qwen3-vl:4b" })).resolves.toEqual({
+      solicitado: "qwen3-vl:4b",
+      modelo: "qwen3-vl:4b",
+      alternativo: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("mantem o padrao quando ele esta instalado", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ models: [{ name: MODELO_PADRAO }] }),
+      })
+    );
+    await expect(escolherModelo()).resolves.toEqual({
+      solicitado: MODELO_PADRAO,
+      modelo: MODELO_PADRAO,
+      alternativo: false,
+    });
+  });
+
+  it("usa o melhor disponivel quando o padrao falta", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ models: [{ name: "qwen2.5vl:3b" }] }),
+      })
+    );
+    await expect(escolherModelo()).resolves.toEqual({
+      solicitado: MODELO_PADRAO,
+      modelo: "qwen2.5vl:3b",
+      alternativo: true,
+    });
+  });
+
+  it("mantem o configurado quando o Ollama esta offline", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+    await expect(escolherModelo()).resolves.toMatchObject({
+      solicitado: MODELO_PADRAO,
+      modelo: MODELO_PADRAO,
+      alternativo: false,
+    });
+  });
+
+  it("cacheia a escolha entre chamadas", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ models: [{ name: "qwen2.5vl:3b" }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await escolherModelo();
+    await escolherModelo();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

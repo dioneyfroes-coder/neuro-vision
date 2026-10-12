@@ -110,6 +110,9 @@ function atualizarDiagnostico(): void {
         : "nenhum";
 
   const partes = [`motor ${motor}`, `modelo ${modelo}`, `Ollama carregado: ${carregados}`];
+  if (infoOllama?.solicitado && infoOllama.solicitado !== infoOllama.modelo) {
+    partes.push(`fallback de ${infoOllama.solicitado}`);
+  }
   if (ultimaCargaMs > 0) partes.push(`carga ${(ultimaCargaMs / 1000).toFixed(1)}s`);
   if (ultimaDuracaoMs > 0) partes.push(`inferencia ${ultimaDuracaoMs} ms`);
   if (ultimaPersistenciaMs > 0) partes.push(`persistencia ${ultimaPersistenciaMs} ms`);

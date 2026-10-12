@@ -2,7 +2,6 @@
 
 Visão computacional 100% local: a webcam enxerga e registra o que vê. A imagem capturada nunca sai do seu computador — a detecção roda no navegador (transformers.js) e a descrição roda em um Ollama local.
 
-> **Regra de documentação (60 segundos):** este README é o guia rápido — deve ser lido em ~60 s. Todo detalhe mora em [`docs/`](./docs/README.md). Se um assunto não cabe numa leitura rápida, ele vai para `docs/`, para nunca perdermos documentação.
 
 ## Modos
 
@@ -19,7 +18,7 @@ Requisitos: **Node.js 20+** e, para os modos de descrição/roteiro, **Ollama** 
 
 ```bash
 npm install
-ollama pull qwen2.5vl:3b     # modelo de visão (padrão do app)
+ollama pull moondream          # modelo de visão (padrão do app)
 npm run dev                  # desenvolvimento (abre http://localhost:3000)
 npm start                    # produção (build + servidor)
 ```
@@ -32,7 +31,7 @@ Configuração essencial (veja a tabela completa em [`docs/uso.md`](./docs/uso.m
 | --- | --- | --- |
 | `PORT` | `3000` | Porta HTTP. |
 | `OLLAMA_HOST` | `http://localhost:11434` | URL do Ollama. |
-| `OLLAMA_MODEL` | `qwen2.5vl:3b` | Modelo de visão não-pensante usado na descrição (`qwen3-vl` funciona só no chat manual: é "thinking" e o `think:false` é ignorado). |
+| `OLLAMA_MODEL` | `moondream:latest` | Modelo de visão não-pensante usado na descrição. Se não estiver instalado, o app usa o melhor modelo de visão disponível (`qwen2.5vl`, `llava`, ...). |
 
 ## Documentação (`docs/`)
 

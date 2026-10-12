@@ -3,7 +3,9 @@ import { ErroPercepcao } from "../src/erros";
 
 export interface InfoOllama {
   online: boolean;
-  /** Modelo de visao solicitado ao Ollama (OLLAMA_MODEL ou o padrao do servidor). */
+  /** Modelo de visao configurado (OLLAMA_MODEL ou o padrao do servidor). */
+  solicitado?: string;
+  /** Modelo efetivamente usado (o solicitado ou o melhor disponivel). */
   modelo: string;
   modelos: string[];
   carregados: string[];

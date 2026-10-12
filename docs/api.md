@@ -16,7 +16,7 @@ Referência completa da API HTTP, formato das entradas, retenção de snapshots 
 | `DELETE` | `/api/eventos` | Limpa os eventos estruturados e remove os snapshots que ficaram órfãos. |
 | `POST` | `/api/operacional` | Grava um registro operacional (falha/métrica) que **não** é acontecimento visual. |
 | `GET` | `/api/contexto` | Reidrata um contexto curto do estado recente (`{ resumo, roteiro, ultimaDescricao, entradas, eventos }`) com janela por `maxEntradas`/`maxEventos`/`maxCaracteres`. |
-| `GET` | `/api/health` | Status do Ollama (`{ ollama: { online, modelos, carregados, erro } }`). |
+| `GET` | `/api/health` | Status do Ollama (`{ ollama: { online, solicitado, modelo, modelos, carregados, erro } }`). `modelo` é o efetivo (o solicitado ou o melhor disponível quando o solicitado não está instalado). |
 | `GET` | `/snapshots/<arquivo>` | Serve os snapshots (thumbnails) gravados. |
 
 As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jsonl` e os registros operacionais em `logs/operacional.jsonl` (uma linha JSON por registro, própria política de rotação); os snapshots ficam em `logs/snapshots/`.
@@ -24,7 +24,7 @@ As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jso
 ## `POST /api/visao` — corpo
 
 ```json
-{ "imagem": "<base64 ou data URL>", "modelo": "qwen2.5vl:3b", "modo": "roteiro", "base": true, "roteiro": "", "anterior": "descrição anterior", "snapshot": "<data URL opcional>", "capturadoEm": "<ISO opcional: instante da captura do frame>" }
+{ "imagem": "<base64 ou data URL>", "modelo": "moondream:latest", "modo": "roteiro", "base": true, "roteiro": "", "anterior": "descrição anterior", "snapshot": "<data URL opcional>", "capturadoEm": "<ISO opcional: instante da captura do frame>" }
 ```
 
 - `modo`: `"roteiro"` (padrão) ou `"descricao"`.
@@ -36,7 +36,7 @@ Resposta: stream NDJSON (`application/x-ndjson`), uma linha por evento:
 
 ```json
 { "type": "chunk", "response": "Uma pessoa" }
-{ "type": "done", "descricao": "Uma pessoa no escritorio.", "modelo": "qwen2.5vl:3b", "tokens": 42, "ms": 3120, "snapshot": "/snapshots/123-abc.jpg", "tipo": "roteiro", "papel": "delta", "semMudanca": false }
+{ "type": "done", "descricao": "Uma pessoa no escritorio.", "modelo": "moondream:latest", "tokens": 42, "ms": 3120, "snapshot": "/snapshots/123-abc.jpg", "tipo": "roteiro", "papel": "delta", "semMudanca": false }
 ```
 
 No modo roteiro, quando o modelo responde que **nada mudou** (sentinela `INALTERADO`, tolerante a acentos/variações), o servidor devolve `"semMudanca": true` e **não grava** a entrada no log — assim o roteiro não vira ruído.

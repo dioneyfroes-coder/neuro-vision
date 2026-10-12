@@ -16,10 +16,10 @@ npm install
 Para os modos de descrição/roteiro, baixe um modelo de visão:
 
 ```bash
-ollama pull qwen2.5vl:3b
+ollama pull moondream
 ```
 
-Sobre qual modelo usar (thinking vs. não-pensante) e a nota do `qwen3-vl`, veja [`modos.md`](./modos.md#escolha-do-modelo-do-ollama).
+Sobre qual modelo usar (thinking vs. não-pensante), o fallback automático e a nota do `qwen3-vl`, veja [`modos.md`](./modos.md#escolha-do-modelo-do-ollama).
 
 ## Execução
 
@@ -46,7 +46,7 @@ Variáveis de ambiente lidas pelo servidor:
 | `PORT` | `3000` | Porta HTTP. |
 | `HOST` | `127.0.0.1` | Interface de escuta. Um host não-loopback exige `NEURO_ALLOW_REMOTE=1`. |
 | `OLLAMA_HOST` | `http://localhost:11434` | URL do Ollama. |
-| `OLLAMA_MODEL` | `qwen2.5vl:3b` | Modelo de visão não-pensante usado na descrição. |
+| `OLLAMA_MODEL` | `moondream:latest` | Modelo de visão não-pensante usado na descrição. Se não estiver instalado, o app usa o melhor modelo de visão disponível. |
 | `LOG_MAX_BYTES` | `5000000` | Tamanho máximo de cada JSONL (`visao.jsonl`, `eventos.jsonl`, `operacional.jsonl`) antes de rotacionar para `.1`. |
 | `SNAP_MAX_BYTES` | `200000000` | Tamanho total máximo de `logs/snapshots/` em bytes (`0` desativa). |
 | `SNAP_MAX_FILES` | `1000` | Quantidade máxima de snapshots (`0` desativa). |
@@ -78,11 +78,11 @@ OLLAMA_MODEL=qwen2.5vl:7b npm start            # bash
 | Bibliotecas de desenvolvimento (`esbuild`, `tsx`, `vitest`, `playwright`) | npm | `npm install` | `node_modules/` |
 | Transformers.js **3.8.1** (fixado) | CDN (`cdn.jsdelivr.net`) | ao usar um modo de detecção/eventos (import sob demanda) | cache HTTP do navegador |
 | Pesos do modelo de detecção (ex.: `Xenova/yolos-tiny`) | Hugging Face Hub | na primeira carga do modelo | cache do navegador (`useBrowserCache`) |
-| Modelo de visão (ex.: `qwen2.5vl:3b`) | Ollama | `ollama pull` | pasta do Ollama |
+| Modelo de visão (ex.: `moondream`) | Ollama | `ollama pull` | pasta do Ollama |
 
 **Como preparar antes de ficar offline:**
 
-1. `ollama pull qwen2.5vl:3b` uma vez, com internet.
+1. `ollama pull moondream` uma vez, com internet.
 2. Subir o app, escolher o motor **Detecção** (ou **Eventos**) e clicar **Iniciar** até o modelo carregar — isso popula o cache do navegador com a biblioteca e os pesos. Repita no mesmo navegador/perfil que será usado offline.
 
 **Comportamento com a rede desconectada (após a preparação):**
@@ -97,7 +97,7 @@ A versão do Transformers.js é **fixa** (`3.8.1`), em vez do tag flutuante `@3`
 
 ## Diagnóstico
 
-O cabeçalho mostra uma **linha de diagnóstico** com o **motor ativo** (ou “parado”), o **modelo solicitado** (o do navegador nos modos detecção/eventos; o `OLLAMA_MODEL` nos modos Ollama) e os **modelos carregados** no Ollama (via `GET /api/health`, que também informa o `modelo` configurado).
+O cabeçalho mostra uma **linha de diagnóstico** com o **motor ativo** (ou “parado”), o **modelo em uso** (o do navegador nos modos detecção/eventos; o `OLLAMA_MODEL`/padrão nos modos Ollama, ou o substituto quando há fallback) e os **modelos carregados** no Ollama (via `GET /api/health`, que também informa o `solicitado` e o `modelo` efetivo). Quando o modelo configurado não está instalado, a linha acrescenta `fallback de <solicitado>`.
 
 Ela separa três tempos para localizar a lentidão:
 
