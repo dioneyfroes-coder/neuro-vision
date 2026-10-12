@@ -9,6 +9,8 @@
  * O mapeamento de requisicao/resposta fica isolado aqui; o resto do servidor
  * trata apenas o formato generico (`ResultadoChat`).
  */
+import { env } from "./env";
+
 export type ProvedorId = "ollama" | "openai";
 
 export interface Backend {
@@ -56,14 +58,14 @@ export function definirProvedorDetectado(id: ProvedorId | null): void {
 
 /** Provedor configurado por ambiente. `auto` usa o detectado na subida. */
 export function provedorConfigurado(): ProvedorId {
-  const valor = (process.env.NEURO_PROVIDER ?? "").toLowerCase();
+  const valor = (env.NEURO_PROVIDER || "").toLowerCase();
   if (valor === "openai" || valor === "lmstudio" || valor === "lm-studio") return "openai";
   if (valor === "ollama") return "ollama";
   return provedorDetectado ?? "ollama";
 }
 
 export function modoAuto(): boolean {
-  const valor = (process.env.NEURO_PROVIDER ?? "auto").toLowerCase();
+  const valor = (env.NEURO_PROVIDER || "auto").toLowerCase();
   return valor === "auto" || valor === "";
 }
 
@@ -103,14 +105,11 @@ export function resolverBackend(opcoes: OpcoesBackend = {}): Backend {
     opcoes.provedor && !ehAuto(opcoes.provedor)
       ? (opcoes.provedor as ProvedorId)
       : provedorConfigurado();
-  const explicitada = opcoes.baseUrl ?? process.env.NEURO_BASE_URL;
+  const explicitada = opcoes.baseUrl ?? env.NEURO_BASE_URL;
   const baseUrl = semBarra(
-    explicitada ??
-      (id === "openai"
-        ? process.env.OPENAI_BASE_URL ?? "http://localhost:1234"
-        : process.env.OLLAMA_HOST ?? "http://localhost:11434")
+    explicitada !== "" ? explicitada : id === "openai" ? env.OPENAI_BASE_URL : env.OLLAMA_HOST
   );
-  const apiKey = opcoes.apiKey ?? process.env.NEURO_API_KEY ?? process.env.OPENAI_API_KEY;
+  const apiKey = opcoes.apiKey ?? (env.NEURO_API_KEY !== "" ? env.NEURO_API_KEY : env.OPENAI_API_KEY);
   return { id, baseUrl, apiKey };
 }
 
@@ -164,7 +163,7 @@ export function paraDataUrl(imagem: string): string {
 
 /** Valor do campo `image_url.url`: data URL (padrao OpenAI) ou base64 cru. */
 export function urlDaImagem(imagem: string): string {
-  return process.env.NEURO_IMG_BASE64_CRU === "1" ? extrairBase64(imagem) : paraDataUrl(imagem);
+  return env.NEURO_IMG_BASE64_CRU ? extrairBase64(imagem) : paraDataUrl(imagem);
 }
 
 export interface OpcoesRequisicao {

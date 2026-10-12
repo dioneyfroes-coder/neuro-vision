@@ -1,3 +1,4 @@
+import { env } from "./env";
 import {
   cabecalhos,
   interpretarLinha,
@@ -135,7 +136,8 @@ export interface OpcoesOllama {
 }
 
 function modeloConfigurado(): string {
-  return process.env.NEURO_MODEL ?? process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
+  const m = env.NEURO_MODEL !== "" ? env.NEURO_MODEL : env.OLLAMA_MODEL;
+  return m !== "" ? m : MODELO_PADRAO;
 }
 
 function resolverModelo(opcoes: OpcoesOllama): string {
@@ -270,11 +272,9 @@ export interface OpcoesTraduzir {
  */
 export async function traduzirTexto(opcoes: OpcoesTraduzir): Promise<string> {
   const backend = backendDe(opcoes);
-  const modelo =
-    opcoes.modelo ??
-    process.env.NEURO_TRANSLATE_MODEL ??
-    process.env.OLLAMA_TRANSLATE_MODEL ??
-    resolverModelo(opcoes);
+  const modeloTraduzir =
+    env.NEURO_TRANSLATE_MODEL !== "" ? env.NEURO_TRANSLATE_MODEL : env.OLLAMA_TRANSLATE_MODEL;
+  const modelo = opcoes.modelo || (modeloTraduzir !== "" ? modeloTraduzir : resolverModelo(opcoes));
   const texto = opcoes.texto.trim();
   if (!texto) return texto;
 
@@ -309,9 +309,7 @@ export async function traduzirTexto(opcoes: OpcoesTraduzir): Promise<string> {
 }
 
 function traducaoHabilitada(): boolean {
-  const env = process.env.NEURO_TRANSLATE_ENABLED ?? process.env.OLLAMA_TRANSLATE_ENABLED;
-  if (env === undefined) return TRADUZIR_HABILITADO_PADRAO;
-  return env !== "false" && env !== "0";
+  return env.NEURO_TRANSLATE_ENABLED || env.OLLAMA_TRANSLATE_ENABLED || TRADUZIR_HABILITADO_PADRAO;
 }
 
 export function deveTraduzir(texto: string, habilitado?: boolean): boolean {

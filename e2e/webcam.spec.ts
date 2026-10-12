@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { env } from "../src/env";
 
 /**
  * Avaliacao com clipe REAL de webcam (Fase 7).
@@ -22,9 +23,9 @@ import path from "node:path";
  *   npx playwright test e2e/webcam.spec.ts --workers=1
  */
 
-const CLIP = process.env.E2E_WEBCAM_CLIP;
-const CANAL = process.env.E2E_WEBCAM_CHANNEL;
-const DEBUG = process.env.E2E_WEBCAM_DEBUG === "1";
+const CLIP = env.E2E_WEBCAM_CLIP || undefined;
+const CANAL = env.E2E_WEBCAM_CHANNEL || undefined;
+const DEBUG = env.E2E_WEBCAM_DEBUG;
 
 // Com um canal instalado (ex.: "chrome") o WebGPU fica disponivel; sem ele,
 // usamos o Chromium do Playwright (WASM/CPU). Precisa ser de nivel superior.
@@ -148,7 +149,7 @@ test.describe("avaliacao com clipe real de webcam", () => {
 
     expect(eventos.length, "nenhum evento foi capturado (a deteccao nao rodou?)").toBeGreaterThan(0);
 
-    const destino = path.resolve(process.env.E2E_WEBCAM_EVENTOS || "logs/webcam-eventos.jsonl");
+    const destino = path.resolve(env.E2E_WEBCAM_EVENTOS || "logs/webcam-eventos.jsonl");
     await mkdir(path.dirname(destino), { recursive: true });
     await writeFile(destino, eventos.map((e) => JSON.stringify(e)).join("\n") + "\n");
     // Base para os offsets `em` da anotacao (instante em que o clipe tocou).

@@ -15,6 +15,7 @@
     "qualidade": "node scripts/avaliar-qualidade.mjs",
     "gravar:webcam": "node scripts/gravar-webcam.mjs",
     "extrair:frames": "node scripts/extrair-frames.mjs",
+    "integrar:lmstudio": "node --import tsx scripts/testar-lmstudio.mjs",
     "build": "npm run clean && npm run build:server && npm run build:client",
     "build:server": "esbuild src/server.ts --bundle --platform=node --format=esm --outfile=dist/server.js --external:node:*",
     "build:client": "esbuild public/app.ts --bundle --format=esm --outfile=public/app.js --external:https://*",

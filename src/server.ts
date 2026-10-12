@@ -57,14 +57,10 @@ export const LOG_DIR = path.join(ROOT, "logs");
 export const LOG_FILE = path.join(LOG_DIR, "visao.jsonl");
 export const EVENTOS_FILE = path.join(LOG_DIR, "eventos.jsonl");
 export const OPERACIONAL_FILE = path.join(LOG_DIR, "operacional.jsonl");
-export const LOG_MAX_BYTES = Number(process.env.LOG_MAX_BYTES) || 5_000_000;
+import { env } from "./env";
+export const LOG_MAX_BYTES = env.LOG_MAX_BYTES || 5_000_000;
 export const SNAP_DIR = path.join(LOG_DIR, "snapshots");
 export const SNAP_URL = "/snapshots";
-
-function numeroEnv(nome: string, padrao: number): number {
-  const valor = Number(process.env[nome]);
-  return Number.isFinite(valor) && valor >= 0 ? valor : padrao;
-}
 
 export interface PoliticaSnapshots {
   /** Tamanho total maximo de `logs/snapshots/` em bytes (0 desativa). */
@@ -81,21 +77,21 @@ export interface PoliticaSnapshots {
  * correspondente). Os valores precisam ser finitos e nao negativos.
  */
 export const POLITICA_SNAPSHOTS_PADRAO: PoliticaSnapshots = {
-  maxBytes: numeroEnv("SNAP_MAX_BYTES", 200_000_000),
-  maxFiles: numeroEnv("SNAP_MAX_FILES", 1000),
-  maxAgeMs: numeroEnv("SNAP_MAX_AGE_DAYS", 30) * 24 * 60 * 60 * 1000,
+  maxBytes: env.SNAP_MAX_BYTES,
+  maxFiles: env.SNAP_MAX_FILES,
+  maxAgeMs: env.SNAP_MAX_AGE_DAYS * 24 * 60 * 60 * 1000,
 };
 
 /** Intervalo minimo entre limpezas automaticas disparadas por novas gravacoes. */
-export const SNAP_CLEAN_INTERVAL_MS = numeroEnv("SNAP_CLEAN_INTERVAL_MS", 10 * 60 * 1000);
+export const SNAP_CLEAN_INTERVAL_MS = env.SNAP_CLEAN_INTERVAL_MS;
 
 /** Limite do corpo JSON de `POST /api/log`. */
-export const BODY_MAX_BYTES = numeroEnv("BODY_MAX_BYTES", 1_000_000);
+export const BODY_MAX_BYTES = env.BODY_MAX_BYTES;
 /** Limite do corpo JSON de `POST /api/visao` (imagem base64 + snapshot). */
-export const VISAO_BODY_MAX_BYTES = numeroEnv("VISAO_BODY_MAX_BYTES", 12_000_000);
+export const VISAO_BODY_MAX_BYTES = env.VISAO_BODY_MAX_BYTES;
 /** Limite de um unico snapshot (data URL/base64) aceito para gravacao. */
 export function limiteUploadSnapshot(): number {
-  return numeroEnv("SNAP_UPLOAD_MAX_BYTES", 5_000_000);
+  return env.SNAP_UPLOAD_MAX_BYTES;
 }
 
 const EXTENSOES_SNAPSHOT = /\.(jpe?g|png|webp)$/i;
@@ -1101,7 +1097,7 @@ interface InfoOllama {
 
 async function consultarOllama(host?: string, provedor?: ProvedorId | "auto"): Promise<InfoOllama> {
   const backend = resolverBackend({ baseUrl: host, provedor });
-  const solicitado = process.env.NEURO_MODEL ?? process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
+  const solicitado = env.NEURO_MODEL !== "" ? env.NEURO_MODEL : env.OLLAMA_MODEL !== "" ? env.OLLAMA_MODEL : MODELO_PADRAO;
   try {
     const resposta = await fetch(urlModelos(backend), {
       headers: cabecalhos(backend),
@@ -1252,7 +1248,7 @@ export function createServer(config: ServerConfig = {}): http.Server {
   const eventosFile = config.eventosFile ?? path.join(path.dirname(logFile), "eventos.jsonl");
   const operacionalFile =
     config.operacionalFile ?? path.join(path.dirname(logFile), "operacional.jsonl");
-  const permitidas = origensPermitidas(process.env.NEURO_ALLOWED_ORIGINS);
+  const permitidas = origensPermitidas(env.NEURO_ALLOWED_ORIGINS);
 
   return http.createServer((req, res) => {
     const url = req.url ?? "/";
@@ -1321,9 +1317,9 @@ export function createServer(config: ServerConfig = {}): http.Server {
 
 const entryUrl = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
 if (import.meta.url === entryUrl) {
-  const PORT = Number(process.env.PORT) || 3000;
-  const HOST = process.env.HOST || "127.0.0.1";
-  if (hostExpostoNaRede(HOST) && process.env.NEURO_ALLOW_REMOTE !== "1") {
+  const PORT = env.PORT;
+  const HOST = env.HOST;
+  if (hostExpostoNaRede(HOST) && !env.NEURO_ALLOW_REMOTE) {
     logEvent("error", "bind_remoto_bloqueado", { host: HOST });
     console.error(
       `\n  HOST=${HOST} expoe a interface e a API a rede local, sem autenticacao.\n` +

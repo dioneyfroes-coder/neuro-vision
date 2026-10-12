@@ -41,6 +41,15 @@ npm start
 
 ## Configuração
 
+A configuração fica centralizada em [`src/env.ts`](../src/env.ts). Copie [`.env.example`](../.env.example) para `.env` (na raiz, ignorado pelo Git) para definir tudo em um só lugar:
+
+```bash
+cp .env.example .env   # bash
+Copy-Item .env.example .env   # PowerShell
+```
+
+Variáveis já exportadas no shell têm prioridade sobre o `.env`. Se o arquivo não existir, valem os padrões abaixo.
+
 Variáveis de ambiente lidas pelo servidor:
 
 | Variável | Padrão | Descrição |
@@ -79,6 +88,25 @@ Exemplo (LM Studio, API OpenAI):
 ```bash
 $env:NEURO_PROVIDER="openai"; $env:NEURO_MODEL="llama-3.2-11b-vision-instruct"; npm start   # PowerShell
 NEURO_PROVIDER=openai NEURO_MODEL=llama-3.2-11b-vision-instruct npm start                    # bash
+```
+
+Exemplo (LM Studio com o Qwen2.5-VL 3B Instruct — leve e rápido):
+
+```bash
+# 1. No LM Studio: aba "Developer" > "Start Server" e carregue "Qwen2.5-VL-3B-Instruct".
+# 2. A URL base é a mesma que o LM Studio mostra ("http://127.0.0.1:<porta>"); o
+#    padrão do app é a porta 1234. Se o LM Studio estiver em outra porta, use NEURO_BASE_URL.
+$env:NEURO_PROVIDER="openai"; $env:NEURO_BASE_URL="http://127.0.0.1:1234"; $env:NEURO_MODEL="qwen2.5-vl-3b-instruct"; npm start   # PowerShell
+NEURO_PROVIDER=openai NEURO_BASE_URL=http://127.0.0.1:1234 NEURO_MODEL=qwen2.5-vl-3b-instruct npm start                           # bash
+```
+
+> `NEURO_MODEL` deve ser exatamente o `id` mostrado no LM Studio (o mesmo de `GET /v1/models`). Em `auto` (padrão) o app detecta o backend sozinho, mas se o Ollama também estiver no ar ele tem prioridade — force `NEURO_PROVIDER=openai` para usar o LM Studio.
+
+Teste rápido da integração (sem abrir o navegador), com o LM Studio já rodando:
+
+```bash
+$env:LMSTUDIO_URL="http://127.0.0.1:1234"; $env:NEURO_MODEL="qwen2.5-vl-3b-instruct"; npm run integrar:lmstudio   # PowerShell
+LMSTUDIO_URL=http://127.0.0.1:1234 NEURO_MODEL=qwen2.5-vl-3b-instruct npm run integrar:lmstudio                     # bash
 ```
 
 > A respeito de expor o servidor na rede e dos controles de segurança, veja [`seguranca.md`](./seguranca.md).
@@ -140,3 +168,4 @@ Quando a detecção de objetos **não consegue usar WebGPU** e roda em CPU (WASM
 | `npm run qualidade` | Compara os eventos gravados com a anotação de um clipe (precisão/recall, falsos positivos por minuto). |
 | `npm run gravar:webcam` | Grava alguns segundos da webcam em `.webm` (clipe para a avaliação de eventos). |
 | `npm run extrair:frames` | Extrai quadros de um clipe `.webm` para conferência/anotação. |
+| `npm run integrar:lmstudio` | Teste prático automático da integração com o LM Studio (lista modelos, prepara o modelo e descreve um frame sintético pela API real do servidor). Configure a URL e o modelo com `LMSTUDIO_URL` e `NEURO_MODEL`. |
