@@ -24,7 +24,7 @@ As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jso
 ## `POST /api/visao` — corpo
 
 ```json
-{ "imagem": "<base64 ou data URL>", "modelo": "llama3.2-vision:11b", "modo": "roteiro", "base": true, "roteiro": "", "anterior": "descrição anterior", "snapshot": "<data URL opcional>", "capturadoEm": "<ISO opcional: instante da captura do frame>" }
+{ "imagem": "<base64 ou data URL>", "modelo": "qwen2.5-vl-3b-instruct", "modo": "roteiro", "base": true, "roteiro": "", "anterior": "descrição anterior", "snapshot": "<data URL opcional>", "capturadoEm": "<ISO opcional: instante da captura do frame>" }
 ```
 
 - `modo`: `"roteiro"` (padrão) ou `"descricao"`.
@@ -36,7 +36,7 @@ Resposta: stream NDJSON (`application/x-ndjson`), uma linha por evento:
 
 ```json
 { "type": "chunk", "response": "Uma pessoa" }
-{ "type": "done", "descricao": "Uma pessoa no escritorio.", "modelo": "llama3.2-vision:11b", "tokens": 42, "ms": 3120, "snapshot": "/snapshots/123-abc.jpg", "tipo": "roteiro", "papel": "delta", "semMudanca": false }
+{ "type": "done", "descricao": "Uma pessoa no escritorio.", "modelo": "qwen2.5-vl-3b-instruct", "tokens": 42, "ms": 3120, "snapshot": "/snapshots/123-abc.jpg", "tipo": "roteiro", "papel": "delta", "semMudanca": false }
 ```
 
 No modo roteiro, quando o modelo responde que **nada mudou** (sentinela `INALTERADO`, tolerante a acentos/variações), o servidor devolve `"semMudanca": true` e **não grava** a entrada no log — assim o roteiro não vira ruído.

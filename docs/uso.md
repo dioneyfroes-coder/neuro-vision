@@ -16,10 +16,10 @@ npm install
 Para os modos de descrição/roteiro, garanta um modelo de visão disponível. Com Ollama:
 
 ```bash
-ollama pull llama3.2-vision:11b
+ollama pull qwen2.5vl:3b
 ```
 
-Com LM Studio, carregue um modelo de visão (ex.: `llama-3.2-11b-vision-instruct`) e inicie o servidor local na porta padrão (`1234`).
+Com LM Studio, carregue um modelo de visão (ex.: `qwen2.5-vl-3b-instruct`, o padrão do app) e inicie o servidor local na porta padrão (`1234`).
 
 Sobre qual modelo usar (thinking vs. não-pensante), o fallback automático e a nota do `qwen3-vl`, veja [`modos.md`](./modos.md#escolha-do-modelo-do-backend-de-visão).
 
@@ -58,7 +58,7 @@ Variáveis de ambiente lidas pelo servidor:
 | `HOST` | `127.0.0.1` | Interface de escuta. Um host não-loopback exige `NEURO_ALLOW_REMOTE=1`. |
 | `NEURO_PROVIDER` | `auto` | Backend de visão: `ollama` (API nativa), `openai`/`lmstudio` (API compatível com OpenAI) ou `auto` (detecta na subida: Ollama, senão OpenAI). |
 | `NEURO_BASE_URL` | (por provedor) | URL base do backend. Padrões: `http://localhost:11434` (Ollama) e `http://localhost:1234` (OpenAI). Tem prioridade sobre `OLLAMA_HOST`/`OPENAI_BASE_URL`. |
-| `NEURO_MODEL` | `llama3.2-vision:11b` | Modelo de visão usado na descrição. Se não estiver disponível, o app usa o melhor modelo de visão encontrado. |
+| `NEURO_MODEL` | `qwen2.5-vl-3b-instruct` | Modelo de visão usado na descrição. Se não estiver disponível, o app usa o melhor modelo de visão encontrado. |
 | `NEURO_API_KEY` | (vazio) | Chave enviada como `Authorization: Bearer` no protocolo OpenAI (o LM Studio ignora). |
 | `NEURO_IMG_BASE64_CRU` | (vazio) | `1` envia a imagem como base64 cru em `image_url.url` (workaround para versões do LM Studio que rejeitam data URL). |
 | `NEURO_TRANSLATE_ENABLED` | `false` | `1` reativa a tradução da descrição para português (desnecessária com um modelo de visão capaz). |
@@ -122,11 +122,11 @@ LMSTUDIO_URL=http://127.0.0.1:1234 NEURO_MODEL=qwen2.5-vl-3b-instruct npm run in
 | Bibliotecas de desenvolvimento (`esbuild`, `tsx`, `vitest`, `playwright`) | npm | `npm install` | `node_modules/` |
 | Transformers.js **3.8.1** (fixado) | CDN (`cdn.jsdelivr.net`) | ao usar um modo de detecção/eventos (import sob demanda) | cache HTTP do navegador |
 | Pesos do modelo de detecção (ex.: `Xenova/yolos-tiny`) | Hugging Face Hub | na primeira carga do modelo | cache do navegador (`useBrowserCache`) |
-| Modelo de visão (ex.: `llama3.2-vision:11b`) | Ollama (`ollama pull`) ou LM Studio (download na própria interface) | antes de usar | pasta do Ollama / pasta de modelos do LM Studio |
+| Modelo de visão (ex.: `qwen2.5vl:3b` no Ollama, `qwen2.5-vl-3b-instruct` no LM Studio) | Ollama (`ollama pull`) ou LM Studio (download na própria interface) | antes de usar | pasta do Ollama / pasta de modelos do LM Studio |
 
 **Como preparar antes de ficar offline:**
 
-1. Baixe o modelo de visão uma vez, com internet: `ollama pull llama3.2-vision:11b` (Ollama) ou baixe/carregue o modelo no LM Studio.
+1. Baixe o modelo de visão uma vez, com internet: `ollama pull qwen2.5vl:3b` (Ollama) ou baixe/carregue `qwen2.5-vl-3b-instruct` no LM Studio.
 2. Subir o app, escolher o motor **Detecção** (ou **Eventos**) e clicar **Iniciar** até o modelo carregar — isso popula o cache do navegador com a biblioteca e os pesos. Repita no mesmo navegador/perfil que será usado offline.
 
 **Comportamento com a rede desconectada (após a preparação):**

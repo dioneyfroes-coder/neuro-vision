@@ -432,7 +432,7 @@ async function main() {
           `    AVISO: o modelo nao produziu texto (${v.pensou ? "thinking sempre ativo - o Ollama ignorou think:false neste modelo" : "resposta vazia"}). Os numeros acima medem raciocinio, nao descricao.\n`
         );
         console.log(
-          "    Sugestao: `ollama pull moondream` e rode com OLLAMA_MODEL=moondream (modelo de visao nao-pensante).\n"
+          "    Sugestao: use um modelo de visao nao-pensante (ex.: `ollama pull qwen2.5vl:3b`) e rode com OLLAMA_MODEL=qwen2.5vl:3b.\n"
         );
       } else {
         console.log(

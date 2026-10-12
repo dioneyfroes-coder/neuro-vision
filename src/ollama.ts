@@ -83,13 +83,12 @@ export function montarPromptRoteiro(base: boolean, roteiro?: string): string {
  * `NEURO_MODEL` (ou `OLLAMA_MODEL`); se o modelo resultante nao estiver
  * instalado no backend, `escolherModelo` cai para o melhor disponivel.
  */
-export const MODELO_PADRAO = "llama3.2-vision:11b";
+export const MODELO_PADRAO = "qwen2.5-vl-3b-instruct";
 
 /**
  * Ordem de preferencia usada quando o modelo configurado nao esta instalado.
  * Sao modelos de visao conhecidos; o primeiro prefixo que casar com um modelo
- * instalado vence. Modelos capazes vem primeiro; `moondream` fica por ultimo
- * (e apenas um modelo de legenda, nao raciocina sobre mudancas).
+ * instalado vence. Modelos capazes vem primeiro.
  */
 export const PREFERENCIA_MODELOS = [
   "llama-3.2-11b",
@@ -104,7 +103,6 @@ export const PREFERENCIA_MODELOS = [
   "llava",
   "bakllava",
   "qwen3-vl",
-  "moondream",
 ];
 
 export const MODELO_TRADUCAO_PADRAO = "";

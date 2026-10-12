@@ -300,11 +300,11 @@ describe("mesmoModelo", () => {
 });
 
 describe("melhorModeloDisponivel", () => {
-  it("prefere um modelo capaz ao moondream (que so legenda)", () => {
-    expect(melhorModeloDisponivel(["qwen2.5vl:3b", "moondream:latest"])).toBe("qwen2.5vl:3b");
+  it("prefere um modelo de visao capaz a um de legenda", () => {
+    expect(melhorModeloDisponivel(["qwen2.5vl:3b", "llava:7b"])).toBe("qwen2.5vl:3b");
   });
 
-  it("cai para o qwen2.5vl quando o moondream falta", () => {
+  it("prefere o qwen2.5vl (nao-pensante) ao qwen3-vl (thinking)", () => {
     expect(melhorModeloDisponivel(["qwen3-vl:4b", "qwen2.5vl:7b"])).toBe("qwen2.5vl:7b");
   });
 
@@ -327,12 +327,12 @@ describe("modelosInstalados", () => {
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ models: [{ name: "moondream:latest" }, { name: "qwen2.5vl:3b" }] }),
+        json: async () => ({ models: [{ name: "qwen2.5vl:3b" }, { name: "llava:7b" }] }),
       })
     );
     await expect(modelosInstalados({ host: "http://localhost:11434" })).resolves.toEqual([
-      "moondream:latest",
       "qwen2.5vl:3b",
+      "llava:7b",
     ]);
   });
 

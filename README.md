@@ -16,12 +16,12 @@ Visão computacional 100% local: a webcam enxerga e registra o que vê. A imagem
 
 Requisitos: **Node.js 20+** e, para os modos de descrição/roteiro, um **modelo de visão** servido localmente. Duas opções:
 
-- **Ollama** (API nativa) — `ollama pull llama3.2-vision:11b`.
-- **LM Studio / llama.cpp / vLLM** (API compatível com OpenAI) — carregue um modelo de visão (ex.: `Qwen2.5-VL-3B-Instruct`, leve e rápido, ou `llama-3.2-11b-vision-instruct`) e inicie o servidor local (padrão `http://localhost:1234`).
+- **Ollama** (API nativa) — `ollama pull qwen2.5vl:3b`.
+- **LM Studio / llama.cpp / vLLM** (API compatível com OpenAI) — carregue um modelo de visão (ex.: `Qwen2.5-VL-3B-Instruct`, leve e rápido — é o padrão do app) e inicie o servidor local (padrão `http://localhost:1234`).
 
 ```bash
 npm install
-ollama pull llama3.2-vision:11b   # opção A: Ollama
+ollama pull qwen2.5vl:3b          # opção A: Ollama
 npm run dev                       # desenvolvimento (abre http://localhost:3000)
 npm start                         # produção (build + servidor)
 ```
@@ -37,7 +37,7 @@ Configuração essencial (veja a tabela completa em [`docs/uso.md`](./docs/uso.m
 | `PORT` | `3000` | Porta HTTP. |
 | `NEURO_PROVIDER` | `auto` | Backend: `ollama` (nativo), `openai`/`lmstudio` (LM Studio/llama.cpp) ou `auto` (detecta na subida). |
 | `NEURO_BASE_URL` | (por provedor) | URL base do backend. Padrões: `http://localhost:11434` (Ollama) e `http://localhost:1234` (OpenAI). |
-| `NEURO_MODEL` | `llama3.2-vision:11b` | Modelo de visão usado na descrição. Se não estiver disponível, o app usa o melhor modelo de visão encontrado. |
+| `NEURO_MODEL` | `qwen2.5-vl-3b-instruct` | Modelo de visão usado na descrição. Se não estiver disponível, o app usa o melhor modelo de visão encontrado. |
 | `NEURO_API_KEY` | (vazio) | Chave enviada como `Authorization: Bearer` no protocolo OpenAI. |
 
 > A configuração fica centralizada em [`src/env.ts`](./src/env.ts). Copie [`.env.example`](./.env.example) para `.env` (não versionado) para definir os valores de uma vez; variáveis já exportadas no shell têm prioridade. Sem `.env`, valem os padrões da tabela.
