@@ -45,7 +45,7 @@ Histórico consultável e resumo do estado atual
 
 ### Linha de base registrada
 
-Ambiente: Windows, Node.js v24.19.0, npm 11.17.0. Ollama local com `qwen2.5vl:3b`, `qwen3-vl:4b` e `qwen2.5-coder:3b`. Branch de trabalho: `feat/temporal-perception`.
+Ambiente: Windows, Node.js v24.19.0, npm 11.17.0. Ollama local com `qwen2.5vl:3b` (modelo único do app, via `MODELO_PADRAO`/`OLLAMA_MODEL`) e `qwen3-vl:4b` (mantido para descrição manual no chat do Ollama; o `qwen2.5-coder:3b` foi removido por não ter visão). Branch de trabalho: `feat/temporal-perception`.
 
 | Verificação | Resultado |
 | --- | --- |
