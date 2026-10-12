@@ -1,3 +1,17 @@
+import {
+  cabecalhos,
+  interpretarLinha,
+  interpretarChat,
+  montarRequisicaoChat,
+  resolverBackend,
+  urlEmMemoria,
+  urlModelos,
+  type Backend,
+  type ProvedorId,
+} from "./provedor";
+
+export { extrairBase64 } from "./provedor";
+
 export type ModoAnalise = "descricao" | "roteiro";
 
 export interface OpcoesGerarDescricao {
@@ -11,6 +25,12 @@ export interface OpcoesGerarDescricao {
   base?: boolean;
   /** Cancela o fetch do Ollama (ex.: cliente desconectou do stream). */
   signal?: AbortSignal;
+  /** Protocolo do backend (`ollama` nativo ou `openai`/LM Studio). */
+  provedor?: ProvedorId | "auto";
+  /** URL base do backend (sobrepoe `OLLAMA_HOST`/`NEURO_BASE_URL`). */
+  baseUrl?: string;
+  /** Chave enviada como `Authorization: Bearer` no protocolo OpenAI. */
+  apiKey?: string;
 }
 
 export interface ResultadoDescricao {
@@ -57,51 +77,37 @@ export function montarPromptRoteiro(base: boolean, roteiro?: string): string {
   );
 }
 
-export function extrairBase64(imagem: string): string {
-  const index = imagem.indexOf(",");
-  if (index !== -1 && imagem.slice(0, index).includes(";base64")) {
-    return imagem.slice(index + 1);
-  }
-  return imagem;
-}
-
-interface RespostaOllama {
-  response?: string;
-  model?: string;
-  error?: string;
-  message?: { role?: string; content?: string; thinking?: string };
-  eval_count?: number;
-  eval_duration?: number;
-  total_duration?: number;
-  done?: boolean;
-}
-
 /**
  * Modelo de visao padrao (configuracao global). Pode ser trocado por
- * `OLLAMA_MODEL`; se o modelo resultante nao estiver instalado no Ollama,
- * `escolherModelo` cai para o melhor modelo disponivel.
+ * `NEURO_MODEL` (ou `OLLAMA_MODEL`); se o modelo resultante nao estiver
+ * instalado no backend, `escolherModelo` cai para o melhor disponivel.
  */
-export const MODELO_PADRAO = "moondream:latest";
+export const MODELO_PADRAO = "llama3.2-vision:11b";
 
 /**
  * Ordem de preferencia usada quando o modelo configurado nao esta instalado.
  * Sao modelos de visao conhecidos; o primeiro prefixo que casar com um modelo
- * instalado vence. Modelos nao-pensantes vem antes dos "thinking".
+ * instalado vence. Modelos capazes vem primeiro; `moondream` fica por ultimo
+ * (e apenas um modelo de legenda, nao raciocina sobre mudancas).
  */
 export const PREFERENCIA_MODELOS = [
-  "moondream",
+  "llama-3.2-11b",
+  "llama-3.2-vision",
+  "llama3.2-vision",
+  "llama3.2",
   "qwen2.5vl",
   "qwen2.5-vl",
   "qwen2-vl",
-  "llava",
-  "bakllava",
   "minicpm-v",
   "gemma3",
+  "llava",
+  "bakllava",
   "qwen3-vl",
+  "moondream",
 ];
 
-export const MODELO_TRADUCAO_PADRAO = "SparkLLM/Spark-X2.5-1.7B";
-export const TRADUZIR_HABILITADO_PADRAO = true;
+export const MODELO_TRADUCAO_PADRAO = "";
+export const TRADUZIR_HABILITADO_PADRAO = false;
 
 export class ErroOllama extends Error {
   constructor(mensagem: string) {
@@ -110,18 +116,30 @@ export class ErroOllama extends Error {
   }
 }
 
-function resolverHost(opcoes: OpcoesGerarDescricao): string {
-  return (opcoes.host ?? process.env.OLLAMA_HOST ?? "http://localhost:11434").replace(/\/+$/, "");
+/** Resolve o backend (protocolo + URL base + chave) a partir das opcoes. */
+function backendDe(opcoes: OpcoesOllama | OpcoesGerarDescricao): Backend {
+  return resolverBackend({
+    provedor: opcoes.provedor,
+    baseUrl: opcoes.host ?? opcoes.baseUrl,
+    apiKey: opcoes.apiKey,
+  });
 }
 
 export interface OpcoesOllama {
   modelo?: string;
   host?: string;
   timeoutMs?: number;
+  provedor?: ProvedorId | "auto";
+  baseUrl?: string;
+  apiKey?: string;
+}
+
+function modeloConfigurado(): string {
+  return process.env.NEURO_MODEL ?? process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
 }
 
 function resolverModelo(opcoes: OpcoesOllama): string {
-  return opcoes.modelo ?? process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
+  return opcoes.modelo ?? modeloConfigurado();
 }
 
 /**
@@ -168,18 +186,24 @@ export function melhorModeloDisponivel(instalados: string[]): string {
   return instalados[0];
 }
 
-/** Lista os modelos instalados no Ollama via `GET /api/tags`. */
+/** Lista os modelos instalados/baixados no backend. */
 export async function modelosInstalados(opcoes: OpcoesOllama = {}): Promise<string[]> {
-  const host = resolverHost(opcoes as OpcoesGerarDescricao);
+  const backend = backendDe(opcoes);
   try {
-    const resposta = await fetch(`${host}/api/tags`, {
+    const resposta = await fetch(urlModelos(backend), {
+      headers: cabecalhos(backend),
       signal: AbortSignal.timeout(opcoes.timeoutMs ?? 5_000),
     });
     if (!resposta.ok) return [];
-    const dados = (await resposta.json()) as { models?: { name?: string; model?: string }[] };
-    return (dados.models ?? [])
-      .map((m) => m.name ?? m.model ?? "")
-      .filter((n) => n.length > 0);
+    const dados = (await resposta.json()) as {
+      models?: { name?: string; model?: string }[];
+      data?: { id?: string }[];
+    };
+    const nomes =
+      backend.id === "openai"
+        ? (dados.data ?? []).map((m) => m.id ?? "")
+        : (dados.models ?? []).map((m) => m.name ?? m.model ?? "");
+    return nomes.filter((n) => n.length > 0);
   } catch {
     return [];
   }
@@ -204,15 +228,15 @@ export function limparCacheModelo(): void {
 
 /**
  * Resolve o modelo efetivo: usa o configurado quando instalado; se nao estiver
- * (e o Ollama responder com a lista), escolhe o melhor disponivel. Um modelo
+ * (e o backend responder com a lista), escolhe o melhor disponivel. Um modelo
  * passado explicitamente em `opcoes.modelo` e sempre respeitado, sem fallback.
  */
 export async function escolherModelo(opcoes: OpcoesOllama = {}): Promise<ModeloEscolhido> {
-  const solicitado = opcoes.modelo ?? process.env.OLLAMA_MODEL ?? MODELO_PADRAO;
+  const solicitado = resolverModelo(opcoes);
   if (opcoes.modelo) return { solicitado, modelo: solicitado, alternativo: false };
 
-  const host = resolverHost(opcoes as OpcoesGerarDescricao);
-  const chave = `${host}|${solicitado}`;
+  const backend = backendDe(opcoes);
+  const chave = `${backend.id}|${backend.baseUrl}|${solicitado}`;
   const agora = Date.now();
   if (cacheModelo && cacheModelo.chave === chave && cacheModelo.expira > agora) {
     return cacheModelo.valor;
@@ -233,12 +257,24 @@ export interface OpcoesTraduzir {
   host?: string;
   timeoutMs?: number;
   modelo?: string;
+  provedor?: ProvedorId | "auto";
+  baseUrl?: string;
+  apiKey?: string;
 }
 
+/**
+ * Traduz um texto para portugues usando o backend configurado. Desabilitado por
+ * padrao (`TRADUZIR_HABILITADO_PADRAO = false`): com um modelo de visao capaz
+ * (ex.: llama vision), a descricao ja sai em portugues e a traducao nao e
+ * necessaria. Habilite com `NEURO_TRANSLATE_ENABLED=1`.
+ */
 export async function traduzirTexto(opcoes: OpcoesTraduzir): Promise<string> {
-  const host = resolverHost(opcoes as unknown as OpcoesGerarDescricao);
+  const backend = backendDe(opcoes);
   const modelo =
-    opcoes.modelo ?? process.env.OLLAMA_TRANSLATE_MODEL ?? "SparkLLM/Spark-X2.5-1.7B";
+    opcoes.modelo ??
+    process.env.NEURO_TRANSLATE_MODEL ??
+    process.env.OLLAMA_TRANSLATE_MODEL ??
+    resolverModelo(opcoes);
   const texto = opcoes.texto.trim();
   if (!texto) return texto;
 
@@ -247,38 +283,39 @@ export async function traduzirTexto(opcoes: OpcoesTraduzir): Promise<string> {
     "Only output the Portuguese translation, no explanations. " +
     `Text: ${texto}`;
 
-  const corpo = JSON.stringify({
-    model: modelo,
-    messages: [{ role: "user", content: prompt }],
+  const requisicao = montarRequisicaoChat({
+    backend,
+    modelo,
+    prompt,
     stream: false,
-    think: false,
-    keep_alive: "5m",
-    options: { temperature: 0, top_p: 0.9, num_predict: 256 },
+    numPredict: 256,
+    opcoesOllama: { temperature: 0, top_p: 0.9 },
   });
 
   try {
-    const resposta = await fetch(`${host}/api/chat`, {
+    const resposta = await fetch(requisicao.url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: corpo,
+      headers: requisicao.headers,
+      body: requisicao.body,
       signal: AbortSignal.timeout(opcoes.timeoutMs ?? 60_000),
     });
     if (!resposta.ok) return texto;
-    const dados = (await resposta.json()) as RespostaOllama;
-    const traduzido = (dados.message?.content ?? dados.response ?? "").trim();
+    const dados = await resposta.json();
+    const traduzido = (interpretarChat(backend, dados).texto ?? "").trim();
     return traduzido.length > 0 ? traduzido : texto;
   } catch {
     return texto;
   }
 }
 
+function traducaoHabilitada(): boolean {
+  const env = process.env.NEURO_TRANSLATE_ENABLED ?? process.env.OLLAMA_TRANSLATE_ENABLED;
+  if (env === undefined) return TRADUZIR_HABILITADO_PADRAO;
+  return env !== "false" && env !== "0";
+}
+
 export function deveTraduzir(texto: string, habilitado?: boolean): boolean {
-  const flag =
-    habilitado ??
-    (process.env.OLLAMA_TRANSLATE_ENABLED === "false" ||
-    process.env.OLLAMA_TRANSLATE_ENABLED === "0"
-      ? false
-      : true);
+  const flag = habilitado ?? traducaoHabilitada();
   if (!flag) return false;
   if (!texto.trim()) return false;
   const lower = texto.toLowerCase();
@@ -287,13 +324,26 @@ export function deveTraduzir(texto: string, habilitado?: boolean): boolean {
 }
 
 export async function modelosEmMemoria(opcoes: OpcoesOllama = {}): Promise<string[]> {
-  const host = resolverHost(opcoes as OpcoesGerarDescricao);
+  const backend = backendDe(opcoes);
+  const url = urlEmMemoria(backend);
+  if (!url) return [];
   try {
-    const resposta = await fetch(`${host}/api/ps`, {
+    const resposta = await fetch(url, {
+      headers: cabecalhos(backend),
       signal: AbortSignal.timeout(opcoes.timeoutMs ?? 5_000),
     });
     if (!resposta.ok) return [];
-    const dados = (await resposta.json()) as { models?: { name?: string; model?: string }[] };
+    const dados = (await resposta.json()) as {
+      models?: { name?: string; model?: string; state?: string }[];
+      data?: { id?: string; state?: string }[];
+    };
+    if (backend.id === "openai") {
+      // LM Studio (REST v0): so considera "em memoria" os `state: loaded`.
+      return (dados.data ?? [])
+        .filter((m) => m.state === undefined || m.state === "loaded")
+        .map((m) => m.id ?? "")
+        .filter((n) => n.length > 0);
+    }
     return (dados.models ?? [])
       .map((m) => m.name ?? m.model ?? "")
       .filter((n) => n.length > 0);
@@ -309,25 +359,46 @@ export async function modeloEmMemoria(opcoes: OpcoesOllama = {}): Promise<boolea
   return memoria.some((m) => mesmoModelo(m, modelo));
 }
 
+/**
+ * Indica se o backend permite consultar o que esta em memoria. O Ollama expoe
+ * `/api/ps`; no protocolo OpenAI tentamos o REST v0 do LM Studio
+ * (`/api/v0/models`), que pode nao existir em outras implementacoes. Quando nao
+ * ha como confirmar, tratamos a carga bem-sucedida como suficiente.
+ */
+export async function memoriaIntrospectavel(opcoes: OpcoesOllama = {}): Promise<boolean> {
+  const backend = backendDe(opcoes);
+  const url = urlEmMemoria(backend);
+  if (!url) return false;
+  try {
+    const resposta = await fetch(url, {
+      headers: cabecalhos(backend),
+      signal: AbortSignal.timeout(opcoes.timeoutMs ?? 5_000),
+    });
+    return resposta.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function forcarCarregamento(opcoes: OpcoesOllama = {}): Promise<number> {
-  const host = resolverHost(opcoes as OpcoesGerarDescricao);
+  const backend = backendDe(opcoes);
   const modelo = resolverModelo(opcoes);
   const timeoutMs = opcoes.timeoutMs ?? 180_000;
   if (await modeloEmMemoria(opcoes)) return 0;
 
   const inicio = performance.now();
-  const corpo = JSON.stringify({
-    model: modelo,
-    messages: [{ role: "user", content: "oi" }],
+  const requisicao = montarRequisicaoChat({
+    backend,
+    modelo,
+    prompt: "oi",
     stream: false,
-    think: false,
-    keep_alive: "5m",
-    options: { num_predict: 1, temperature: 0 },
+    numPredict: 1,
+    opcoesOllama: { temperature: 0 },
   });
-  const resposta = await fetch(`${host}/api/chat`, {
+  const resposta = await fetch(requisicao.url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: corpo,
+    headers: requisicao.headers,
+    body: requisicao.body,
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!resposta.ok) {
@@ -336,9 +407,14 @@ export async function forcarCarregamento(opcoes: OpcoesOllama = {}): Promise<num
   }
   await resposta.json().catch(() => null);
 
-  for (let i = 0; i < 60; i++) {
-    if (await modeloEmMemoria(opcoes)) break;
-    await new Promise((resolve) => setTimeout(resolve, 500));
+  // So espera confirmacao em memoria se o backend permite consulta-la; caso
+  // contrario (ex.: LM Studio sem `/api/v0/models`), a resposta acima ja
+  // prova que o modelo esta carregado.
+  if (await memoriaIntrospectavel(opcoes)) {
+    for (let i = 0; i < 60; i++) {
+      if (await modeloEmMemoria(opcoes)) break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
   }
   return Math.round(performance.now() - inicio);
 }
@@ -351,66 +427,65 @@ function montarCorpo(
   imagem: string,
   opcoes: OpcoesGerarDescricao,
   stream: boolean
-): { modelo: string; corpo: string } {
+): { modelo: string; backend: Backend; requisicao: ReturnType<typeof montarRequisicaoChat> } {
   const modelo = resolverModelo(opcoes);
+  const backend = backendDe(opcoes);
   const roteiro = opcoes.modo === "roteiro";
   const prompt =
     opcoes.prompt ??
     (roteiro ? montarPromptRoteiro(opcoes.base === true, opcoes.roteiro) : montarPromptDescricao(opcoes.anterior));
-  const mensagem: { role: string; content: string; images?: string[] } = {
-    role: "user",
-    content: prompt,
-  };
-  const imagemBase64 = extrairBase64(imagem);
-  if (imagemBase64) mensagem.images = [imagemBase64];
   const numPredict = roteiro
     ? opcoes.base === true
       ? NUM_PREDICT_BASE
       : NUM_PREDICT_DELTA
     : NUM_PREDICT_PADRAO;
-  const corpo = JSON.stringify({
-    model: modelo,
-    messages: [mensagem],
+  const requisicao = montarRequisicaoChat({
+    backend,
+    modelo,
+    prompt,
+    imagem,
     stream,
-    think: false,
-    keep_alive: "5m",
-    options: {
+    numPredict,
+    opcoesOllama: {
       temperature: 0.2,
       repeat_penalty: 1.3,
       repeat_last_n: 128,
       top_p: 0.9,
-      num_predict: numPredict,
     },
   });
-  return { modelo, corpo };
+  return { modelo, backend, requisicao };
 }
 
 function lancarSeVazioSemResposta(
   vistoPensamento: boolean,
-  modelo: string
+  modelo: string,
+  backend: Backend
 ): never {
   if (vistoPensamento) {
     throw new ErroOllama(
-      `o modelo ${modelo} derivou/raciocinou sem produzir resposta (o Ollama ignorou think:false neste modelo). ` +
-        "Use um modelo de descricao nao-pensante (ex.: `ollama pull moondream` e OLLAMA_MODEL=moondream)."
+      `o modelo ${modelo} derivou/raciocinou sem produzir resposta (o backend ignorou o desligamento do "thinking"). ` +
+        "Use um modelo de visao nao-pensante (ex.: llama-3.2-vision ou qwen2.5vl)."
     );
   }
-  throw new ErroOllama("o modelo nao retornou nenhum token de texto (verifique think/num_predict)");
+  const dica =
+    backend.id === "openai"
+      ? "Verifique se o modelo carregado no LM Studio aceita imagens (e o `max_tokens`)."
+      : "Verifique think/num_predict e se o modelo suporta visao.";
+  throw new ErroOllama(`o modelo ${modelo} nao retornou nenhum token de texto. ${dica}`);
 }
 
 export async function gerarDescricao(
   imagem: string,
   opcoes: OpcoesGerarDescricao = {}
 ): Promise<ResultadoDescricao> {
-  const host = resolverHost(opcoes);
   const timeoutMs = opcoes.timeoutMs ?? 90_000;
-  const { modelo, corpo } = montarCorpo(imagem, opcoes, false);
+  const { modelo, backend, requisicao } = montarCorpo(imagem, opcoes, false);
 
   const inicio = performance.now();
-  const resposta = await fetch(`${host}/api/chat`, {
+  const resposta = await fetch(requisicao.url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: corpo,
+    headers: requisicao.headers,
+    body: requisicao.body,
     signal: AbortSignal.timeout(timeoutMs),
   });
 
@@ -419,18 +494,18 @@ export async function gerarDescricao(
     throw new ErroOllama(`resposta HTTP ${resposta.status}: ${texto.slice(0, 300)}`);
   }
 
-  const dados = (await resposta.json()) as RespostaOllama;
-  if (dados.error) throw new ErroOllama(dados.error);
-  const texto = dados.message?.content ?? dados.response ?? "";
-  const pensou = Boolean(dados.message?.thinking);
-  if (!texto) lancarSeVazioSemResposta(pensou, modelo);
-  const duracaoNs = dados.total_duration ?? (performance.now() - inicio) * 1_000_000;
+  const dados = await resposta.json();
+  const evt = interpretarChat(backend, dados);
+  if (evt.erro) throw new ErroOllama(evt.erro);
+  const texto = evt.texto ?? "";
+  if (!texto) lancarSeVazioSemResposta(Boolean(evt.pensou), modelo, backend);
+  const duracaoMs = evt.duracaoMs ?? Math.round(performance.now() - inicio);
 
   return {
     texto,
-    modelo: dados.model ?? modelo,
-    tokens: dados.eval_count ?? 0,
-    duracaoMs: Math.round(duracaoNs / 1_000_000),
+    modelo: evt.modelo ?? modelo,
+    tokens: evt.tokens ?? 0,
+    duracaoMs,
   };
 }
 
@@ -444,17 +519,16 @@ export async function* gerarDescricaoStream(
   imagem: string,
   opcoes: OpcoesGerarDescricao = {}
 ): AsyncGenerator<string, ResumoDescricao, void> {
-  const host = resolverHost(opcoes);
   const timeoutMs = opcoes.timeoutMs ?? 90_000;
-  const { modelo, corpo } = montarCorpo(imagem, opcoes, true);
+  const { modelo, backend, requisicao } = montarCorpo(imagem, opcoes, true);
 
   const inicio = performance.now();
   const sinais: AbortSignal[] = [AbortSignal.timeout(timeoutMs)];
   if (opcoes.signal) sinais.push(opcoes.signal);
-  const resposta = await fetch(`${host}/api/chat`, {
+  const resposta = await fetch(requisicao.url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: corpo,
+    headers: requisicao.headers,
+    body: requisicao.body,
     signal: AbortSignal.any(sinais),
   });
 
@@ -463,7 +537,7 @@ export async function* gerarDescricaoStream(
     throw new ErroOllama(`resposta HTTP ${resposta.status}: ${texto.slice(0, 300)}`);
   }
   if (!resposta.body) {
-    throw new Error("Ollama nao retornou corpo de streaming");
+    throw new Error(`${backend.id} nao retornou corpo de streaming`);
   }
 
   const reader = resposta.body.getReader();
@@ -482,28 +556,20 @@ export async function* gerarDescricaoStream(
       buffer += decoder.decode(value, { stream: true });
       let idx: number;
       while ((idx = buffer.indexOf("\n")) >= 0) {
-        const linha = buffer.slice(0, idx).trim();
+        const linha = buffer.slice(0, idx);
         buffer = buffer.slice(idx + 1);
-        if (!linha) continue;
-        let evt: RespostaOllama;
-        try {
-          evt = JSON.parse(linha) as RespostaOllama;
-        } catch {
-          continue;
-        }
-        if (evt.error) throw new ErroOllama(evt.error);
-        if (evt.model) modeloFinal = evt.model;
-        const texto = evt.message?.content ?? evt.response;
-        if (texto) {
+        const evt = interpretarLinha(backend, linha);
+        if (!evt) continue;
+        if (evt.erro) throw new ErroOllama(evt.erro);
+        if (evt.modelo) modeloFinal = evt.modelo;
+        if (evt.texto) {
           emitiuTexto = true;
-          yield texto;
+          yield evt.texto;
         }
-        if (evt.message?.thinking) pensou = true;
+        if (evt.pensou) pensou = true;
+        if (evt.tokens !== undefined) tokens = evt.tokens;
         if (evt.done) {
-          tokens = evt.eval_count ?? 0;
-          duracaoMs = evt.total_duration
-            ? Math.round(evt.total_duration / 1_000_000)
-            : Math.round(performance.now() - inicio);
+          duracaoMs = evt.duracaoMs ?? Math.round(performance.now() - inicio);
         }
       }
     }
@@ -511,6 +577,6 @@ export async function* gerarDescricaoStream(
     reader.releaseLock();
   }
 
-  if (!emitiuTexto) lancarSeVazioSemResposta(pensou, modeloFinal);
+  if (!emitiuTexto) lancarSeVazioSemResposta(pensou, modeloFinal, backend);
   return { modelo: modeloFinal, tokens, duracaoMs };
 }

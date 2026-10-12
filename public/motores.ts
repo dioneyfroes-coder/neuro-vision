@@ -60,7 +60,7 @@ export interface OpcoesMotorOllama {
   motivo?: MotivoAnalise;
 }
 
-/** Motor de descricao/roteiro via Ollama, atras da interface comum. */
+/** Motor de descricao/roteiro via backend de visao, atras da interface comum. */
 export class MotorOllama implements MotorPercepcao {
   readonly id: string;
 
@@ -69,10 +69,10 @@ export class MotorOllama implements MotorPercepcao {
   }
 
   async inicializar(aoStatus: (mensagem: string) => void = () => {}): Promise<void> {
-    aoStatus("Carregando modelo do Ollama na memoria (pode demorar)...");
+    aoStatus("Carregando modelo de visao na memoria (pode demorar)...");
     const dados = await api.prepararOllama();
     if (dados.carregado !== true) {
-      throw new Error("modelo nao confirmado em memoria; verifique o Ollama.");
+      throw new Error("modelo nao confirmado em memoria; verifique o servidor de visao.");
     }
     const seg = Math.round((dados.carregandoMs ?? 0) / 1000);
     aoStatus(

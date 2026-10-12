@@ -127,10 +127,10 @@ test("filtra as entradas do historico", async ({ page }) => {
   await expect(page.locator("#log li", { hasText: "qwen3-vl" })).toBeHidden();
 });
 
-test("exibe o status do Ollama", async ({ page }) => {
+test("exibe o status do backend de visao", async ({ page }) => {
   await prepararPagina(page);
   await page.goto("/");
-  await expect(page.locator("#ollamaStatus")).toContainText("offline");
+  await expect(page.locator("#modeloStatus")).toContainText("offline");
 });
 
 test("reabilita o Iniciar quando o acesso a webcam falha", async ({ page }) => {
@@ -383,7 +383,7 @@ test("rede offline nao quebra a pagina e a deteccao falha com mensagem clara", a
   expect(estado).toBe("ended");
 });
 
-test("mostra no diagnostico o motor, o modelo e o Ollama carregado", async ({ page }) => {
+test("mostra no diagnostico o motor, o modelo e o backend carregado", async ({ page }) => {
   await prepararPagina(page, DETECTOR_LENTO);
   // Sobrescreve o health padrao (offline) para exercitar a linha de diagnostico.
   await page.route("**/api/health", (rota) =>

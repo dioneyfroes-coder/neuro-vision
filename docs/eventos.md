@@ -1,16 +1,16 @@
 # Fluxo orientado a eventos — Neuro Vision
 
-Como o modo **Eventos** funciona: percepção leve a cada tick, o Ollama chamado sob demanda pela política, o cancelamento da inferência e a consulta ao histórico ("o que mudou / quando / evidências").
+Como o modo **Eventos** funciona: percepção leve a cada tick, o modelo de visão chamado sob demanda pela política, o cancelamento da inferência e a consulta ao histórico ("o que mudou / quando / evidências").
 
 ## Como funciona
 
-A percepção leve (detecção + rastreamento + mudança de cena) roda em **todo tick** do agendador; o Ollama só é chamado quando a política decide. O motivo é gravado no log como campo `motivo` (por exemplo, `nova_entidade`, `mudanca_de_cena`, `baixa_confianca`, `resumo_periodico`, `manual`) e aparece como "por …" na interface.
+A percepção leve (detecção + rastreamento + mudança de cena) roda em **todo tick** do agendador; o modelo de visão só é chamado quando a política decide. O motivo é gravado no log como campo `motivo` (por exemplo, `nova_entidade`, `mudanca_de_cena`, `baixa_confianca`, `resumo_periodico`, `manual`) e aparece como "por …" na interface.
 
 Regras da `PoliticaAnalise` (em `src/politica-analise.ts`, configuração `CONFIG_POLITICA_PADRAO`):
 
 - **Primeira análise**: aciona no primeiro tick de cada sessão.
 - **Eventos críticos**: `aparicao`, `desaparecimento`, `mudanca_de_cena` acionam por si sós; **movimento** só acima de um mínimo por frame.
-- **Baixa confiança**: uma detecção com score menor que `confiancaAlta` (0.6) aciona o Ollama para julgar.
+- **Baixa confiança**: uma detecção com score menor que `confiancaAlta` (0.6) aciona o modelo de visão para julgar.
 - **Resumo periódico**: mesmo sem mudança, re-analisa a cada `resumoPeriodicoMs` (60 s).
 - **Cooldown** (10 s) e **teto de chamadas** (4/min, janela deslizante de 60 s) impedem sequências de inferências em cenas instáveis.
 - **"Analisar agora"**: botão que força a análise imediata, ignorando cooldown/janela (respeitando o não-sobrepor).
@@ -22,7 +22,7 @@ O frame é capturado **uma única vez** por ciclo e, no mesmo instante, são lid
 
 ## Cancelamento
 
-Quando o cliente cancela uma análise, ele encerra a leitura do stream e o servidor **propaga o abort ao `fetch` do Ollama** (um `AbortController` ligado ao `close` da resposta), derrubando a inferência em vez de deixá-la consumir recursos. O cancelamento é registrado como `visao_cancelada` no log operacional; timeout vira `visao_timeout`.
+Quando o cliente cancela uma análise, ele encerra a leitura do stream e o servidor **propaga o abort ao `fetch` do backend de visão** (um `AbortController` ligado ao `close` da resposta), derrubando a inferência em vez de deixá-la consumir recursos. O cancelamento é registrado como `visao_cancelada` no log operacional; timeout vira `visao_timeout`.
 
 ## Consulta ao histórico
 

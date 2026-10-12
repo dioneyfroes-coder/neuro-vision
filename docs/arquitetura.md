@@ -4,7 +4,7 @@ Estrutura de arquivos e como as partes conversam.
 
 ## Visão geral
 
-- **Servidor Node** (`src/server.ts`) — arquivos estáticos + API REST + persistência JSONL + snapshots + proxy para o Ollama local.
+- **Servidor Node** (`src/server.ts`) — arquivos estáticos + API REST + persistência JSONL + snapshots + proxy para o backend de visão local.
 - **Cliente** (`public/`) — interface, captura da webcam, detecção no navegador (Transformers.js) e cliente HTTP.
 - **Motores de percepção** — interface única `MotorPercepcao` (`inicializar`/`analisar`/`encerrar`); o app escolhe o motor pelo registro `MODOS` (`public/modos.ts`), sem `if (modo === ...)` espalhado.
 
@@ -19,7 +19,8 @@ src/
   erros.ts             taxonomia de erros (origem, cancelamento)
   rastreamento.ts      rastreador de objetos (IDs estáveis, aparição/desaparecimento/movimento)
   cena.ts              detecção de mudança de cena (sinal)
-  ollama.ts            cliente do Ollama e montagem dos prompts (descrição e roteiro)
+  provedor.ts          camada de backend de visão (protocolos Ollama nativo e OpenAI/LM Studio)
+  ollama.ts            cliente de visão e montagem dos prompts (descrição e roteiro), sobre `provedor.ts`
   texto.ts             pós-processamento: colapsa repetições, detecta "sem mudança", corta frase incompleta
   types.ts             tipos compartilhados (EntradaLog, ObjetoVisto, EventoVisual, ...)
   *.test.ts            testes (vitest)
@@ -27,7 +28,7 @@ src/
 public/
   index.html           interface
   app.ts               coordenação da interface (captura, motores, rastreamento, eventos)
-  api.ts               cliente HTTP (histórico, eventos, contexto, Ollama)
+  api.ts               cliente HTTP (histórico, eventos, contexto, backend de visão)
   detector.ts          detecção de objetos (Transformers.js/CDN)
   camera.ts            controle da webcam e assinatura de cena
   modos.ts             registro de modos/motores (Item do roadmap: trocar motor sem espalhar condições)
@@ -56,13 +57,13 @@ scripts/
 
 1. O agendador do cliente dispara um ciclo no ritmo `max(intervalo, duração da análise anterior + 500 ms)`.
 2. A webcam **captura o frame uma única vez** (`Camera.capturarQuadro`): a mesma imagem vira entrada da análise, snapshot (thumbnail dos mesmos pixels) e assinatura de cena; o instante vira `capturadoEm`.
-3. O motor escolhido pelo `MODOS` roda: detecção no navegador (Transformers.js) ou descrição/roteiro via `POST /api/visao` → Ollama local (stream NDJSON).
+3. O motor escolhido pelo `MODOS` roda: detecção no navegador (Transformers.js) ou descrição/roteiro via `POST /api/visao` → backend de visão local (stream NDJSON).
 4. O resultado normalizado (`ResultadoPercepcao`) vira uma `EntradaLog` (`entradaDeResultado`), exibida no histórico e gravada via `POST /api/log`.
 5. Nos modos com rastreamento, o `RastreadorObjetos` associa detecções entre frames e emite eventos (`aparicao`/`desaparecimento`/`movimento`); o `DetectorMudancaDeCena` emite `mudanca_de_cena` como sinal.
-6. A política de análise decide se o Ollama deve ser chamado, registrando o motivo — ver [`eventos.md`](./eventos.md).
+6. A política de análise decide se o modelo de visão deve ser chamado, registrando o motivo — ver [`eventos.md`](./eventos.md).
 
 ## Testes e regressão
 
-- Unitários/integração: `npm test` (vitest, incluindo `percepcao`, `motores`, `rastreamento`, `cena`, `memoria`, `server`, `politica-analise`, `ollama`).
+- Unitários/integração: `npm test` (vitest, incluindo `percepcao`, `motores`, `rastreamento`, `cena`, `memoria`, `server`, `politica-analise`, `provedor`, `ollama`).
 - E2E: `npm run test:e2e` (Playwright; o transformers.js é substituído por stubs em `e2e/app.spec.ts`; `e2e/webcam.spec.ts` é opt-in com modelo real).
 - Desempenho/qualidade: ver [`qualidade.md`](./qualidade.md).

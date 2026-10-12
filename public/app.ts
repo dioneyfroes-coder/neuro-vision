@@ -29,7 +29,7 @@ const camera = new Camera(video);
 const placeholder = el<HTMLDivElement>("placeholder");
 const statusEl = el<HTMLDivElement>("status");
 const spinnerEl = el<HTMLDivElement>("spinner");
-const ollamaStatusEl = el<HTMLSpanElement>("ollamaStatus");
+const modeloStatusEl = el<HTMLSpanElement>("modeloStatus");
 const diagInfoEl = el<HTMLSpanElement>("diagInfo");
 const gpuWarningEl = el<HTMLDivElement>("gpuWarning");
 const logEl = el<HTMLUListElement>("log");
@@ -61,7 +61,7 @@ let intervaloMsConfigurado = Number(intervalInput.value) * 1000;
 let manualSolicitado = false;
 const politica = new PoliticaAnalise();
 
-/** Ultimo status do Ollama conhecido (motor/modelos/carregados), para o diagnostico. */
+/** Ultimo status do backend de visao conhecido (motor/modelos/carregados), para o diagnostico. */
 let infoOllama: api.InfoOllama | null = null;
 /** Tempo de carregamento do modelo na ultima inicializacao (ms). */
 let ultimaCargaMs = 0;
@@ -87,20 +87,25 @@ function modeloDeDeteccaoAtivo(): string | null {
   return obterModo(motorSelect.value).usaDeteccao ? modelSelect.value : null;
 }
 
+/** Rotulo curto do backend de visao em uso (Ollama nativo ou API OpenAI/LM Studio). */
+function rotuloProvedor(): string {
+  return infoOllama?.provedor === "openai" ? "LM Studio" : "Ollama";
+}
+
 /**
  * Linha de diagnostico (Fase 6.3): mostra o motor ativo, o modelo solicitado,
- * o modelo carregado no Ollama e separa **carga**, **inferencia** e
+ * o modelo carregado no backend de visao e separa **carga**, **inferencia** e
  * **persistencia** — para distinguir lentidao de modelo de lentidao de disco.
  */
 function atualizarDiagnostico(): void {
   const motor = running ? motorSelect.value : "parado";
   const definicao = obterModo(motorSelect.value);
   const deteccao = modeloDeDeteccaoAtivo();
-  const modeloOllama = infoOllama?.modelo ?? "?";
+  const modeloVisao = infoOllama?.modelo ?? "?";
   const modelo =
     definicao.usaDeteccao && definicao.usaOllama
-      ? `${deteccao} + ${modeloOllama}`
-      : deteccao ?? modeloOllama;
+      ? `${deteccao} + ${modeloVisao}`
+      : deteccao ?? modeloVisao;
   const carregados = !infoOllama
     ? "?"
     : infoOllama.online === false
@@ -109,7 +114,7 @@ function atualizarDiagnostico(): void {
         ? infoOllama.carregados.join(", ")
         : "nenhum";
 
-  const partes = [`motor ${motor}`, `modelo ${modelo}`, `Ollama carregado: ${carregados}`];
+  const partes = [`motor ${motor}`, `backend ${rotuloProvedor()}`, `modelo ${modelo}`, `carregados: ${carregados}`];
   if (infoOllama?.solicitado && infoOllama.solicitado !== infoOllama.modelo) {
     partes.push(`fallback de ${infoOllama.solicitado}`);
   }
@@ -353,7 +358,7 @@ async function analisarComOllama(
   ctx.clearRect(0, 0, width, height);
 
   const base64 = dataUrl.split(",")[1] ?? "";
-  setStatus("Ollama analisando frame... (pode demorar)");
+  setStatus(`${rotuloProvedor()} analisando frame... (pode demorar)`);
 
   const motor = new MotorOllama({
     modo: ehRoteiro ? "roteiro" : "descricao",
@@ -368,7 +373,7 @@ async function analisarComOllama(
     resultado = await motor.analisar(
       { imagem: base64, snapshot: dataUrl, capturadoEm },
       signal,
-      (parcial) => setStatus(`Ollama: ${colapsarRepeticoes(parcial)}`)
+      (parcial) => setStatus(`${rotuloProvedor()}: ${colapsarRepeticoes(parcial)}`)
     );
   } catch (err) {
     if (ehCancelamento(err) || signal.aborted) return;
@@ -402,10 +407,10 @@ async function analisarComOllama(
     const tokS =
       resultado.duracaoMs > 0 ? Math.round(tokens / (resultado.duracaoMs / 1000)) : 0;
     setStatus(
-      `Ollama viu: ${resultado.descricao} (${resultado.duracaoMs} ms · ${tokens} toks · ${tokS} tok/s)`
+      `${rotuloProvedor()} viu: ${resultado.descricao} (${resultado.duracaoMs} ms · ${tokens} toks · ${tokS} tok/s)`
     );
   } else {
-    setStatus(`Ollama viu: ${resultado.descricao} (${resultado.duracaoMs} ms)`);
+    setStatus(`${rotuloProvedor()} viu: ${resultado.descricao} (${resultado.duracaoMs} ms)`);
   }
 }
 
@@ -724,19 +729,19 @@ async function verificarOllama(): Promise<void> {
     infoOllama = o;
     if (o?.online) {
       const memoria = o.carregados?.length ? ` · em memoria: ${o.carregados.join(", ")}` : "";
-      ollamaStatusEl.textContent = `Ollama: online${o.modelos.length ? " (" + o.modelos.join(", ") + ")" : ""}${memoria}`;
-      ollamaStatusEl.className = "health online";
-      ollamaStatusEl.title = (o.modelos.join("\n") || "Ollama acessivel") + (memoria ? `\n${memoria}` : "");
+      modeloStatusEl.textContent = `${rotuloProvedor()}: online${o.modelos.length ? " (" + o.modelos.join(", ") + ")" : ""}${memoria}`;
+      modeloStatusEl.className = "health online";
+      modeloStatusEl.title = (o.modelos.join("\n") || `${rotuloProvedor()} acessivel`) + (memoria ? `\n${memoria}` : "");
     } else {
-      ollamaStatusEl.textContent = `Ollama: offline${o?.erro ? " — " + o.erro : ""}`;
-      ollamaStatusEl.className = "health offline";
-      ollamaStatusEl.title = o?.erro ?? "Ollama inacessivel";
+      modeloStatusEl.textContent = `${rotuloProvedor()}: offline${o?.erro ? " — " + o.erro : ""}`;
+      modeloStatusEl.className = "health offline";
+      modeloStatusEl.title = o?.erro ?? `${rotuloProvedor()} inacessivel`;
     }
   } catch {
     infoOllama = null;
-    ollamaStatusEl.textContent = "Ollama: servidor indisponivel";
-    ollamaStatusEl.className = "health offline";
-    ollamaStatusEl.title = "Servidor indisponivel";
+    modeloStatusEl.textContent = "Backend de visao: servidor indisponivel";
+    modeloStatusEl.className = "health offline";
+    modeloStatusEl.title = "Servidor indisponivel";
   }
   atualizarDiagnostico();
 }

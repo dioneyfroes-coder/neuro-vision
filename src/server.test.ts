@@ -34,7 +34,7 @@ import {
   type PoliticaSnapshots,
 } from "./server";
 import type { EntradaLog } from "./types";
-import { limparCacheModelo, PROMPT_ROTEIRO_BASE } from "./ollama";
+import { limparCacheModelo, MODELO_PADRAO, PROMPT_ROTEIRO_BASE } from "./ollama";
 
 let tmpDir: string;
 
@@ -947,7 +947,7 @@ describe("createServer", () => {
       });
       expect(res.status).toBe(502);
       const corpo = (await res.json()) as { erro?: string };
-      expect(corpo.erro).toContain("moondream");
+      expect(corpo.erro).toContain("visao nao-pensante");
       const conteudo = await readFile(logFile, "utf8").catch(() => "");
       expect(conteudo).toBe("");
     } finally {
@@ -1323,7 +1323,7 @@ describe("createServer", () => {
       const corpo = (await res.json()) as {
         ollama: { solicitado: string; modelo: string; modelos: string[] };
       };
-      expect(corpo.ollama.solicitado).toBe("moondream:latest");
+      expect(corpo.ollama.solicitado).toBe(MODELO_PADRAO);
       expect(corpo.ollama.modelo).toBe("qwen2.5vl:7b");
     } finally {
       server.close();
@@ -1484,6 +1484,57 @@ describe("createServer", () => {
       expect(geracoes).toHaveLength(0);
     } finally {
       server.close();
+    }
+  });
+
+  it("GET /api/visao/preparar confirma a carga no LM Studio sem introspecao de memoria", async () => {
+    const modeloAnterior = process.env.NEURO_MODEL;
+    process.env.NEURO_MODEL = "llama-3.2-11b-vision-instruct";
+    const chats: string[] = [];
+    const consultasV0: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/v0/models")) {
+          // LM Studio sem o REST v0: nao da para confirmar a memoria.
+          consultasV0.push(url);
+          return { ok: false, status: 404, json: async () => ({}) };
+        }
+        if (url.includes("/v1/models")) {
+          return { ok: true, json: async () => ({ data: [{ id: "llama-3.2-11b-vision-instruct" }] }) };
+        }
+        if (url.includes("/v1/chat/completions")) {
+          chats.push(url);
+          return {
+            ok: true,
+            json: async () => ({ choices: [{ message: { content: "oi" }, finish_reason: "stop" }] }),
+          };
+        }
+        return realFetch(input, init);
+      })
+    );
+
+    const server = createServer({
+      publicDir: tmpDir,
+      ollamaUrl: "http://localhost:1234",
+      provedor: "openai",
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/visao/preparar`);
+      expect(res.status).toBe(200);
+      const corpo = (await res.json()) as { ok: boolean; carregado: boolean };
+      expect(corpo.carregado).toBe(true);
+      expect(chats.length).toBeGreaterThan(0);
+      // Sem endpoint de memoria, nao entra em polling (que faria ~60 consultas).
+      expect(consultasV0.length).toBeLessThanOrEqual(6);
+    } finally {
+      server.close();
+      if (modeloAnterior === undefined) delete process.env.NEURO_MODEL;
+      else process.env.NEURO_MODEL = modeloAnterior;
     }
   });
 

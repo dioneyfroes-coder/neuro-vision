@@ -60,10 +60,10 @@ O modelo real é **pesado**: no Chromium do Playwright (WASM/CPU) uma inferênci
 
 ## Carregamento do modelo
 
-O Ollama carrega o modelo na memória sob demanda (o primeiro request é o lento). O Neuro Vision espera esse carregamento antes de começar:
+O backend de visão carrega o modelo na memória sob demanda (o primeiro request é o lento). O Neuro Vision espera esse carregamento antes de começar:
 
-- Ao clicar **Iniciar** com o motor **Descrição**, o servidor chama `forcarCarregamento` (probe em `/api/ps`) e **só então** o ciclo de análise começa. O status mostra "Carregando modelo... em Ns".
-- O badge do Ollama informa quais modelos estão **em memória** (`/api/health` → `carregados`).
+- Ao clicar **Iniciar** com o motor **Descrição**, o servidor chama `forcarCarregamento` (probe em `/api/ps`; no LM Studio, `/api/v0/models`) e **só então** o ciclo de análise começa. O status mostra "Carregando modelo... em Ns".
+- O badge do backend informa quais modelos estão **em memória** (`/api/health` → `carregados`).
 - O benchmark **só mede com o modelo já em memória** (a primeira etapa carrega e reporta o tempo da carga), para que o tok/s não seja contaminado pelo load.
 
 ## Regressão

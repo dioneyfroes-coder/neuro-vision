@@ -8,6 +8,7 @@ import {
   limparCacheModelo,
   melhorModeloDisponivel,
   mesmoModelo,
+  memoriaIntrospectavel,
   modeloEmMemoria,
   modelosEmMemoria,
   modelosInstalados,
@@ -299,8 +300,8 @@ describe("mesmoModelo", () => {
 });
 
 describe("melhorModeloDisponivel", () => {
-  it("prefere o moondream quando presente", () => {
-    expect(melhorModeloDisponivel(["qwen2.5vl:3b", "moondream:latest"])).toBe("moondream:latest");
+  it("prefere um modelo capaz ao moondream (que so legenda)", () => {
+    expect(melhorModeloDisponivel(["qwen2.5vl:3b", "moondream:latest"])).toBe("qwen2.5vl:3b");
   });
 
   it("cai para o qwen2.5vl quando o moondream falta", () => {
@@ -501,6 +502,46 @@ describe("forcarCarregamento", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(forcarCarregamento({ modelo: "x" })).rejects.toThrow(/404/);
+  });
+
+  it("nao entra em polling quando o backend OpenAI nao expoe a memoria", async () => {
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      calls.push(url);
+      if (url.includes("/api/v0/models")) return { ok: false, status: 404, json: async () => ({}) };
+      if (url.includes("/v1/chat/completions")) {
+        return { ok: true, json: async () => ({ choices: [{ message: { content: "oi" } }] }) };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const inicio = Date.now();
+    const carga = await forcarCarregamento({
+      modelo: "m",
+      provedor: "openai",
+      baseUrl: "http://localhost:1234",
+    });
+    expect(Date.now() - inicio).toBeLessThan(2000);
+    expect(carga).toBeGreaterThanOrEqual(0);
+    expect(calls.some((u) => u.includes("/v1/chat/completions"))).toBe(true);
+    expect(calls.filter((u) => u.includes("/api/v0/models")).length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("memoriaIntrospectavel", () => {
+  it("confirma quando o endpoint de memoria responde", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ models: [] }) })
+    );
+    await expect(memoriaIntrospectavel({ provedor: "ollama" })).resolves.toBe(true);
+  });
+
+  it("nao confirma quando o endpoint de memoria falha", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+    await expect(memoriaIntrospectavel({ provedor: "openai" })).resolves.toBe(false);
   });
 });
 

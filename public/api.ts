@@ -3,7 +3,9 @@ import { ErroPercepcao } from "../src/erros";
 
 export interface InfoOllama {
   online: boolean;
-  /** Modelo de visao configurado (OLLAMA_MODEL ou o padrao do servidor). */
+  /** Protocolo do backend em uso (`ollama` nativo ou `openai`/LM Studio). */
+  provedor?: "ollama" | "openai";
+  /** Modelo de visao configurado (NEURO_MODEL/OLLAMA_MODEL ou o padrao do servidor). */
   solicitado?: string;
   /** Modelo efetivamente usado (o solicitado ou o melhor disponivel). */
   modelo: string;
@@ -51,7 +53,7 @@ export interface ResultadoVisao {
   parcial: string;
 }
 
-/** Erro reportado pelo proprio stream do Ollama (nao deve ser reembrulhado). */
+/** Erro reportado pelo proprio stream do backend de visao (nao deve ser reembrulhado). */
 class ErroEventoVisao extends ErroPercepcao {
   constructor(mensagem: string) {
     super("ollama", mensagem);
@@ -189,19 +191,19 @@ export async function obterContexto(): Promise<ContextoRecente | null> {
   };
 }
 
-/** `GET /api/health` — status do Ollama. */
+/** `GET /api/health` — status do backend de visao. */
 export async function saudeOllama(): Promise<InfoOllama | null> {
   let resposta: Response;
   try {
     resposta = await fetch("/api/health");
   } catch (err) {
-    throw new ErroPercepcao("ollama", "Ollama: servidor indisponivel", { cause: err });
+    throw new ErroPercepcao("ollama", "Backend de visao: servidor indisponivel", { cause: err });
   }
   const dados = (await resposta.json()) as { ollama?: InfoOllama };
   return dados.ollama ?? null;
 }
 
-/** `GET /api/visao/preparar` — garante o modelo do Ollama em memoria. */
+/** `GET /api/visao/preparar` — garante o modelo de visao em memoria. */
 export async function prepararOllama(): Promise<PreparacaoOllama> {
   let resposta: Response;
   try {
@@ -213,7 +215,7 @@ export async function prepararOllama(): Promise<PreparacaoOllama> {
   }
   if (!resposta.ok) {
     const corpo = (await resposta.json().catch(() => null)) as { erro?: string } | null;
-    throw new ErroPercepcao("ollama", corpo?.erro ?? `Falha ao preparar Ollama (${resposta.status})`);
+    throw new ErroPercepcao("ollama", corpo?.erro ?? `Falha ao preparar o backend de visao (${resposta.status})`);
   }
   return (await resposta.json()) as PreparacaoOllama;
 }
@@ -243,7 +245,7 @@ export async function descreverFrame(
 
   if (!resposta.ok || !resposta.body) {
     const corpo = (await resposta.json().catch(() => null)) as { erro?: string } | null;
-    throw new ErroPercepcao("ollama", corpo?.erro ?? `Ollama respondeu ${resposta.status}`);
+    throw new ErroPercepcao("ollama", corpo?.erro ?? `Backend de visao respondeu ${resposta.status}`);
   }
 
   const reader = resposta.body.getReader();
@@ -269,14 +271,14 @@ export async function descreverFrame(
         } else if (evt.type === "done") {
           evento = evt;
         } else if (evt.type === "erro") {
-          throw new ErroEventoVisao(evt.erro ?? "Erro no Ollama");
+          throw new ErroEventoVisao(evt.erro ?? "Erro no backend de visao");
         }
       }
     }
   } catch (err) {
     if (err instanceof ErroEventoVisao) throw err;
     if ((err as Error).name === "AbortError") throw err;
-    throw new ErroPercepcao("ollama", `Erro ao ler resposta do Ollama: ${(err as Error).message}`, {
+    throw new ErroPercepcao("ollama", `Erro ao ler resposta do backend de visao: ${(err as Error).message}`, {
       cause: err,
     });
   }
