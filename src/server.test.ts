@@ -86,6 +86,33 @@ describe("montarEntrada", () => {
     expect(montarEntrada({ motivo: "qualquer-coisa" }).motivo).toBeUndefined();
     expect(montarEntrada({}).motivo).toBeUndefined();
   });
+
+  it("reconhece roteiro e preserva papel, ms e tokens", () => {
+    const entrada = montarEntrada({
+      tipo: "roteiro",
+      papel: "base",
+      ms: 1234,
+      tokens: 56,
+      resumo: "Pessoa de pe.",
+    });
+    expect(entrada.tipo).toBe("roteiro");
+    expect(entrada.papel).toBe("base");
+    expect(entrada.ms).toBe(1234);
+    expect(entrada.tokens).toBe(56);
+  });
+
+  it("normaliza tipo desconhecido e descarta numeros invalidos", () => {
+    expect(montarEntrada({ tipo: "qualquer" }).tipo).toBe("deteccao");
+    const entrada = montarEntrada({ ms: "100", tokens: Number.NaN });
+    expect(entrada.ms).toBeUndefined();
+    expect(entrada.tokens).toBeUndefined();
+  });
+
+  it("so aceita papel em entradas do tipo roteiro", () => {
+    expect(montarEntrada({ tipo: "deteccao", papel: "base" }).papel).toBeUndefined();
+    expect(montarEntrada({ tipo: "roteiro", papel: "qualquer" }).papel).toBeUndefined();
+    expect(montarEntrada({ tipo: "roteiro", papel: "delta" }).papel).toBe("delta");
+  });
 });
 
 describe("appendLogEntry", () => {
@@ -497,6 +524,41 @@ describe("createServer", () => {
       const linhas = (await readFile(logFile, "utf8")).trim().split("\n");
       expect(linhas).toHaveLength(1);
       expect(JSON.parse(linhas[0])).toMatchObject({ modelo: "meu-modelo" });
+    } finally {
+      server.close();
+    }
+  });
+
+  it("POST /api/log preserva os campos de roteiro (papel, ms e tokens)", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const server = createServer({ logFile, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tipo: "roteiro",
+          papel: "delta",
+          modelo: "qwen2.5vl:3b",
+          resumo: "Pessoa sentou.",
+          ms: 1500,
+          tokens: 12,
+        }),
+      });
+      expect(res.status).toBe(200);
+      const { entrada } = (await res.json()) as { entrada: Partial<EntradaLog> };
+      expect(entrada).toMatchObject({ tipo: "roteiro", papel: "delta", ms: 1500, tokens: 12 });
+
+      const linhas = (await readFile(logFile, "utf8")).trim().split("\n");
+      expect(JSON.parse(linhas[0])).toMatchObject({
+        tipo: "roteiro",
+        papel: "delta",
+        ms: 1500,
+        tokens: 12,
+      });
     } finally {
       server.close();
     }

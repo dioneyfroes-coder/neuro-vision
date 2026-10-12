@@ -137,6 +137,17 @@ function atualizarBotoesAnalise(): void {
   analisarAgoraBtn.disabled = !running || motorSelect.value !== "eventos";
 }
 
+/**
+ * Trocar o motor ou o modelo exige reinicializar o motor ativo, o que o
+ * agendador nao faz em execucao. Para nao rodar com uma combinacao incoerente
+ * (ex.: `motorAtual` antigo), os seletores ficam bloqueados enquanto a captura
+ * esta ativa e so voltam a ficar disponiveis ao parar.
+ */
+function habilitarSeletoresDeMotor(habilitado: boolean): void {
+  motorSelect.disabled = !habilitado;
+  modelSelect.disabled = !habilitado;
+}
+
 function drawBoxes(objetos: ReadonlyArray<{ nome: string; score: number; caixa: Caixa }>): void {
   ctx.clearRect(0, 0, overlay.width, overlay.height);
   ctx.lineWidth = 3;
@@ -578,6 +589,7 @@ async function prepararOllama(motor: MotorPercepcao): Promise<void> {
 async function start(): Promise<void> {
   if (running) return;
   startBtn.disabled = true;
+  habilitarSeletoresDeMotor(false);
   // `roteiroBeats`/`ultimaDescricao` vem do contexto reidratado (`carregarContexto`):
   // se ja existe roteiro persistido, o proximo beat e um delta, nao a base.
   ultimaDuracaoMs = 0;
@@ -598,48 +610,58 @@ async function start(): Promise<void> {
   }
   placeholder.style.display = "none";
 
-  if (motorSelect.value === "ollama" || motorSelect.value === "roteiro") {
-    const motor = new MotorOllama({
-      modo: motorSelect.value === "roteiro" ? "roteiro" : "descricao",
-    });
-    motorAtual = motor;
-    const inicioCarga = performance.now();
-    try {
-      await prepararOllama(motor);
-      ultimaCargaMs = Math.round(performance.now() - inicioCarga);
-    } catch (err) {
-      registrarOperacional("erro", "ollama", (err as Error).message);
-      falharInicializacao(`Falha ao preparar o Ollama: ${(err as Error).message}`);
-      return;
+  // A partir daqui a webcam esta ligada: qualquer falha inesperada precisa
+  // liberar as faixas de video via `falharInicializacao` -> `encerrarCaptura`.
+  try {
+    if (motorSelect.value === "ollama" || motorSelect.value === "roteiro") {
+      const motor = new MotorOllama({
+        modo: motorSelect.value === "roteiro" ? "roteiro" : "descricao",
+      });
+      motorAtual = motor;
+      const inicioCarga = performance.now();
+      try {
+        await prepararOllama(motor);
+        ultimaCargaMs = Math.round(performance.now() - inicioCarga);
+      } catch (err) {
+        registrarOperacional("erro", "ollama", (err as Error).message);
+        falharInicializacao(`Falha ao preparar o Ollama: ${(err as Error).message}`);
+        return;
+      }
+    } else {
+      const motor = new MotorDeteccao({
+        detector: detectorCoco,
+        modelo: modelSelect.value,
+        obterThreshold: () => Number(thresholdInput.value),
+      });
+      motorAtual = motor;
+      const inicioCarga = performance.now();
+      try {
+        await motor.inicializar(setStatus);
+        ultimaCargaMs = Math.round(performance.now() - inicioCarga);
+      } catch (err) {
+        registrarOperacional("erro", "detector", (err as Error).message);
+        falharInicializacao(`Falha ao carregar modelo: ${(err as Error).message}`);
+        return;
+      }
+      mostrarAvisoDispositivo();
     }
-  } else {
-    const motor = new MotorDeteccao({
-      detector: detectorCoco,
-      modelo: modelSelect.value,
-      obterThreshold: () => Number(thresholdInput.value),
-    });
-    motorAtual = motor;
-    const inicioCarga = performance.now();
-    try {
-      await motor.inicializar(setStatus);
-      ultimaCargaMs = Math.round(performance.now() - inicioCarga);
-    } catch (err) {
-      registrarOperacional("erro", "detector", (err as Error).message);
-      falharInicializacao(`Falha ao carregar modelo: ${(err as Error).message}`);
-      return;
-    }
-    mostrarAvisoDispositivo();
-  }
 
-  if (!camera.ativa) return;
-  running = true;
-  politica.reiniciar();
-  stopBtn.disabled = false;
-  atualizarBotoesAnalise();
-  atualizarDiagnostico();
-  // Atualiza o "carregado" do Ollama agora que o modelo pode ter subido.
-  void verificarOllama();
-  await agendador.iniciar();
+    if (!camera.ativa) {
+      falharInicializacao("A camera foi encerrada durante a inicializacao.");
+      return;
+    }
+    running = true;
+    politica.reiniciar();
+    stopBtn.disabled = false;
+    atualizarBotoesAnalise();
+    atualizarDiagnostico();
+    // Atualiza o "carregado" do Ollama agora que o modelo pode ter subido.
+    void verificarOllama();
+    await agendador.iniciar();
+  } catch (err) {
+    registrarOperacional("erro", "inicializacao", (err as Error).message);
+    falharInicializacao(`Falha ao iniciar: ${(err as Error).message}`);
+  }
 }
 
 function encerrarCaptura(): void {
@@ -661,6 +683,7 @@ function restaurarInterfaceIdle(): void {
   startBtn.disabled = false;
   stopBtn.disabled = true;
   analisarAgoraBtn.disabled = true;
+  habilitarSeletoresDeMotor(true);
 }
 
 function falharInicializacao(mensagem: string): void {

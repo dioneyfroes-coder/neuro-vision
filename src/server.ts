@@ -233,18 +233,41 @@ export function normalizarMotivo(valor: unknown): MotivoAnalise | undefined {
     : undefined;
 }
 
+const TIPOS_ENTRADA: TipoEntrada[] = ["deteccao", "descricao", "roteiro"];
+
+/** Normaliza o tipo de entrada aceito em `POST /api/log` (inclui `roteiro`). */
+export function normalizarTipoEntrada(valor: unknown): TipoEntrada {
+  return typeof valor === "string" && TIPOS_ENTRADA.includes(valor as TipoEntrada)
+    ? (valor as TipoEntrada)
+    : "deteccao";
+}
+
+/** Preserva apenas numeros finitos; descarta strings, NaN e Infinity. */
+function campoNumero(valor: unknown): number | undefined {
+  return typeof valor === "number" && Number.isFinite(valor) ? valor : undefined;
+}
+
+/** O papel (`base`/`delta`) so faz sentido em entradas do tipo `roteiro`. */
+function normalizarPapel(valor: unknown, tipo: TipoEntrada): "base" | "delta" | undefined {
+  if (tipo !== "roteiro") return undefined;
+  return valor === "base" || valor === "delta" ? valor : undefined;
+}
+
 export function montarEntrada(payload: unknown): EntradaLog {
   const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
     string,
     unknown
   >;
-  const tipo: TipoEntrada = p.tipo === "descricao" ? "descricao" : "deteccao";
+  const tipo = normalizarTipoEntrada(p.tipo);
   return {
     timestamp: typeof p.timestamp === "string" ? p.timestamp : new Date().toISOString(),
     modelo: typeof p.modelo === "string" ? p.modelo : "desconhecido",
     objetos: normalizarObjetos(p.objetos),
     resumo: typeof p.resumo === "string" ? p.resumo : "",
     tipo,
+    papel: normalizarPapel(p.papel, tipo),
+    ms: campoNumero(p.ms),
+    tokens: campoNumero(p.tokens),
     motivo: normalizarMotivo(p.motivo),
   };
 }

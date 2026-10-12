@@ -167,6 +167,53 @@ test("libera a webcam quando o modelo de deteccao falha ao carregar", async ({ p
   expect(estado).toBe("ended");
 });
 
+test("libera a webcam quando a preparacao do Ollama falha", async ({ page }) => {
+  await prepararPagina(page);
+  await page.route("**/api/visao/preparar", (rota) =>
+    rota.fulfill({
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: false, erro: "modelo indisponivel" }),
+    })
+  );
+  await instalarCameraFalsa(page);
+  await page.goto("/");
+  await page.locator("#motor").selectOption("ollama");
+  await page.locator("#start").click();
+
+  await expect(page.locator("#status")).toContainText("Falha ao preparar o Ollama");
+  await expect(page.locator("#start")).toBeEnabled();
+  await expect(page.locator("#stop")).toBeDisabled();
+  await expect(page.locator("#placeholder")).toBeVisible();
+
+  const estado = await page.evaluate(
+    () => (window as unknown as { __testStream: MediaStream }).__testStream.getTracks()[0].readyState
+  );
+  expect(estado).toBe("ended");
+});
+
+test("bloqueia trocar motor/modelo durante a execucao e libera ao parar", async ({ page }) => {
+  await prepararPagina(page, DETECTOR_LENTO);
+  await instalarCameraFalsa(page);
+  await page.goto("/");
+  await page.locator("#motor").selectOption("deteccao");
+  await expect(page.locator("#motor")).toBeEnabled();
+  await expect(page.locator("#model")).toBeEnabled();
+
+  await page.locator("#start").click();
+  await page.waitForFunction(
+    () => ((window as unknown as { __deteccoes?: number }).__deteccoes ?? 0) >= 1,
+    undefined,
+    { timeout: 15_000 }
+  );
+  await expect(page.locator("#motor")).toBeDisabled();
+  await expect(page.locator("#model")).toBeDisabled();
+
+  await page.locator("#stop").click();
+  await expect(page.locator("#motor")).toBeEnabled();
+  await expect(page.locator("#model")).toBeEnabled();
+});
+
 test("parar durante a inferencia libera a webcam e permite iniciar de novo", async ({ page }) => {
   await prepararPagina(page, DETECTOR_LENTO);
   await instalarCameraFalsa(page);
