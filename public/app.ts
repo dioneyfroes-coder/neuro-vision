@@ -10,7 +10,8 @@ import { AgendadorAnalise } from "./scheduler";
 import * as api from "./api";
 import { DetectorObjetos } from "./detector";
 import { Camera, ErroCamera } from "./camera";
-import { MotorDeteccao, MotorOllama } from "./motores";
+import { MotorOllama } from "./motores";
+import { obterModo } from "./modos";
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -83,8 +84,7 @@ function setSpinner(ativo: boolean): void {
 
 /** Modelo de deteccao em uso no navegador, ou "—" quando o motor nao precisa dele. */
 function modeloDeDeteccaoAtivo(): string | null {
-  const modo = motorSelect.value;
-  return modo === "deteccao" || modo === "eventos" ? modelSelect.value : null;
+  return obterModo(motorSelect.value).usaDeteccao ? modelSelect.value : null;
 }
 
 /**
@@ -94,10 +94,11 @@ function modeloDeDeteccaoAtivo(): string | null {
  */
 function atualizarDiagnostico(): void {
   const motor = running ? motorSelect.value : "parado";
+  const definicao = obterModo(motorSelect.value);
   const deteccao = modeloDeDeteccaoAtivo();
   const modeloOllama = infoOllama?.modelo ?? "?";
   const modelo =
-    motorSelect.value === "eventos"
+    definicao.usaDeteccao && definicao.usaOllama
       ? `${deteccao} + ${modeloOllama}`
       : deteccao ?? modeloOllama;
   const carregados = !infoOllama
@@ -134,7 +135,7 @@ function mostrarAvisoDispositivo(): void {
 
 /** "Analisar agora" so faz sentido no modo eventos, com a sessao rodando. */
 function atualizarBotoesAnalise(): void {
-  analisarAgoraBtn.disabled = !running || motorSelect.value !== "eventos";
+  analisarAgoraBtn.disabled = !running || !obterModo(motorSelect.value).permiteAnaliseManual;
 }
 
 /**
@@ -577,7 +578,8 @@ async function analisar(): Promise<void> {
   }
 }
 
-async function prepararOllama(motor: MotorPercepcao): Promise<void> {
+/** Inicializa o motor ativo exibindo o spinner durante o carregamento. */
+async function inicializarMotor(motor: MotorPercepcao): Promise<void> {
   setSpinner(true);
   try {
     await motor.inicializar(setStatus);
@@ -613,38 +615,23 @@ async function start(): Promise<void> {
   // A partir daqui a webcam esta ligada: qualquer falha inesperada precisa
   // liberar as faixas de video via `falharInicializacao` -> `encerrarCaptura`.
   try {
-    if (motorSelect.value === "ollama" || motorSelect.value === "roteiro") {
-      const motor = new MotorOllama({
-        modo: motorSelect.value === "roteiro" ? "roteiro" : "descricao",
-      });
-      motorAtual = motor;
-      const inicioCarga = performance.now();
-      try {
-        await prepararOllama(motor);
-        ultimaCargaMs = Math.round(performance.now() - inicioCarga);
-      } catch (err) {
-        registrarOperacional("erro", "ollama", (err as Error).message);
-        falharInicializacao(`Falha ao preparar o Ollama: ${(err as Error).message}`);
-        return;
-      }
-    } else {
-      const motor = new MotorDeteccao({
-        detector: detectorCoco,
-        modelo: modelSelect.value,
-        obterThreshold: () => Number(thresholdInput.value),
-      });
-      motorAtual = motor;
-      const inicioCarga = performance.now();
-      try {
-        await motor.inicializar(setStatus);
-        ultimaCargaMs = Math.round(performance.now() - inicioCarga);
-      } catch (err) {
-        registrarOperacional("erro", "detector", (err as Error).message);
-        falharInicializacao(`Falha ao carregar modelo: ${(err as Error).message}`);
-        return;
-      }
-      mostrarAvisoDispositivo();
+    const definicao = obterModo(motorSelect.value);
+    const motor = definicao.criarMotor({
+      detector: detectorCoco,
+      modelo: modelSelect.value,
+      obterThreshold: () => Number(thresholdInput.value),
+    });
+    motorAtual = motor;
+    const inicioCarga = performance.now();
+    try {
+      await inicializarMotor(motor);
+      ultimaCargaMs = Math.round(performance.now() - inicioCarga);
+    } catch (err) {
+      registrarOperacional("erro", definicao.origemFalha, (err as Error).message);
+      falharInicializacao(`${definicao.falhaPrefixo}: ${(err as Error).message}`);
+      return;
     }
+    if (definicao.usaDeteccao) mostrarAvisoDispositivo();
 
     if (!camera.ativa) {
       falharInicializacao("A camera foi encerrada durante a inicializacao.");

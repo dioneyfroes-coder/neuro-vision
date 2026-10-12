@@ -180,6 +180,36 @@ describe("api de eventos e operacional", () => {
     expect(await listarEventos(5)).toEqual([{ id: "e1" }, { id: "e2" }]);
   });
 
+  it("listarEventos monta a query com tipos, objeto e janela", async () => {
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL) => json({ eventos: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listarEventos(10, {
+      tipos: ["aparicao", "desaparecimento"],
+      objetoId: "obj-1",
+      desde: 1000,
+      ate: 2000,
+    });
+
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+    expect(url).toContain("/api/eventos?");
+    const params = new URLSearchParams(url.slice(url.indexOf("?") + 1));
+    expect(params.get("limit")).toBe("10");
+    expect(params.get("tipo")).toBe("aparicao,desaparecimento");
+    expect(params.get("objetoId")).toBe("obj-1");
+    expect(params.get("desde")).toBe("1000");
+    expect(params.get("ate")).toBe("2000");
+  });
+
+  it("listarEventos sem filtros envia apenas o limite", async () => {
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL) => json({ eventos: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listarEventos(7);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/api/eventos?limit=7");
+  });
+
   it("gravarOperacional e best-effort e nao lanca em falha de rede", async () => {
     vi.stubGlobal(
       "fetch",

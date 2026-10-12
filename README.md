@@ -116,7 +116,7 @@ OLLAMA_MODEL=qwen2.5vl:7b npm start            # bash
 | `GET` | `/api/logs?limit=100` | Lista as entradas mais recentes (mais nova primeiro, limite máx. 500). |
 | `DELETE` | `/api/logs` | Limpa o histórico de log (inclui a rotação `.1`) **e** os eventos estruturados, removendo os snapshots que ficaram órfãos. |
 | `POST` | `/api/eventos` | Grava um evento visual estruturado (`EventoVisual`). Aceita `snapshot` (data URL) opcional. |
-| `GET` | `/api/eventos?limit=100` | Lista os eventos mais recentes (mais novo primeiro, limite máx. 500). |
+| `GET` | `/api/eventos?limit=100` | Lista os eventos mais recentes (mais novo primeiro, limite máx. 500). Consultas por `tipo` (CSV, ex. `?tipo=aparicao,movimento`), `objetoId` e janela temporal (`desde`/`ate`, epoch ms ou ISO) respondem **o que mudou**, **quando** e as **evidências** (cada evento traz `confianca` e `snapshot`). Os filtros incidem sobre os eventos mais recentes dentro de `limit`. |
 | `DELETE` | `/api/eventos` | Limpa os eventos estruturados e remove os snapshots que ficaram órfãos. |
 | `POST` | `/api/operacional` | Grava um registro operacional (falha/métrica) que **não** é acontecimento visual. |
 | `GET` | `/api/contexto` | Reidrata um contexto curto do estado recente (`{ resumo, roteiro, ultimaDescricao, entradas, eventos }`) com janela por `maxEntradas`/`maxEventos`/`maxCaracteres`. |

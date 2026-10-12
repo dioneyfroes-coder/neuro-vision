@@ -183,6 +183,8 @@ Arquivos principais: `src/server.ts`, testes e documentação.
 
 **Implementação:** `src/percepcao.ts` define `MotorPercepcao` (`inicializar`/`analisar`/`encerrar`), o resultado padronizado `ResultadoPercepcao` (modelo, `duracaoMs`, `objetos`, `descricao`, `snapshot`, `confianca`) e o adaptador de memória `entradaDeResultado(resultado, tipo)`, que converte um `ResultadoPercepcao` em `EntradaLog`. `public/motores.ts` implementa a interface com `MotorDeteccao` (envolve `DetectorObjetos`, mede a duração e converte com `descreverDeteccoes`) e `MotorOllama` (monta o payload de descrição/roteiro e chama `api.descreverFrame`). `src/erros.ts` cria `ErroPercepcao` com `origem` (`camera`/`detector`/`ollama`/`armazenamento`/`cancelamento`) e `ehCancelamento`; `camera.ts`, `api.ts` e `detector.ts` passaram a classificar seus erros. `public/app.ts` agora só escolhe o motor em `start()` e consome `ResultadoPercepcao` — o histórico (`src/types.ts` + `entradaDeResultado`) e o agendador (`public/scheduler.ts`) não conhecem Transformers.js nem Ollama, então trocar de motor não os afeta. Cobertos por `src/percepcao.test.ts`, `src/erros.test.ts` e `src/motores.test.ts` (147 testes; typecheck, lint, build e 7 testes E2E verdes).
 
+Refinamento posterior: `public/modos.ts` centraliza o registro de modos (flags de diagnóstico/análise manual + fábrica `criarMotor`), de modo que `public/app.ts` deixou de escolher classes de motor por condições — trocar ou acrescentar um motor é uma entrada no registro. Coberto por `src/modos.test.ts`.
+
 ---
 
 ## Fase 3 — Construir percepção temporal de objetos e mudanças
@@ -257,6 +259,8 @@ interface EventoVisual {
 - [x] Adicionar testes para reidratação do contexto, log vazio, linhas inválidas e histórico truncado.
 
 **Implementação 4.2:** `src/memoria.ts` ganhou `reidratarContexto(entradas, eventos, opcoes)`, que reusa `resumirContexto` (resumo curto **separado** dos arrays `entradas`/`eventos`) e ainda deriva `roteiro` (últimos deltas em ordem cronológica) e `ultimaDescricao` (última descrição/roteiro, a mesma referência que o app usa em `anterior`). O servidor expõe `GET /api/contexto`, com janelas por query (`maxEntradas`/`maxEventos`/`maxCaracteres`, com padrões 20/20/1200 e limites duros), lendo `visao.jsonl` e `eventos.jsonl`. No cliente, `api.obterContexto()` e `carregarContexto()` reidratam `roteiroBeats` e `ultimaDescricao` na inicialização — assim o primeiro beat após reiniciar já é um delta e a descrição reaproveita a observação anterior — e `limparHistorico` zera esse estado. O contexto nunca envia o histórico inteiro: além da janela do endpoint, o prompt continua limitado por `roteiroBeats.slice(-8).join(" ").slice(0, 1200)`. Testes: `src/memoria.test.ts` (reidratação, histórico vazio e truncado), `src/server.test.ts` (contexto com dados, log vazio e linhas inválidas) e `src/api.test.ts` (`obterContexto`).
+
+Refinamento posterior: `GET /api/eventos` ganhou filtros (`tipo`, `objetoId`, `desde`/`ate`) apoiados em `filtrarEventos`/`normalizarTipoEvento` (`src/memoria.ts`), tornando explícita a consulta ao histórico — **o que mudou**, **quando** e com quais **evidências** (`confianca` + `snapshot` de cada evento). Coberto por `src/memoria.test.ts`, `src/server.test.ts` e `src/api.test.ts`.
 
 ### 4.3 Escolher armazenamento por necessidade
 

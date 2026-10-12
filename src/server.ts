@@ -16,14 +16,24 @@ import { colapsarRepeticoes, cortarFraseIncompleta, ehSemMudanca } from "./texto
 import { ehCancelamento } from "./erros";
 import {
   appendJsonl,
+  filtrarEventos,
   lerUltimosJsonl,
   limparJsonl,
   montarEvento,
   montarOperacional,
+  normalizarTipoEvento,
   reidratarContexto,
 } from "./memoria";
 import type { RegistroOperacional } from "./memoria";
-import type { Caixa, EntradaLog, EventoVisual, MotivoAnalise, ObjetoVisto, TipoEntrada } from "./types";
+import type {
+  Caixa,
+  EntradaLog,
+  EventoVisual,
+  MotivoAnalise,
+  ObjetoVisto,
+  TipoEntrada,
+  TipoEventoVisual,
+} from "./types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -703,7 +713,15 @@ async function handleListEventos(
     const url = new URL(req.url ?? "/api/eventos", "http://localhost");
     const limitParam = Number(url.searchParams.get("limit"));
     const limite = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 500) : 100;
-    const eventos = await lerEventos(eventosFile, limite);
+    // Filtros (Fase 4): "o que mudou" (`tipo`/`objetoId`) e "quando"
+    // (`desde`/`ate`, aceitando epoch ms ou ISO). Aplicados aos eventos mais
+    // recentes dentro de `limit`.
+    const eventos = filtrarEventos(await lerEventos(eventosFile, limite), {
+      tipos: parsearTiposEvento(url.searchParams.get("tipo")),
+      objetoId: url.searchParams.get("objetoId")?.trim() || undefined,
+      desdeMs: parsearInstante(url.searchParams.get("desde")),
+      ateMs: parsearInstante(url.searchParams.get("ate")),
+    });
     sendJson(res, 200, { ok: true, total: eventos.length, eventos });
   } catch (err) {
     logEvent("error", "listar_eventos_falhou", { erro: (err as Error).message });
@@ -734,6 +752,31 @@ function inteiroLimitado(valor: string | null, padrao: number, min: number, max:
   const n = Number(valor);
   if (!Number.isFinite(n)) return padrao;
   return Math.min(Math.max(Math.trunc(n), min), max);
+}
+
+/**
+ * Le um instante de um parametro de query: aceita epoch ms (`"1728000000000"`)
+ * ou data ISO (`"2026-10-11T00:00:00Z"`). Retorna `undefined` quando ausente ou
+ * invalido, para o filtro correspondente nao restringir o resultado.
+ */
+export function parsearInstante(valor: string | null): number | undefined {
+  if (valor === null) return undefined;
+  const texto = valor.trim();
+  if (!texto) return undefined;
+  const numero = Number(texto);
+  if (Number.isFinite(numero)) return numero;
+  const data = Date.parse(texto);
+  return Number.isFinite(data) ? data : undefined;
+}
+
+/** Le a lista de tipos de evento de `?tipo=aparicao,movimento`, descartando invalidos. */
+export function parsearTiposEvento(valor: string | null): TipoEventoVisual[] {
+  if (!valor) return [];
+  const tipos = valor
+    .split(",")
+    .map((t) => normalizarTipoEvento(t.trim()))
+    .filter((t): t is TipoEventoVisual => t !== null);
+  return [...new Set(tipos)];
 }
 
 /**

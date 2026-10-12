@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { EntradaLog, EventoVisual } from "./types";
+import type { EntradaLog, EventoVisual, TipoEventoVisual } from "./types";
 
 /** Nivel de um registro operacional. */
 export type NivelOperacional = "info" | "aviso" | "erro";
@@ -100,19 +100,28 @@ export async function limparJsonl(filePath: string): Promise<void> {
   await fs.promises.unlink(`${filePath}.1`).catch(() => {});
 }
 
+/** Tipos de evento visual aceitos (contrato de `EventoVisual`). */
+export const TIPOS_EVENTO: TipoEventoVisual[] = [
+  "aparicao",
+  "desaparecimento",
+  "movimento",
+  "mudanca_de_cena",
+  "resumo",
+];
+
+/** Normaliza um valor para `TipoEventoVisual` ou `null` quando desconhecido. */
+export function normalizarTipoEvento(valor: unknown): TipoEventoVisual | null {
+  return typeof valor === "string" && TIPOS_EVENTO.includes(valor as TipoEventoVisual)
+    ? (valor as TipoEventoVisual)
+    : null;
+}
+
 /** Valida e normaliza um evento vindo do cliente. */
 export function montarEvento(payload: unknown): EventoVisual | null {
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
   const p = payload as Record<string, unknown>;
-  const tipos: EventoVisual["tipo"][] = [
-    "aparicao",
-    "desaparecimento",
-    "movimento",
-    "mudanca_de_cena",
-    "resumo",
-  ];
   const origens: EventoVisual["origem"][] = ["detector", "rastreador", "ollama"];
-  if (typeof p.tipo !== "string" || !tipos.includes(p.tipo as EventoVisual["tipo"])) return null;
+  if (normalizarTipoEvento(p.tipo) === null) return null;
   if (typeof p.descricao !== "string") return null;
   if (typeof p.origem !== "string" || !origens.includes(p.origem as EventoVisual["origem"])) return null;
   return {
@@ -143,6 +152,42 @@ export function montarOperacional(payload: unknown): RegistroOperacional | null 
     mensagem: p.mensagem,
     detalhe: typeof p.detalhe === "string" ? p.detalhe : undefined,
   };
+}
+
+/**
+ * Filtros de consulta ao historico de eventos. Todos opcionais; quando ausente,
+ * o criterio correspondente nao restringe o resultado (Fase 4 — consultas ao
+ * historico respondendo "o que mudou", "quando" e as evidencias).
+ */
+export interface FiltrosEventos {
+  /** Tipos aceitos; vazio/omisso = todos os tipos. */
+  tipos?: TipoEventoVisual[];
+  /** Somente eventos deste objeto rastreado (`objetoId`). */
+  objetoId?: string;
+  /** Inicio da janela (epoch ms, inclusive). */
+  desdeMs?: number;
+  /** Fim da janela (epoch ms, inclusive). */
+  ateMs?: number;
+}
+
+/**
+ * Filtra eventos por tipo, objeto e janela temporal. Eventos com `timestamp`
+ * invalido sao mantidos (nao ha como compara-los com a janela).
+ */
+export function filtrarEventos(
+  eventos: EventoVisual[],
+  filtros: FiltrosEventos = {}
+): EventoVisual[] {
+  const tipos = filtros.tipos && filtros.tipos.length > 0 ? new Set(filtros.tipos) : null;
+  return eventos.filter((evento) => {
+    if (tipos && !tipos.has(evento.tipo)) return false;
+    if (filtros.objetoId && evento.objetoId !== filtros.objetoId) return false;
+    const instante = Date.parse(evento.timestamp);
+    if (!Number.isFinite(instante)) return true;
+    if (filtros.desdeMs !== undefined && instante < filtros.desdeMs) return false;
+    if (filtros.ateMs !== undefined && instante > filtros.ateMs) return false;
+    return true;
+  });
 }
 
 /** Contexto curto reconstruido a partir do historico persistido (Fase 4.2). */

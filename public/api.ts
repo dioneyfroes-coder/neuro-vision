@@ -1,4 +1,4 @@
-import type { EntradaLog, EventoVisual, MotivoAnalise } from "../src/types";
+import type { EntradaLog, EventoVisual, MotivoAnalise, TipoEventoVisual } from "../src/types";
 import { ErroPercepcao } from "../src/erros";
 
 export interface InfoOllama {
@@ -105,11 +105,32 @@ export async function gravarEvento(evento: EventoVisual): Promise<void> {
   }
 }
 
+/** Filtros de consulta ao historico de eventos (`GET /api/eventos`). */
+export interface FiltrosEventos {
+  /** Tipos aceitos; vazio/omisso = todos. */
+  tipos?: TipoEventoVisual[];
+  /** Somente eventos deste objeto rastreado. */
+  objetoId?: string;
+  /** Inicio da janela (epoch ms, inclusive). */
+  desde?: number;
+  /** Fim da janela (epoch ms, inclusive). */
+  ate?: number;
+}
+
 /** `GET /api/eventos` — lista os eventos mais recentes (mais novo primeiro). */
-export async function listarEventos(limite = 100): Promise<EventoVisual[]> {
+export async function listarEventos(
+  limite = 100,
+  filtros: FiltrosEventos = {}
+): Promise<EventoVisual[]> {
+  const params = new URLSearchParams({ limit: String(limite) });
+  if (filtros.tipos?.length) params.set("tipo", filtros.tipos.join(","));
+  if (filtros.objetoId) params.set("objetoId", filtros.objetoId);
+  if (filtros.desde !== undefined) params.set("desde", String(filtros.desde));
+  if (filtros.ate !== undefined) params.set("ate", String(filtros.ate));
+
   let resposta: Response;
   try {
-    resposta = await fetch(`/api/eventos?limit=${limite}`);
+    resposta = await fetch(`/api/eventos?${params.toString()}`);
   } catch (err) {
     throw new ErroPercepcao("armazenamento", "Falha ao ler os eventos", { cause: err });
   }

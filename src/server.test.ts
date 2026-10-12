@@ -22,6 +22,8 @@ import {
   nomeArquivoSnapshot,
   origemBloqueada,
   origensPermitidas,
+  parsearInstante,
+  parsearTiposEvento,
   resolverCaminhoDentroDaBase,
   resolveStaticFile,
   salvarSnapshot,
@@ -1557,6 +1559,76 @@ describe("memoria persistente (eventos e operacional)", () => {
     } finally {
       server.close();
     }
+  });
+
+  it("GET /api/eventos filtra por tipo, objeto e janela temporal", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const eventosFile = path.join(tmpDir, "eventos.jsonl");
+    await appendEvento(
+      {
+        id: "e1",
+        timestamp: "2026-10-11T10:00:00.000Z",
+        tipo: "aparicao",
+        objetoId: "obj-1",
+        descricao: "apareceu pessoa",
+        origem: "rastreador",
+      },
+      eventosFile
+    );
+    await appendEvento(
+      {
+        id: "e2",
+        timestamp: "2026-10-11T10:01:00.000Z",
+        tipo: "movimento",
+        objetoId: "obj-2",
+        descricao: "movimento",
+        origem: "rastreador",
+      },
+      eventosFile
+    );
+
+    const server = createServer({ logFile, eventosFile, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+    const base = `http://127.0.0.1:${port}/api/eventos`;
+
+    try {
+      const porTipo = (await (await fetch(`${base}?tipo=movimento`)).json()) as {
+        eventos: { id: string }[];
+      };
+      expect(porTipo.eventos.map((e) => e.id)).toEqual(["e2"]);
+
+      const porObjeto = (await (await fetch(`${base}?objetoId=obj-1`)).json()) as {
+        eventos: { id: string }[];
+      };
+      expect(porObjeto.eventos.map((e) => e.id)).toEqual(["e1"]);
+
+      const porJanela = (await (
+        await fetch(`${base}?desde=2026-10-11T10:00:30.000Z`)
+      ).json()) as { eventos: { id: string }[] };
+      expect(porJanela.eventos.map((e) => e.id)).toEqual(["e2"]);
+
+      // Tipo desconhecido nao restringe (lista vazia de filtros).
+      const tipoInvalido = (await (await fetch(`${base}?tipo=inexistente`)).json()) as {
+        eventos: { id: string }[];
+      };
+      expect(tipoInvalido.eventos).toHaveLength(2);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("parsearTiposEvento e parsearInstante normalizam a query", () => {
+    expect(parsearTiposEvento("aparicao,movimento,aparicao")).toEqual(["aparicao", "movimento"]);
+    expect(parsearTiposEvento("inexistente")).toEqual([]);
+    expect(parsearTiposEvento(null)).toEqual([]);
+    expect(parsearInstante("1728000000000")).toBe(1728000000000);
+    expect(parsearInstante("2026-10-11T00:00:00.000Z")).toBe(
+      Date.parse("2026-10-11T00:00:00.000Z")
+    );
+    expect(parsearInstante("")).toBeUndefined();
+    expect(parsearInstante(null)).toBeUndefined();
+    expect(parsearInstante("nao-e-data")).toBeUndefined();
   });
 
   it("appendOperacional/lerOperacional guardam registros operacionais", async () => {
