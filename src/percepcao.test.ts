@@ -51,6 +51,7 @@ describe("entradaDeResultado", () => {
       {
         ...base,
         snapshot: "data:image/jpeg;base64,AAAA",
+        capturadoEm: "2026-10-11T00:00:01.000Z",
         confianca: { tokens: 50, semMudanca: true },
       },
       "descricao",
@@ -58,5 +59,6 @@ describe("entradaDeResultado", () => {
     );
     expect(entrada.snapshot).toBe("data:image/jpeg;base64,AAAA");
     expect(entrada.tokens).toBe(50);
+    expect(entrada.capturadoEm).toBe("2026-10-11T00:00:01.000Z");
   });
 });

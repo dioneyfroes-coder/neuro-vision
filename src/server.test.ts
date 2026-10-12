@@ -89,6 +89,14 @@ describe("montarEntrada", () => {
     expect(montarEntrada({}).motivo).toBeUndefined();
   });
 
+  it("preserva o instante de captura do frame (capturadoEm) e ignora valores invalidos", () => {
+    expect(montarEntrada({ capturadoEm: "2026-10-11T00:00:01.000Z", resumo: "x" }).capturadoEm).toBe(
+      "2026-10-11T00:00:01.000Z"
+    );
+    expect(montarEntrada({ capturadoEm: 42 }).capturadoEm).toBeUndefined();
+    expect(montarEntrada({}).capturadoEm).toBeUndefined();
+  });
+
   it("reconhece roteiro e preserva papel, ms e tokens", () => {
     const entrada = montarEntrada({
       tipo: "roteiro",
@@ -274,9 +282,11 @@ describe("seguranca de rede", () => {
     expect(validarPayloadLog({ objetos: "x" })).toContain("objetos");
     expect(validarPayloadLog({ resumo: 1 })).toContain("resumo");
     expect(validarPayloadLog({ objetos: [], resumo: "ok" })).toBeNull();
+    expect(validarPayloadLog({ resumo: "ok", capturadoEm: 42 })).toContain("capturadoEm");
 
     expect(validarPayloadVisao({ imagem: 42 })).toContain("imagem");
     expect(validarPayloadVisao({ imagem: "QkxPQ" })).toBeNull();
+    expect(validarPayloadVisao({ imagem: "QkxPQ", capturadoEm: false })).toContain("capturadoEm");
   });
 });
 
@@ -546,13 +556,20 @@ describe("createServer", () => {
           papel: "delta",
           modelo: "qwen2.5vl:3b",
           resumo: "Pessoa sentou.",
+          capturadoEm: "2026-10-11T00:00:01.000Z",
           ms: 1500,
           tokens: 12,
         }),
       });
       expect(res.status).toBe(200);
       const { entrada } = (await res.json()) as { entrada: Partial<EntradaLog> };
-      expect(entrada).toMatchObject({ tipo: "roteiro", papel: "delta", ms: 1500, tokens: 12 });
+      expect(entrada).toMatchObject({
+        tipo: "roteiro",
+        papel: "delta",
+        ms: 1500,
+        tokens: 12,
+        capturadoEm: "2026-10-11T00:00:01.000Z",
+      });
 
       const linhas = (await readFile(logFile, "utf8")).trim().split("\n");
       expect(JSON.parse(linhas[0])).toMatchObject({
@@ -560,6 +577,7 @@ describe("createServer", () => {
         papel: "delta",
         ms: 1500,
         tokens: 12,
+        capturadoEm: "2026-10-11T00:00:01.000Z",
       });
     } finally {
       server.close();
@@ -693,6 +711,7 @@ describe("createServer", () => {
         body: JSON.stringify({
           imagem: "data:image/jpeg;base64,QkxPQ",
           motivo: "nova_entidade",
+          capturadoEm: "2020-01-01T00:00:00.000Z",
         }),
       });
       expect(res.status).toBe(200);
@@ -703,10 +722,14 @@ describe("createServer", () => {
       expect(eventos.find((e) => e.type === "done")?.motivo).toBe("nova_entidade");
 
       const linhas = (await readFile(logFile, "utf8")).trim().split("\n");
-      expect(JSON.parse(linhas[0])).toMatchObject({
+      const gravada = JSON.parse(linhas[0]) as { capturadoEm?: string; timestamp: string };
+      expect(gravada).toMatchObject({
         resumo: "Pessoa na sala.",
         motivo: "nova_entidade",
+        capturadoEm: "2020-01-01T00:00:00.000Z",
       });
+      // copia no instante da analise, depois da captura: atraso positivo
+      expect(Date.parse(gravada.capturadoEm!)).toBeLessThan(Date.parse(gravada["timestamp"]));
     } finally {
       server.close();
     }

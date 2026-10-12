@@ -33,6 +33,8 @@ export interface EventoVisao {
 export interface PayloadVisao {
   imagem: string;
   snapshot?: string;
+  /** Instante ISO da captura do frame (antes da inferencia). */
+  capturadoEm?: string;
   modelo?: string;
   anterior?: string;
   modo?: "roteiro" | "descricao";

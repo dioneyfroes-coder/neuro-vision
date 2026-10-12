@@ -185,6 +185,9 @@ function criarItem(entry: EntradaLog): HTMLLIElement {
     img.src = entry.snapshot;
     img.alt = "frame capturado";
     img.loading = "lazy";
+    if (entry.capturadoEm) {
+      img.title = `Frame capturado às ${new Date(entry.capturadoEm).toLocaleTimeString("pt-BR")}`;
+    }
     li.appendChild(img);
   }
 
@@ -195,7 +198,19 @@ function criarItem(entry: EntradaLog): HTMLLIElement {
   cabecalho.className = "cabecalho";
   const time = document.createElement("span");
   time.className = "time";
-  time.textContent = new Date(entry.timestamp).toLocaleTimeString("pt-BR");
+  // O horario exibido e o da CAPTURA do frame (quando o snapshot foi tirado);
+  // `timestamp` e o fim da analise. A diferenca entre os dois e o atraso de
+  // inferencia, revelado no tooltip.
+  const capturadoEm = entry.capturadoEm ? new Date(entry.capturadoEm) : null;
+  const analisadoEm = new Date(entry.timestamp);
+  time.textContent = (capturadoEm ?? analisadoEm).toLocaleTimeString("pt-BR");
+  if (capturadoEm) {
+    const atrasoS = (analisadoEm.getTime() - capturadoEm.getTime()) / 1000;
+    time.title =
+      atrasoS >= 1
+        ? `Frame capturado às ${capturadoEm.toLocaleTimeString("pt-BR")} · analisado ${atrasoS.toFixed(1)}s depois`
+        : `Frame capturado às ${capturadoEm.toLocaleTimeString("pt-BR")}`;
+  }
   cabecalho.appendChild(time);
   if (entry.modelo) {
     const meta = document.createElement("span");
@@ -204,6 +219,9 @@ function criarItem(entry: EntradaLog): HTMLLIElement {
     if (entry.ms && entry.tokens) {
       const tokS = Math.round(entry.tokens / (entry.ms / 1000));
       texto += ` · ${entry.tokens} toks em ${Math.round(entry.ms / 1000)}s (${tokS} tok/s)`;
+    }
+    if (capturadoEm && analisadoEm.getTime() - capturadoEm.getTime() >= 1000) {
+      texto += ` · frame analisado ${((analisadoEm.getTime() - capturadoEm.getTime()) / 1000).toFixed(1)}s depois`;
     }
     if (entry.motivo) {
       texto += ` · por ${rotuloMotivo(entry.motivo)}`;
@@ -322,6 +340,7 @@ async function analisarComOllama(
   ehRoteiro: boolean,
   motivo?: MotivoAnalise | null
 ): Promise<void> {
+  const capturadoEm = new Date().toISOString();
   const dataUrl = camera.capturarFrame(512);
   if (dataUrl === null) return;
   const width = camera.largura;
@@ -344,7 +363,7 @@ async function analisarComOllama(
   let resultado: ResultadoPercepcao | null;
   try {
     resultado = await motor.analisar(
-      { imagem: base64, snapshot: dataUrl },
+      { imagem: base64, snapshot: dataUrl, capturadoEm },
       signal,
       (parcial) => setStatus(`Ollama: ${colapsarRepeticoes(parcial)}`)
     );
@@ -394,14 +413,23 @@ async function analisarDeteccao(signal: AbortSignal): Promise<void> {
   overlay.width = width;
   overlay.height = height;
 
-  const dataUrl = camera.capturarFrame();
-  if (dataUrl === null) return;
+  // Captura o frame UMA unica vez: o mesmo instante alimenta a analise, o
+  // snapshot do historico e a assinatura de cena. Sem isso o historico exibia
+  // um segundo frame, capturado depois da inferencia, diferente do analisado.
+  const capturadoMs = performance.now();
+  const capturadoEm = new Date().toISOString();
+  const captura = camera.capturarQuadro(0, 240);
+  if (captura === null) return;
+  const assinatura = camera.assinaturaDeCena();
 
   setStatus("Analisando frame...");
   let resultado: ResultadoPercepcao | null;
   try {
     if (!motorAtual) return;
-    resultado = await motorAtual.analisar({ imagem: dataUrl }, signal);
+    resultado = await motorAtual.analisar(
+      { imagem: captura.imagem, snapshot: captura.thumb, capturadoEm },
+      signal
+    );
   } catch (err) {
     if (ehCancelamento(err) || signal.aborted) return;
     registrarOperacional("erro", "detector", (err as Error).message);
@@ -411,17 +439,14 @@ async function analisarDeteccao(signal: AbortSignal): Promise<void> {
   if (signal.aborted || !resultado) return;
   ultimaDuracaoMs = resultado.duracaoMs;
 
-  const thumb = camera.capturarFrame(240);
-  resultado.snapshot = thumb ?? undefined;
-
-  const timestamp = new Date().toISOString();
-  const agora = performance.now();
+  const agora = capturadoMs;
+  const timestamp = capturadoEm;
   const quadro = rastreador.processar(resultado.objetos, agora, {
     timestamp,
     snapshot: resultado.snapshot,
     modelo: resultado.modelo,
   });
-  const sinalCena = detectorCena.avaliar(camera.assinaturaDeCena(), agora, {
+  const sinalCena = detectorCena.avaliar(assinatura, agora, {
     timestamp,
     snapshot: resultado.snapshot,
     modelo: resultado.modelo,
@@ -460,14 +485,20 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
   overlay.width = width;
   overlay.height = height;
 
-  const dataUrl = camera.capturarFrame();
-  if (dataUrl === null) return;
+  const capturadoMs = performance.now();
+  const capturadoEm = new Date().toISOString();
+  const captura = camera.capturarQuadro(0, 240);
+  if (captura === null) return;
+  const assinatura = camera.assinaturaDeCena();
 
-  const agora = performance.now();
+  const agora = capturadoMs;
   let resultado: ResultadoPercepcao | null;
   try {
     if (!motorAtual) return;
-    resultado = await motorAtual.analisar({ imagem: dataUrl }, signal);
+    resultado = await motorAtual.analisar(
+      { imagem: captura.imagem, snapshot: captura.thumb, capturadoEm },
+      signal
+    );
   } catch (err) {
     if (ehCancelamento(err) || signal.aborted) return;
     registrarOperacional("erro", "detector", (err as Error).message);
@@ -497,16 +528,13 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
   if (signal.aborted || !resultado) return;
   ultimaDuracaoMs = resultado.duracaoMs;
 
-  const thumb = camera.capturarFrame(240);
-  resultado.snapshot = thumb ?? undefined;
-
-  const timestamp = new Date().toISOString();
+  const timestamp = capturadoEm;
   const quadro = rastreador.processar(resultado.objetos, agora, {
     timestamp,
     snapshot: resultado.snapshot,
     modelo: resultado.modelo,
   });
-  const sinalCena = detectorCena.avaliar(camera.assinaturaDeCena(), agora, {
+  const sinalCena = detectorCena.avaliar(assinatura, agora, {
     timestamp,
     snapshot: resultado.snapshot,
     modelo: resultado.modelo,

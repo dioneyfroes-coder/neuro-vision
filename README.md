@@ -110,7 +110,7 @@ OLLAMA_MODEL=qwen2.5vl:7b npm start            # bash
 
 | Método | Rota | Descrição |
 | --- | --- | --- |
-| `POST` | `/api/log` | Grava uma entrada de detecção no arquivo de log. Aceita `snapshot` (data URL) opcional. |
+| `POST` | `/api/log` | Grava uma entrada de detecção no arquivo de log. Aceita `snapshot` (data URL) e `capturadoEm` (ISO do instante em que o frame foi fotografado, antes da inferência) opcionais. |
 | `POST` | `/api/visao` | Envia um frame (base64) e recebe a descrição do Ollama em stream NDJSON; grava no log. |
 | `GET` | `/api/visao/preparar` | Carrega o modelo do Ollama na memória (quando necessário) e responde quando estiver pronto: `{ ok, modelo, carregado, carregandoMs }`. |
 | `GET` | `/api/logs?limit=100` | Lista as entradas mais recentes (mais nova primeiro, limite máx. 500). |
@@ -128,7 +128,7 @@ As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jso
 `POST /api/visao` — corpo:
 
 ```json
-{ "imagem": "<base64 ou data URL>", "modelo": "qwen2.5vl:3b", "modo": "roteiro", "base": true, "roteiro": "", "anterior": "descrição anterior", "snapshot": "<data URL opcional>" }
+{ "imagem": "<base64 ou data URL>", "modelo": "qwen2.5vl:3b", "modo": "roteiro", "base": true, "roteiro": "", "anterior": "descrição anterior", "snapshot": "<data URL opcional>", "capturadoEm": "<ISO opcional: instante da captura do frame>" }
 ```
 
 - `modo`: `"roteiro"` (padrão) ou `"descricao"`.

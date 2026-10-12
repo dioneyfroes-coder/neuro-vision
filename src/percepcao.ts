@@ -25,6 +25,8 @@ export interface ResultadoPercepcao {
   descricao?: string;
   /** Snapshot associado, quando houver. */
   snapshot?: string;
+  /** Instante ISO da captura do frame (antes da inferencia). */
+  capturadoEm?: string;
   /** Metadados de confianca. */
   confianca?: MetadadosConfianca;
 }
@@ -35,6 +37,8 @@ export interface EntradaPercepcao {
   imagem: string;
   /** Snapshot opcional (data URL) para persistencia. */
   snapshot?: string;
+  /** Instante ISO da captura do frame (antes da inferencia). */
+  capturadoEm?: string;
 }
 
 /** Motor de percepcao com ciclo de vida explicito. */
@@ -73,6 +77,7 @@ export function entradaDeResultado(
     tipo,
     papel: tipo === "roteiro" ? (papel ?? "delta") : undefined,
     snapshot: resultado.snapshot,
+    capturadoEm: resultado.capturadoEm,
     ms: resultado.duracaoMs,
     tokens: resultado.confianca?.tokens,
     motivo: motivo ?? undefined,

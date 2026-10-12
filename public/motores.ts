@@ -39,6 +39,7 @@ export class MotorDeteccao implements MotorPercepcao {
       objetos,
       descricao: resumo,
       snapshot: entrada.snapshot,
+      capturadoEm: entrada.capturadoEm,
     };
   }
 
@@ -103,6 +104,7 @@ export class MotorOllama implements MotorPercepcao {
       objetos: [],
       descricao,
       snapshot: evento?.snapshot,
+      capturadoEm: entrada.capturadoEm,
       confianca: {
         tokens: evento?.tokens,
         papel: evento?.papel,

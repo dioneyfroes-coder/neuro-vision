@@ -22,6 +22,7 @@ export class Camera {
   private stream: MediaStream | null = null;
   private readonly frameCanvas = document.createElement("canvas");
   private readonly frameCtx: CanvasRenderingContext2D | null;
+  private readonly thumbCanvas = document.createElement("canvas");
   private assinaturaCanvas: HTMLCanvasElement | null = null;
 
   constructor(private readonly video: HTMLVideoElement) {
@@ -87,6 +88,34 @@ export class Camera {
     this.frameCanvas.height = h;
     this.frameCtx.drawImage(this.video, 0, 0, w, h);
     return this.frameCanvas.toDataURL("image/jpeg", 0.85);
+  }
+
+  /**
+   * Captura o frame **uma unica vez** e devolve a imagem de analise junto de um
+   * thumbnail derivado dos **mesmos pixels** (mesmo instante). Usar isto evita o
+   * descompasso em que o snapshot exibido no historico era um segundo frame,
+   * capturado depois da inferencia. O thumbnail e apenas uma reducao da imagem
+   * analisada, nunca uma nova leitura da camera.
+   */
+  capturarQuadro(
+    maxWidth = 0,
+    larguraThumb = 240
+  ): { imagem: string; thumb: string } | null {
+    const imagem = this.capturarFrame(maxWidth);
+    if (imagem === null) return null;
+
+    const largura = this.frameCanvas.width;
+    const altura = this.frameCanvas.height;
+    const escala = larguraThumb > 0 && largura > larguraThumb ? larguraThumb / largura : 1;
+    const w = Math.max(1, Math.round(largura * escala));
+    const h = Math.max(1, Math.round(altura * escala));
+    const ctx = this.thumbCanvas.getContext("2d");
+    if (!ctx) return { imagem, thumb: imagem };
+
+    this.thumbCanvas.width = w;
+    this.thumbCanvas.height = h;
+    ctx.drawImage(this.frameCanvas, 0, 0, w, h);
+    return { imagem, thumb: this.thumbCanvas.toDataURL("image/jpeg", 0.85) };
   }
 
   /**

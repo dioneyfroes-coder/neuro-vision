@@ -34,6 +34,12 @@ export interface EntradaLog {
   tipo: TipoEntrada;
   papel?: "base" | "delta";
   snapshot?: string;
+  /**
+   * Instante ISO em que o frame foi capturado (antes da inferencia). `timestamp`
+   * e o momento em que a entrada foi montada, apos a analise; comparar os dois
+   * revela o atraso entre o que foi visto e o que terminou de ser interpretado.
+   */
+  capturadoEm?: string;
   ms?: number;
   tokens?: number;
   /** Motivo que acionou esta analise (somente descricao/roteiro). */

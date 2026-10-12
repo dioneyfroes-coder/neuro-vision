@@ -280,6 +280,36 @@ test("inferencia lenta nao sobrepoe analises mesmo com intervalo curto", async (
   await expect(page.locator("#start")).toBeEnabled();
 });
 
+test("o snapshot do historico e o frame analisado, com o instante da captura", async ({ page }) => {
+  await prepararPagina(page);
+  await instalarCameraFalsa(page);
+  await page.goto("/");
+  await page.locator("#motor").selectOption("deteccao");
+
+  const pedido = page.waitForRequest(
+    (req) => req.method() === "POST" && new URL(req.url()).pathname === "/api/log"
+  );
+  await page.locator("#start").click();
+
+  const requisicao = await pedido;
+  const corpo = requisicao.postDataJSON() as {
+    capturadoEm?: string;
+    timestamp: string;
+    snapshot?: string;
+  };
+  expect(corpo.capturadoEm).toBeTruthy();
+  expect(corpo.snapshot).toMatch(/^data:image\/jpeg/);
+  expect(Date.parse(corpo.capturadoEm!)).toBeLessThanOrEqual(Date.parse(corpo.timestamp));
+
+  // A entrada na tela usa o horario da captura do frame como horario principal.
+  await expect(page.locator("#log li").first().locator(".time")).toHaveAttribute(
+    "title",
+    /Frame capturado às/
+  );
+  await page.locator("#stop").click();
+  await expect(page.locator("#start")).toBeEnabled();
+});
+
 test("modo eventos aciona o Ollama pela politica e pelo botao manual", async ({ page }) => {
   const ndjson =
     [

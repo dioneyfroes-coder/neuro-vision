@@ -276,6 +276,7 @@ export function montarEntrada(payload: unknown): EntradaLog {
     resumo: typeof p.resumo === "string" ? p.resumo : "",
     tipo,
     papel: normalizarPapel(p.papel, tipo),
+    capturadoEm: typeof p.capturadoEm === "string" ? p.capturadoEm : undefined,
     ms: campoNumero(p.ms),
     tokens: campoNumero(p.tokens),
     motivo: normalizarMotivo(p.motivo),
@@ -376,7 +377,10 @@ export function validarPayloadLog(payload: unknown): string | null {
   if (p.objetos !== undefined && !Array.isArray(p.objetos)) {
     return "campo 'objetos' deve ser uma lista";
   }
-  const texto = campoTipoTexto(p.resumo, "resumo") ?? campoTipoTexto(p.modelo, "modelo");
+  const texto =
+    campoTipoTexto(p.resumo, "resumo") ??
+    campoTipoTexto(p.modelo, "modelo") ??
+    campoTipoTexto(p.capturadoEm, "capturadoEm");
   if (texto) return texto;
   return validarSnapshot(p.snapshot);
 }
@@ -391,7 +395,8 @@ export function validarPayloadVisao(payload: unknown): string | null {
     campoTipoTexto(p.imagem, "imagem") ??
     campoTipoTexto(p.modelo, "modelo") ??
     campoTipoTexto(p.anterior, "anterior") ??
-    campoTipoTexto(p.roteiro, "roteiro");
+    campoTipoTexto(p.roteiro, "roteiro") ??
+    campoTipoTexto(p.capturadoEm, "capturadoEm");
   if (texto) return texto;
   if (p.motivo !== undefined && p.motivo !== null && !normalizarMotivo(p.motivo)) {
     return "campo 'motivo' tem valor invalido";
@@ -840,6 +845,7 @@ async function streamVisao(
     roteiro?: string;
     base?: boolean;
     motivo?: MotivoAnalise;
+    capturadoEm?: string;
   },
   logFile: string,
   snapDir: string,
@@ -888,6 +894,7 @@ async function streamVisao(
       resumo: limpo,
       tipo,
       papel,
+      capturadoEm: opcoes.capturadoEm,
       ms: resumo.duracaoMs,
       tokens: resumo.tokens,
       motivo: opcoes.motivo,
@@ -970,6 +977,7 @@ async function handleVisao(
         roteiro: typeof p.roteiro === "string" ? p.roteiro : undefined,
         base: p.base === true,
         motivo: normalizarMotivo(p.motivo),
+        capturadoEm: typeof p.capturadoEm === "string" ? p.capturadoEm : undefined,
       },
       config.logFile ?? LOG_FILE,
       config.snapDir ?? SNAP_DIR,
