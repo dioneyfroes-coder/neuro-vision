@@ -20,7 +20,6 @@ export interface OpcoesGerarDescricao {
   prompt?: string;
   host?: string;
   timeoutMs?: number;
-  anterior?: string;
   modo?: ModoAnalise;
   roteiro?: string;
   base?: boolean;
@@ -41,21 +40,21 @@ export interface ResultadoDescricao {
   duracaoMs: number;
 }
 
+/**
+ * Observacao independente: cada foto e descrita do zero, sem enviar a descricao
+ * anterior. Alimentar o texto antigo faz um modelo pequeno "colar" a descricao
+ * anterior em vez de olhar a imagem atual (era a principal causa da analise
+ * parecer atrasada em relacao ao que estava na tela). A comparacao entre fotos
+ * passa a ser feita no cliente (`diferencaDeTextos`), e nao pelo modelo.
+ */
 export const PROMPT_DESCRICAO =
-  "Voce observa um frame de uma webcam. Descreva em portugues o que aparece na cena, " +
-  "mencionando objetos e pessoas principais, partes do corpo visiveis (maos, cabeca, bracos, pernas), " +
-  "postura, expressao e cores. No maximo 2 frases, seja especifico.";
+  "Voce observa UMA foto da webcam, tirada agora. Descreva objetivamente o que aparece NESTA imagem: " +
+  "pessoas, objetos (inclusive o que estiver sendo segurado ou mostrado), cores, postura e disposicao. " +
+  "Baseie-se somente no que ve na imagem; nao cite fotos, descricoes ou momentos anteriores. " +
+  "Responda em portugues, no maximo 2 frases.";
 
-export function montarPromptDescricao(anterior?: string): string {
-  const texto = anterior?.trim() ?? "";
-  if (!texto) return PROMPT_DESCRICAO;
-  return (
-    `Voce observa um NOVO frame de uma webcam. Descricao do frame anterior: "${texto}". ` +
-    "Compare com a imagem atual. Se algo mudou, descreva o que mudou ou o que e novo. " +
-    "Se a cena estiver igual, NAO repita o que ja foi dito: tente enxergar detalhes adicionais " +
-    "ainda nao mencionados (partes do corpo, objetos pequenos, textos, cores, nuances de postura). " +
-    "Responda em portugues, no maximo 2 frases, sem se repetir."
-  );
+export function montarPromptDescricao(): string {
+  return PROMPT_DESCRICAO;
 }
 
 export const PROMPT_ROTEIRO_BASE =
@@ -63,19 +62,20 @@ export const PROMPT_ROTEIRO_BASE =
   "portugues: pessoas, objetos, disposicao, cores, iluminacao, postura e possiveis acoes. " +
   "Escreva de 3 a 4 frases objetivas, sem repetir ideias.";
 
+/**
+ * Delta do roteiro: continua sendo uma observacao independente da foto atual.
+ * Antes o prompt mandava comparar com o roteiro acumulado e responder
+ * "INALTERADO" quando nada mudasse; com um modelo 3B isso produzia oscilacao e
+ * alucinacao (ex.: "a iluminacao mudou" repetido). Agora cada beat descreve so
+ * o que esta na imagem, e o cliente decide se o beat repete o anterior.
+ */
 export const PROMPT_ROTEIRO_DELTA =
-  "Voce acompanha uma webcam e mantem um ROTEIRO do que ja aconteceu. " +
-  "Escreva em portugues APENAS o que mudou no novo frame em relacao ao roteiro, em 1 frase curta " +
-  "e concreta. Nao repita o que ja foi dito. Se nada relevante mudou, responda apenas a palavra: INALTERADO.";
+  "Voce observa UMA foto da webcam, tirada agora. Em 1 frase curta e concreta, diga o que ha NESTA " +
+  "imagem (pessoas, objetos, o que estiver sendo segurado ou mostrado). " +
+  "Baseie-se somente no que ve agora; nao repita nem compare com fotos anteriores.";
 
-export function montarPromptRoteiro(base: boolean, roteiro?: string): string {
-  if (base) return PROMPT_ROTEIRO_BASE;
-  const texto = roteiro?.trim() ?? "";
-  if (!texto) return PROMPT_ROTEIRO_DELTA;
-  return (
-    `${PROMPT_ROTEIRO_DELTA} Roteiro ate agora: "${texto}". ` +
-    "Descreva somente a diferenca deste frame para o roteiro."
-  );
+export function montarPromptRoteiro(base: boolean, _roteiro?: string): string {
+  return base ? PROMPT_ROTEIRO_BASE : PROMPT_ROTEIRO_DELTA;
 }
 
 /**
