@@ -77,13 +77,14 @@ describe("RastreadorObjetos", () => {
     expect(volta.objetos[0].framesVisto).toBe(2);
   });
 
-  it("dois frames ausentes geram desaparecimento", () => {
+  it("ausencia prolongada gera desaparecimento", () => {
     const r = new RastreadorObjetos();
     r.processar([pessoa()], 1000);
     r.processar([], 1100);
-    const f3 = r.processar([], 1200);
-    expect(f3.eventos.map((e) => e.tipo)).toEqual(["desaparecimento"]);
-    expect(f3.objetos).toHaveLength(0);
+    r.processar([], 1200);
+    const f4 = r.processar([], 1300);
+    expect(f4.eventos.map((e) => e.tipo)).toEqual(["desaparecimento"]);
+    expect(f4.objetos).toHaveLength(0);
   });
 
   it("objeto que reaparece apos desaparecer ganha novo ID", () => {
@@ -91,7 +92,8 @@ describe("RastreadorObjetos", () => {
     r.processar([pessoa()], 1000);
     r.processar([], 1100);
     r.processar([], 1200);
-    const volta = r.processar([pessoa()], 1300);
+    r.processar([], 1300);
+    const volta = r.processar([pessoa()], 1400);
     expect(volta.eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
     expect(volta.objetos[0].id).not.toBe("obj-1");
   });
@@ -135,7 +137,7 @@ describe("RastreadorObjetos", () => {
     const f2 = r.processar([pessoa()], 1100);
     expect(f2.eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
 
-    const r2 = new RastreadorObjetos({ framesParaConfirmarAparicao: 2 });
+    const r2 = new RastreadorObjetos({ framesParaConfirmarAparicao: 2, expiracaoMs: 1000, maxFramesAusente: 1 });
     r2.processar([pessoa()], 1000);
     const some = r2.processar([], 1100);
     expect(some.eventos).toEqual([]);
@@ -166,5 +168,25 @@ describe("RastreadorObjetos", () => {
     expect(f2.objetos[0].id).toBe("obj-1");
     expect(f2.objetos[0].caixa.ymax).toBe(60);
     expect(f2.eventos.some((e) => e.tipo === "aparicao")).toBe(false);
+  });
+
+  it("objeto estatico durante ciclos lentos nao gera desaparecimento espurio", () => {
+    const r = new RastreadorObjetos({ maxFramesAusente: 2, expiracaoMs: 3000 });
+    expect(r.processar([pessoa(0, 0)], 1000).eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
+    // Ciclo lento: 4 segundos depois, objeto continua la
+    const f2 = r.processar([pessoa(0, 0)], 5000);
+    expect(f2.eventos).toEqual([]);
+    expect(f2.objetos).toHaveLength(1);
+    expect(f2.objetos[0].id).toBe("obj-1");
+  });
+
+  it("ausencia curta e' tolerada conforme configuracao", () => {
+    const r = new RastreadorObjetos({ maxFramesAusente: 2, expiracaoMs: 10000 });
+    r.processar([pessoa(0, 0)], 1000);
+    r.processar([], 2000);
+    const f3 = r.processar([pessoa(0, 0)], 3000);
+    expect(f3.eventos).toEqual([]);
+    expect(f3.objetos).toHaveLength(1);
+    expect(f3.objetos[0].id).toBe("obj-1");
   });
 });

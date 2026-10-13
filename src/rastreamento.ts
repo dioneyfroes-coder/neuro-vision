@@ -27,8 +27,8 @@ export interface ConfigRastreamento {
 export const CONFIG_RASTREAMENTO_PADRAO: ConfigRastreamento = {
   iouMinimo: 0.3,
   distanciaMaximaCentros: 80,
-  maxFramesAusente: 1,
-  expiracaoMs: 2000,
+  maxFramesAusente: 2,
+  expiracaoMs: 5000,
   movimentoMinimoRelativo: 0.15,
   confiancaMinima: 0.25,
   framesParaConfirmarAparicao: 1,

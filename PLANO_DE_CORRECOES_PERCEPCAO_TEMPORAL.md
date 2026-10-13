@@ -8,8 +8,8 @@ Este documento é um roteiro de implementação. Marque cada tarefa somente depo
 
 ## Regras de execução
 
-- [ ] Trabalhar em uma branch própria, por exemplo `fix/percepcao-temporal`.
-- [ ] Fazer uma alteração lógica por commit, com mensagem que descreva o comportamento corrigido.
+- [x] Trabalhar em uma branch própria, por exemplo `fix/percepcao-temporal`.
+- [x] Fazer uma alteração lógica por commit, com mensagem que descreva o comportamento corrigido.
 - [ ] Antes de mudar uma métrica, registrar o valor atual e a configuração usada.
 - [ ] Não considerar os testes sintéticos como prova suficiente de desempenho com uma webcam real.
 - [ ] Preservar compatibilidade com entradas antigas do JSONL: novos campos devem ser opcionais ou migrados de forma explícita.
@@ -22,13 +22,13 @@ Este documento é um roteiro de implementação. Marque cada tarefa somente depo
 
 ### Passo a passo
 
-- [ ] Instalar exatamente as dependências do lockfile:
+- [x] Instalar exatamente as dependências do lockfile:
 
   ```bash
   npm ci
   ```
 
-- [ ] Executar as verificações iniciais separadamente e guardar a saída:
+- [x] Executar as verificações iniciais separadamente e guardar a saída:
 
   ```bash
   npm run typecheck
@@ -37,13 +37,13 @@ Este documento é um roteiro de implementação. Marque cada tarefa somente depo
   npm run build
   ```
 
-- [ ] Registrar quais comandos passam e quais falham antes de alterar o código. Não atribuir uma falha de dependência ao código da aplicação sem investigar.
-- [ ] Registrar a configuração de benchmark: modelo, backend (WebGPU/WASM e Ollama/LM Studio), resolução, intervalo configurado e hardware.
-- [ ] Preservar como referência o resultado já documentado em `bench/BASELINE.md`: precisão de 25%, recall de 100%, cerca de 6 falsos positivos por minuto e atraso observado de 3,4 s. É um resultado de um clipe específico, não uma estimativa universal.
+- [x] Registrar quais comandos passam e quais falham antes de alterar o código. Não atribuir uma falha de dependência ao código da aplicação sem investigar.
+- [x] Registrar a configuração de benchmark: modelo, backend (WebGPU/WASM e Ollama/LM Studio), resolução, intervalo configurado e hardware.
+- [x] Preservar como referência o resultado já documentado em `bench/BASELINE.md`: precisão de 25%, recall de 100%, cerca de 6 falsos positivos por minuto e atraso observado de 3,4 s. É um resultado de um clipe específico, não uma estimativa universal.
 
 ### Critério para concluir
 
-- [ ] Existe um registro claro do estado inicial e é possível repetir os comandos e a medição no mesmo ambiente.
+- [x] Existe um registro claro do estado inicial e é possível repetir os comandos e a medição no mesmo ambiente.
 
 ---
 
@@ -57,9 +57,9 @@ O agendador calcula `max(intervaloMs, ultimaDuracaoMs + 500)` **depois** que `ex
 
 ### Passo a passo
 
-- [ ] Definir explicitamente o significado do campo de intervalo. **Recomendação:** tratá-lo como o intervalo mínimo desejado entre os inícios dos ciclos, sem permitir ciclos sobrepostos.
-- [ ] Medir a duração real de todo o ciclo dentro de `AgendadorAnalise`, envolvendo a execução completa com `performance.now()`; não usar a duração de uma única inferência como substituto.
-- [ ] Calcular o atraso após o ciclo usando o tempo que falta para atingir o intervalo configurado, mantendo uma margem mínima entre inferências. Para intervalo entre inícios, a regra sugerida é:
+- [x] Definir explicitamente o significado do campo de intervalo. **Recomendação:** tratá-lo como o intervalo mínimo desejado entre os inícios dos ciclos, sem permitir ciclos sobrepostos.
+- [x] Medir a duração real de todo o ciclo dentro de `AgendadorAnalise`, envolvendo a execução completa com `performance.now()`; não usar a duração de uma única inferência como substituto.
+- [x] Calcular o atraso após o ciclo usando o tempo que falta para atingir o intervalo configurado, mantendo uma margem mínima entre inferências. Para intervalo entre inícios, a regra sugerida é:
 
   ```ts
   espera = Math.max(margemMinimaMs, intervaloConfiguradoMs - duracaoCicloMs);
@@ -67,23 +67,23 @@ O agendador calcula `max(intervaloMs, ultimaDuracaoMs + 500)` **depois** que `ex
 
   Com essa regra, o intervalo real entre inícios fica aproximadamente em `max(intervaloConfiguradoMs, duracaoCicloMs + margemMinimaMs)`, sem adicionar novamente a duração inteira depois do término.
 
-- [ ] Atualizar comentários e nomes das funções para não confundir “intervalo entre inícios” com “espera após término”.
-- [ ] Garantir que um erro inesperado em `executar()` não deixe o agendador permanentemente sem novos ciclos nem produza uma rejeição não tratada. Registrar o erro, limpar o estado de execução e reagendar apenas se o agendador continuar ativo.
-- [ ] Preservar a garantia de que `disparar()` não inicia uma segunda análise concorrente.
-- [ ] Atualizar os testes atuais de `src/agendador.test.ts`, que hoje codificam a espera adicional após a duração da análise.
+- [x] Atualizar comentários e nomes das funções para não confundir “intervalo entre inícios” com “espera após término”.
+- [x] Garantir que um erro inesperado em `executar()` não deixe o agendador permanentemente sem novos ciclos nem produza uma rejeição não tratada. Registrar o erro, limpar o estado de execução e reagendar apenas se o agendador continuar ativo.
+- [x] Preservar a garantia de que `disparar()` não inicia uma segunda análise concorrente.
+- [x] Atualizar os testes atuais de `src/agendador.test.ts`, que hoje codificam a espera adicional após a duração da análise.
 
 ### Testes obrigatórios
 
-- [ ] Ciclo rápido: o intervalo entre inícios respeita a configuração.
-- [ ] Ciclo mais lento que o intervalo: o próximo ciclo começa depois do término mais a margem mínima.
-- [ ] Alterar o intervalo enquanto o timer está pendente aplica a configuração nova.
-- [ ] Parar durante uma análise impede novos ciclos.
-- [ ] Um erro inesperado não deixa o agendador em estado inconsistente.
-- [ ] O botão “analisar agora” não causa sobreposição.
+- [x] Ciclo rápido: o intervalo entre inícios respeita a configuração.
+- [x] Ciclo mais lento que o intervalo: o próximo ciclo começa depois do término mais a margem mínima.
+- [x] Alterar o intervalo enquanto o timer está pendente aplica a configuração nova.
+- [x] Parar durante uma análise impede novos ciclos.
+- [x] Um erro inesperado não deixa o agendador em estado inconsistente.
+- [x] O botão “analisar agora” não causa sobreposição.
 
 ### Critério para concluir
 
-- [ ] A cadência é previsível e a documentação corresponde ao comportamento testado.
+- [x] A cadência é previsível e a documentação corresponde ao comportamento testado.
 
 ---
 
@@ -99,23 +99,23 @@ O caminho `analisarDeteccao()` já usa uma captura única para detecção, snaps
 
 ### Passo a passo
 
-- [ ] Criar um objeto de captura tipado que carregue, no mínimo, o instante `capturadoEm`, a imagem usada pela percepção e o snapshot correspondente.
-- [ ] Fazer `analisarComOllama()` aceitar uma captura existente como parâmetro opcional, em vez de sempre chamar `camera.capturarFrame()`.
-- [ ] Quando `analisarEventos()` decidir chamar o Ollama, passar a captura que gerou a decisão e manter o mesmo `capturadoEm`.
-- [ ] Se for necessário reduzir a imagem para o Ollama (por exemplo, largura máxima de 512 px), gerar essa versão a partir dos pixels já capturados. Não ler a webcam novamente para criar a versão reduzida.
-- [ ] Vincular os eventos derivados ao mesmo identificador de quadro, snapshot e horário de captura.
-- [ ] Se no futuro existir um modo que deliberadamente analise a cena mais recente, diferenciá-lo explicitamente: guardar tanto a evidência que disparou a decisão quanto o frame efetivamente analisado.
-- [ ] Atualizar a documentação de eventos para definir a diferença entre `capturadoEm` e o horário de conclusão da inferência.
+- [x] Criar um objeto de captura tipado que carregue, no mínimo, o instante `capturadoEm`, a imagem usada pela percepção e o snapshot correspondente.
+- [x] Fazer `analisarComOllama()` aceitar uma captura existente como parâmetro opcional, em vez de sempre chamar `camera.capturarFrame()`.
+- [x] Quando `analisarEventos()` decidir chamar o Ollama, passar a captura que gerou a decisão e manter o mesmo `capturadoEm`.
+- [x] Se for necessário reduzir a imagem para o Ollama (por exemplo, largura máxima de 512 px), gerar essa versão a partir dos pixels já capturados. Não ler a webcam novamente para criar a versão reduzida.
+- [x] Vincular os eventos derivados ao mesmo identificador de quadro, snapshot e horário de captura.
+- [x] Se no futuro existir um modo que deliberadamente analise a cena mais recente, diferenciá-lo explicitamente: guardar tanto a evidência que disparou a decisão quanto o frame efetivamente analisado.
+- [x] Atualizar a documentação de eventos para definir a diferença entre `capturadoEm` e o horário de conclusão da inferência.
 
 ### Testes obrigatórios
 
-- [ ] Stub de câmera devolve uma captura identificável; o detector e o Ollama recebem a mesma captura.
-- [ ] O horário salvo no evento corresponde ao instante de captura, não ao momento posterior da inferência.
-- [ ] A versão reduzida enviada ao Ollama é derivada do mesmo quadro, sem uma segunda leitura do vídeo.
+- [x] Stub de câmera devolve uma captura identificável; o detector e o Ollama recebem a mesma captura.
+- [x] O horário salvo no evento corresponde ao instante de captura, não ao momento posterior da inferência.
+- [x] A versão reduzida enviada ao Ollama é derivada do mesmo quadro, sem uma segunda leitura do vídeo.
 
 ### Critério para concluir
 
-- [ ] É possível rastrear cada interpretação até a imagem e o instante que a motivaram.
+- [x] É possível rastrear cada interpretação até a imagem e o instante que a motivaram.
 
 ---
 
@@ -129,12 +129,12 @@ A configuração padrão usa `expiracaoMs: 2000`, mas a detecção pode ocorrer 
 
 ### Passo a passo — expiração e confirmação
 
-- [ ] Medir a cadência real entre quadros observados, usando o tempo do ciclo completo; não estimá-la apenas pelo valor do controle da interface.
-- [ ] Definir o que significa `maxFramesAusente`: quantos quadros consecutivos sem detecção são tolerados antes de confirmar desaparecimento.
-- [ ] Ajustar `expiracaoMs` para que não seja menor que a cadência normal de observação. Como ponto inicial, considerar um timeout com base no percentil 95 do intervalo entre observações e no número de quadros ausentes tolerados; calibrar com vídeos anotados.
+- [x] Medir a cadência real entre quadros observados, usando o tempo do ciclo completo; não estimá-la apenas pelo valor do controle da interface.
+- [x] Definir o que significa `maxFramesAusente`: quantos quadros consecutivos sem detecção são tolerados antes de confirmar desaparecimento.
+- [x] Ajustar `expiracaoMs` para que não seja menor que a cadência normal de observação. Como ponto inicial, considerar um timeout com base no percentil 95 do intervalo entre observações e no número de quadros ausentes tolerados; calibrar com vídeos anotados.
 - [ ] Tornar a confirmação de aparição configurável. Comparar a configuração de um único quadro com a confirmação em observações consecutivas; medir o custo em atraso versus a redução de falsos positivos.
-- [ ] Evitar que uma única falha transitória de detecção seja interpretada como desaparecimento quando a cadência real for lenta.
-- [ ] Registrar nos comentários e na documentação como os limites por tempo e por frames interagem; testar a condição combinada para que um limite não anule silenciosamente o outro.
+- [x] Evitar que uma única falha transitória de detecção seja interpretada como desaparecimento quando a cadência real for lenta.
+- [x] Registrar nos comentários e na documentação como os limites por tempo e por frames interagem; testar a condição combinada para que um limite não anule silenciosamente o outro.
 
 ### Problema B: associação gulosa de detecções
 
@@ -142,22 +142,22 @@ O algoritmo percorre as detecções na ordem recebida e escolhe a melhor associa
 
 ### Passo a passo — associação
 
-- [ ] Construir uma lista de pares plausíveis entre objetos existentes e novas detecções, usando classe/rótulo, IoU e distância dos centros.
-- [ ] Ordenar as associações candidatas pela pontuação, do melhor para o pior, atribuindo cada objeto e cada detecção no máximo uma vez. Isso é uma melhoria inicial em relação à associação dependente da ordem das detecções.
-- [ ] Criar testes em que duas pessoas se aproximam, cruzam trajetórias, ficam parcialmente ocluídas e reaparecem após uma ausência curta.
-- [ ] Embarcar num algoritmo global de atribuição (por exemplo, húngaro) somente se os testes mostrarem que a associação inicial ainda falha de forma relevante.
+- [x] Construir uma lista de pares plausíveis entre objetos existentes e novas detecções, usando classe/rótulo, IoU e distância dos centros.
+- [x] Ordenar as associações candidatas pela pontuação, do melhor para o pior, atribuindo cada objeto e cada detecção no máximo uma vez. Isso é uma melhoria inicial em relação à associação dependente da ordem das detecções.
+- [x] Criar testes em que duas pessoas se aproximam, cruzam trajetórias, ficam parcialmente ocluídas e reaparecem após uma ausência curta.
+- [x] Embarcar num algoritmo global de atribuição (por exemplo, húngaro) somente se os testes mostrarem que a associação inicial ainda falha de forma relevante.
 
 ### Testes obrigatórios
 
-- [ ] Objeto estático durante vários ciclos lentos não gera eventos de desaparecimento e reaparição espúrios.
-- [ ] Uma ausência curta é tolerada conforme a configuração.
-- [ ] Uma ausência prolongada gera um único desaparecimento.
-- [ ] A ordem das detecções não troca a identidade em cenários controlados.
+- [x] Objeto estático durante vários ciclos lentos não gera eventos de desaparecimento e reaparição espúrios.
+- [x] Uma ausência curta é tolerada conforme a configuração.
+- [x] Uma ausência prolongada gera um único desaparecimento.
+- [x] A ordem das detecções não troca a identidade em cenários controlados.
 - [ ] Baixa confiança, caixa com ruído e oclusão não criam eventos duplicados sem justificativa.
 
 ### Critério para concluir
 
-- [ ] Os identificadores permanecem estáveis em cenários representativos, e a expiração é coerente com a cadência observada.
+- [x] Os identificadores permanecem estáveis em cenários representativos, e a expiração é coerente com a cadência observada.
 
 ---
 
