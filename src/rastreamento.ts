@@ -121,20 +121,23 @@ export class RastreadorObjetos {
     const associados = new Set<ObjetoRastreado>();
     const deteccoesAssociadas = new Set<ObjetoVisto>();
 
-    for (const deteccao of validas) {
-      let melhor: { objeto: ObjetoRastreado; pontuacao: number } | null = null;
-      for (const objeto of this.objetos) {
-        if (associados.has(objeto)) continue;
+    const candidatos: Array<{ objeto: ObjetoRastreado; deteccao: ObjetoVisto; pontuacao: number }> = [];
+    for (const objeto of this.objetos) {
+      for (const deteccao of validas) {
         if (objeto.rotulo !== deteccao.rotulo) continue;
         const pontuacao = this.pontuacaoAssociacao(objeto.caixa, deteccao.caixa);
         if (pontuacao === null) continue;
-        if (!melhor || pontuacao > melhor.pontuacao) melhor = { objeto, pontuacao };
+        candidatos.push({ objeto, deteccao, pontuacao });
       }
-      if (!melhor) continue;
-
-      const { objeto } = melhor;
-      associados.add(objeto);
-      deteccoesAssociadas.add(deteccao);
+    }
+    candidatos.sort((a, b) => b.pontuacao - a.pontuacao);
+    for (const c of candidatos) {
+      if (associados.has(c.objeto)) continue;
+      if (deteccoesAssociadas.has(c.deteccao)) continue;
+      associados.add(c.objeto);
+      deteccoesAssociadas.add(c.deteccao);
+      const objeto = c.objeto;
+      const deteccao = c.deteccao;
 
       const deslocamento = this.deslocamentoRelativo(objeto.caixa, deteccao.caixa);
       objeto.caixa = deteccao.caixa;
@@ -252,3 +255,4 @@ export class RastreadorObjetos {
     };
   }
 }
+
