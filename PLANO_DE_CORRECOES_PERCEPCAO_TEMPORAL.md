@@ -200,10 +200,10 @@ Quando `percepcaoValida` é `false`, a política verifica a capacidade da janela
 
 ### Passo a passo — política
 
-- [ ] Definir explicitamente quais motivos respeitam o cooldown. Recomendação: todas as chamadas automáticas — inclusive `falha_percepcao` — respeitam o cooldown e o limite por janela; apenas a ação manual pode ignorar o cooldown se esse for o comportamento desejado.
-- [ ] Implementar essa regra em um único ponto, para não haver caminhos automáticos com políticas diferentes sem intenção.
-- [ ] Esclarecer se uma tentativa que falha ou é cancelada conta no limite. Recomendação: contar chamadas iniciadas de verdade, registrar resultado/sucesso separadamente e evitar repetir imediatamente um backend indisponível.
-- [ ] Adicionar testes com falhas consecutivas de percepção antes e depois do cooldown, limite de chamadas esgotado e acionamento manual.
+- [x] Definir explicitamente quais motivos respeitam o cooldown. Recomendação: todas as chamadas automáticas — inclusive `falha_percepcao` — respeitam o cooldown e o limite por janela; apenas a ação manual pode ignorar o cooldown se esse for o comportamento desejado.
+- [x] Implementar essa regra em um único ponto, para não haver caminhos automáticos com políticas diferentes sem intenção.
+- [x] Esclarecer se uma tentativa que falha ou é cancelada conta no limite. Recomendação: contar chamadas iniciadas de verdade, registrar resultado/sucesso separadamente e evitar repetir imediatamente um backend indisponível.
+- [x] Adicionar testes com falhas consecutivas de percepção antes e depois do cooldown, limite de chamadas esgotado e acionamento manual.
 
 ### Problema B: limpar o histórico não reinicia toda a percepção temporal
 
@@ -211,15 +211,15 @@ O servidor limpa os arquivos de entradas, eventos e snapshots. No cliente, a fun
 
 ### Passo a passo — limpeza
 
-- [ ] Definir a operação de limpar histórico como um limite consistente de contexto: depois da limpeza, nenhum evento novo deve depender de objetos/estado anterior que não está mais no histórico.
-- [ ] Reiniciar `rastreador`, `detectorCena` e `politica`; limpar também `manualSolicitado`, `ultimaDescricao`, `roteiroBeats` e restaurar `roteiroPrimeiro`.
-- [ ] Evitar corrida com gravações pendentes. Enquanto o histórico for apagado, pause o agendador e aguarde a conclusão/cancelamento das gravações em andamento, ou desabilite a ação até que o ciclo esteja quiescente.
-- [ ] Se a aplicação estava rodando, definir e testar se retoma automaticamente depois da limpeza. Não deixar um ciclo antigo gravar de volta um evento logo após a API responder que apagou tudo.
+- [x] Definir a operação de limpar histórico como um limite consistente de contexto: depois da limpeza, nenhum evento novo deve depender de objetos/estado anterior que não está mais no histórico.
+- [x] Reiniciar `rastreador`, `detectorCena` e `politica`; limpar também `manualSolicitado`, `ultimaDescricao`, `roteiroBeats` e restaurar `roteiroPrimeiro`.
+- [x] Evitar corrida com gravações pendentes. Enquanto o histórico for apagado, pause o agendador e aguarde a conclusão/cancelamento das gravações em andamento, ou desabilite a ação até que o ciclo esteja quiescente.
+- [x] Se a aplicação estava rodando, definir e testar se retoma automaticamente depois da limpeza. Não deixar um ciclo antigo gravar de volta um evento logo após a API responder que apagou tudo.
 
 ### Testes obrigatórios
 
-- [ ] Falhas automáticas respeitam a regra de cooldown escolhida.
-- [ ] A análise manual segue a exceção documentada.
+- [x] Falhas automáticas respeitam a regra de cooldown escolhida.
+- [x] A análise manual segue a exceção documentada.
 - [ ] Limpar o histórico remove entradas, eventos e snapshots no servidor e reseta o estado temporal no cliente.
 - [ ] Uma gravação iniciada antes da limpeza não reaparece depois dela.
 

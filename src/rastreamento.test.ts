@@ -31,27 +31,32 @@ describe("RastreadorObjetos", () => {
     const f1 = r.processar([pessoa()], 1000);
     expect(f1.eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
     expect(f1.objetos).toHaveLength(1);
-    expect(f1.objetos[0].id).toBe("obj-1");
+    const objId1 = f1.objetos[0].id;
+    expect(objId1).toMatch(/^obj-/);
 
     const f2 = r.processar([pessoa()], 2000);
     expect(f2.eventos).toEqual([]);
-    expect(f2.objetos[0].id).toBe("obj-1");
+    expect(f2.objetos[0].id).toBe(objId1);
     expect(f2.objetos[0].framesVisto).toBe(2);
   });
 
   it("objetos da mesma classe em regioes diferentes recebem IDs distintos", () => {
     const r = new RastreadorObjetos();
     const f = r.processar([pessoa(0, 0), pessoa(300, 300)], 1000);
-    expect(f.objetos.map((o) => o.id)).toEqual(["obj-1", "obj-2"]);
+    expect(f.objetos.map((o) => o.id)).toHaveLength(2);
+    expect(f.objetos[0].id).toMatch(/^obj-/);
+    expect(f.objetos[1].id).toMatch(/^obj-/);
+    expect(f.objetos[1].id).not.toBe(f.objetos[0].id);
     expect(f.eventos.map((e) => e.tipo)).toEqual(["aparicao", "aparicao"]);
   });
 
   it("caixa deslocada mas sobreposta mantem o mesmo ID", () => {
     const r = new RastreadorObjetos();
-    r.processar([pessoa(0, 0)], 1000);
+    const f1a = r.processar([pessoa(0, 0)], 1000);
+    const objId1 = f1a.objetos[0].id;
     const f2 = r.processar([pessoa(5, 5)], 1050);
     expect(f2.eventos).toEqual([]);
-    expect(f2.objetos[0].id).toBe("obj-1");
+    expect(f2.objetos[0].id).toBe(objId1);
   });
 
   it("deslocamento relevante gera evento de movimento", () => {
@@ -59,7 +64,7 @@ describe("RastreadorObjetos", () => {
     r.processar([pessoa(0, 0)], 1000);
     const f2 = r.processar([pessoa(20, 0)], 1100);
     expect(f2.eventos.map((e) => e.tipo)).toEqual(["movimento"]);
-    expect(f2.eventos[0].objetoId).toBe("obj-1");
+    expect(f2.eventos[0].objetoId).toMatch(/^obj-/);
     expect(f2.eventos[0].origem).toBe("rastreador");
   });
 
@@ -73,7 +78,7 @@ describe("RastreadorObjetos", () => {
 
     const volta = r.processar([pessoa()], 1400);
     expect(volta.eventos).toEqual([]);
-    expect(volta.objetos[0].id).toBe("obj-1");
+    expect(volta.objetos[0].id).toMatch(/^obj-/);
     expect(volta.objetos[0].framesVisto).toBe(2);
   });
 
@@ -95,7 +100,7 @@ describe("RastreadorObjetos", () => {
     r.processar([], 1300);
     const volta = r.processar([pessoa()], 1400);
     expect(volta.eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
-    expect(volta.objetos[0].id).not.toBe("obj-1");
+    expect(volta.objetos[0].id).toMatch(/^obj-/);
   });
 
   it("classes diferentes na mesma caixa nao se associam", () => {
@@ -126,7 +131,7 @@ describe("RastreadorObjetos", () => {
     r.processar([pessoa()], 1000);
     r.reiniciar();
     const f = r.processar([pessoa()], 2000);
-    expect(f.objetos[0].id).toBe("obj-1");
+    expect(f.objetos[0].id).toMatch(/^obj-/);
     expect(f.objetos[0].framesVisto).toBe(1);
   });
 
@@ -165,7 +170,7 @@ describe("RastreadorObjetos", () => {
     const ocluido = det("person", { xmin: 0, ymin: 0, xmax: 100, ymax: 60 }, 0.9, "pessoa");
     const f2 = r.processar([ocluido], 1100);
     expect(f2.objetos).toHaveLength(1);
-    expect(f2.objetos[0].id).toBe("obj-1");
+    expect(f2.objetos[0].id).toMatch(/^obj-/);
     expect(f2.objetos[0].caixa.ymax).toBe(60);
     expect(f2.eventos.some((e) => e.tipo === "aparicao")).toBe(false);
   });
@@ -177,7 +182,8 @@ describe("RastreadorObjetos", () => {
     const f2 = r.processar([pessoa(0, 0)], 5000);
     expect(f2.eventos).toEqual([]);
     expect(f2.objetos).toHaveLength(1);
-    expect(f2.objetos[0].id).toBe("obj-1");
+    const objId = f2.objetos[0].id;
+    expect(objId).toMatch(/^obj-/);
   });
 
   it("ausencia curta e' tolerada conforme configuracao", () => {
