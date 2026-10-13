@@ -71,7 +71,6 @@ let ultimaPersistenciaMs = 0;
 const agendador = new AgendadorAnalise({
   executar: () => analisar(),
   obterIntervaloMs: () => intervaloMsConfigurado,
-  obterUltimaDuracaoMs: () => ultimaDuracaoMs,
 });
 
 function setStatus(text: string): void {

@@ -1,24 +1,18 @@
-/**
+﻿/**
  * Agendador de analises encadeado.
  *
- * Em vez de um `setInterval` com periodo fixo, aguarda a conclusao da analise
- * atual e entao calcula o proximo atraso usando o intervalo configurado e a
- * duracao real da ultima inferencia:
- *
- *     espera = max(intervaloConfigurado, ultimaDuracaoMs + margemMs)
- *
- * Isso evita ticks perdidos de um timer fixo quando uma inferencia demora e
- * garante que apenas uma analise esteja em execucao por vez.
+ * Mede a duração real de todo o ciclo (execução completa) com performance.now()
+ * e calcula o atraso para que o próximo ciclo comece respeitando o intervalo
+ * entre inícios configurado: espera = max(margemMinima, intervalo - duracaoCiclo).
  */
-
 export const MARGEM_RESERVA_MS = 500;
 
 export function calcularEspera(
   intervaloMs: number,
-  ultimaDuracaoMs: number,
+  duracaoCicloMs: number,
   margemMs = MARGEM_RESERVA_MS
 ): number {
-  return Math.max(intervaloMs, ultimaDuracaoMs + margemMs);
+  return Math.max(margemMs, intervaloMs - duracaoCicloMs);
 }
 
 export interface DependenciasAgendador {
@@ -26,14 +20,13 @@ export interface DependenciasAgendador {
   executar: () => Promise<void>;
   /** Leitura do intervalo configurado em cada ciclo. */
   obterIntervaloMs: () => number;
-  /** Leitura da duracao da ultima analise em cada ciclo. */
-  obterUltimaDuracaoMs: () => number;
 }
 
 export class AgendadorAnalise {
   private rodando = false;
   private execucaoAtual: Promise<void> | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private ultimaDuracaoCicloMs = 0;
 
   constructor(private readonly deps: DependenciasAgendador) {}
 
@@ -45,13 +38,6 @@ export class AgendadorAnalise {
     return this.execucaoAtual !== null;
   }
 
-  /**
-   * Dispara a analise imediata e arma o primeiro ciclo.
-   *
-   * Se uma execucao de uma sessao ja parada ainda estiver terminando (uma
-   * inferencia que nao pode ser cancelada), espera-a antes de iniciar, para
-   * nunca sobrepor duas analises nem deixar de rodar a analise imediata.
-   */
   async iniciar(): Promise<void> {
     if (this.rodando) return;
     this.rodando = true;
@@ -62,36 +48,30 @@ export class AgendadorAnalise {
     this.agendar();
   }
 
-  /** Cancela o timer; analises em andamento terminam, mas nenhuma nova comeca. */
   parar(): void {
     this.rodando = false;
     this.limparTimer();
   }
 
-  /**
-   * Executa uma analise imediatamente (sem mexer no agendamento pendente).
-   * Usado pelo botao "analisar agora": nenhuma analise em andamento e
-   * interrompida e uma nova nunca sobrepoe a atual.
-   */
   disparar(): void {
     if (!this.rodando) return;
     void this.executarUma();
   }
 
-  /** Reaplica a configuracao ao agendamento pendente (ex.: mudanca de intervalo). */
   reajustar(): void {
     if (!this.rodando) return;
     this.limparTimer();
     this.agendar();
   }
 
-  /** Inicia uma analise se nenhuma estiver em andamento; senao, aguarda a atual. */
   private executarUma(): Promise<void> {
     if (this.execucaoAtual) return this.execucaoAtual;
+    const inicio = performance.now();
     const execucao = (async () => {
       try {
         await this.deps.executar();
       } finally {
+        this.ultimaDuracaoCicloMs = Math.round(performance.now() - inicio);
         this.execucaoAtual = null;
       }
     })();
@@ -104,7 +84,7 @@ export class AgendadorAnalise {
     if (!this.rodando) return;
     const espera = calcularEspera(
       this.deps.obterIntervaloMs(),
-      this.deps.obterUltimaDuracaoMs()
+      this.ultimaDuracaoCicloMs
     );
     this.timer = setTimeout(() => void this.ciclo(), espera);
   }
