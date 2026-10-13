@@ -171,11 +171,11 @@ O rastreador reinicia seus contadores em `obj-1` e `evt-1`; o detector de cenas 
 
 ### Passo a passo
 
-- [ ] Definir uma `sessaoId` única para cada execução de percepção iniciada pelo usuário, gerada com `crypto.randomUUID()` ou mecanismo equivalente suportado.
-- [ ] Associar `sessaoId` aos eventos e, quando pertinente, às entradas do histórico.
-- [ ] Tornar o `objetoId` único entre sessões — por exemplo, incluir o ID da sessão no valor — ou usar IDs globais únicos para objetos. Não depender apenas do contador reiniciado.
-- [ ] Gerar IDs de evento globalmente únicos ou combinar `sessaoId` e contador. Manter uma convenção documentada para eventos do rastreador e do detector de cena.
-- [ ] Atualizar o esquema e a validação da API para preservar os novos campos sem rejeitar entradas JSONL antigas que não os possuem.
+- [x] Definir uma `sessaoId` única para cada execução de percepção iniciada pelo usuário, gerada com `crypto.randomUUID()` ou mecanismo equivalente suportado.
+- [x] Associar `sessaoId` aos eventos e, quando pertinente, às entradas do histórico.
+- [x] Tornar o `objetoId` único entre sessões — por exemplo, incluir o ID da sessão no valor — ou usar IDs globais únicos para objetos. Não depender apenas do contador reiniciado.
+- [x] Gerar IDs de evento globalmente únicos ou combinar `sessaoId` e contador. Manter uma convenção documentada para eventos do rastreador e do detector de cena.
+- [x] Atualizar o esquema e a validação da API para preservar os novos campos sem rejeitar entradas JSONL antigas que não os possuem.
 - [ ] Atualizar filtros, exportação e testes para que consultas por objeto não misturem sessões diferentes.
 
 ### Testes obrigatórios

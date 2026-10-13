@@ -44,11 +44,13 @@ export interface EntradaLog {
   tokens?: number;
   /** Motivo que acionou esta analise (somente descricao/roteiro). */
   motivo?: MotivoAnalise;
+  /** Sessao a que pertence esta entrada (legado: ausente). */
+  sessaoId?: string;
 }
 
 /** Objeto acompanhado ao longo de varios frames dentro de uma sessao. */
 export interface ObjetoRastreado {
-  /** Identificador estavel dentro da sessao (ex.: `obj-1`). */
+  /** Identificador estavel da sessao (ex.: `obj-<sessao>-1` ou `obj-1` para legado). */
   id: string;
   /** Rotulo original do detector (ex.: `person`). */
   rotulo: string;
@@ -101,4 +103,6 @@ export interface EventoVisual {
   origem: OrigemEvento;
   snapshot?: string;
   modelo?: string;
+  /** Sessao a que pertence este evento (legado: ausente). */
+  sessaoId?: string;
 }

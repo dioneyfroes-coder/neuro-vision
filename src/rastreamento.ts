@@ -47,6 +47,7 @@ export interface ContextoQuadro {
   timestamp?: string;
   snapshot?: string;
   modelo?: string;
+  sessaoId?: string;
 }
 
 export function area(caixa: Caixa): number {
@@ -82,9 +83,11 @@ export class RastreadorObjetos {
   private readonly aparicoesEmitidas = new Set<string>();
   private proximoId = 1;
   private proximoEvento = 1;
+  private readonly sessaoId?: string;
 
-  constructor(config: Partial<ConfigRastreamento> = {}) {
+  constructor(config: Partial<ConfigRastreamento> = {}, sessaoId?: string) {
     this.config = { ...CONFIG_RASTREAMENTO_PADRAO, ...config };
+    this.sessaoId = sessaoId;
   }
 
   get configuracao(): ConfigRastreamento {
@@ -102,6 +105,13 @@ export class RastreadorObjetos {
     this.aparicoesEmitidas.clear();
     this.proximoId = 1;
     this.proximoEvento = 1;
+  }
+
+  definirSessao(sessaoId: string): void {
+    if (!this.sessaoId) {
+      // Sessao definida na inicializacao; podemos reatribuir em casos pontuais
+      Object.defineProperty(this, "sessaoId", { value: sessaoId, writable: false, configurable: false });
+    }
   }
 
   /**
@@ -167,7 +177,7 @@ export class RastreadorObjetos {
     for (const deteccao of validas) {
       if (deteccoesAssociadas.has(deteccao)) continue;
       const objeto: ObjetoRastreado = {
-        id: `obj-${this.proximoId++}`,
+        id: this.sessaoId ? `obj-${this.sessaoId}-${this.proximoId++}` : `obj-${this.proximoId++}`,
         rotulo: deteccao.rotulo,
         nome: deteccao.nome,
         score: deteccao.score,
@@ -243,7 +253,7 @@ export class RastreadorObjetos {
     descricao: string
   ): EventoVisual {
     return {
-      id: `evt-${this.proximoEvento++}`,
+      id: this.sessaoId ? `evt-${this.sessaoId}-${this.proximoEvento++}` : `evt-${this.proximoEvento++}`,
       timestamp,
       tipo,
       objetoId: objeto.id,
@@ -252,6 +262,7 @@ export class RastreadorObjetos {
       origem: "rastreador",
       snapshot: contexto.snapshot,
       modelo: contexto.modelo,
+      sessaoId: contexto.sessaoId ?? this.sessaoId,
     };
   }
 }

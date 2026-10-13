@@ -291,6 +291,7 @@ export function montarEntrada(payload: unknown): EntradaLog {
     ms: campoNumero(p.ms),
     tokens: campoNumero(p.tokens),
     motivo: normalizarMotivo(p.motivo),
+    sessaoId: typeof p.sessaoId === "string" ? p.sessaoId : undefined,
   };
 }
 

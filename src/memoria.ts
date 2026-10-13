@@ -134,6 +134,7 @@ export function montarEvento(payload: unknown): EventoVisual | null {
     origem: p.origem as EventoVisual["origem"],
     snapshot: typeof p.snapshot === "string" ? p.snapshot : undefined,
     modelo: typeof p.modelo === "string" ? p.modelo : undefined,
+    sessaoId: typeof p.sessaoId === "string" ? p.sessaoId : undefined,
   };
 }
 

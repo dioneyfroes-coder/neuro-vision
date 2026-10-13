@@ -47,9 +47,21 @@ const intervalValue = el<HTMLSpanElement>("intervalValue");
 const thresholdInput = el<HTMLInputElement>("threshold");
 const thresholdValue = el<HTMLSpanElement>("thresholdValue");
 
+function gerarSessaoCurta(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID().slice(0, 8);
+  }
+  let result = "";
+  for (let i = 0; i < 8; i += 1) {
+    result += Math.floor(Math.random() * 16).toString(16);
+  }
+  return result;
+}
+
 const detectorCoco = new DetectorObjetos();
-const rastreador = new RastreadorObjetos();
-const detectorCena = new DetectorMudancaDeCena();
+let sessaoId = gerarSessaoCurta();
+const rastreador = new RastreadorObjetos({}, sessaoId);
+const detectorCena = new DetectorMudancaDeCena({}, sessaoId);
 let motorAtual: MotorPercepcao | null = null;
 let running = false;
 let controller: AbortController | null = null;
@@ -453,11 +465,13 @@ async function analisarDeteccao(signal: AbortSignal): Promise<void> {
     timestamp,
     snapshot: resultado.snapshot,
     modelo: resultado.modelo,
+    sessaoId,
   });
   const sinalCena = detectorCena.avaliar(assinatura, agora, {
     timestamp,
     snapshot: resultado.snapshot,
     modelo: resultado.modelo,
+    sessaoId,
   });
   const eventos = sinalCena ? [...quadro.eventos, sinalCena] : quadro.eventos;
   drawBoxes(quadro.objetos);
@@ -541,11 +555,13 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
     timestamp,
     snapshot: resultado.snapshot,
     modelo: resultado.modelo,
+    sessaoId,
   });
   const sinalCena = detectorCena.avaliar(assinatura, agora, {
     timestamp,
     snapshot: resultado.snapshot,
     modelo: resultado.modelo,
+    sessaoId,
   });
   const eventos = sinalCena ? [...quadro.eventos, sinalCena] : quadro.eventos;
 
@@ -632,8 +648,15 @@ async function start(): Promise<void> {
   // se ja existe roteiro persistido, o proximo beat e um delta, nao a base.
   ultimaDuracaoMs = 0;
   roteiroPrimeiro = roteiroBeats.length === 0;
+  sessaoId = gerarSessaoCurta();
   rastreador.reiniciar();
+  if (typeof (rastreador as { definirSessao?: (s: string) => void }).definirSessao === "function") {
+    (rastreador as { definirSessao: (s: string) => void }).definirSessao(sessaoId);
+  }
   detectorCena.reiniciar();
+  if (typeof (detectorCena as { definirSessao?: (s: string) => void }).definirSessao === "function") {
+    (detectorCena as { definirSessao: (s: string) => void }).definirSessao(sessaoId);
+  }
 
   try {
     await camera.iniciar();

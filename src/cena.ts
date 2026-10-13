@@ -28,6 +28,7 @@ export interface ContextoCena {
   timestamp?: string;
   snapshot?: string;
   modelo?: string;
+  sessaoId?: string;
 }
 
 /**
@@ -40,15 +41,23 @@ export class DetectorMudancaDeCena {
   private anterior: AssinaturaCena | null = null;
   private ultimoEventoMs: number | null = null;
   private proximoEvento = 1;
+  private readonly sessaoId?: string;
 
-  constructor(config: Partial<ConfigMudancaDeCena> = {}) {
+  constructor(config: Partial<ConfigMudancaDeCena> = {}, sessaoId?: string) {
     this.config = { ...CONFIG_MUDANCA_DE_CENA_PADRAO, ...config };
+    this.sessaoId = sessaoId;
   }
 
   reiniciar(): void {
     this.anterior = null;
     this.ultimoEventoMs = null;
     this.proximoEvento = 1;
+  }
+
+  definirSessao(sessaoId: string): void {
+    if (!this.sessaoId) {
+      Object.defineProperty(this, "sessaoId", { value: sessaoId, writable: false, configurable: false });
+    }
   }
 
   /**
@@ -74,7 +83,7 @@ export class DetectorMudancaDeCena {
 
     this.ultimoEventoMs = agoraMs;
     return {
-      id: `cena-${this.proximoEvento++}`,
+      id: this.sessaoId ? `cena-${this.sessaoId}-${this.proximoEvento++}` : `cena-${this.proximoEvento++}`,
       timestamp: contexto.timestamp ?? new Date().toISOString(),
       tipo: "mudanca_de_cena",
       descricao: "mudanca de cena (sinal para analise adicional)",
@@ -82,6 +91,7 @@ export class DetectorMudancaDeCena {
       origem: "detector",
       snapshot: contexto.snapshot,
       modelo: contexto.modelo,
+      sessaoId: contexto.sessaoId ?? this.sessaoId,
     };
   }
 }
