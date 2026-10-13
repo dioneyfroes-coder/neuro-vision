@@ -61,10 +61,18 @@ class ErroEventoVisao extends ErroPercepcao {
   }
 }
 
+async function exigirRespostaOk(resposta: Response, msgPadrao: string): Promise<void> {
+  if (!resposta.ok) {
+    const corpo = (await resposta.json().catch(() => null)) as { erro?: string } | null;
+    throw new ErroPercepcao("armazenamento", corpo?.erro ?? `${msgPadrao} (${resposta.status})`);
+  }
+}
+
 /** `POST /api/log` — grava uma entrada no historico do servidor. */
 export async function gravarEntrada(entrada: EntradaLog): Promise<void> {
+  let resposta: Response;
   try {
-    await fetch("/api/log", {
+    resposta = await fetch("/api/log", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(entrada),
@@ -72,6 +80,7 @@ export async function gravarEntrada(entrada: EntradaLog): Promise<void> {
   } catch (err) {
     throw new ErroPercepcao("armazenamento", "Falha ao gravar no log do servidor", { cause: err });
   }
+  await exigirRespostaOk(resposta, "Falha ao gravar no log do servidor");
 }
 
 /** `GET /api/logs` — lista as entradas mais recentes (mais nova primeiro). */
@@ -100,8 +109,9 @@ export async function limparHistorico(): Promise<void> {
 
 /** `POST /api/eventos` — grava um evento estruturado (distinto do historico). */
 export async function gravarEvento(evento: EventoVisual): Promise<void> {
+  let resposta: Response;
   try {
-    await fetch("/api/eventos", {
+    resposta = await fetch("/api/eventos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(evento),
@@ -109,6 +119,7 @@ export async function gravarEvento(evento: EventoVisual): Promise<void> {
   } catch (err) {
     throw new ErroPercepcao("armazenamento", "Falha ao gravar evento no servidor", { cause: err });
   }
+  await exigirRespostaOk(resposta, "Falha ao gravar evento no servidor");
 }
 
 /** Filtros de consulta ao historico de eventos (`GET /api/eventos`). */
