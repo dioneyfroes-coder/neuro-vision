@@ -40,11 +40,11 @@ describe("extrairBase64", () => {
 describe("montarPromptDescricao", () => {
   it("usa o prompt base sem contexto anterior", () => {
     expect(montarPromptDescricao()).toBe(PROMPT_DESCRICAO);
-    expect(montarPromptDescricao("   ")).toBe(PROMPT_DESCRICAO);
+    expect(montarPromptDescricao()).toBe(PROMPT_DESCRICAO);
   });
 
   it("inclui a descricao anterior e pede detalhes em vez de repetir", () => {
-    const prompt = montarPromptDescricao("Uma pessoa sentada.");
+    const prompt = montarPromptDescricao();
     expect(prompt).toContain("Uma pessoa sentada");
     expect(prompt).toContain("NAO repita");
     expect(prompt).toContain("detalhes adicionais");

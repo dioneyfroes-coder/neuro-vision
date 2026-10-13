@@ -429,7 +429,7 @@ function montarCorpo(
   const roteiro = opcoes.modo === "roteiro";
   const prompt =
     opcoes.prompt ??
-    (roteiro ? montarPromptRoteiro(opcoes.base === true, opcoes.roteiro) : montarPromptDescricao(opcoes.anterior));
+    (roteiro ? montarPromptRoteiro(opcoes.base === true, opcoes.roteiro) : montarPromptDescricao());
   const numPredict = roteiro
     ? opcoes.base === true
       ? NUM_PREDICT_BASE
