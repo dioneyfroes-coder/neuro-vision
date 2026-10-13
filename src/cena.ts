@@ -41,7 +41,7 @@ export class DetectorMudancaDeCena {
   private anterior: AssinaturaCena | null = null;
   private ultimoEventoMs: number | null = null;
   private proximoEvento = 1;
-  private readonly sessaoId?: string;
+  private sessaoId?: string;
 
   constructor(config: Partial<ConfigMudancaDeCena> = {}, sessaoId?: string) {
     this.config = { ...CONFIG_MUDANCA_DE_CENA_PADRAO, ...config };
@@ -54,10 +54,9 @@ export class DetectorMudancaDeCena {
     this.proximoEvento = 1;
   }
 
+  /** Troca a sessao (nova execucao ou apos limpar o historico). */
   definirSessao(sessaoId: string): void {
-    if (!this.sessaoId) {
-      Object.defineProperty(this, "sessaoId", { value: sessaoId, writable: false, configurable: false });
-    }
+    this.sessaoId = sessaoId;
   }
 
   /**

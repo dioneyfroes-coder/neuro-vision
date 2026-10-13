@@ -317,16 +317,39 @@ async function carregarContexto(): Promise<void> {
 
 async function limparHistorico(): Promise<void> {
   clearLogBtn.disabled = true;
+  const retomar = running;
   try {
+    // Fase 5: limpar historico e um limite de contexto. Nenhum evento novo pode
+    // depender do estado temporal anterior nem surgir de um ciclo em andamento.
+    if (retomar) agendador.parar();
+    while (agendador.estaExecutando) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
     await api.limparHistorico();
+    // Reseta toda a percepcao temporal, nao apenas a lista visivel.
+    sessaoId = gerarSessaoCurta();
+    rastreador.reiniciar();
+    if (typeof (rastreador as { definirSessao?: (s: string) => void }).definirSessao === "function") {
+      (rastreador as { definirSessao: (s: string) => void }).definirSessao(sessaoId);
+    }
+    detectorCena.reiniciar();
+    if (typeof (detectorCena as { definirSessao?: (s: string) => void }).definirSessao === "function") {
+      (detectorCena as { definirSessao: (s: string) => void }).definirSessao(sessaoId);
+    }
+    politica.reiniciar();
+    manualSolicitado = false;
     ultimaDescricao = "";
     roteiroBeats = [];
+    roteiroPrimeiro = true;
     limparLista();
     atualizarContagem();
     setStatus("Historico limpo.");
+    if (retomar) await agendador.iniciar();
   } catch (err) {
     setStatus(`Falha ao limpar historico: ${(err as Error).message}`);
     atualizarContagem();
+    if (retomar && !agendador.estaRodando) await agendador.iniciar();
   }
 }
 

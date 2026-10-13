@@ -83,7 +83,7 @@ export class RastreadorObjetos {
   private readonly aparicoesEmitidas = new Set<string>();
   private proximoId = 1;
   private proximoEvento = 1;
-  private readonly sessaoId?: string;
+  private sessaoId?: string;
 
   constructor(config: Partial<ConfigRastreamento> = {}, sessaoId?: string) {
     this.config = { ...CONFIG_RASTREAMENTO_PADRAO, ...config };
@@ -107,11 +107,9 @@ export class RastreadorObjetos {
     this.proximoEvento = 1;
   }
 
+  /** Troca a sessao (nova execucao ou apos limpar o historico). */
   definirSessao(sessaoId: string): void {
-    if (!this.sessaoId) {
-      // Sessao definida na inicializacao; podemos reatribuir em casos pontuais
-      Object.defineProperty(this, "sessaoId", { value: sessaoId, writable: false, configurable: false });
-    }
+    this.sessaoId = sessaoId;
   }
 
   /**
