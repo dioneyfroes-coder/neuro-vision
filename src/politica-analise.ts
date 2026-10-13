@@ -10,6 +10,9 @@ export type { MotivoAnalise };
  * mudanca relevante, nova entidade, baixa confianca, resumo periodico,
  * pedido manual ou falha da percepcao leve (nunca tratada como ausencia de
  * mudanca).
+ *
+ * Toda chamada automatica — inclusive `falha_percepcao` — respeita o cooldown
+ * e o limite por janela. Apenas a acao manual (`manual: true`) ignora ambos.
  */
 
 export interface AvaliacaoAnalise {
@@ -100,7 +103,11 @@ export class PoliticaAnalise {
     if (entrada.manual === true) return { acionar: true, motivo: "manual" };
 
     // Falha da percepcao leve e estado desconhecido, nao "nada mudou".
+    // Todas as chamadas automáticas respeitam cooldown e limite por janela.
     if (!entrada.percepcaoValida) {
+      if (entrada.agora - (this.ultimaChamadaMs ?? 0) < this.config.cooldownMs && this.ultimaChamadaMs !== null) {
+        return { acionar: false, motivo: "sem_acao" };
+      }
       if (this.capacidadeDisponivel(entrada.agora)) {
         return { acionar: true, motivo: "falha_percepcao" };
       }

@@ -129,13 +129,48 @@ describe("PoliticaAnalise", () => {
     expect(avaliacao).toEqual({ acionar: true, motivo: "manual" });
   });
 
-  it("falha da percepcao aciona o Ollama (nunca vira ausencia de mudanca)", () => {
+  it("falha da percepcao aciona o Ollama apos cooldown (nunca vira ausencia de mudanca)", () => {
     const politica = new PoliticaAnalise(configurarPolitica({ cooldownMs: 60_000 }));
     politica.registrarChamada(100_000);
+    // Dentro do cooldown: nao aciona.
+    expect(
+      politica.avaliar(entrada({ percepcaoValida: false, agora: 100_000 + 1_000 })).acionar
+    ).toBe(false);
+    // Apos o cooldown: aciona com motivo de falha.
     const avaliacao = politica.avaliar(
-      entrada({ percepcaoValida: false, agora: 100_000 + 1_000 })
+      entrada({ percepcaoValida: false, agora: 100_000 + 61_000 })
     );
     expect(avaliacao).toEqual({ acionar: true, motivo: "falha_percepcao" });
+  });
+
+  it("falhas consecutivas de percepcao respeitam cooldown e contam na janela", () => {
+    const politica = new PoliticaAnalise(
+      configurarPolitica({ cooldownMs: 5_000, janelaMs: 30_000, maxChamadasPorJanela: 2 })
+    );
+    // Primeira falha: aciona.
+    expect(
+      politica.avaliar(entrada({ percepcaoValida: false, agora: 100_000 })).motivo
+    ).toBe("falha_percepcao");
+    politica.registrarChamada(100_000);
+    // Segunda falha dentro do cooldown: bloqueada.
+    const bloqueada = politica.avaliar(entrada({ percepcaoValida: false, agora: 100_000 + 1_000 }));
+    expect(bloqueada).toEqual({ acionar: false, motivo: "sem_acao" });
+    // Sequencia de falhas apos o cooldown esgota a janela.
+    politica.registrarChamada(100_000 + 6_000);
+    const esgotada = politica.avaliar(entrada({ percepcaoValida: false, agora: 100_000 + 12_000 }));
+    expect(esgotada).toEqual({ acionar: false, motivo: "sem_acao" });
+    // Apos a janela deslizante, uma nova falha pode acionar de novo.
+    const renovada = politica.avaliar(entrada({ percepcaoValida: false, agora: 100_000 + 31_000 }));
+    expect(renovada.motivo).toBe("falha_percepcao");
+  });
+
+  it("manual aciona mesmo com falha de percepcao (excecao documentada)", () => {
+    const politica = new PoliticaAnalise(configurarPolitica({ cooldownMs: 60_000, maxChamadasPorJanela: 0 }));
+    politica.registrarChamada(100_000);
+    const avaliacao = politica.avaliar(
+      entrada({ percepcaoValida: false, manual: true, agora: 100_000 + 1_000 })
+    );
+    expect(avaliacao).toEqual({ acionar: true, motivo: "manual" });
   });
 
   it("respeita a janela deslizante apos o intervalo", () => {
