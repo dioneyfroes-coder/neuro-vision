@@ -345,10 +345,11 @@ async function persistirEntrada(entry: EntradaLog): Promise<void> {
 async function analisarComOllama(
   signal: AbortSignal,
   ehRoteiro: boolean,
-  motivo?: MotivoAnalise | null
+  motivo?: MotivoAnalise | null,
+  capturaOllama?: { imagem: string; thumb: string; capturadoEm: string }
 ): Promise<void> {
-  const capturadoEm = new Date().toISOString();
-  const dataUrl = camera.capturarFrame(512);
+  const capturadoEm = capturaOllama?.capturadoEm ?? new Date().toISOString();
+  const dataUrl = capturaOllama?.imagem ?? camera.capturarFrame(512);
   if (dataUrl === null) return;
   const width = camera.largura;
   const height = camera.altura;
@@ -526,7 +527,7 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
       setStatus(
         `Percepcao leve falhou; acionando Ollama por ${rotuloMotivo(motivo ?? "falha_percepcao")}...`
       );
-      await analisarComOllama(signal, false, motivo);
+      await analisarComOllama(signal, false, motivo, { imagem: captura.imagem, thumb: captura.thumb, capturadoEm });
     } else {
       setStatus(`Percepcao leve falhou: ${(err as Error).message}`);
     }
@@ -574,7 +575,7 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
     const motivo: MotivoAnalise | undefined =
       decisao.motivo === "sem_acao" ? undefined : decisao.motivo;
     setStatus(`Ollama acionado: ${rotuloMotivo(motivo ?? "manual")}...`);
-    await analisarComOllama(signal, false, motivo);
+    await analisarComOllama(signal, false, motivo, { imagem: captura.imagem, thumb: captura.thumb, capturadoEm });
     if (signal.aborted) return;
     // O Ollama limpa o canvas; desenha as caixas de novo por cima.
     drawBoxes(quadro.objetos);
@@ -810,3 +811,7 @@ atualizarDiagnostico();
 void carregarHistorico();
 void carregarContexto();
 void verificarOllama();
+
+
+
+
