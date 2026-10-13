@@ -176,17 +176,17 @@ O rastreador reinicia seus contadores em `obj-1` e `evt-1`; o detector de cenas 
 - [x] Tornar o `objetoId` único entre sessões — por exemplo, incluir o ID da sessão no valor — ou usar IDs globais únicos para objetos. Não depender apenas do contador reiniciado.
 - [x] Gerar IDs de evento globalmente únicos ou combinar `sessaoId` e contador. Manter uma convenção documentada para eventos do rastreador e do detector de cena.
 - [x] Atualizar o esquema e a validação da API para preservar os novos campos sem rejeitar entradas JSONL antigas que não os possuem.
-- [ ] Atualizar filtros, exportação e testes para que consultas por objeto não misturem sessões diferentes.
+- [x] Atualizar filtros, exportação e testes para que consultas por objeto não misturem sessões diferentes.
 
 ### Testes obrigatórios
 
-- [ ] Dois rastreadores em sessões diferentes podem produzir o primeiro objeto sem compartilhar o mesmo identificador persistido.
-- [ ] Eventos de rastreador e de cena de sessões diferentes não colidem.
-- [ ] Histórico legado sem `sessaoId` continua legível.
+- [x] Dois rastreadores em sessões diferentes podem produzir o primeiro objeto sem compartilhar o mesmo identificador persistido.
+- [x] Eventos de rastreador e de cena de sessões diferentes não colidem.
+- [x] Histórico legado sem `sessaoId` continua legível.
 
 ### Critério para concluir
 
-- [ ] Os IDs continuam inequívocos mesmo após parar, reiniciar e consultar o histórico antigo.
+- [x] Os IDs continuam inequívocos mesmo após parar, reiniciar e consultar o histórico antigo.
 
 ---
 
