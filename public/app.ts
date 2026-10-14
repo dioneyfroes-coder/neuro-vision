@@ -73,6 +73,16 @@ let intervaloMsConfigurado = Number(intervalInput.value) * 1000;
 let frameIdAtual: string | null = null;
 let manualSolicitado = false;
 const politica = new PoliticaAnalise();
+function gerarFrameId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID().slice(0, 12);
+  }
+  let result = "";
+  for (let i = 0; i < 12; i += 1) {
+    result += Math.floor(Math.random() * 16).toString(16);
+  }
+  return result;
+}
 function gerarIdempotencyKey(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();

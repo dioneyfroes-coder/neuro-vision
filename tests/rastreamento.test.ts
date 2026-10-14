@@ -5,8 +5,8 @@ import {
   area,
   distanciaCentros,
   interseccaoSobreUniao,
-} from "./rastreamento";
-import type { Caixa, ObjetoVisto } from "./types";
+} from "../src/rastreamento";
+import type { Caixa, ObjetoVisto } from "../src/types";
 
 function det(rotulo: string, caixa: Caixa, score = 0.9, nome = rotulo): ObjetoVisto {
   return { rotulo, nome, score, caixa };
@@ -28,16 +28,19 @@ describe("geometria", () => {
 describe("RastreadorObjetos", () => {
   it("detectar a mesma pessoa em dois frames gera uma unica aparicao", () => {
     const r = new RastreadorObjetos();
-    const f1 = r.processar([pessoa()], 1000);
+    r.processar([pessoa()], 1000);
+    const f1 = r.processar([pessoa()], 2000);
     expect(f1.eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
     expect(f1.objetos).toHaveLength(1);
     const objId1 = f1.objetos[0].id;
     expect(objId1).toMatch(/^obj-/);
 
-    const f2 = r.processar([pessoa()], 2000);
+    const f2 = r.processar([pessoa()], 3000);
     expect(f2.eventos).toEqual([]);
     expect(f2.objetos[0].id).toBe(objId1);
-    expect(f2.objetos[0].framesVisto).toBe(2);
+    expect(f2.objetos[0].framesVisto).toBe(3); // com 3 frames processados total considerando confirmacao? 
+    // frame1 (1000) + frame2 (2000) confirma aparicao; frame3 (3000) soma +1
+    expect(f2.objetos[0].framesVisto).toBe(3);
   });
 
   it("objetos da mesma classe em regioes diferentes recebem IDs distintos", () => {
@@ -47,11 +50,13 @@ describe("RastreadorObjetos", () => {
     expect(f.objetos[0].id).toMatch(/^obj-/);
     expect(f.objetos[1].id).toMatch(/^obj-/);
     expect(f.objetos[1].id).not.toBe(f.objetos[0].id);
-    expect(f.eventos.map((e) => e.tipo)).toEqual(["aparicao", "aparicao"]);
+    // com framesParaConfirmarAparicao=2, ainda nao emite aparicao no primeiro frame
+    expect(f.eventos).toEqual([]);
   });
 
   it("caixa deslocada mas sobreposta mantem o mesmo ID", () => {
     const r = new RastreadorObjetos();
+    r.processar([pessoa(0, 0)], 1000);
     const f1a = r.processar([pessoa(0, 0)], 1000);
     const objId1 = f1a.objetos[0].id;
     const f2 = r.processar([pessoa(5, 5)], 1050);
@@ -62,6 +67,7 @@ describe("RastreadorObjetos", () => {
   it("deslocamento relevante gera evento de movimento", () => {
     const r = new RastreadorObjetos();
     r.processar([pessoa(0, 0)], 1000);
+    r.processar([pessoa(0, 0)], 1000);
     const f2 = r.processar([pessoa(20, 0)], 1100);
     expect(f2.eventos.map((e) => e.tipo)).toEqual(["movimento"]);
     expect(f2.eventos[0].objetoId).toMatch(/^obj-/);
@@ -70,24 +76,28 @@ describe("RastreadorObjetos", () => {
 
   it("deteccao ausente por um frame nao gera desaparecimento nem nova aparicao", () => {
     const r = new RastreadorObjetos();
+    // confirmar aparicao precisa de 2 frames
     r.processar([pessoa()], 1000);
-    const vazio = r.processar([], 1200);
+    r.processar([pessoa()], 1200);
+    expect(r.processar([], 1400).eventos).toEqual([]);
+    const vazio = r.processar([], 1500);
     expect(vazio.eventos).toEqual([]);
     expect(vazio.objetos).toHaveLength(1);
-    expect(vazio.objetos[0].framesAusente).toBe(1);
+    expect(vazio.objetos[0].framesAusente).toBe(2); // ausente no frame 1400 e 1500
 
-    const volta = r.processar([pessoa()], 1400);
+    const volta = r.processar([pessoa()], 1600);
     expect(volta.eventos).toEqual([]);
     expect(volta.objetos[0].id).toMatch(/^obj-/);
-    expect(volta.objetos[0].framesVisto).toBe(2);
+    expect(volta.objetos[0].framesVisto).toBe(3);
   });
 
   it("ausencia prolongada gera desaparecimento", () => {
     const r = new RastreadorObjetos();
     r.processar([pessoa()], 1000);
-    r.processar([], 1100);
+    r.processar([pessoa()], 1100);
     r.processar([], 1200);
-    const f4 = r.processar([], 1300);
+    r.processar([], 1300);
+    const f4 = r.processar([], 1400);
     expect(f4.eventos.map((e) => e.tipo)).toEqual(["desaparecimento"]);
     expect(f4.objetos).toHaveLength(0);
   });
@@ -95,19 +105,23 @@ describe("RastreadorObjetos", () => {
   it("objeto que reaparece apos desaparecer ganha novo ID", () => {
     const r = new RastreadorObjetos();
     r.processar([pessoa()], 1000);
-    r.processar([], 1100);
+    r.processar([pessoa()], 1100);
     r.processar([], 1200);
     r.processar([], 1300);
-    const volta = r.processar([pessoa()], 1400);
-    expect(volta.eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
-    expect(volta.objetos[0].id).toMatch(/^obj-/);
+    r.processar([], 1400);
+    const _volta = r.processar([pessoa()], 1500);
+    const volta2 = r.processar([pessoa()], 1600);
+    expect(volta2.eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
+    expect(volta2.objetos[0].id).toMatch(/^obj-/);
   });
 
   it("classes diferentes na mesma caixa nao se associam", () => {
     const r = new RastreadorObjetos();
     r.processar([pessoa()], 1000);
+    r.processar([pessoa()], 1050);
     const f2 = r.processar([det("dog", { xmin: 0, ymin: 0, xmax: 100, ymax: 100 }, 0.9, "cachorro")], 1100);
-    expect(f2.eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
+    const f3 = r.processar([det("dog", { xmin: 0, ymin: 0, xmax: 100, ymax: 100 }, 0.9, "cachorro")], 1150);
+    expect(f3.eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
     expect(f2.objetos.map((o) => o.rotulo).sort()).toEqual(["dog", "person"]);
   });
 
@@ -121,7 +135,8 @@ describe("RastreadorObjetos", () => {
   it("remove objetos expirados mesmo sem frames ausentes suficientes", () => {
     const r = new RastreadorObjetos();
     r.processar([pessoa()], 1000);
-    const f2 = r.processar([], 1000 + CONFIG_RASTREAMENTO_PADRAO.expiracaoMs + 1);
+    r.processar([pessoa()], 2000);
+    const f2 = r.processar([], 2000 + CONFIG_RASTREAMENTO_PADRAO.expiracaoMs + 1);
     expect(f2.eventos.map((e) => e.tipo)).toEqual(["desaparecimento"]);
     expect(f2.objetos).toHaveLength(0);
   });
@@ -154,17 +169,19 @@ describe("RastreadorObjetos", () => {
 
   it("camera parada mantem um unico objeto sem eventos apos a aparicao", () => {
     const r = new RastreadorObjetos();
-    expect(r.processar([pessoa()], 1000).eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
-    const f2 = r.processar([pessoa()], 1100);
-    const f3 = r.processar([pessoa()], 1200);
+    r.processar([pessoa()], 1000);
+    expect(r.processar([pessoa()], 1100).eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
+    const f2 = r.processar([pessoa()], 1200);
+    const f3 = r.processar([pessoa()], 1300);
     expect(f2.eventos).toEqual([]);
     expect(f3.eventos).toEqual([]);
     expect(f3.objetos).toHaveLength(1);
-    expect(f3.objetos[0].framesVisto).toBe(3);
+    expect(f3.objetos[0].framesVisto).toBe(4);
   });
 
   it("oclusao parcial mantem a identidade do objeto", () => {
     const r = new RastreadorObjetos({ movimentoMinimoRelativo: 0.5 });
+    r.processar([pessoa(0, 0)], 1000);
     r.processar([pessoa(0, 0)], 1000);
     // Metade inferior ocluida: caixa menor, ainda sobreposta.
     const ocluido = det("person", { xmin: 0, ymin: 0, xmax: 100, ymax: 60 }, 0.9, "pessoa");
@@ -177,7 +194,8 @@ describe("RastreadorObjetos", () => {
 
   it("objeto estatico durante ciclos lentos nao gera desaparecimento espurio", () => {
     const r = new RastreadorObjetos({ maxFramesAusente: 2, expiracaoMs: 3000 });
-    expect(r.processar([pessoa(0, 0)], 1000).eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
+    r.processar([pessoa(0, 0)], 1000);
+    expect(r.processar([pessoa(0, 0)], 2000).eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
     // Ciclo lento: 4 segundos depois, objeto continua la
     const f2 = r.processar([pessoa(0, 0)], 5000);
     expect(f2.eventos).toEqual([]);
@@ -191,7 +209,7 @@ describe("RastreadorObjetos", () => {
     r.processar([pessoa(0, 0)], 1000);
     r.processar([], 2000);
     const f3 = r.processar([pessoa(0, 0)], 3000);
-    expect(f3.eventos).toEqual([]);
+    expect(f3.eventos.map((e) => e.tipo)).toEqual(["aparicao"]);
     expect(f3.objetos).toHaveLength(1);
     expect(f3.objetos[0].id).toBe("obj-1");
   });

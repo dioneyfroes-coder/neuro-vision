@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { entradaDeResultado } from "./percepcao";
+import { entradaDeResultado } from "../src/percepcao";
 
 const base = {
   modelo: "qwen3-vl:4b",

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { CONFIG_POLITICA_PADRAO, PoliticaAnalise } from "./politica-analise";
-import { RastreadorObjetos } from "./rastreamento";
-import type { MotivoAnalise, ObjetoVisto } from "./types";
+import { CONFIG_POLITICA_PADRAO, PoliticaAnalise } from "../src/politica-analise";
+import { RastreadorObjetos } from "../src/rastreamento";
+import type { MotivoAnalise, ObjetoVisto } from "../src/types";
 
 /**
  * Fase 6.2 — medicao reproduzivel da **qualidade dos eventos** na camada leve

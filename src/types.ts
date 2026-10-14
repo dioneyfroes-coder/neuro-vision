@@ -109,3 +109,6 @@ export interface EventoVisual {
   sessaoId?: string;
   /** Chave de idempotencia para evitar duplicacao de eventos no servidor. */
   idempotencyKey?: string;
+  /** Identificador do frame que gerou este evento (reutilizado para deduplicar snapshots). */
+  frameId?: string;
+}

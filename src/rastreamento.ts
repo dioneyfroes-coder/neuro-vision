@@ -31,7 +31,7 @@ export const CONFIG_RASTREAMENTO_PADRAO: ConfigRastreamento = {
   expiracaoMs: 5000,
   movimentoMinimoRelativo: 0.15,
   confiancaMinima: 0.25,
-  framesParaConfirmarAparicao: 1,
+  framesParaConfirmarAparicao: 2,
 };
 
 /** Resultado de processar um frame. */

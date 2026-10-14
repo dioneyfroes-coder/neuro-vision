@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { EntradaLog, EventoVisual } from "./types";
+import type { EntradaLog, EventoVisual } from "../src/types";
 import {
   CONFIG_POLITICA_PADRAO,
   PoliticaAnalise,
   configurarPolitica,
   rotuloMotivo,
   comMotivo,
-} from "./politica-analise";
-import type { MotivoAnalise } from "./types";
+} from "../src/politica-analise";
+import type { MotivoAnalise } from "../src/types";
 
 function evento(tipo: EventoVisual["tipo"]): EventoVisual {
   return {

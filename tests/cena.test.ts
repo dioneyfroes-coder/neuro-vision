@@ -3,7 +3,7 @@ import {
   CONFIG_MUDANCA_DE_CENA_PADRAO,
   DetectorMudancaDeCena,
   diferencaDeCena,
-} from "./cena";
+} from "../src/cena";
 
 const base = [10, 10, 10, 10];
 
