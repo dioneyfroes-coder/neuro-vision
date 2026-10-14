@@ -9,6 +9,7 @@ import {
   obterContexto,
   prepararOllama,
   saudeOllama,
+  gravarEntrada,
 } from "../public/api";
 
 afterEach(() => {
@@ -244,6 +245,42 @@ describe("api de eventos e operacional", () => {
     });
     expect(contexto?.entradas).toHaveLength(1);
     expect(contexto?.eventos).toHaveLength(1);
+  });
+
+  it("gravarEntrada rejeita quando servidor responde 400", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ erro: "invalido" }, 400)));
+    await expect(gravarEntrada({ timestamp: "t", modelo: "m", objetos: [], resumo: "", tipo: "deteccao" })).rejects.toThrow("invalido");
+  });
+
+  it("gravarEntrada rejeita quando servidor responde 500", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ erro: "boom" }, 500)));
+    await expect(gravarEntrada({ timestamp: "t", modelo: "m", objetos: [], resumo: "", tipo: "deteccao" })).rejects.toThrow("boom");
+  });
+
+  it("gravarEvento rejeita quando servidor responde 400", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ erro: "bad" }, 400)));
+    await expect(
+      gravarEvento({
+        id: "e1",
+        timestamp: "t",
+        tipo: "movimento",
+        descricao: "mov",
+        origem: "rastreador",
+      })
+    ).rejects.toThrow("bad");
+  });
+
+  it("gravarEvento rejeita quando servidor responde 500", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ erro: "boom" }, 500)));
+    await expect(
+      gravarEvento({
+        id: "e1",
+        timestamp: "t",
+        tipo: "movimento",
+        descricao: "mov",
+        origem: "rastreador",
+      })
+    ).rejects.toThrow("boom");
   });
 
   it("obterContexto sinaliza falha de rede", async () => {

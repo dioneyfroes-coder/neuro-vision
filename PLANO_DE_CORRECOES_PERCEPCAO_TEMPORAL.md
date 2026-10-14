@@ -242,7 +242,7 @@ O servidor limpa os arquivos de entradas, eventos e snapshots. No cliente, a fun
 - [x] Depois de cada `fetch()` de gravação, verificar `response.ok`.
 - [x] Quando não for `ok`, tentar ler `{ erro }` do corpo da resposta e lançar `ErroPercepcao` com status HTTP e mensagem úteis.
 - [x] Evitar duplicar o mesmo tratamento em cada função: criar um helper local para verificar respostas, se isso simplificar o módulo.
-- [ ] Adicionar testes em `src/api.test.ts` para resolução HTTP com status `400`/`500`, não apenas falhas de rede.
+- [x] Adicionar testes em `src/api.test.ts` para resolução HTTP com status `400`/`500`, não apenas falhas de rede.
 - [ ] Garantir que a interface e o diagnóstico operacional indiquem a falha de persistência sem declarar o evento como salvo.
 
 ### Problema B: múltiplos eventos da mesma captura podem gravar cópias do mesmo snapshot
