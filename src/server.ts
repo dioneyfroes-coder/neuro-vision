@@ -1,4 +1,4 @@
-import http from "node:http";
+import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -60,6 +60,13 @@ export const OPERACIONAL_FILE = path.join(LOG_DIR, "operacional.jsonl");
 import { env } from "./env";
 export const LOG_MAX_BYTES = env.LOG_MAX_BYTES || 5_000_000;
 export const SNAP_DIR = path.join(LOG_DIR, "snapshots");
+const SNAP_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
+
+interface SnapshotCacheEntry {
+  url: string;
+  hash: string;
+  ts: number;
+}
 export const SNAP_URL = "/snapshots";
 
 export interface PoliticaSnapshots {
@@ -357,9 +364,19 @@ export async function salvarSnapshot(
   const b64 = extrairBase64Imagem(imagem);
   if (!b64) return null;
   await fs.promises.mkdir(snapDir, { recursive: true });
-  const nome = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+  const hash = createHash("sha256").update(b64).digest("hex");
+  limparCacheSnapshots(Date.now());
+  const existente = snapshotCache.get(hash);
+  if (existente) {
+    snapshotCache.set(hash, { ...existente, ts: Date.now() });
+    return existente.url;
+  }
+  // Se por acaso ja existe arquivo com mesmo hash? evita duplicar fisicamente
+  const nome = `${Date.now()}-${hash.slice(0, 8)}.jpg`;
   await fs.promises.writeFile(path.join(snapDir, nome), Buffer.from(b64, "base64"));
-  return `${SNAP_URL}/${nome}`;
+  const url = `${SNAP_URL}/${nome}`;
+  snapshotCache.set(hash, { url, hash, ts: Date.now() });
+  return url;
 }
 
 function campoTipoTexto(valor: unknown, campo: string): string | null {
@@ -432,11 +449,12 @@ export interface ResultadoLimpezaSnapshots {
   erros: string[];
 }
 
-export interface OpcoesLimpezaSnapshots {
-  snapDir?: string;
-  logFiles?: string[];
-  politica?: PoliticaSnapshots;
-  agora?: number;
+const snapshotCache = new Map<string, SnapshotCacheEntry>();
+
+function limparCacheSnapshots(agora = Date.now()): void {
+  for (const [chave, entrada] of snapshotCache) {
+    if (agora - entrada.ts > SNAP_CACHE_TTL_MS) snapshotCache.delete(chave);
+  }
 }
 
 /** Coleta os nomes de snapshot referenciados pela parte preservada do historico. */
