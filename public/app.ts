@@ -70,8 +70,19 @@ let ultimaDuracaoMs = 0;
 let roteiroBeats: string[] = [];
 let roteiroPrimeiro = true;
 let intervaloMsConfigurado = Number(intervalInput.value) * 1000;
+let frameIdAtual: string | null = null;
 let manualSolicitado = false;
 const politica = new PoliticaAnalise();
+function gerarFrameId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID().slice(0, 12);
+  }
+  let result = "";
+  for (let i = 0; i < 12; i += 1) {
+    result += Math.floor(Math.random() * 16).toString(16);
+  }
+  return result;
+}
 
 /** Ultimo status do backend de visao conhecido (motor/modelos/carregados), para o diagnostico. */
 let infoOllama: api.InfoOllama | null = null;
@@ -338,7 +349,8 @@ async function limparHistorico(): Promise<void> {
       (detectorCena as { definirSessao: (s: string) => void }).definirSessao(sessaoId);
     }
     politica.reiniciar();
-    manualSolicitado = false;
+    frameIdAtual = gerarFrameId();
+  manualSolicitado = false;
     ultimaDescricao = "";
     roteiroBeats = [];
     roteiroPrimeiro = true;
@@ -431,7 +443,7 @@ async function analisarComOllama(
   }
 
   const entry = comMotivo(
-    entradaDeResultado(resultado, ehRoteiro ? "roteiro" : "descricao"),
+    { ...entradaDeResultado(resultado, ehRoteiro ? "roteiro" : "descricao"), frameId: frameIdAtual ?? undefined },
     motivo
   );
   ultimaDescricao = resultado.descricao ?? "";
@@ -499,7 +511,7 @@ async function analisarDeteccao(signal: AbortSignal): Promise<void> {
   const eventos = sinalCena ? [...quadro.eventos, sinalCena] : quadro.eventos;
   drawBoxes(quadro.objetos);
 
-  const entry = entradaDeResultado(resultado, "deteccao");
+  const entry = { ...entradaDeResultado(resultado, "deteccao"), frameId: frameIdAtual ?? undefined };
   addLogEntry(entry);
   const resumoEventos = eventos.map((e) => e.descricao).join(", ");
   setStatus(
@@ -509,7 +521,7 @@ async function analisarDeteccao(signal: AbortSignal): Promise<void> {
   for (const evt of eventos) {
     // Movimento e o evento mais frequente: grava sem snapshot para poupar disco.
     const paraGravar = evt.tipo === "movimento" ? { ...evt, snapshot: undefined } : evt;
-    void api.gravarEvento(paraGravar).catch(() => {
+    void api.gravarEvento({ ...paraGravar, frameId: frameIdAtual ?? undefined, sessaoId }).catch(() => {
       if (running) setStatus("Falha ao gravar evento no servidor");
     });
   }
@@ -556,7 +568,8 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
       percepcaoValida: false,
       manual: manualSolicitado,
     });
-    manualSolicitado = false;
+    frameIdAtual = gerarFrameId();
+  manualSolicitado = false;
     if (decisao.acionar) {
       politica.registrarChamada(agora);
       const motivo: MotivoAnalise | undefined =
@@ -591,7 +604,7 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
   for (const evt of eventos) {
     // Movimento e o evento mais frequente: grava sem snapshot para poupar disco.
     const paraGravar = evt.tipo === "movimento" ? { ...evt, snapshot: undefined } : evt;
-    void api.gravarEvento(paraGravar).catch(() => {
+    void api.gravarEvento({ ...paraGravar, frameId: frameIdAtual ?? undefined, sessaoId }).catch(() => {
       if (running) setStatus("Falha ao gravar evento no servidor");
     });
   }
@@ -607,6 +620,7 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
     percepcaoValida: true,
     manual: manualSolicitado,
   });
+  frameIdAtual = gerarFrameId();
   manualSolicitado = false;
 
   if (decisao.acionar) {
@@ -622,7 +636,7 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
   }
 
   drawBoxes(quadro.objetos);
-  const entry = entradaDeResultado(resultado, "deteccao");
+  const entry = { ...entradaDeResultado(resultado, "deteccao"), frameId: frameIdAtual ?? undefined };
   addLogEntry(entry);
   setStatus(`Viu: ${entry.resumo} (${resultado.duracaoMs} ms) · sem mudanca relevante`);
   void persistirEntrada(entry);
@@ -672,6 +686,7 @@ async function start(): Promise<void> {
   ultimaDuracaoMs = 0;
   roteiroPrimeiro = roteiroBeats.length === 0;
   sessaoId = gerarSessaoCurta();
+  frameIdAtual = null;
   rastreador.reiniciar();
   if (typeof (rastreador as { definirSessao?: (s: string) => void }).definirSessao === "function") {
     (rastreador as { definirSessao: (s: string) => void }).definirSessao(sessaoId);
@@ -847,6 +862,7 @@ motorSelect.addEventListener("change", () => {
   ultimaDescricao = "";
   roteiroBeats = [];
   roteiroPrimeiro = true;
+  frameIdAtual = gerarFrameId();
   manualSolicitado = false;
   atualizarBotoesAnalise();
   atualizarDiagnostico();

@@ -292,6 +292,7 @@ export function montarEntrada(payload: unknown): EntradaLog {
     tokens: campoNumero(p.tokens),
     motivo: normalizarMotivo(p.motivo),
     sessaoId: typeof p.sessaoId === "string" ? p.sessaoId : undefined,
+    frameId: typeof p.frameId === "string" ? p.frameId : undefined,
   };
 }
 

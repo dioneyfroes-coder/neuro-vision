@@ -239,9 +239,9 @@ O servidor limpa os arquivos de entradas, eventos e snapshots. No cliente, a fun
 
 ### Passo a passo — resposta HTTP
 
-- [ ] Depois de cada `fetch()` de gravação, verificar `response.ok`.
-- [ ] Quando não for `ok`, tentar ler `{ erro }` do corpo da resposta e lançar `ErroPercepcao` com status HTTP e mensagem úteis.
-- [ ] Evitar duplicar o mesmo tratamento em cada função: criar um helper local para verificar respostas, se isso simplificar o módulo.
+- [x] Depois de cada `fetch()` de gravação, verificar `response.ok`.
+- [x] Quando não for `ok`, tentar ler `{ erro }` do corpo da resposta e lançar `ErroPercepcao` com status HTTP e mensagem úteis.
+- [x] Evitar duplicar o mesmo tratamento em cada função: criar um helper local para verificar respostas, se isso simplificar o módulo.
 - [ ] Adicionar testes em `src/api.test.ts` para resolução HTTP com status `400`/`500`, não apenas falhas de rede.
 - [ ] Garantir que a interface e o diagnóstico operacional indiquem a falha de persistência sem declarar o evento como salvo.
 
@@ -251,10 +251,10 @@ Um único quadro pode gerar vários eventos. Cada `POST /api/eventos` envia o me
 
 ### Passo a passo — reutilização do snapshot
 
-- [ ] Associar uma chave `frameId` à captura e aos eventos derivados dela.
+- [x] Associar uma chave `frameId` à captura e aos eventos derivados dela.
 - [ ] Escolher uma solução de persistência única: (a) salvar a imagem uma vez e devolver uma referência reutilizável, ou (b) deduplicar no servidor por hash do conteúdo.
 - [ ] Se usar uma referência `/snapshots/...`, atualizar a validação do servidor para aceitar e verificar referências existentes com segurança; não mandar uma URL para uma função que espera dados base64 sem alterar o contrato.
-- [ ] Fazer todos os eventos da mesma captura referenciar o mesmo arquivo de snapshot.
+- [x] Fazer todos os eventos da mesma captura referenciar o mesmo arquivo de snapshot.
 - [ ] Adicionar teste: N eventos oriundos de um mesmo quadro resultam em uma única imagem persistida; eventos de quadros diferentes não compartilham a imagem incorretamente.
 
 ### Problema C: gravações concorrentes e possíveis perdas

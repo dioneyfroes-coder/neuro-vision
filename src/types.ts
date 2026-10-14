@@ -46,6 +46,8 @@ export interface EntradaLog {
   motivo?: MotivoAnalise;
   /** Sessao a que pertence esta entrada (legado: ausente). */
   sessaoId?: string;
+  /** Identificador do frame que gerou esta entrada (reutilizado para deduplicar snapshots). */
+  frameId?: string;
 }
 
 /** Objeto acompanhado ao longo de varios frames dentro de uma sessao. */
@@ -105,4 +107,6 @@ export interface EventoVisual {
   modelo?: string;
   /** Sessao a que pertence este evento (legado: ausente). */
   sessaoId?: string;
+  /** Identificador do frame que gerou este evento (reutilizado para deduplicar snapshots). */
+  frameId?: string;
 }
