@@ -123,7 +123,7 @@ export class Camera {
    * mudancas amplas. Retorna null se o video ainda nao tem frame ou se os pixels
    * nao estao acessiveis.
    */
-  assinaturaDeCena(grade = 4): number[] | null {
+  assinaturaDeCena(grade = 8): number[] | null {
     const vw = this.video.videoWidth;
     const vh = this.video.videoHeight;
     if (!vw || !vh) return null;

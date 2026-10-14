@@ -20,7 +20,7 @@ export interface ConfigMudancaDeCena {
 }
 
 export const CONFIG_MUDANCA_DE_CENA_PADRAO: ConfigMudancaDeCena = {
-  limiarDiferenca: 0.25,
+  limiarDiferenca: 0.2,
   intervaloMinimoMs: 1000,
 };
 
