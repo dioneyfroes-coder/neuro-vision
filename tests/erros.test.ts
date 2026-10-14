@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ErroPercepcao, ehCancelamento } from "./erros";
+import { ErroPercepcao, ehCancelamento } from "../src/erros";
 
 describe("ehCancelamento", () => {
   it("reconhece AbortError e ErroPercepcao de cancelamento", () => {

@@ -11,8 +11,8 @@ import {
   montarOperacional,
   reidratarContexto,
   resumirContexto,
-} from "./memoria";
-import type { EntradaLog, EventoVisual } from "./types";
+} from "../src/memoria";
+import type { EntradaLog, EventoVisual } from "../src/types";
 
 let tmpDir: string;
 

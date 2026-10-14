@@ -16,7 +16,7 @@ import {
   urlDaImagem,
   urlEmMemoria,
   urlModelos,
-} from "./provedor";
+} from "../src/provedor";
 
 const VARIAVEIS = [
   "NEURO_PROVIDER",

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DetectorObjetos, descreverDeteccoes, traduzir } from "../public/detector";
-import { chamadas, controle } from "./transformers.stub";
+import { chamadas, controle } from "../src/transformers.stub";
 
 beforeEach(() => {
   controle.reset();

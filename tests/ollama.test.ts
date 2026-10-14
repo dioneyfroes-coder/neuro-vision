@@ -20,7 +20,7 @@ import {
   PROMPT_DESCRICAO,
   PROMPT_ROTEIRO_BASE,
   PROMPT_ROTEIRO_DELTA,
-} from "./ollama";
+} from "../src/ollama";
 
 afterEach(() => {
   vi.unstubAllGlobals();
