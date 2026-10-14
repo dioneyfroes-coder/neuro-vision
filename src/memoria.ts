@@ -136,6 +136,8 @@ export function montarEvento(payload: unknown): EventoVisual | null {
     modelo: typeof p.modelo === "string" ? p.modelo : undefined,
     sessaoId: typeof p.sessaoId === "string" ? p.sessaoId : undefined,
     idempotencyKey: typeof p.idempotencyKey === "string" ? p.idempotencyKey : undefined,
+  };
+}
 
 /** Valida e normaliza um registro operacional vindo do cliente. */
 export function montarOperacional(payload: unknown): RegistroOperacional | null {
