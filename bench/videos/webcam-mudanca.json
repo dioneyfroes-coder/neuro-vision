@@ -1,0 +1,8 @@
+{
+  "clip": "webcam-mudanca.webm",
+  "duracaoMs": 30000,
+  "notas": "Webcam 640x480, ~30 s. Verdade-base obtida lendo 1 quadro por segundo com o modelo de visao local (qwen2.5vl:3b): a pessoa aparece do inicio ate ~19,5 s e sai; de ~20 s ao fim o quadro fica vazio. Ha uma unica mudanca conhecida (a saida da pessoa). A base dos 'em' vem do sidecar <eventos>.inicio, gravado quando o clipe comeca a tocar (ver e2e/webcam.spec.ts).",
+  "eventos": [
+    { "tipo": "desaparecimento", "em": 19500, "descricao": "pessoa sai do quadro (unica mudanca conhecida)" }
+  ]
+}

@@ -10,7 +10,8 @@
   <header>
     <h1>Neuro Vision</h1>
     <p class="sub">Visao computacional local — a webcam enxerga e registra o que ve.</p>
-    <span id="ollamaStatus" class="health" title="Status do Ollama">Ollama: verificando...</span>
+    <span id="modeloStatus" class="health" title="Status do backend de visao">Modelo: verificando...</span>
+    <span id="diagInfo" class="diag" title="Diagnostico da sessao">Diagnostico: —</span>
   </header>
 
   <main>
@@ -27,11 +28,13 @@
         <label>
           Motor
           <select id="motor">
-            <option value="roteiro">Roteiro (Ollama)</option>
+            <option value="roteiro">Roteiro (modelo de visão)</option>
             <option value="deteccao">Detecção (transformers.js)</option>
-            <option value="ollama">Descrição (Ollama)</option>
+            <option value="ollama">Descrição (modelo de visão)</option>
+            <option value="eventos">Eventos (leve + modelo de visão sob demanda)</option>
           </select>
         </label>
+        <button id="analisarAgora" type="button" disabled>Analisar agora</button>
         <label>
           Modelo
           <select id="model">
@@ -51,6 +54,9 @@
         </label>
       </div>
       <div id="status" class="status">Pronto.</div>
+      <div id="gpuWarning" class="aviso" hidden>
+        Aviso: o WebGPU não está disponível — a detecção está rodando na CPU (WASM) e será mais lenta.
+      </div>
     </section>
 
     <aside class="logpanel">

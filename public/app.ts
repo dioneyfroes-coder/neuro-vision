@@ -1,93 +1,17 @@
-import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3";
-import type { Detector, Deteccao, ProgressInfo } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3";
-import type { EntradaLog, ObjetoVisto } from "../src/types";
+import type { Caixa, EntradaLog, MotivoAnalise } from "../src/types";
 import { colapsarRepeticoes } from "../src/texto";
-
-env.allowLocalModels = false;
-env.useBrowserCache = true;
-
-const COCO_PT: Record<string, string> = {
-  person: "pessoa",
-  bicycle: "bicicleta",
-  car: "carro",
-  motorcycle: "moto",
-  airplane: "aviao",
-  bus: "onibus",
-  train: "trem",
-  truck: "caminhao",
-  boat: "barco",
-  "traffic light": "semaforo",
-  "fire hydrant": "hidrante",
-  "stop sign": "placa de pare",
-  "parking meter": "parquimetro",
-  bench: "banco",
-  cat: "gato",
-  dog: "cachorro",
-  bird: "passaro",
-  horse: "cavalo",
-  sheep: "ovelha",
-  cow: "vaca",
-  elephant: "elefante",
-  bear: "urso",
-  zebra: "zebra",
-  giraffe: "girafa",
-  backpack: "mochila",
-  umbrella: "guarda-chuva",
-  handbag: "bolsa",
-  tie: "gravata",
-  suitcase: "mala",
-  frisbee: "frisbee",
-  skis: "esquis",
-  snowboard: "snowboard",
-  "sports ball": "bola",
-  kite: "pipa",
-  "baseball bat": "bastao",
-  "baseball glove": "luva",
-  skateboard: "skate",
-  surfboard: "prancha",
-  "tennis racket": "raquete",
-  bottle: "garrafa",
-  "wine glass": "taca",
-  cup: "copo",
-  fork: "garfo",
-  knife: "faca",
-  spoon: "colher",
-  bowl: "tigela",
-  banana: "banana",
-  apple: "maca",
-  sandwich: "sanduiche",
-  orange: "laranja",
-  broccoli: "brocolis",
-  carrot: "cenoura",
-  "hot dog": "cachorro-quente",
-  pizza: "pizza",
-  donut: "rosquinha",
-  cake: "bolo",
-  chair: "cadeira",
-  couch: "sofa",
-  "potted plant": "planta",
-  bed: "cama",
-  "dining table": "mesa",
-  toilet: "vaso sanitario",
-  tv: "televisao",
-  laptop: "notebook",
-  mouse: "mouse",
-  remote: "controle",
-  keyboard: "teclado",
-  "cell phone": "celular",
-  microwave: "micro-ondas",
-  oven: "forno",
-  toaster: "torradeira",
-  sink: "pia",
-  refrigerator: "geladeira",
-  book: "livro",
-  clock: "relogio",
-  vase: "vaso",
-  scissors: "tesoura",
-  "teddy bear": "urso de pelucia",
-  "hair drier": "secador",
-  toothbrush: "escova de dentes",
-};
+import { entradaDeResultado } from "../src/percepcao";
+import type { MotorPercepcao, ResultadoPercepcao } from "../src/percepcao";
+import { RastreadorObjetos } from "../src/rastreamento";
+import { DetectorMudancaDeCena } from "../src/cena";
+import { ehCancelamento } from "../src/erros";
+import { PoliticaAnalise, comMotivo, rotuloMotivo } from "../src/politica-analise";
+import { AgendadorAnalise } from "./scheduler";
+import * as api from "./api";
+import { DetectorObjetos } from "./detector";
+import { Camera, ErroCamera } from "./camera";
+import { MotorOllama } from "./motores";
+import { obterModo } from "./modos";
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -100,14 +24,14 @@ const overlay = el<HTMLCanvasElement>("overlay");
 const maybeCtx = overlay.getContext("2d");
 if (!maybeCtx) throw new Error("Canvas 2D indisponivel");
 const ctx = maybeCtx;
-
-const frameCanvas = document.createElement("canvas");
-const frameCtx = frameCanvas.getContext("2d");
+const camera = new Camera(video);
 
 const placeholder = el<HTMLDivElement>("placeholder");
 const statusEl = el<HTMLDivElement>("status");
 const spinnerEl = el<HTMLDivElement>("spinner");
-const ollamaStatusEl = el<HTMLSpanElement>("ollamaStatus");
+const modeloStatusEl = el<HTMLSpanElement>("modeloStatus");
+const diagInfoEl = el<HTMLSpanElement>("diagInfo");
+const gpuWarningEl = el<HTMLDivElement>("gpuWarning");
 const logEl = el<HTMLUListElement>("log");
 const logCountEl = el<HTMLSpanElement>("logCount");
 const clearLogBtn = el<HTMLButtonElement>("clearLog");
@@ -115,6 +39,7 @@ const exportBtn = el<HTMLButtonElement>("exportLog");
 const filterInput = el<HTMLInputElement>("filter");
 const startBtn = el<HTMLButtonElement>("start");
 const stopBtn = el<HTMLButtonElement>("stop");
+const analisarAgoraBtn = el<HTMLButtonElement>("analisarAgora");
 const modelSelect = el<HTMLSelectElement>("model");
 const motorSelect = el<HTMLSelectElement>("motor");
 const intervalInput = el<HTMLInputElement>("interval");
@@ -122,18 +47,50 @@ const intervalValue = el<HTMLSpanElement>("intervalValue");
 const thresholdInput = el<HTMLInputElement>("threshold");
 const thresholdValue = el<HTMLSpanElement>("thresholdValue");
 
-let detector: Detector | null = null;
-let loadedModel: string | null = null;
-const detectores = new Map<string, Detector>();
-let stream: MediaStream | null = null;
+function gerarSessaoCurta(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID().slice(0, 8);
+  }
+  let result = "";
+  for (let i = 0; i < 8; i += 1) {
+    result += Math.floor(Math.random() * 16).toString(16);
+  }
+  return result;
+}
+
+const detectorCoco = new DetectorObjetos();
+let sessaoId = gerarSessaoCurta();
+const rastreador = new RastreadorObjetos({}, sessaoId);
+const detectorCena = new DetectorMudancaDeCena({}, sessaoId);
+let motorAtual: MotorPercepcao | null = null;
 let running = false;
-let timer: ReturnType<typeof setInterval> | null = null;
-let analisando = false;
 let controller: AbortController | null = null;
 let ultimaDescricao = "";
 let ultimaDuracaoMs = 0;
 let roteiroBeats: string[] = [];
 let roteiroPrimeiro = true;
+let intervaloMsConfigurado = Number(intervalInput.value) * 1000;
+let frameIdAtual: string | null = null;
+let manualSolicitado = false;
+const politica = new PoliticaAnalise();
+function gerarIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+/** Ultimo status do backend de visao conhecido (motor/modelos/carregados), para o diagnostico. */
+let infoOllama: api.InfoOllama | null = null;
+/** Tempo de carregamento do modelo na ultima inicializacao (ms). */
+let ultimaCargaMs = 0;
+/** Tempo da ultima gravacao no servidor (persistencia), em ms. */
+let ultimaPersistenciaMs = 0;
+
+const agendador = new AgendadorAnalise({
+  executar: () => analisar(),
+  obterIntervaloMs: () => intervaloMsConfigurado,
+});
 
 function setStatus(text: string): void {
   statusEl.textContent = text;
@@ -143,53 +100,93 @@ function setSpinner(ativo: boolean): void {
   spinnerEl.hidden = !ativo;
 }
 
-function traduzir(label: string): string {
-  return COCO_PT[label] ?? label;
+/** Modelo de deteccao em uso no navegador, ou "—" quando o motor nao precisa dele. */
+function modeloDeDeteccaoAtivo(): string | null {
+  return obterModo(motorSelect.value).usaDeteccao ? modelSelect.value : null;
 }
 
-async function getDetector(modelId: string): Promise<Detector> {
-  const cacheado = detectores.get(modelId);
-  if (cacheado) {
-    detector = cacheado;
-    loadedModel = modelId;
-    return cacheado;
-  }
-
-  const onProgress = (p: ProgressInfo): void => {
-    if (p.status === "progress" && p.file) {
-      const pct = p.progress ? Math.round(p.progress) : 0;
-      setStatus(`Baixando ${p.file}... ${pct}%`);
-    }
-  };
-
-  setStatus(`Carregando modelo ${modelId}...`);
-  const gpu = (navigator as Navigator & { gpu?: unknown }).gpu;
-  const device = gpu ? "webgpu" : "wasm";
-  let novo: Detector;
-  try {
-    novo = await pipeline("object-detection", modelId, { device, progress_callback: onProgress });
-  } catch (err) {
-    setStatus(`WebGPU indisponivel, usando CPU: ${(err as Error).message}`);
-    novo = await pipeline("object-detection", modelId, { device: "wasm", progress_callback: onProgress });
-  }
-  detectores.set(modelId, novo);
-  detector = novo;
-  loadedModel = modelId;
-  return novo;
+/** Rotulo curto do backend de visao em uso (Ollama nativo ou API OpenAI/LM Studio). */
+function rotuloProvedor(): string {
+  return infoOllama?.provedor === "openai" ? "LM Studio" : "Ollama";
 }
 
-function drawBoxes(detecoes: Deteccao[]): void {
+/**
+ * Linha de diagnostico (Fase 6.3): mostra o motor ativo, o modelo solicitado,
+ * o modelo carregado no backend de visao e separa **carga**, **inferencia** e
+ * **persistencia** — para distinguir lentidao de modelo de lentidao de disco.
+ */
+function atualizarDiagnostico(): void {
+  const motor = running ? motorSelect.value : "parado";
+  const definicao = obterModo(motorSelect.value);
+  const deteccao = modeloDeDeteccaoAtivo();
+  const modeloVisao = infoOllama?.modelo ?? "?";
+  const modelo =
+    definicao.usaDeteccao && definicao.usaOllama
+      ? `${deteccao} + ${modeloVisao}`
+      : deteccao ?? modeloVisao;
+  const carregados = !infoOllama
+    ? "?"
+    : infoOllama.online === false
+      ? "offline"
+      : infoOllama.carregados?.length
+        ? infoOllama.carregados.join(", ")
+        : "nenhum";
+
+  const partes = [`motor ${motor}`, `backend ${rotuloProvedor()}`, `modelo ${modelo}`, `carregados: ${carregados}`];
+  if (infoOllama?.solicitado && infoOllama.solicitado !== infoOllama.modelo) {
+    partes.push(`fallback de ${infoOllama.solicitado}`);
+  }
+  if (ultimaCargaMs > 0) partes.push(`carga ${(ultimaCargaMs / 1000).toFixed(1)}s`);
+  if (ultimaDuracaoMs > 0) partes.push(`inferencia ${ultimaDuracaoMs} ms`);
+  if (ultimaPersistenciaMs > 0) partes.push(`persistencia ${ultimaPersistenciaMs} ms`);
+
+  diagInfoEl.textContent = `Diagnostico: ${partes.join(" · ")}`;
+  diagInfoEl.title = partes.join("\n");
+}
+
+/**
+ * Aviso persistente de fallback de CPU (Fase 6.3): mostrado quando a deteccao
+ * roda em WASM em vez de WebGPU. Nao e escondido depois — permanece ate
+ * recarregar a pagina, para o usuario saber que a lentidao e esperada.
+ */
+function mostrarAvisoDispositivo(): void {
+  if (modeloDeDeteccaoAtivo() === null) return;
+  if (detectorCoco.dispositivo !== "wasm") return;
+  const temGpu = Boolean((navigator as Navigator & { gpu?: unknown }).gpu);
+  gpuWarningEl.textContent = temGpu
+    ? "Aviso: o WebGPU não pôde ser usado — a detecção está rodando na CPU (WASM) e será mais lenta."
+    : "Aviso: este navegador não oferece WebGPU — a detecção está rodando na CPU (WASM) e será mais lenta.";
+  gpuWarningEl.hidden = false;
+}
+
+/** "Analisar agora" so faz sentido no modo eventos, com a sessao rodando. */
+function atualizarBotoesAnalise(): void {
+  analisarAgoraBtn.disabled = !running || !obterModo(motorSelect.value).permiteAnaliseManual;
+}
+
+/**
+ * Trocar o motor ou o modelo exige reinicializar o motor ativo, o que o
+ * agendador nao faz em execucao. Para nao rodar com uma combinacao incoerente
+ * (ex.: `motorAtual` antigo), os seletores ficam bloqueados enquanto a captura
+ * esta ativa e so voltam a ficar disponiveis ao parar.
+ */
+function habilitarSeletoresDeMotor(habilitado: boolean): void {
+  motorSelect.disabled = !habilitado;
+  modelSelect.disabled = !habilitado;
+}
+
+function drawBoxes(objetos: ReadonlyArray<{ nome: string; score: number; caixa: Caixa }>): void {
   ctx.clearRect(0, 0, overlay.width, overlay.height);
   ctx.lineWidth = 3;
   ctx.font = "16px 'Segoe UI', sans-serif";
   ctx.textBaseline = "top";
 
-  for (const d of detecoes) {
-    const { xmin, ymin, xmax, ymax } = d.box;
+  for (const o of objetos) {
+    const { xmin, ymin, xmax, ymax } = o.caixa;
     ctx.strokeStyle = "#4f9cf9";
     ctx.strokeRect(xmin, ymin, xmax - xmin, ymax - ymin);
 
-    const label = `${traduzir(d.label)} ${(d.score * 100).toFixed(0)}%`;
+    const label = `${o.nome} ${(o.score * 100).toFixed(0)}%`;
     const textWidth = ctx.measureText(label).width;
     ctx.fillStyle = "#4f9cf9";
     ctx.fillRect(xmin, ymin, textWidth + 12, 22);
@@ -214,6 +211,9 @@ function criarItem(entry: EntradaLog): HTMLLIElement {
     img.src = entry.snapshot;
     img.alt = "frame capturado";
     img.loading = "lazy";
+    if (entry.capturadoEm) {
+      img.title = `Frame capturado às ${new Date(entry.capturadoEm).toLocaleTimeString("pt-BR")}`;
+    }
     li.appendChild(img);
   }
 
@@ -224,7 +224,19 @@ function criarItem(entry: EntradaLog): HTMLLIElement {
   cabecalho.className = "cabecalho";
   const time = document.createElement("span");
   time.className = "time";
-  time.textContent = new Date(entry.timestamp).toLocaleTimeString("pt-BR");
+  // O horario exibido e o da CAPTURA do frame (quando o snapshot foi tirado);
+  // `timestamp` e o fim da analise. A diferenca entre os dois e o atraso de
+  // inferencia, revelado no tooltip.
+  const capturadoEm = entry.capturadoEm ? new Date(entry.capturadoEm) : null;
+  const analisadoEm = new Date(entry.timestamp);
+  time.textContent = (capturadoEm ?? analisadoEm).toLocaleTimeString("pt-BR");
+  if (capturadoEm) {
+    const atrasoS = (analisadoEm.getTime() - capturadoEm.getTime()) / 1000;
+    time.title =
+      atrasoS >= 1
+        ? `Frame capturado às ${capturadoEm.toLocaleTimeString("pt-BR")} · analisado ${atrasoS.toFixed(1)}s depois`
+        : `Frame capturado às ${capturadoEm.toLocaleTimeString("pt-BR")}`;
+  }
   cabecalho.appendChild(time);
   if (entry.modelo) {
     const meta = document.createElement("span");
@@ -233,6 +245,12 @@ function criarItem(entry: EntradaLog): HTMLLIElement {
     if (entry.ms && entry.tokens) {
       const tokS = Math.round(entry.tokens / (entry.ms / 1000));
       texto += ` · ${entry.tokens} toks em ${Math.round(entry.ms / 1000)}s (${tokS} tok/s)`;
+    }
+    if (capturadoEm && analisadoEm.getTime() - capturadoEm.getTime() >= 1000) {
+      texto += ` · frame analisado ${((analisadoEm.getTime() - capturadoEm.getTime()) / 1000).toFixed(1)}s depois`;
+    }
+    if (entry.motivo) {
+      texto += ` · por ${rotuloMotivo(entry.motivo)}`;
     }
     meta.textContent = texto;
     cabecalho.appendChild(meta);
@@ -281,10 +299,7 @@ function limparLista(): void {
 
 async function carregarHistorico(): Promise<void> {
   try {
-    const resposta = await fetch("/api/logs?limit=100");
-    if (!resposta.ok) return;
-    const dados = (await resposta.json()) as { entradas?: EntradaLog[] };
-    const entradas = dados.entradas ?? [];
+    const entradas = await api.listarEntradas(100);
     logEl.replaceChildren(...entradas.map(criarItem));
     atualizarContagem();
   } catch {
@@ -292,281 +307,367 @@ async function carregarHistorico(): Promise<void> {
   }
 }
 
-async function limparHistorico(): Promise<void> {
-  clearLogBtn.disabled = true;
+/**
+ * Reidrata o contexto da sessao a partir da memoria persistida (roteiro recente
+ * e ultima descricao), em vez de comecar sempre do zero.
+ */
+async function carregarContexto(): Promise<void> {
   try {
-    const resposta = await fetch("/api/logs", { method: "DELETE" });
-    if (!resposta.ok) throw new Error(`HTTP ${resposta.status}`);
-    limparLista();
-    atualizarContagem();
-    setStatus("Historico limpo.");
-  } catch (err) {
-    setStatus(`Falha ao limpar historico: ${(err as Error).message}`);
-    atualizarContagem();
+    const contexto = await api.obterContexto();
+    if (!contexto) return;
+    roteiroBeats = contexto.roteiro.slice(-64);
+    ultimaDescricao = contexto.ultimaDescricao;
+  } catch {
+    // memoria indisponivel; segue sem contexto reidratado
   }
 }
 
-function capturarFrame(maxWidth = 0): string | null {
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
-  if (!vw || !vh || !frameCtx) return null;
+async function limparHistorico(): Promise<void> {
+  clearLogBtn.disabled = true;
+  const retomar = running;
+  try {
+    // Fase 5: limpar historico e um limite de contexto. Nenhum evento novo pode
+    // depender do estado temporal anterior nem surgir de um ciclo em andamento.
+    if (retomar) agendador.parar();
+    while (agendador.estaExecutando) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
 
-  const escala = maxWidth > 0 && vw > maxWidth ? maxWidth / vw : 1;
-  const w = Math.round(vw * escala);
-  const h = Math.round(vh * escala);
-  frameCanvas.width = w;
-  frameCanvas.height = h;
-  frameCtx.drawImage(video, 0, 0, w, h);
-  return frameCanvas.toDataURL("image/jpeg", 0.85);
+    await api.limparHistorico();
+    // Reseta toda a percepcao temporal, nao apenas a lista visivel.
+    sessaoId = gerarSessaoCurta();
+    rastreador.reiniciar();
+    if (typeof (rastreador as { definirSessao?: (s: string) => void }).definirSessao === "function") {
+      (rastreador as { definirSessao: (s: string) => void }).definirSessao(sessaoId);
+    }
+    detectorCena.reiniciar();
+    if (typeof (detectorCena as { definirSessao?: (s: string) => void }).definirSessao === "function") {
+      (detectorCena as { definirSessao: (s: string) => void }).definirSessao(sessaoId);
+    }
+    politica.reiniciar();
+    frameIdAtual = gerarFrameId();
+  manualSolicitado = false;
+    ultimaDescricao = "";
+    roteiroBeats = [];
+    roteiroPrimeiro = true;
+    limparLista();
+    atualizarContagem();
+    setStatus("Historico limpo.");
+    if (retomar) await agendador.iniciar();
+  } catch (err) {
+    setStatus(`Falha ao limpar historico: ${(err as Error).message}`);
+    atualizarContagem();
+    if (retomar && !agendador.estaRodando) await agendador.iniciar();
+  }
 }
 
-async function descreverViaOllama(signal: AbortSignal): Promise<void> {
-  const dataUrl = capturarFrame(512);
+/** Registra uma falha/metrica operacional (nao e um acontecimento visual). */
+function registrarOperacional(
+  nivel: "info" | "aviso" | "erro",
+  origem: string,
+  mensagem: string
+): void {
+  void api.gravarOperacional({ nivel, origem, mensagem });
+}
+
+/**
+ * Persiste uma entrada no servidor medindo o tempo de gravacao (persistencia),
+ * para diferenciar essa etapa da inferencia no diagnostico.
+ */
+async function persistirEntrada(entry: EntradaLog): Promise<void> {
+  const inicio = performance.now();
+  try {
+    await api.gravarEntrada(entry);
+    ultimaPersistenciaMs = Math.round(performance.now() - inicio);
+  } catch {
+    if (running) setStatus("Falha ao gravar no log do servidor");
+  }
+  atualizarDiagnostico();
+}
+
+async function analisarComOllama(
+  signal: AbortSignal,
+  ehRoteiro: boolean,
+  motivo?: MotivoAnalise | null,
+  capturaOllama?: { imagem: string; thumb: string; capturadoEm: string }
+): Promise<void> {
+  const capturadoEm = capturaOllama?.capturadoEm ?? new Date().toISOString();
+  const dataUrl = capturaOllama?.imagem ?? camera.capturarFrame(512);
   if (dataUrl === null) return;
-  const width = video.videoWidth;
-  const height = video.videoHeight;
+  const width = camera.largura;
+  const height = camera.altura;
   overlay.width = width;
   overlay.height = height;
   ctx.clearRect(0, 0, width, height);
 
   const base64 = dataUrl.split(",")[1] ?? "";
-  setStatus("Ollama analisando frame... (pode demorar)");
-  const started = performance.now();
+  setStatus(`${rotuloProvedor()} analisando frame... (pode demorar)`);
 
-  const ehRoteiro = motorSelect.value === "roteiro";
-  const roteiro = ehRoteiro ? roteiroBeats.slice(-8).join(" ").slice(0, 1200) : "";
-  const corpo: Record<string, unknown> = { imagem: base64, snapshot: dataUrl };
-  if (ehRoteiro) {
-    corpo.modo = "roteiro";
-    corpo.roteiro = roteiro;
-    corpo.base = roteiroPrimeiro;
-  } else {
-    corpo.anterior = ultimaDescricao;
-  }
+  const motor = new MotorOllama({
+    modo: ehRoteiro ? "roteiro" : "descricao",
+    roteiro: ehRoteiro ? roteiroBeats.slice(-8).join(" ").slice(0, 1200) : undefined,
+    base: ehRoteiro ? roteiroPrimeiro : undefined,
+    anterior: ehRoteiro ? undefined : ultimaDescricao,
+    motivo: motivo ?? undefined,
+  });
 
-  let resposta: Response;
+  let resultado: ResultadoPercepcao | null;
   try {
-    resposta = await fetch("/api/visao", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(corpo),
+    resultado = await motor.analisar(
+      { imagem: base64, snapshot: dataUrl, capturadoEm },
       signal,
-    });
+      (parcial) => setStatus(`${rotuloProvedor()}: ${colapsarRepeticoes(parcial)}`)
+    );
   } catch (err) {
-    if ((err as Error).name === "AbortError") return;
-    setStatus("Falha ao contactar o servidor (/api/visao)");
+    if (ehCancelamento(err) || signal.aborted) return;
+    registrarOperacional("erro", "ollama", (err as Error).message);
+    setStatus((err as Error).message);
     return;
   }
+  if (signal.aborted || !resultado) return;
+  ultimaDuracaoMs = resultado.duracaoMs;
 
-  if (signal.aborted) return;
-
-  if (!resposta.ok || !resposta.body) {
-    const corpo = (await resposta.json().catch(() => null)) as { erro?: string } | null;
-    setStatus(corpo?.erro ?? `Ollama respondeu ${resposta.status}`);
-    return;
-  }
-
-  const reader = resposta.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let parcial = "";
-  let resultado: {
-    descricao?: string;
-    modelo?: string;
-    snapshot?: string;
-    tokens?: number;
-    ms?: number;
-    tipo?: string;
-    papel?: "base" | "delta";
-    semMudanca?: boolean;
-  } | null = null;
-
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let idx: number;
-      while ((idx = buffer.indexOf("\n")) >= 0) {
-        const linha = buffer.slice(0, idx).trim();
-        buffer = buffer.slice(idx + 1);
-        if (!linha) continue;
-        const evt = JSON.parse(linha) as {
-          type?: string;
-          response?: string;
-          descricao?: string;
-          modelo?: string;
-          snapshot?: string;
-          erro?: string;
-          tokens?: number;
-          ms?: number;
-          tipo?: string;
-          papel?: "base" | "delta";
-          semMudanca?: boolean;
-        };
-        if (evt.type === "chunk" && evt.response) {
-          parcial += evt.response;
-          setStatus(`Ollama: ${colapsarRepeticoes(parcial)}`);
-        } else if (evt.type === "done") {
-          resultado = evt;
-        } else if (evt.type === "erro") {
-          setStatus(evt.erro ?? "Erro no Ollama");
-          return;
-        }
-      }
-    }
-  } catch (err) {
-    if ((err as Error).name === "AbortError") return;
-    setStatus(`Erro ao ler resposta do Ollama: ${(err as Error).message}`);
-    return;
-  }
-
-  if (signal.aborted) return;
-
-  const descricao = resultado?.descricao ?? parcial;
-  const ms = Math.round(performance.now() - started);
-  ultimaDuracaoMs = ms;
-
-  if (ehRoteiro && resultado?.semMudanca) {
-    setStatus(`Sem mudancas neste intervalo (${ms} ms).`);
+  if (ehRoteiro && resultado.confianca?.semMudanca) {
+    setStatus(`Sem mudancas neste intervalo (${resultado.duracaoMs} ms).`);
     return;
   }
 
   if (ehRoteiro) {
     if (roteiroPrimeiro) roteiroPrimeiro = false;
-    roteiroBeats.push(colapsarRepeticoes(descricao));
+    roteiroBeats.push(colapsarRepeticoes(resultado.descricao ?? ""));
     if (roteiroBeats.length > 64) roteiroBeats.splice(0, roteiroBeats.length - 64);
   }
 
-  const entradaTipo: EntradaLog["tipo"] = ehRoteiro ? "roteiro" : "descricao";
-  const entry: EntradaLog = {
-    timestamp: new Date().toISOString(),
-    modelo: resultado?.modelo ?? "ollama",
-    objetos: [],
-    resumo: descricao,
-    tipo: entradaTipo,
-    papel: ehRoteiro ? (resultado?.papel ?? "delta") : undefined,
-    snapshot: resultado?.snapshot,
-    ms,
-    tokens: resultado?.tokens,
-  };
-  ultimaDescricao = descricao;
+  const entry = comMotivo(
+    { ...entradaDeResultado(resultado, ehRoteiro ? "roteiro" : "descricao"), frameId: frameIdAtual ?? undefined },
+    motivo
+  );
+  ultimaDescricao = resultado.descricao ?? "";
   addLogEntry(entry);
-  if (resultado?.tokens) {
-    const tokS = Math.round(resultado.tokens / (ms / 1000));
-    setStatus(`Ollama viu: ${descricao} (${ms} ms · ${resultado.tokens} toks · ${tokS} tok/s)`);
+
+  const tokens = resultado.confianca?.tokens;
+  if (tokens) {
+    const tokS =
+      resultado.duracaoMs > 0 ? Math.round(tokens / (resultado.duracaoMs / 1000)) : 0;
+    setStatus(
+      `${rotuloProvedor()} viu: ${resultado.descricao} (${resultado.duracaoMs} ms · ${tokens} toks · ${tokS} tok/s)`
+    );
   } else {
-    setStatus(`Ollama viu: ${descricao} (${ms} ms)`);
+    setStatus(`${rotuloProvedor()} viu: ${resultado.descricao} (${resultado.duracaoMs} ms)`);
   }
+}
+
+async function analisarDeteccao(signal: AbortSignal): Promise<void> {
+  const width = camera.largura;
+  const height = camera.altura;
+  if (!width || !height) return;
+  overlay.width = width;
+  overlay.height = height;
+
+  // Captura o frame UMA unica vez: o mesmo instante alimenta a analise, o
+  // snapshot do historico e a assinatura de cena. Sem isso o historico exibia
+  // um segundo frame, capturado depois da inferencia, diferente do analisado.
+  const capturadoMs = performance.now();
+  const capturadoEm = new Date().toISOString();
+  const captura = camera.capturarQuadro(0, 240);
+  if (captura === null) return;
+  const assinatura = camera.assinaturaDeCena();
+
+  setStatus("Analisando frame...");
+  let resultado: ResultadoPercepcao | null;
+  try {
+    if (!motorAtual) return;
+    resultado = await motorAtual.analisar(
+      { imagem: captura.imagem, snapshot: captura.thumb, capturadoEm },
+      signal
+    );
+  } catch (err) {
+    if (ehCancelamento(err) || signal.aborted) return;
+    registrarOperacional("erro", "detector", (err as Error).message);
+    setStatus(`Erro na inferencia: ${(err as Error).message}`);
+    return;
+  }
+  if (signal.aborted || !resultado) return;
+  ultimaDuracaoMs = resultado.duracaoMs;
+
+  const agora = capturadoMs;
+  const timestamp = capturadoEm;
+  const quadro = rastreador.processar(resultado.objetos, agora, {
+    timestamp,
+    snapshot: resultado.snapshot,
+    modelo: resultado.modelo,
+    sessaoId,
+  });
+  const sinalCena = detectorCena.avaliar(assinatura, agora, {
+    timestamp,
+    snapshot: resultado.snapshot,
+    modelo: resultado.modelo,
+    sessaoId,
+  });
+  const eventos = sinalCena ? [...quadro.eventos, sinalCena] : quadro.eventos;
+  drawBoxes(quadro.objetos);
+
+  const entry = { ...entradaDeResultado(resultado, "deteccao"), frameId: frameIdAtual ?? undefined };
+  addLogEntry(entry);
+  const resumoEventos = eventos.map((e) => e.descricao).join(", ");
+  setStatus(
+    `Viu: ${entry.resumo}  (${resultado.duracaoMs} ms)${resumoEventos ? ` · ${resumoEventos}` : ""}`
+  );
+
+  for (const evt of eventos) {
+    // Movimento e o evento mais frequente: grava sem snapshot para poupar disco.
+    const paraGravar = evt.tipo === "movimento" ? { ...evt, snapshot: undefined } : evt;
+    void api.gravarEvento({ ...paraGravar, frameId: frameIdAtual ?? undefined, sessaoId, idempotencyKey: gerarIdempotencyKey() }).catch(() => {
+      if (running) setStatus("Falha ao gravar evento no servidor");
+    });
+  }
+
+  void persistirEntrada(entry);
+}
+
+/**
+ * Fluxo orientado a eventos (Fase 5): a percepcao leve roda a cada tick; o
+ * Ollama so e chamado quando a politica decide que ha motivo (mudanca,
+ * nova entidade, baixa confianca, resumo periodico, pedido manual ou falha
+ * da percepcao — nunca tratada como ausencia de mudanca).
+ */
+async function analisarEventos(signal: AbortSignal): Promise<void> {
+  const width = camera.largura;
+  const height = camera.altura;
+  if (!width || !height) return;
+  overlay.width = width;
+  overlay.height = height;
+
+  const capturadoMs = performance.now();
+  const capturadoEm = new Date().toISOString();
+  const captura = camera.capturarQuadro(0, 240);
+  if (captura === null) return;
+  const assinatura = camera.assinaturaDeCena();
+
+  const agora = capturadoMs;
+  let resultado: ResultadoPercepcao | null;
+  try {
+    if (!motorAtual) return;
+    resultado = await motorAtual.analisar(
+      { imagem: captura.imagem, snapshot: captura.thumb, capturadoEm },
+      signal
+    );
+  } catch (err) {
+    if (ehCancelamento(err) || signal.aborted) return;
+    registrarOperacional("erro", "detector", (err as Error).message);
+    // Falha da percepcao leve = estado desconhecido. Nunca vira "sem mudanca":
+    // deixa o Ollama julgar, respeitando a janela de chamadas.
+    const decisao = politica.avaliar({
+      agora,
+      eventos: [],
+      melhorConfianca: null,
+      percepcaoValida: false,
+      manual: manualSolicitado,
+    });
+    frameIdAtual = gerarFrameId();
+  manualSolicitado = false;
+    if (decisao.acionar) {
+      politica.registrarChamada(agora);
+      const motivo: MotivoAnalise | undefined =
+        decisao.motivo === "sem_acao" ? undefined : decisao.motivo;
+      setStatus(
+        `Percepcao leve falhou; acionando Ollama por ${rotuloMotivo(motivo ?? "falha_percepcao")}...`
+      );
+      await analisarComOllama(signal, false, motivo, { imagem: captura.imagem, thumb: captura.thumb, capturadoEm });
+    } else {
+      setStatus(`Percepcao leve falhou: ${(err as Error).message}`);
+    }
+    return;
+  }
+  if (signal.aborted || !resultado) return;
+  ultimaDuracaoMs = resultado.duracaoMs;
+
+  const timestamp = capturadoEm;
+  const quadro = rastreador.processar(resultado.objetos, agora, {
+    timestamp,
+    snapshot: resultado.snapshot,
+    modelo: resultado.modelo,
+    sessaoId,
+  });
+  const sinalCena = detectorCena.avaliar(assinatura, agora, {
+    timestamp,
+    snapshot: resultado.snapshot,
+    modelo: resultado.modelo,
+    sessaoId,
+  });
+  const eventos = sinalCena ? [...quadro.eventos, sinalCena] : quadro.eventos;
+
+  for (const evt of eventos) {
+    // Movimento e o evento mais frequente: grava sem snapshot para poupar disco.
+    const paraGravar = evt.tipo === "movimento" ? { ...evt, snapshot: undefined } : evt;
+    void api.gravarEvento({ ...paraGravar, frameId: frameIdAtual ?? undefined, sessaoId, idempotencyKey: gerarIdempotencyKey() }).catch(() => {
+      if (running) setStatus("Falha ao gravar evento no servidor");
+    });
+  }
+
+  const menorScore =
+    resultado.objetos.length > 0
+      ? Math.min(...resultado.objetos.map((o) => o.score))
+      : null;
+  const decisao = politica.avaliar({
+    agora,
+    eventos,
+    melhorConfianca: menorScore,
+    percepcaoValida: true,
+    manual: manualSolicitado,
+  });
+  frameIdAtual = gerarFrameId();
+  manualSolicitado = false;
+
+  if (decisao.acionar) {
+    politica.registrarChamada(agora);
+    const motivo: MotivoAnalise | undefined =
+      decisao.motivo === "sem_acao" ? undefined : decisao.motivo;
+    setStatus(`Ollama acionado: ${rotuloMotivo(motivo ?? "manual")}...`);
+    await analisarComOllama(signal, false, motivo, { imagem: captura.imagem, thumb: captura.thumb, capturadoEm });
+    if (signal.aborted) return;
+    // O Ollama limpa o canvas; desenha as caixas de novo por cima.
+    drawBoxes(quadro.objetos);
+    return;
+  }
+
+  drawBoxes(quadro.objetos);
+  const entry = { ...entradaDeResultado(resultado, "deteccao"), frameId: frameIdAtual ?? undefined };
+  addLogEntry(entry);
+  setStatus(`Viu: ${entry.resumo} (${resultado.duracaoMs} ms) · sem mudanca relevante`);
+  void persistirEntrada(entry);
 }
 
 async function analisar(): Promise<void> {
-  if (!running || analisando) return;
-  analisando = true;
-  controller = new AbortController();
-  const { signal } = controller;
+  if (!running) return;
+  const ctrl = new AbortController();
+  controller = ctrl;
+  const { signal } = ctrl;
   setSpinner(true);
   try {
-    if (motorSelect.value === "ollama" || motorSelect.value === "roteiro") {
-      await descreverViaOllama(signal);
+    const modo = motorSelect.value;
+    if (modo === "ollama" || modo === "roteiro") {
+      await analisarComOllama(signal, modo === "roteiro");
       return;
     }
-
-    const width = video.videoWidth;
-    const height = video.videoHeight;
-    if (!width || !height) return;
-
-    overlay.width = width;
-    overlay.height = height;
-
-    const dataUrl = capturarFrame();
-    if (dataUrl === null) return;
-
-    const threshold = Number(thresholdInput.value);
-    setStatus("Analisando frame...");
-    const started = performance.now();
-    let detecoes: Deteccao[];
-    try {
-      detecoes = await detector!(dataUrl, { threshold, percentage: false });
-    } catch (err) {
-      if (signal.aborted) return;
-      setStatus(`Erro na inferencia: ${(err as Error).message}`);
+    if (modo === "eventos") {
+      await analisarEventos(signal);
       return;
     }
-    if (signal.aborted) return;
-    const ms = Math.round(performance.now() - started);
-    ultimaDuracaoMs = ms;
-
-    const objetos: ObjetoVisto[] = detecoes.map((d) => ({
-      nome: traduzir(d.label),
-      rotulo: d.label,
-      score: Number(d.score.toFixed(3)),
-      caixa: d.box,
-    }));
-
-    drawBoxes(detecoes);
-
-    const contagem: Record<string, number> = {};
-    for (const o of objetos) contagem[o.nome] = (contagem[o.nome] ?? 0) + 1;
-    const resumo = objetos.length
-      ? Object.entries(contagem).map(([n, c]) => (c > 1 ? `${c}x ${n}` : n)).join(", ")
-      : "nada reconhecido";
-
-    const thumb = capturarFrame(240);
-    const entry: EntradaLog = {
-      timestamp: new Date().toISOString(),
-      modelo: loadedModel ?? "desconhecido",
-      objetos,
-      resumo,
-      tipo: "deteccao",
-      snapshot: thumb ?? undefined,
-      ms,
-    };
-
-    addLogEntry(entry);
-    setStatus(`Viu: ${resumo}  (${ms} ms)`);
-
-    fetch("/api/log", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(entry),
-    }).catch(() => {
-      if (running) setStatus("Falha ao gravar no log do servidor");
-    });
+    await analisarDeteccao(signal);
   } finally {
-    analisando = false;
-    controller = null;
-    setSpinner(false);
+    if (controller === ctrl) {
+      controller = null;
+      setSpinner(false);
+    }
   }
 }
 
-function agendarAnalise(intervalMs: number): void {
-  if (timer) clearInterval(timer);
-  const espera = Math.max(intervalMs, ultimaDuracaoMs + 500);
-  timer = setInterval(() => void analisar(), espera);
-}
-
-async function prepararOllama(): Promise<boolean> {
+/** Inicializa o motor ativo exibindo o spinner durante o carregamento. */
+async function inicializarMotor(motor: MotorPercepcao): Promise<void> {
+  setSpinner(true);
   try {
-    setSpinner(true);
-    setStatus("Carregando modelo do Ollama na memoria (pode demorar)...");
-    const resposta = await fetch("/api/visao/preparar");
-    if (!resposta.ok) {
-      const corpo = (await resposta.json().catch(() => null)) as { erro?: string } | null;
-      setStatus(corpo?.erro ?? `Falha ao preparar Ollama (${resposta.status})`);
-      return false;
-    }
-    const dados = (await resposta.json()) as { modelo?: string; carregado?: boolean; carregandoMs?: number };
-    const seg = Math.round((dados.carregandoMs ?? 0) / 1000);
-    setStatus(
-      dados.carregado
-        ? `Modelo ${dados.modelo ?? ""} carregado${seg > 0 ? ` em ${seg}s` : " (ja estava em memoria)"}. Pronto!`
-        : "Modelo nao confirmado em memoria; verifique o Ollama."
-    );
-    return dados.carregado === true;
-  } catch (err) {
-    setStatus(`Falha ao preparar Ollama: ${(err as Error).message}`);
-    return false;
+    await motor.inicializar(setStatus);
   } finally {
     setSpinner(false);
   }
@@ -575,88 +676,131 @@ async function prepararOllama(): Promise<boolean> {
 async function start(): Promise<void> {
   if (running) return;
   startBtn.disabled = true;
-  ultimaDescricao = "";
-  roteiroBeats = [];
-  roteiroPrimeiro = true;
+  habilitarSeletoresDeMotor(false);
+  // `roteiroBeats`/`ultimaDescricao` vem do contexto reidratado (`carregarContexto`):
+  // se ja existe roteiro persistido, o proximo beat e um delta, nao a base.
+  ultimaDuracaoMs = 0;
+  roteiroPrimeiro = roteiroBeats.length === 0;
+  sessaoId = gerarSessaoCurta();
+  frameIdAtual = null;
+  rastreador.reiniciar();
+  if (typeof (rastreador as { definirSessao?: (s: string) => void }).definirSessao === "function") {
+    (rastreador as { definirSessao: (s: string) => void }).definirSessao(sessaoId);
+  }
+  detectorCena.reiniciar();
+  if (typeof (detectorCena as { definirSessao?: (s: string) => void }).definirSessao === "function") {
+    (detectorCena as { definirSessao: (s: string) => void }).definirSessao(sessaoId);
+  }
+
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+    await camera.iniciar();
   } catch (err) {
-    setStatus(`Nao foi possivel acessar a webcam: ${(err as Error).message}`);
-    startBtn.disabled = false;
+    registrarOperacional("erro", "camera", (err as Error).message);
+    if (err instanceof ErroCamera && err.fase === "video") {
+      falharInicializacao(`Falha ao iniciar o video: ${err.message}`);
+    } else {
+      falharInicializacao(`Nao foi possivel acessar a webcam: ${(err as Error).message}`);
+    }
     return;
   }
-  video.srcObject = stream;
-  await video.play();
   placeholder.style.display = "none";
 
-  if (motorSelect.value === "ollama" || motorSelect.value === "roteiro") {
-    const preparado = await prepararOllama();
-    if (!preparado) {
-      startBtn.disabled = false;
-      return;
-    }
-  } else {
+  // A partir daqui a webcam esta ligada: qualquer falha inesperada precisa
+  // liberar as faixas de video via `falharInicializacao` -> `encerrarCaptura`.
+  try {
+    const definicao = obterModo(motorSelect.value);
+    const motor = definicao.criarMotor({
+      detector: detectorCoco,
+      modelo: modelSelect.value,
+      obterThreshold: () => Number(thresholdInput.value),
+    });
+    motorAtual = motor;
+    const inicioCarga = performance.now();
     try {
-      await getDetector(modelSelect.value);
+      await inicializarMotor(motor);
+      ultimaCargaMs = Math.round(performance.now() - inicioCarga);
     } catch (err) {
-      setStatus(`Falha ao carregar modelo: ${(err as Error).message}`);
-      startBtn.disabled = false;
+      registrarOperacional("erro", definicao.origemFalha, (err as Error).message);
+      falharInicializacao(`${definicao.falhaPrefixo}: ${(err as Error).message}`);
       return;
     }
-  }
+    if (definicao.usaDeteccao) mostrarAvisoDispositivo();
 
-  running = true;
-  stopBtn.disabled = false;
-  agendarAnalise(Number(intervalInput.value) * 1000);
-  await analisar();
+    if (!camera.ativa) {
+      falharInicializacao("A camera foi encerrada durante a inicializacao.");
+      return;
+    }
+    running = true;
+    politica.reiniciar();
+    stopBtn.disabled = false;
+    atualizarBotoesAnalise();
+    atualizarDiagnostico();
+    // Atualiza o "carregado" do Ollama agora que o modelo pode ter subido.
+    void verificarOllama();
+    await agendador.iniciar();
+  } catch (err) {
+    registrarOperacional("erro", "inicializacao", (err as Error).message);
+    falharInicializacao(`Falha ao iniciar: ${(err as Error).message}`);
+  }
 }
 
-function stop(): void {
+function encerrarCaptura(): void {
   running = false;
-  setSpinner(false);
+  agendador.parar();
   if (controller) {
     controller.abort();
     controller = null;
   }
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
-  }
-  if (stream) stream.getTracks().forEach((t) => t.stop());
-  stream = null;
-  video.srcObject = null;
+  motorAtual?.encerrar();
+  motorAtual = null;
+  camera.encerrar();
+}
+
+function restaurarInterfaceIdle(): void {
+  setSpinner(false);
   ctx.clearRect(0, 0, overlay.width, overlay.height);
   placeholder.style.display = "grid";
   startBtn.disabled = false;
   stopBtn.disabled = true;
+  analisarAgoraBtn.disabled = true;
+  habilitarSeletoresDeMotor(true);
+}
+
+function falharInicializacao(mensagem: string): void {
+  encerrarCaptura();
+  restaurarInterfaceIdle();
+  atualizarDiagnostico();
+  setStatus(mensagem);
+}
+
+function stop(): void {
+  encerrarCaptura();
+  restaurarInterfaceIdle();
+  atualizarDiagnostico();
   setStatus("Parado.");
 }
 
 async function verificarOllama(): Promise<void> {
   try {
-    const resposta = await fetch("/api/health");
-    const dados = (await resposta.json()) as {
-      ollama?: {
-        online: boolean;
-        modelos: string[];
-        carregados: string[];
-        erro: string;
-      };
-    };
-    const o = dados.ollama;
+    const o = await api.saudeOllama();
+    infoOllama = o;
     if (o?.online) {
       const memoria = o.carregados?.length ? ` · em memoria: ${o.carregados.join(", ")}` : "";
-      ollamaStatusEl.textContent = `Ollama: online${o.modelos.length ? " (" + o.modelos.join(", ") + ")" : ""}${memoria}`;
-      ollamaStatusEl.className = "health online";
-      ollamaStatusEl.title = (o.modelos.join("\n") || "Ollama acessivel") + (memoria ? `\n${memoria}` : "");
+      modeloStatusEl.textContent = `${rotuloProvedor()}: online${o.modelos.length ? " (" + o.modelos.join(", ") + ")" : ""}${memoria}`;
+      modeloStatusEl.className = "health online";
+      modeloStatusEl.title = (o.modelos.join("\n") || `${rotuloProvedor()} acessivel`) + (memoria ? `\n${memoria}` : "");
     } else {
-      ollamaStatusEl.textContent = `Ollama: offline${o?.erro ? " — " + o.erro : ""}`;
-      ollamaStatusEl.className = "health offline";
+      modeloStatusEl.textContent = `${rotuloProvedor()}: offline${o?.erro ? " — " + o.erro : ""}`;
+      modeloStatusEl.className = "health offline";
+      modeloStatusEl.title = o?.erro ?? `${rotuloProvedor()} inacessivel`;
     }
   } catch {
-    ollamaStatusEl.textContent = "Ollama: servidor indisponivel";
-    ollamaStatusEl.className = "health offline";
+    infoOllama = null;
+    modeloStatusEl.textContent = "Backend de visao: servidor indisponivel";
+    modeloStatusEl.className = "health offline";
+    modeloStatusEl.title = "Servidor indisponivel";
   }
+  atualizarDiagnostico();
 }
 
 function aplicarFiltro(): void {
@@ -670,9 +814,8 @@ function aplicarFiltro(): void {
 async function exportarLog(): Promise<void> {
   exportBtn.disabled = true;
   try {
-    const resposta = await fetch("/api/logs?limit=500");
-    const dados = (await resposta.json()) as { entradas?: EntradaLog[] };
-    const blob = new Blob([JSON.stringify(dados.entradas ?? [], null, 2)], {
+    const entradas = await api.listarEntradas(500);
+    const blob = new Blob([JSON.stringify(entradas, null, 2)], {
       type: "application/json",
     });
     const url = URL.createObjectURL(blob);
@@ -692,13 +835,19 @@ async function exportarLog(): Promise<void> {
 
 startBtn.addEventListener("click", () => void start());
 stopBtn.addEventListener("click", stop);
+analisarAgoraBtn.addEventListener("click", () => {
+  if (!running || motorSelect.value !== "eventos") return;
+  manualSolicitado = true;
+  agendador.disparar();
+});
 clearLogBtn.addEventListener("click", () => void limparHistorico());
 exportBtn.addEventListener("click", () => void exportarLog());
 filterInput.addEventListener("input", aplicarFiltro);
 
 intervalInput.addEventListener("input", () => {
   intervalValue.textContent = `${intervalInput.value}s`;
-  if (running) agendarAnalise(Number(intervalInput.value) * 1000);
+  intervaloMsConfigurado = Number(intervalInput.value) * 1000;
+  agendador.reajustar();
 });
 
 thresholdInput.addEventListener("input", () => {
@@ -709,8 +858,18 @@ motorSelect.addEventListener("change", () => {
   ultimaDescricao = "";
   roteiroBeats = [];
   roteiroPrimeiro = true;
+  frameIdAtual = gerarFrameId();
+  manualSolicitado = false;
+  atualizarBotoesAnalise();
+  atualizarDiagnostico();
 });
 
 atualizarContagem();
+atualizarDiagnostico();
 void carregarHistorico();
+void carregarContexto();
 void verificarOllama();
+
+
+
+

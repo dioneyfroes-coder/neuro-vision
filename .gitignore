@@ -2,9 +2,15 @@ node_modules/
 dist/
 public/app.js
 logs/*.jsonl
+logs/*.inicio
 logs/snapshots/
 .env
 .DS_Store
 test-results/
 playwright-report/
 .playwright/
+# Videos de avaliacao ficam locais (binarios/potencialmente sensiveis); as
+# anotacoes .json e o README permanecem versionados.
+bench/videos/*
+!bench/videos/README.md
+!bench/videos/*.json
