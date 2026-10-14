@@ -443,6 +443,13 @@ interface ArquivoSnapshot {
   referenciado: boolean;
 }
 
+export interface OpcoesLimpezaSnapshots {
+  snapDir?: string;
+  logFiles?: string[];
+  politica?: PoliticaSnapshots;
+  agora?: number;
+}
+
 export interface ResultadoLimpezaSnapshots {
   removidos: number;
   mantidos: number;
@@ -518,7 +525,7 @@ async function listarSnapshots(snapDir: string): Promise<ArquivoSnapshot[]> {
  * - ao exceder os tetos, os snapshots mais antigos sao descartados primeiro.
  */
 export async function limparSnapshots(
-  opcoes: any = {}
+  opcoes: OpcoesLimpezaSnapshots = {}
 ): Promise<ResultadoLimpezaSnapshots> {
   const snapDir = opcoes.snapDir ?? SNAP_DIR;
   const politica = opcoes.politica ?? POLITICA_SNAPSHOTS_PADRAO;
