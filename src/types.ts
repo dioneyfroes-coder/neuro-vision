@@ -107,6 +107,5 @@ export interface EventoVisual {
   modelo?: string;
   /** Sessao a que pertence este evento (legado: ausente). */
   sessaoId?: string;
-  /** Identificador do frame que gerou este evento (reutilizado para deduplicar snapshots). */
-  frameId?: string;
-}
+  /** Chave de idempotencia para evitar duplicacao de eventos no servidor. */
+  idempotencyKey?: string;

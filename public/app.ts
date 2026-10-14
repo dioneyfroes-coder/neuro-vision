@@ -73,15 +73,11 @@ let intervaloMsConfigurado = Number(intervalInput.value) * 1000;
 let frameIdAtual: string | null = null;
 let manualSolicitado = false;
 const politica = new PoliticaAnalise();
-function gerarFrameId(): string {
+function gerarIdempotencyKey(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID().slice(0, 12);
+    return crypto.randomUUID();
   }
-  let result = "";
-  for (let i = 0; i < 12; i += 1) {
-    result += Math.floor(Math.random() * 16).toString(16);
-  }
-  return result;
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 /** Ultimo status do backend de visao conhecido (motor/modelos/carregados), para o diagnostico. */
@@ -521,7 +517,7 @@ async function analisarDeteccao(signal: AbortSignal): Promise<void> {
   for (const evt of eventos) {
     // Movimento e o evento mais frequente: grava sem snapshot para poupar disco.
     const paraGravar = evt.tipo === "movimento" ? { ...evt, snapshot: undefined } : evt;
-    void api.gravarEvento({ ...paraGravar, frameId: frameIdAtual ?? undefined, sessaoId }).catch(() => {
+    void api.gravarEvento({ ...paraGravar, frameId: frameIdAtual ?? undefined, sessaoId, idempotencyKey: gerarIdempotencyKey() }).catch(() => {
       if (running) setStatus("Falha ao gravar evento no servidor");
     });
   }
@@ -604,7 +600,7 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
   for (const evt of eventos) {
     // Movimento e o evento mais frequente: grava sem snapshot para poupar disco.
     const paraGravar = evt.tipo === "movimento" ? { ...evt, snapshot: undefined } : evt;
-    void api.gravarEvento({ ...paraGravar, frameId: frameIdAtual ?? undefined, sessaoId }).catch(() => {
+    void api.gravarEvento({ ...paraGravar, frameId: frameIdAtual ?? undefined, sessaoId, idempotencyKey: gerarIdempotencyKey() }).catch(() => {
       if (running) setStatus("Falha ao gravar evento no servidor");
     });
   }

@@ -135,9 +135,7 @@ export function montarEvento(payload: unknown): EventoVisual | null {
     snapshot: typeof p.snapshot === "string" ? p.snapshot : undefined,
     modelo: typeof p.modelo === "string" ? p.modelo : undefined,
     sessaoId: typeof p.sessaoId === "string" ? p.sessaoId : undefined,
-    frameId: typeof p.frameId === "string" ? p.frameId : undefined,
-  };
-}
+    idempotencyKey: typeof p.idempotencyKey === "string" ? p.idempotencyKey : undefined,
 
 /** Valida e normaliza um registro operacional vindo do cliente. */
 export function montarOperacional(payload: unknown): RegistroOperacional | null {
