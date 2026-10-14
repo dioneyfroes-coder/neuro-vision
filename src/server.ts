@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import http from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -517,7 +518,7 @@ async function listarSnapshots(snapDir: string): Promise<ArquivoSnapshot[]> {
  * - ao exceder os tetos, os snapshots mais antigos sao descartados primeiro.
  */
 export async function limparSnapshots(
-  opcoes: OpcoesLimpezaSnapshots = {}
+  opcoes: any = {}
 ): Promise<ResultadoLimpezaSnapshots> {
   const snapDir = opcoes.snapDir ?? SNAP_DIR;
   const politica = opcoes.politica ?? POLITICA_SNAPSHOTS_PADRAO;
@@ -1270,7 +1271,7 @@ export function createServer(config: ServerConfig = {}): http.Server {
     config.operacionalFile ?? path.join(path.dirname(logFile), "operacional.jsonl");
   const permitidas = origensPermitidas(env.NEURO_ALLOWED_ORIGINS);
 
-  return http.createServer((req, res) => {
+  return http.createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = req.url ?? "/";
     if (origemBloqueada(req.headers.origin, req.headers.host, permitidas)) {
       res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
