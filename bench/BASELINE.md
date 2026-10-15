@@ -22,15 +22,16 @@ execução para que os números sejam comparáveis.
 
 ## Como capturar a linha de base
 
-1. Com o Ollama rodando e o modelo de visão carregado, gere o relatório do
-   benchmark em JSON:
+1. Com o backend de visão rodando (ex.: LM Studio) e o modelo de visão
+   carregado, gere o relatório do benchmark em JSON:
 
    ```bash
    npm run bench -- --json > bench/baseline-<data>.json
    ```
 
    O arquivo inclui o cabeçalho `ambiente` (CPU, núcleos, RAM, plataforma e
-   versão do Node), a RAM/VRAM do modelo carregado (via `/api/ps`) e, por
+   versão do Node), a RAM/VRAM do modelo carregado (quando o backend a expõe,
+   via `/api/v0/models`) e, por
    imagem, latência, tokens e inferências por minuto.
 
 2. Meça a qualidade dos eventos com o conjunto anotado
@@ -75,12 +76,12 @@ As metas abaixo são o **ponto de partida conservador** para esta máquina (o
 conjunto real ainda tem um único clipe); ajuste-as com os primeiros números
 medidos, sem piorar o que já é aceitável:
 
-- **Latência de descrição (Ollama, visão):** manter a mediana dentro de uma
+- **Latência de descrição (backend de visão):** manter a mediana dentro de uma
   faixa utilizável para webcam (ordem de poucos segundos por frame analisado).
-- **Chamadas ao Ollama em cena estática:** próximas de zero — a política deve
+- **Chamadas ao modelo de visão em cena estática:** próximas de zero — a política deve
   absorver a ausência de mudança sem inferência.
 - **Falsos positivos por minuto em cena estática:** 0 (a camada de política já é
-  coberta por `src/qualidade-eventos.test.ts`).
+  coberta por `tests/qualidade-eventos.test.ts`).
 - **Recall de mudanças relevantes:** alto, com tolerância compatível com a
   cadência de amostragem (a `mudanca_de_cena`/`desaparecimento` pode chegar
   segundos depois do instante real).
@@ -90,7 +91,7 @@ medidos, sem piorar o que já é aceitável:
 ## Limitações da linha de base
 
 - Esta máquina **não tem CUDA**; o ganho de WebGPU é medido no próprio navegador.
-- Os números do Ollama dependem do modelo carregado e do estado do servidor;
+- Os números do backend de visão dependem do modelo carregado e do estado do servidor;
   um servidor instável contamina a medição.
 - A cadência de análise é o principal limitador da qualidade de eventos: com
   ~5 s/quadro em WebGPU (ou ~24 s em CPU), a tolerância precisa acomodar essa

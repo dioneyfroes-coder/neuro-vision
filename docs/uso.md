@@ -5,7 +5,7 @@ Instalação, execução, configuração, funcionamento offline e diagnóstico. 
 ## Requisitos
 
 - Node.js 20+ (usa `fetch` e `AbortSignal.timeout` nativos).
-- (Opcional, para os modos de descrição/roteiro) um backend de visão local: [Ollama](https://ollama.com) com a API nativa, ou um servidor compatível com a API OpenAI (LM Studio, llama.cpp, vLLM).
+- (Opcional, para os modos de descrição/roteiro) um backend de visão local compatível com a API de chat completions: **LM Studio**, **llama.cpp** (`llama-server`) ou **vLLM**.
 
 ## Instalação
 
@@ -13,13 +13,7 @@ Instalação, execução, configuração, funcionamento offline e diagnóstico. 
 npm install
 ```
 
-Para os modos de descrição/roteiro, garanta um modelo de visão disponível. Com Ollama:
-
-```bash
-ollama pull qwen2.5vl:3b
-```
-
-Com LM Studio, carregue um modelo de visão (ex.: `qwen2.5-vl-3b-instruct`, o padrão do app) e inicie o servidor local na porta padrão (`1234`).
+Para os modos de descrição/roteiro, garanta um modelo de visão disponível. Com LM Studio, carregue um modelo de visão (ex.: `qwen2.5-vl-3b-instruct`, o padrão do app) e inicie o servidor local na porta padrão (`1234`). Com llama.cpp, suba o `llama-server` com um modelo multimodal e o endpoint `/v1/chat/completions` habilitado.
 
 Sobre qual modelo usar (thinking vs. não-pensante), o fallback automático e a nota do `qwen3-vl`, veja [`modos.md`](./modos.md#escolha-do-modelo-do-backend-de-visão).
 
@@ -56,15 +50,12 @@ Variáveis de ambiente lidas pelo servidor:
 | --- | --- | --- |
 | `PORT` | `3000` | Porta HTTP. |
 | `HOST` | `127.0.0.1` | Interface de escuta. Um host não-loopback exige `NEURO_ALLOW_REMOTE=1`. |
-| `NEURO_PROVIDER` | `auto` | Backend de visão: `ollama` (API nativa), `openai`/`lmstudio` (API compatível com OpenAI) ou `auto` (detecta na subida: Ollama, senão OpenAI). |
-| `NEURO_BASE_URL` | (por provedor) | URL base do backend. Padrões: `http://localhost:11434` (Ollama) e `http://localhost:1234` (OpenAI). Tem prioridade sobre `OLLAMA_HOST`/`OPENAI_BASE_URL`. |
+| `NEURO_BASE_URL` | `http://localhost:1234` | URL base do backend de visão (LM Studio, llama.cpp, vLLM). |
 | `NEURO_MODEL` | `qwen2.5-vl-3b-instruct` | Modelo de visão usado na descrição. Se não estiver disponível, o app usa o melhor modelo de visão encontrado. |
-| `NEURO_API_KEY` | (vazio) | Chave enviada como `Authorization: Bearer` no protocolo OpenAI (o LM Studio ignora). |
+| `NEURO_API_KEY` | (vazio) | Chave enviada como `Authorization: Bearer` (o LM Studio ignora). |
 | `NEURO_IMG_BASE64_CRU` | (vazio) | `1` envia a imagem como base64 cru em `image_url.url` (workaround para versões do LM Studio que rejeitam data URL). |
 | `NEURO_TRANSLATE_ENABLED` | `false` | `1` reativa a tradução da descrição para português (desnecessária com um modelo de visão capaz). |
 | `NEURO_TRANSLATE_MODEL` | (mesmo do modelo) | Modelo usado para traduzir quando a tradução está habilitada. |
-| `OLLAMA_HOST` | `http://localhost:11434` | URL do Ollama (equivalente a `NEURO_BASE_URL` quando o provedor é `ollama`). |
-| `OLLAMA_MODEL` | (vazio) | Nome antigo de `NEURO_MODEL` (mantido por compatibilidade). |
 | `LOG_MAX_BYTES` | `5000000` | Tamanho máximo de cada JSONL (`visao.jsonl`, `eventos.jsonl`, `operacional.jsonl`) antes de rotacionar para `.1`. |
 | `SNAP_MAX_BYTES` | `200000000` | Tamanho total máximo de `logs/snapshots/` em bytes (`0` desativa). |
 | `SNAP_MAX_FILES` | `1000` | Quantidade máxima de snapshots (`0` desativa). |
@@ -76,31 +67,24 @@ Variáveis de ambiente lidas pelo servidor:
 | `NEURO_ALLOW_REMOTE` | (vazio) | `1` permite escutar em host não-loopback (assumindo o risco). |
 | `NEURO_ALLOWED_ORIGINS` | (vazio) | CSV de origens extras permitidas além da própria (ex.: `http://host:3000`). |
 
-Exemplo (Ollama):
-
-```bash
-$env:NEURO_MODEL="qwen2.5vl:7b"; npm start   # PowerShell
-NEURO_MODEL=qwen2.5vl:7b npm start            # bash
-```
-
-Exemplo (LM Studio, API OpenAI):
-
-```bash
-$env:NEURO_PROVIDER="openai"; $env:NEURO_MODEL="llama-3.2-11b-vision-instruct"; npm start   # PowerShell
-NEURO_PROVIDER=openai NEURO_MODEL=llama-3.2-11b-vision-instruct npm start                    # bash
-```
-
 Exemplo (LM Studio com o Qwen2.5-VL 3B Instruct — leve e rápido):
 
 ```bash
 # 1. No LM Studio: aba "Developer" > "Start Server" e carregue "Qwen2.5-VL-3B-Instruct".
 # 2. A URL base é a mesma que o LM Studio mostra ("http://127.0.0.1:<porta>"); o
 #    padrão do app é a porta 1234. Se o LM Studio estiver em outra porta, use NEURO_BASE_URL.
-$env:NEURO_PROVIDER="openai"; $env:NEURO_BASE_URL="http://127.0.0.1:1234"; $env:NEURO_MODEL="qwen2.5-vl-3b-instruct"; npm start   # PowerShell
-NEURO_PROVIDER=openai NEURO_BASE_URL=http://127.0.0.1:1234 NEURO_MODEL=qwen2.5-vl-3b-instruct npm start                           # bash
+$env:NEURO_BASE_URL="http://127.0.0.1:1234"; $env:NEURO_MODEL="qwen2.5-vl-3b-instruct"; npm start   # PowerShell
+NEURO_BASE_URL=http://127.0.0.1:1234 NEURO_MODEL=qwen2.5-vl-3b-instruct npm start                   # bash
 ```
 
-> `NEURO_MODEL` deve ser exatamente o `id` mostrado no LM Studio (o mesmo de `GET /v1/models`). Em `auto` (padrão) o app detecta o backend sozinho, mas se o Ollama também estiver no ar ele tem prioridade — force `NEURO_PROVIDER=openai` para usar o LM Studio.
+Exemplo (outro modelo de visão do backend):
+
+```bash
+$env:NEURO_MODEL="llama-3.2-11b-vision-instruct"; npm start   # PowerShell
+NEURO_MODEL=llama-3.2-11b-vision-instruct npm start            # bash
+```
+
+> `NEURO_MODEL` deve ser exatamente o `id` mostrado em `GET /v1/models` do backend.
 
 Teste rápido da integração (sem abrir o navegador), com o LM Studio já rodando:
 
@@ -122,11 +106,11 @@ LMSTUDIO_URL=http://127.0.0.1:1234 NEURO_MODEL=qwen2.5-vl-3b-instruct npm run in
 | Bibliotecas de desenvolvimento (`esbuild`, `tsx`, `vitest`, `playwright`) | npm | `npm install` | `node_modules/` |
 | Transformers.js **3.8.1** (fixado) | CDN (`cdn.jsdelivr.net`) | ao usar um modo de detecção/eventos (import sob demanda) | cache HTTP do navegador |
 | Pesos do modelo de detecção (ex.: `Xenova/yolos-tiny`) | Hugging Face Hub | na primeira carga do modelo | cache do navegador (`useBrowserCache`) |
-| Modelo de visão (ex.: `qwen2.5vl:3b` no Ollama, `qwen2.5-vl-3b-instruct` no LM Studio) | Ollama (`ollama pull`) ou LM Studio (download na própria interface) | antes de usar | pasta do Ollama / pasta de modelos do LM Studio |
+| Modelo de visão (ex.: `qwen2.5-vl-3b-instruct`) | LM Studio / llama.cpp (download na própria interface ou arquivo do modelo) | antes de usar | pasta de modelos do LM Studio / llama.cpp |
 
 **Como preparar antes de ficar offline:**
 
-1. Baixe o modelo de visão uma vez, com internet: `ollama pull qwen2.5vl:3b` (Ollama) ou baixe/carregue `qwen2.5-vl-3b-instruct` no LM Studio.
+1. Baixe o modelo de visão uma vez, com internet: baixe/carregue `qwen2.5-vl-3b-instruct` no LM Studio (ou use um modelo multimodal local com o llama.cpp).
 2. Subir o app, escolher o motor **Detecção** (ou **Eventos**) e clicar **Iniciar** até o modelo carregar — isso popula o cache do navegador com a biblioteca e os pesos. Repita no mesmo navegador/perfil que será usado offline.
 
 **Comportamento com a rede desconectada (após a preparação):**
@@ -141,7 +125,7 @@ A versão do Transformers.js é **fixa** (`3.8.1`), em vez do tag flutuante `@3`
 
 ## Diagnóstico
 
-O cabeçalho mostra uma **linha de diagnóstico** com o **motor ativo** (ou “parado”), o **backend em uso** (`Ollama` ou `LM Studio`), o **modelo em uso** (o do navegador nos modos detecção/eventos; o `NEURO_MODEL`/padrão nos modos de visão, ou o substituto quando há fallback) e os **modelos carregados** no backend (via `GET /api/health`, que também informa o `solicitado`, o `modelo` efetivo e o `provedor`). Quando o modelo configurado não está disponível, a linha acrescenta `fallback de <solicitado>`.
+O cabeçalho mostra uma **linha de diagnóstico** com o **motor ativo** (ou “parado”), o **backend em uso** (`LM Studio`), o **modelo em uso** (o do navegador nos modos detecção/eventos; o `NEURO_MODEL`/padrão nos modos de visão, ou o substituto quando há fallback) e os **modelos carregados** no backend (via `GET /api/health`, que também informa o `solicitado` e o `modelo` efetivo). Quando o modelo configurado não está disponível, a linha acrescenta `fallback de <solicitado>`.
 
 Ela separa três tempos para localizar a lentidão:
 
@@ -164,7 +148,7 @@ Quando a detecção de objetos **não consegue usar WebGPU** e roda em CPU (WASM
 | `npm run typecheck` | Checagem de tipos (`tsc --noEmit`). |
 | `npm run lint` | ESLint. |
 | `npm run lint:fix` | ESLint com correção automática. |
-| `npm run bench` | Benchmark de velocidade do modelo local (requer Ollama rodando). |
+| `npm run bench` | Benchmark comparativo dos modelos do backend de visão (latência, tok/s, inferências/min). Requer o backend rodando. |
 | `npm run qualidade` | Compara os eventos gravados com a anotação de um clipe (precisão/recall, falsos positivos por minuto). |
 | `npm run gravar:webcam` | Grava alguns segundos da webcam em `.webm` (clipe para a avaliação de eventos). |
 | `npm run extrair:frames` | Extrai quadros de um clipe `.webm` para conferência/anotação. |

@@ -34,4 +34,4 @@ Quando o cliente cancela uma análise, ele encerra a leitura do stream e o servi
 
 Cada evento traz `confianca` e `snapshot` como evidência, respondendo **o que mudou**, **quando** e com quais **evidências**. Os filtros incidem sobre os eventos mais recentes dentro de `limit`.
 
-Tipos de evento (`TIPOS_EVENTO` em `src/memoria.ts`): `aparicao`, `desaparecimento`, `movimento`, `mudanca_de_cena`, `resumo`. Origem (`api.ts`): `detector`, `rastreador` ou `ollama`. Registros operacionais (falhas/métricas, que **não** são acontecimentos visuais) vão para `operacional.jsonl` via `POST /api/operacional`.
+Tipos de evento (`TIPOS_EVENTO` em `src/memoria.ts`): `aparicao`, `desaparecimento`, `movimento`, `mudanca_de_cena`, `resumo`. Origem (`api.ts`): `detector`, `rastreador` ou `visao`. Registros operacionais (falhas/métricas, que **não** são acontecimentos visuais) vão para `operacional.jsonl` via `POST /api/operacional`.

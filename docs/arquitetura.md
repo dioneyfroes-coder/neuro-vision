@@ -19,11 +19,11 @@ src/
   erros.ts             taxonomia de erros (origem, cancelamento)
   rastreamento.ts      rastreador de objetos (IDs estáveis, aparição/desaparecimento/movimento)
   cena.ts              detecção de mudança de cena (sinal)
-  provedor.ts          camada de backend de visão (protocolos Ollama nativo e OpenAI/LM Studio)
-  ollama.ts            cliente de visão e montagem dos prompts (descrição e roteiro), sobre `provedor.ts`
+  provedor.ts          camada de protocolo do backend de visão (chat completions / LM Studio)
+  visao.ts             cliente de visão (modelos, prompts de descrição/roteiro, geração e tradução)
   texto.ts             pós-processamento: colapsa repetições, detecta "sem mudança", corta frase incompleta
   types.ts             tipos compartilhados (EntradaLog, ObjetoVisto, EventoVisual, ...)
-  *.test.ts            testes (vitest)
+  env.ts               variáveis de ambiente (carrega o .env e expõe os padrões)
   transformers-cdn.d.ts  tipos para o transformers.js via CDN
 public/
   index.html           interface
@@ -37,6 +37,9 @@ public/
 e2e/
   app.spec.ts          fluxos de interface (com o transformers.js substituído)
   webcam.spec.ts       avaliação com clipe real de webcam (opt-in; modelo real)
+tests/
+  *.test.ts            testes unitários/integração (vitest)
+  scripts/*.test.mjs   testes dos scripts de benchmark/qualidade
 logs/
   visao.jsonl          observações gravadas (ignorado no git)
   eventos.jsonl        eventos estruturados (ignorado no git)
@@ -46,7 +49,7 @@ bench/
   videos/              anotações dos clipes de avaliação de eventos (vídeos ficam locais)
   BASELINE.md          máquina de referência e metas realistas por hardware
 scripts/
-  benchmark.mjs        benchmark do Ollama (latência, tok/s, RAM/VRAM, inferências/min)
+  benchmark.mjs        benchmark comparativo dos modelos do backend de visão (latência, tok/s, inferências/min)
   gerar-fixtures-bench.mjs  gera o conjunto fixo de imagens sintéticas
   avaliar-qualidade.mjs     compara eventos gravados com a anotação (precisão/recall/FP por minuto)
   gravar-webcam.mjs         grava alguns segundos da webcam em .webm (clipe de avaliação)
@@ -64,6 +67,6 @@ scripts/
 
 ## Testes e regressão
 
-- Unitários/integração: `npm test` (vitest, incluindo `percepcao`, `motores`, `rastreamento`, `cena`, `memoria`, `server`, `politica-analise`, `provedor`, `ollama`).
+- Unitários/integração: `npm test` (vitest, incluindo `percepcao`, `motores`, `rastreamento`, `cena`, `memoria`, `server`, `politica-analise`, `provedor`, `visao`).
 - E2E: `npm run test:e2e` (Playwright; o transformers.js é substituído por stubs em `e2e/app.spec.ts`; `e2e/webcam.spec.ts` é opt-in com modelo real).
 - Desempenho/qualidade: ver [`qualidade.md`](./qualidade.md).

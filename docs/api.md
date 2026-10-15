@@ -16,7 +16,7 @@ Referência completa da API HTTP, formato das entradas, retenção de snapshots 
 | `DELETE` | `/api/eventos` | Limpa os eventos estruturados e remove os snapshots que ficaram órfãos. |
 | `POST` | `/api/operacional` | Grava um registro operacional (falha/métrica) que **não** é acontecimento visual. |
 | `GET` | `/api/contexto` | Reidrata um contexto curto do estado recente (`{ resumo, roteiro, ultimaDescricao, entradas, eventos }`) com janela por `maxEntradas`/`maxEventos`/`maxCaracteres`. |
-| `GET` | `/api/health` | Status do backend de visão (`{ ollama: { online, provedor, solicitado, modelo, modelos, carregados, erro } }`). `provedor` é `ollama` ou `openai`; `modelo` é o efetivo (o solicitado ou o melhor disponível quando o solicitado não está instalado). |
+| `GET` | `/api/health` | Status do backend de visão (`{ visao: { online, solicitado, modelo, modelos, carregados, erro } }`). `modelo` é o efetivo (o solicitado ou o melhor disponível quando o solicitado não está instalado). |
 | `GET` | `/snapshots/<arquivo>` | Serve os snapshots (thumbnails) gravados. |
 
 As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jsonl` e os registros operacionais em `logs/operacional.jsonl` (uma linha JSON por registro, própria política de rotação); os snapshots ficam em `logs/snapshots/`.
@@ -29,7 +29,7 @@ As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jso
 
 - `modo`: `"roteiro"` (padrão) ou `"descricao"`.
 - `base`: no modo roteiro, `true` no primeiro frame (análise profunda) e `false` nos seguintes (só o que mudou).
-- `roteiro`: roteiro acumulado (resumido) enviado como contexto nos deltas.
+- `roteiro`: roteiro acumulado (aceito por compatibilidade; o prompt de delta atual não o reenvia).
 - `capturadoEm`: instante ISO em que o frame foi fotografado, **antes** da inferência. `timestamp` da entrada é o fim da análise; a diferença entre os dois é o atraso de inferência (a interface exibe o horário da captura como principal e o atraso no tooltip).
 
 Resposta: stream NDJSON (`application/x-ndjson`), uma linha por evento:

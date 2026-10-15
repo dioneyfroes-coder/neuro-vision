@@ -1,5 +1,5 @@
 /**
- * Teste pratico automatico da integracao com o LM Studio (protocolo OpenAI).
+ * Teste pratico automatico da integracao com o LM Studio (protocolo de chat completions).
  *
  * Percorre o caminho real da aplicacao, do modelo ate a API do servidor:
  *   1. lista os modelos do LM Studio (`/v1/models`);

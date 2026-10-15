@@ -4,22 +4,23 @@ Como medir o desempenho do modelo local, avaliar a qualidade dos eventos e mante
 
 ## Benchmark (`npm run bench`)
 
-Mensura o que o seu modelo local realmente sustenta: geração em tok/s, prefill da imagem, tempo até a 1ª resposta, total, **inferências por minuto** e **uso de RAM/VRAM** — e recomenda o **intervalo mínimo** para o slider da UI (`totalMs × 1.5`). Opções:
+Mensura o que o seu modelo local realmente sustenta: geração em tok/s, prefill da imagem, tempo até a 1ª resposta, total, **inferências por minuto** e **uso de RAM/VRAM** (quando o backend informa) — e recomenda o **intervalo mínimo** para o slider da UI (`totalMs × 1.5`). Repetindo `--model`, compara vários modelos lado a lado na tabela final. Opções:
 
 ```bash
-npm run bench                                     # conjunto fixo em bench/imagens/ (ou o snapshot mais recente)
-npm run bench -- --model qwen2.5vl:7b --iter 5    # outro modelo, mais amostras
-npm run bench -- --image foto.jpg --json          # uma imagem específica + saída JSON
-npm run bench -- --images-dir minhas-cenas        # diretório próprio de imagens fixas
+npm run bench                                            # todos os modelos instalados
+npm run bench -- --model qwen2.5-vl-3b-instruct --iter 5 # um modelo específico, mais amostras
+npm run bench -- --model qwen2.5-vl-3b-instruct --model gemma-4-2b  # comparativo
+npm run bench -- --base-url http://127.0.0.1:1235 --image foto.jpg --json  # outra porta + JSON
+npm run bench -- --images-dir minhas-cenas               # diretório próprio de imagens fixas
 ```
 
 O benchmark roda sobre o **conjunto fixo de imagens** em [`bench/imagens/`](../bench/imagens) (gerado por `node scripts/gerar-fixtures-bench.mjs`) para ser reproduzível sem depender dos seus snapshots; veja [`bench/README.md`](../bench/README.md) para trocar por cenas reais. Por padrão ele mede cada modelo no conjunto inteiro e reporta a **mediana entre as imagens**.
 
-Cada execução registra o **ambiente** (CPU, núcleos, RAM, plataforma, versão do Node), o host, o modelo e as configurações (`num_predict`, iterações) junto aos números — no modo `--json` sai um objeto `ambiente` + `resultados` pronto para versionar. O `uso de RAM/VRAM` vem de `/api/ps` (memória realmente ocupada pelo modelo carregado).
+Cada execução registra o **ambiente** (CPU, núcleos, RAM, plataforma, versão do Node), o host, o modelo e as configurações (`max_tokens`, iterações) junto aos números — no modo `--json` sai um objeto `ambiente` + `resultados` pronto para versionar. O `uso de RAM/VRAM` vem de `/api/v0/models` (introspecção do LM Studio), quando o backend a expõe; caso contrário sai como `-`.
 
 O cliente **ajusta sozinho** o ritmo: cada análise espera `max(intervalo, duração da análise anterior + 500ms)`, então nunca pede mais rápido que o modelo consegue responder. O status e cada entrada de descrição mostram os **tok/s** medidos.
 
-Medição de referência (`qwen2.5vl:3b`, CPU, snapshot 4K): ~40 tok/s de geração, prefill ~104 tok/s, 1ª resposta ~10,6s, total ~11,5s → **intervalo mínimo recomendado ≥ 18s**.
+Medição de referência (`qwen2.5-vl-3b-instruct`, CPU, snapshot 4K): ~40 tok/s de geração, prefill ~104 tok/s, 1ª resposta ~10,6s, total ~11,5s → **intervalo mínimo recomendado ≥ 18s**.
 
 As especificações da **máquina de referência** e as metas realistas por hardware (com o procedimento para recapturá-las) ficam em [`bench/BASELINE.md`](../bench/BASELINE.md).
 
@@ -32,7 +33,7 @@ npm run qualidade -- --anotacao bench/videos/sala-com-pessoa.json
 npm run qualidade -- --anotacao bench/videos/sala-com-pessoa.json --json > qualidade.json
 ```
 
-O formato da anotação, o fluxo de captura e as regras de casamento estão em [`bench/videos/README.md`](../bench/videos/README.md). Os vídeos ficam **locais** (não versionados); a anotação `.json` é versionada para a medição ser reproduzível em qualquer máquina que tenha o mesmo clipe. A camada de política/rastreamento, que não depende de vídeo, também é medida em `src/qualidade-eventos.test.ts`.
+O formato da anotação, o fluxo de captura e as regras de casamento estão em [`bench/videos/README.md`](../bench/videos/README.md). Os vídeos ficam **locais** (não versionados); a anotação `.json` é versionada para a medição ser reproduzível em qualquer máquina que tenha o mesmo clipe. A camada de política/rastreamento, que não depende de vídeo, também é medida em `tests/qualidade-eventos.test.ts`.
 
 ### Clipe real (ponta a ponta)
 
@@ -62,7 +63,7 @@ O modelo real é **pesado**: no Chromium do Playwright (WASM/CPU) uma inferênci
 
 O backend de visão carrega o modelo na memória sob demanda (o primeiro request é o lento). O Neuro Vision espera esse carregamento antes de começar:
 
-- Ao clicar **Iniciar** com o motor **Descrição**, o servidor chama `forcarCarregamento` (probe em `/api/ps`; no LM Studio, `/api/v0/models`) e **só então** o ciclo de análise começa. O status mostra "Carregando modelo... em Ns".
+- Ao clicar **Iniciar** com o motor **Descrição**, o servidor chama `forcarCarregamento` (confirma via `/api/v0/models` quando o backend a expõe; senão, um probe mínimo dispara a carga) e **só então** o ciclo de análise começa. O status mostra "Carregando modelo... em Ns".
 - O badge do backend informa quais modelos estão **em memória** (`/api/health` → `carregados`).
 - O benchmark **só mede com o modelo já em memória** (a primeira etapa carrega e reporta o tempo da carga), para que o tok/s não seja contaminado pelo load.
 

@@ -2,7 +2,7 @@
 
 Este diretório guarda o **conjunto fixo de imagens** usado por `npm run bench`
 (`scripts/benchmark.mjs`) para medir latência, throughput e uso de memória do
-Ollama de forma **reproduzível** — sem depender dos snapshots da sua máquina.
+backend de visão de forma **reproduzível** — sem depender dos snapshots da sua máquina.
 
 ## Como funciona
 
@@ -37,7 +37,7 @@ futuras sejam comparáveis.
 ## Reprodutibilidade
 
 Cada execução registra, junto aos números, o **ambiente** (CPU, núcleos, RAM,
-plataforma, versão do Node), o **host/modelo**, as **configurações**
-(`num_predict`, iterações) e as **imagens usadas**. No modo `--json`, tudo isso
+plataforma, versão do Node), o **backend/modelo**, as **configurações**
+(`max_tokens`, iterações) e as **imagens usadas**. No modo `--json`, tudo isso
 sai em um objeto `ambiente` + `resultados`, pronto para versionar ao lado do
 hardware testado.

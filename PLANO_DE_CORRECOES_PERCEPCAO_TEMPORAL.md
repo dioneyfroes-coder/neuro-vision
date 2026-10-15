@@ -38,7 +38,7 @@ Este documento é um roteiro de implementação. Marque cada tarefa somente depo
   ```
 
 - [x] Registrar quais comandos passam e quais falham antes de alterar o código. Não atribuir uma falha de dependência ao código da aplicação sem investigar.
-- [x] Registrar a configuração de benchmark: modelo, backend (WebGPU/WASM e Ollama/LM Studio), resolução, intervalo configurado e hardware.
+- [x] Registrar a configuração de benchmark: modelo, backend (WebGPU/WASM e LM Studio), resolução, intervalo configurado e hardware.
 - [x] Preservar como referência o resultado já documentado em `bench/BASELINE.md`: precisão de 25%, recall de 100%, cerca de 6 falsos positivos por minuto e atraso observado de 3,4 s. É um resultado de um clipe específico, não uma estimativa universal.
 
 ### Critério para concluir
@@ -53,7 +53,7 @@ Este documento é um roteiro de implementação. Marque cada tarefa somente depo
 
 ### Problema
 
-O agendador calcula `max(intervaloMs, ultimaDuracaoMs + 500)` **depois** que `executar()` terminou. Assim, o intervalo configurado vira um tempo de espera adicional após a análise. Além disso, `ultimaDuracaoMs` representa a duração reportada pela última inferência, não necessariamente a duração total do ciclo — que, no modo Eventos, pode incluir detecção, chamada ao Ollama e outros passos.
+O agendador calcula `max(intervaloMs, ultimaDuracaoMs + 500)` **depois** que `executar()` terminou. Assim, o intervalo configurado vira um tempo de espera adicional após a análise. Além disso, `ultimaDuracaoMs` representa a duração reportada pela última inferência, não necessariamente a duração total do ciclo — que, no modo Eventos, pode incluir detecção, chamada ao modelo de visão e outros passos.
 
 ### Passo a passo
 
@@ -93,25 +93,25 @@ O agendador calcula `max(intervaloMs, ultimaDuracaoMs + 500)` **depois** que `ex
 
 ### Problema
 
-No modo Eventos, `analisarEventos()` captura um quadro, executa a percepção leve e detecta a mudança. Se a política acionar o Ollama, `analisarComOllama()` faz uma **nova captura** da webcam. Como a inferência pode demorar segundos, o modelo pode descrever outra cena, não aquela que disparou o evento.
+No modo Eventos, `analisarEventos()` captura um quadro, executa a percepção leve e detecta a mudança. Se a política acionar o modelo de visão, `analisarComVisao()` faz uma **nova captura** da webcam. Como a inferência pode demorar segundos, o modelo pode descrever outra cena, não aquela que disparou o evento.
 
-O caminho `analisarDeteccao()` já usa uma captura única para detecção, snapshot e assinatura da cena; o fluxo Eventos precisa aplicar o mesmo princípio à chamada subsequente ao Ollama.
+O caminho `analisarDeteccao()` já usa uma captura única para detecção, snapshot e assinatura da cena; o fluxo Eventos precisa aplicar o mesmo princípio à chamada subsequente ao modelo de visão.
 
 ### Passo a passo
 
 - [x] Criar um objeto de captura tipado que carregue, no mínimo, o instante `capturadoEm`, a imagem usada pela percepção e o snapshot correspondente.
-- [x] Fazer `analisarComOllama()` aceitar uma captura existente como parâmetro opcional, em vez de sempre chamar `camera.capturarFrame()`.
-- [x] Quando `analisarEventos()` decidir chamar o Ollama, passar a captura que gerou a decisão e manter o mesmo `capturadoEm`.
-- [x] Se for necessário reduzir a imagem para o Ollama (por exemplo, largura máxima de 512 px), gerar essa versão a partir dos pixels já capturados. Não ler a webcam novamente para criar a versão reduzida.
+- [x] Fazer `analisarComVisao()` aceitar uma captura existente como parâmetro opcional, em vez de sempre chamar `camera.capturarFrame()`.
+- [x] Quando `analisarEventos()` decidir chamar o modelo de visão, passar a captura que gerou a decisão e manter o mesmo `capturadoEm`.
+- [x] Se for necessário reduzir a imagem para o modelo (por exemplo, largura máxima de 512 px), gerar essa versão a partir dos pixels já capturados. Não ler a webcam novamente para criar a versão reduzida.
 - [x] Vincular os eventos derivados ao mesmo identificador de quadro, snapshot e horário de captura.
 - [x] Se no futuro existir um modo que deliberadamente analise a cena mais recente, diferenciá-lo explicitamente: guardar tanto a evidência que disparou a decisão quanto o frame efetivamente analisado.
 - [x] Atualizar a documentação de eventos para definir a diferença entre `capturadoEm` e o horário de conclusão da inferência.
 
 ### Testes obrigatórios
 
-- [x] Stub de câmera devolve uma captura identificável; o detector e o Ollama recebem a mesma captura.
+- [x] Stub de câmera devolve uma captura identificável; o detector e o modelo de visão recebem a mesma captura.
 - [x] O horário salvo no evento corresponde ao instante de captura, não ao momento posterior da inferência.
-- [x] A versão reduzida enviada ao Ollama é derivada do mesmo quadro, sem uma segunda leitura do vídeo.
+- [x] A versão reduzida enviada ao modelo é derivada do mesmo quadro, sem uma segunda leitura do vídeo.
 
 ### Critério para concluir
 
@@ -196,7 +196,7 @@ O rastreador reinicia seus contadores em `obj-1` e `evt-1`; o detector de cenas 
 
 ### Problema A: falhas de percepção podem acionar o modelo sem respeitar o cooldown
 
-Quando `percepcaoValida` é `false`, a política verifica a capacidade da janela, mas não aplica o mesmo cooldown que usa nos eventos normais. Uma sequência de falhas pode, portanto, provocar tentativas ao Ollama mais frequentes do que o intervalo mínimo documentado.
+Quando `percepcaoValida` é `false`, a política verifica a capacidade da janela, mas não aplica o mesmo cooldown que usa nos eventos normais. Uma sequência de falhas pode, portanto, provocar tentativas ao modelo de visão mais frequentes do que o intervalo mínimo documentado.
 
 ### Passo a passo — política
 
@@ -349,7 +349,7 @@ O detector já tenta WASM quando o carregamento do pipeline WebGPU falha. Porém
 
 - [ ] Executar E2E com stubs para fluxos de interface e câmera.
 - [ ] Executar o teste com vídeo anotado e o modelo real, registrando o ambiente e o resultado.
-- [ ] Verificar start/stop/restart, pedido manual, falha de câmera, falha do detector, Ollama indisponível, falha HTTP de gravação, limpeza de histórico e recuperação após falha.
+- [ ] Verificar start/stop/restart, pedido manual, falha de câmera, falha do detector, backend de visão indisponível, falha HTTP de gravação, limpeza de histórico e recuperação após falha.
 - [ ] Verificar que não existem IDs duplicados em várias sessões nem snapshots duplicados para a mesma captura.
 - [ ] Atualizar documentos para refletir o comportamento real, a semântica do intervalo, os campos de evento, as limitações e os passos de benchmark.
 - [ ] Fazer uma última revisão do diff e confirmar que nenhum arquivo de vídeo pessoal, segredo ou snapshot local foi incluído no repositório.
@@ -373,7 +373,7 @@ Para evitar abrir muitas frentes ao mesmo tempo, implemente nesta ordem:
 
 1. [x] Fase 0 — linha de base.
 2. [x] Fase 1 — semântica e medição do agendador.
-3. [x] Fase 2 — mesma captura até o Ollama.
+3. [x] Fase 2 — mesma captura até o modelo de visão.
 4. [x] Fase 3 — expiração, confirmação e associação temporal.
 5. [x] Fase 4 — IDs por sessão.
 6. [x] Fase 5 — cooldown e limpeza de estado.

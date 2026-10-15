@@ -5,7 +5,7 @@
 | Documento | Conteúdo |
 | --- | --- |
 | [`uso.md`](./uso.md) | Instalação, execução (dev/prod), variáveis de ambiente, funcionamento offline e diagnóstico da interface. |
-| [`modos.md`](./modos.md) | Os 4 modos (Detecção, Roteiro, Descrição, Eventos), como os motores funcionam e como o modelo é escolhido (detecção no navegador + backend de visão: Ollama ou LM Studio/OpenAI). |
+| [`modos.md`](./modos.md) | Os 4 modos (Detecção, Roteiro, Descrição, Eventos), como os motores funcionam e como o modelo é escolhido (detecção no navegador + backend de visão: LM Studio, llama.cpp ou vLLM). |
 | [`api.md`](./api.md) | Referência completa da API HTTP, formato das entradas, retenção de snapshots e memória persistente (JSONL + contexto). |
 | [`eventos.md`](./eventos.md) | Fluxo orientado a eventos: política de análise (cooldown, janela, motivos), cancelamento de inferência e consulta ao histórico. |
 | [`arquitetura.md`](./arquitetura.md) | Estrutura de arquivos e como as partes conversam (servidor, cliente, motores, memória). |
