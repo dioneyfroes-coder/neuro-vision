@@ -1,11 +1,33 @@
 #!/usr/bin/env node
 
+/**
+ * Benchmark comparativo de modelos servidos por um backend compativel com a API
+ * de "chat completions" (`/v1/chat/completions`, `/v1/models`) do LM Studio,
+ * llama.cpp (`llama-server`) ou vLLM.
+ *
+ * Para cada modelo mede:
+ *   - geracao de texto (sem imagem);
+ *   - visao (com imagens fixas), agregando a mediana entre imagens;
+ *   - tempo ate a primeira resposta, tokens e inferencias por minuto que o
+ *     cliente consegue sustentar (respeitando o intervalo minimo).
+ *
+ * O resultado e uma tabela comparativa, util para escolher o modelo.
+ *
+ * Exemplos:
+ *   node scripts/benchmark.mjs \
+ *     --model qwen2.5-vl-3b-instruct --model gemma-4-2b-uncensored-hauhaucs-aggressive
+ *   node scripts/benchmark.mjs --base-url http://127.0.0.1:1235 --images-dir bench/imagens
+ *   node scripts/benchmark.mjs --json > bench/resultado.json
+ */
+
 import { readFile, readdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+const BASE_URL_PADRAO = "http://localhost:1234";
 
 const PROMPT_TEXTO =
   "Escreva em portugues tres frases curtas descrevendo uma cena de escritorio com pessoas e objetos.";
@@ -21,7 +43,8 @@ function lerArgs() {
   for (let i = 0; i < lista.length; i++) {
     const a = lista[i];
     const proximo = () => lista[++i] ?? "";
-    if (a === "--host") mapa.host = proximo();
+    if (a === "--base-url" || a === "--host") mapa.baseUrl = proximo();
+    else if (a === "--api-key") mapa.apiKey = proximo();
     else if (a === "--model") mapa.model.push(proximo());
     else if (a === "--iter") mapa.iter = Math.max(1, Number(proximo()) || 1);
     else if (a === "--image") mapa.image.push(proximo());
@@ -96,95 +119,154 @@ export async function resolverImagens(explicitas, dirs = []) {
   return [];
 }
 
-const nsParaMs = (ns) => (typeof ns === "number" ? ns / 1_000_000 : 0);
-const nsParaSeg = (ns) => (typeof ns === "number" ? ns / 1_000_000_000 : 0);
+/** Separa a base da "versao" (`/v1`) da URL do backend, evitando duplicar. */
+function raizApi(baseUrl) {
+  const semBarra = String(baseUrl ?? "").replace(/\/+$/, "");
+  const m = semBarra.match(/^(.*?)(\/v\d+)$/);
+  return m ? { raiz: m[1], versao: m[2] } : { raiz: semBarra, versao: "/v1" };
+}
 
-/** Memoria efetivamente ocupada pelo modelo carregado (RAM total e VRAM). */
-async function memoriaDoModelo(host, modelo) {
-  try {
-    const resposta = await fetch(`${host}/api/ps`, { signal: AbortSignal.timeout(5_000) });
-    if (!resposta.ok) return null;
-    const dados = await resposta.json();
-    const alvo = (dados.models ?? []).find((m) =>
-      mesmoModelo(m.name ?? m.model ?? "", modelo)
-    );
-    if (!alvo) return null;
-    return {
-      bytes: Number(alvo.size) || 0,
-      vramBytes: Number(alvo.size_vram) || 0,
-    };
-  } catch {
-    return null;
+const urlChat = (baseUrl) => {
+  const { raiz, versao } = raizApi(baseUrl);
+  return `${raiz}${versao}/chat/completions`;
+};
+const urlModelos = (baseUrl) => {
+  const { raiz, versao } = raizApi(baseUrl);
+  return `${raiz}${versao}/models`;
+};
+const urlEmMemoria = (baseUrl) => `${raizApi(baseUrl).raiz}/api/v0/models`;
+
+function cabecalhos(apiKey) {
+  const h = { "Content-Type": "application/json" };
+  if (apiKey) h.Authorization = `Bearer ${apiKey}`;
+  return h;
+}
+
+function extrairBase64(imagem) {
+  const index = String(imagem).indexOf(",");
+  if (index !== -1 && String(imagem).slice(0, index).includes(";base64")) {
+    return String(imagem).slice(index + 1);
   }
+  return String(imagem);
 }
 
-async function listarModelos(host) {
-  const resposta = await fetch(`${host}/api/tags`, { signal: AbortSignal.timeout(10_000) });
-  if (!resposta.ok) throw new Error(`Ollama respondeu HTTP ${resposta.status}`);
+function paraDataUrl(imagem) {
+  return String(imagem).startsWith("data:") ? imagem : `data:image/jpeg;base64,${extrairBase64(imagem)}`;
+}
+
+/** Conteudo da mensagem: texto puro ou blocos (texto + image_url). */
+function montarConteudo(prompt, base64) {
+  if (!base64) return prompt;
+  return [
+    { type: "text", text: prompt },
+    { type: "image_url", image_url: { url: paraDataUrl(base64) } },
+  ];
+}
+
+const mesmoModelo = (a, b) =>
+  String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase() &&
+  String(a ?? "").trim().length > 0;
+
+/** Modelos instalados/baixados (`/v1/models`). */
+async function listarModelos(baseUrl, apiKey) {
+  const resposta = await fetch(urlModelos(baseUrl), {
+    headers: cabecalhos(apiKey),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!resposta.ok) throw new Error(`o backend respondeu HTTP ${resposta.status}`);
   const dados = await resposta.json();
-  return (dados.models ?? []).map((m) => m.name ?? "").filter((n) => n.length > 0);
+  return (dados?.data ?? []).map((m) => m.id ?? "").filter((n) => n.length > 0);
 }
 
-async function modelosEmMemoria(host) {
+/** Modelos efetivamente em memoria (REST v0 do LM Studio; tolerante a ausencia). */
+async function modelosEmMemoria(baseUrl, apiKey) {
   try {
-    const resposta = await fetch(`${host}/api/ps`, { signal: AbortSignal.timeout(5_000) });
+    const resposta = await fetch(urlEmMemoria(baseUrl), {
+      headers: cabecalhos(apiKey),
+      signal: AbortSignal.timeout(5_000),
+    });
     if (!resposta.ok) return [];
     const dados = await resposta.json();
-    return (dados.models ?? []).map((m) => m.name ?? m.model ?? "").filter((n) => n.length > 0);
+    return (dados?.data ?? dados?.models ?? [])
+      .filter((m) => m.state === undefined || m.state === "loaded")
+      .map((m) => m.id ?? m.model ?? m.name ?? "")
+      .filter((n) => n.length > 0);
   } catch {
     return [];
   }
 }
 
-function normalizarNomeModelo(nome) {
-  const texto = String(nome ?? "").trim();
-  if (!texto) return "";
-  const idx = texto.lastIndexOf(":");
-  const sufixo = idx === -1 ? "" : texto.slice(idx + 1);
-  if (idx === -1 || sufixo.length === 0 || sufixo.includes("/")) {
-    return `${texto}:latest`;
+async function memoriaIntrospectavel(baseUrl, apiKey) {
+  try {
+    const resposta = await fetch(urlEmMemoria(baseUrl), {
+      headers: cabecalhos(apiKey),
+      signal: AbortSignal.timeout(5_000),
+    });
+    return resposta.ok;
+  } catch {
+    return false;
   }
-  return texto;
 }
 
-function mesmoModelo(a, b) {
-  const na = normalizarNomeModelo(a);
-  const nb = normalizarNomeModelo(b);
-  return na.length > 0 && na === nb;
+/** Memoria ocupada pelo modelo, quando o backend informa (best-effort). */
+async function memoriaDoModelo(baseUrl, apiKey, modelo) {
+  try {
+    const resposta = await fetch(urlEmMemoria(baseUrl), {
+      headers: cabecalhos(apiKey),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!resposta.ok) return null;
+    const dados = await resposta.json();
+    const alvo = (dados?.data ?? dados?.models ?? []).find((m) =>
+      mesmoModelo(m.id ?? m.model ?? m.name ?? "", modelo)
+    );
+    if (!alvo) return null;
+    const bytes = Number(alvo.sizeBytes ?? alvo.size ?? 0) || 0;
+    const vramBytes = Number(alvo.vramBytes ?? alvo.size_vram ?? 0) || 0;
+    if (!bytes && !vramBytes) return null;
+    return { bytes, vramBytes };
+  } catch {
+    return null;
+  }
 }
 
-async function garantirCarga(host, modelo, timeoutMs) {
-  const emMemoria = await modelosEmMemoria(host);
+async function garantirCarga(baseUrl, apiKey, modelo, timeoutMs) {
+  const emMemoria = await modelosEmMemoria(baseUrl, apiKey);
   if (emMemoria.some((m) => mesmoModelo(m, modelo))) {
     return { jaCarregado: true, cargaMs: 0 };
   }
   const inicio = performance.now();
-  await chamarGerar(host, modelo, { prompt: "oi", stream: false, numPredict: 1, timeoutMs });
+  await chamarGerar(baseUrl, apiKey, modelo, { prompt: "oi", stream: false, numPredict: 1, timeoutMs });
   const cargaMs = performance.now() - inicio;
-  for (let i = 0; i < 60; i++) {
-    const agora = await modelosEmMemoria(host);
-    if (agora.some((m) => mesmoModelo(m, modelo))) break;
-    await new Promise((resolve) => setTimeout(resolve, 500));
+  // So espera confirmacao em memoria se o backend permite consulta-la.
+  if (await memoriaIntrospectavel(baseUrl, apiKey)) {
+    for (let i = 0; i < 120; i++) {
+      const agora = await modelosEmMemoria(baseUrl, apiKey);
+      if (agora.some((m) => mesmoModelo(m, modelo))) break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
   }
   return { jaCarregado: false, cargaMs };
 }
 
-async function chamarGerar(host, modelo, opcoes) {
-  const mensagem = { role: "user", content: opcoes.prompt };
-  if (opcoes.base64) mensagem.images = [opcoes.base64];
+/** Estimativa grosseira de tokens quando o backend nao devolve `usage`. */
+const estimarTokens = (texto) => Math.max(1, Math.round(String(texto ?? "").length / 4));
+
+async function chamarGerar(baseUrl, apiKey, modelo, opcoes) {
   const corpo = {
     model: modelo,
-    messages: [mensagem],
-    stream: opcoes.stream,
-    think: false,
-    keep_alive: "5m",
-    options: { temperature: 0.2, num_predict: opcoes.numPredict },
+    messages: [{ role: "user", content: montarConteudo(opcoes.prompt, opcoes.base64) }],
+    stream: Boolean(opcoes.stream),
+    temperature: 0.2,
+    top_p: 0.9,
+    max_tokens: opcoes.numPredict,
   };
+  if (opcoes.stream) corpo.stream_options = { include_usage: true };
 
   const inicio = performance.now();
-  const resposta = await fetch(`${host}/api/chat`, {
+  const resposta = await fetch(urlChat(baseUrl), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cabecalhos(apiKey),
     body: JSON.stringify(corpo),
     signal: AbortSignal.timeout(opcoes.timeoutMs),
   });
@@ -194,20 +276,31 @@ async function chamarGerar(host, modelo, opcoes) {
   }
 
   if (!opcoes.stream) {
-    const dados = await resposta.json();
-    const inicioMs = performance.now() - inicio;
-    return { primeiroMs: inicioMs, mensagens: 1, ...dados };
+    const dados = await resposta.json().catch(() => ({}));
+    const totalMs = performance.now() - inicio;
+    const mensagem = dados?.choices?.[0]?.message ?? {};
+    const texto = typeof mensagem.content === "string" ? mensagem.content : "";
+    return {
+      primeiroMs: totalMs,
+      totalMs,
+      tokens: Number(dados?.usage?.completion_tokens) || estimarTokens(texto),
+      promptTokens: Number(dados?.usage?.prompt_tokens) || 0,
+      textoUnico: texto,
+      pensou: Boolean(mensagem.reasoning_content),
+    };
   }
 
-  if (!resposta.body) throw new Error("Ollama nao retornou corpo de streaming");
+  if (!resposta.body) throw new Error("o backend nao retornou corpo de streaming");
   const reader = resposta.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let primeiroMs = 0;
-  let contagem = 0;
+  let tokens = 0;
+  let promptTokens = 0;
+  let recebeuUso = false;
   let textoUnico = "";
   let pensou = false;
-  let final = {};
+
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -216,34 +309,50 @@ async function chamarGerar(host, modelo, opcoes) {
     while ((idx = buffer.indexOf("\n")) >= 0) {
       const linha = buffer.slice(0, idx).trim();
       buffer = buffer.slice(idx + 1);
-      if (!linha) continue;
-      const evt = JSON.parse(linha);
-      const conteudo = evt.message?.content ?? "";
+      if (!linha.startsWith("data:")) continue;
+      const dados = linha.slice(5).trim();
+      if (!dados || dados === "[DONE]") continue;
+      let evt;
+      try {
+        evt = JSON.parse(dados);
+      } catch {
+        continue;
+      }
+      if (typeof evt.error === "string") throw new Error(evt.error);
+      const delta = evt?.choices?.[0]?.delta ?? {};
+      const conteudo = typeof delta.content === "string" ? delta.content : "";
       if (conteudo && !primeiroMs) primeiroMs = performance.now() - inicio;
       textoUnico += conteudo;
-      if (evt.message?.thinking) pensou = true;
-      contagem++;
-      if (evt.done) final = evt;
+      if (typeof delta.reasoning_content === "string" && delta.reasoning_content) pensou = true;
+      if (typeof evt?.usage?.completion_tokens === "number") {
+        tokens = evt.usage.completion_tokens;
+        recebeuUso = true;
+      }
+      if (typeof evt?.usage?.prompt_tokens === "number") promptTokens = evt.usage.prompt_tokens;
     }
   }
   reader.releaseLock();
-  return { primeiroMs, mensagens: contagem, textoUnico, pensou, ...final };
+
+  const totalMs = performance.now() - inicio;
+  if (!primeiroMs) primeiroMs = totalMs;
+  if (!recebeuUso) tokens = estimarTokens(textoUnico);
+  return { primeiroMs, totalMs, tokens, promptTokens, textoUnico, pensou };
 }
 
-async function executarIteracoes(host, modelo, setup, iter, json, tolerante = false, rotulo = "") {
+async function executarIteracoes(baseUrl, apiKey, modelo, setup, iter, json, tolerante = false, rotulo = "") {
   const resultados = [];
   let ultimoErro = "";
   const prefixo = rotulo ? `${rotulo} · ` : "";
   for (let i = 0; i < iter; i++) {
     try {
-      const r = await chamarGerar(host, modelo, { ...setup, stream: true, timeoutMs: 120000 });
+      const r = await chamarGerar(baseUrl, apiKey, modelo, { ...setup, stream: true, timeoutMs: setup.timeoutMs });
       resultados.push(r);
       if (!json) {
-        const geracaoSeg = nsParaSeg(r.eval_duration);
+        const geracaoSeg = Math.max((r.totalMs - r.primeiroMs) / 1000, 0.001);
         const detalhe = [
           `1a resposta ${arredondar(r.primeiroMs, 0)} ms`,
-          `geracao ${arredondar(geracaoSeg > 0 ? r.eval_count / geracaoSeg : 0, 1)} tok/s`,
-          `total ${arredondar(nsParaMs(r.total_duration), 0)} ms`,
+          `geracao ${arredondar(r.tokens / geracaoSeg, 1)} tok/s`,
+          `total ${arredondar(r.totalMs, 0)} ms`,
         ];
         console.log(`    ${prefixo}iteracao ${i + 1}/${iter}: ${detalhe.join(" | ")}`);
       }
@@ -254,7 +363,7 @@ async function executarIteracoes(host, modelo, setup, iter, json, tolerante = fa
     }
   }
 
-  const ok = resultados.filter((r) => Number.isFinite(r.eval_count) && r.eval_count > 0);
+  const ok = resultados.filter((r) => Number.isFinite(r.tokens) && r.tokens > 0);
   const vazio = {
     modelo,
     geracaoTokS: 0,
@@ -276,14 +385,17 @@ async function executarIteracoes(host, modelo, setup, iter, json, tolerante = fa
     return { ...vazio, pensou, semResposta: true };
   }
 
-  const geracao = comResposta.map((r) => r.eval_count / nsParaSeg(r.eval_duration));
+  const geracao = comResposta.map((r) => {
+    const seg = Math.max((r.totalMs - r.primeiroMs) / 1000, 0.001);
+    return r.tokens / seg;
+  });
   const prefill = comResposta.map((r) => {
-    const dur = nsParaSeg(r.prompt_eval_duration);
-    return dur > 0 ? r.prompt_eval_count / dur : 0;
+    const seg = Math.max(r.primeiroMs / 1000, 0.001);
+    return r.promptTokens / seg;
   });
   const primeiro = comResposta.map((r) => r.primeiroMs);
-  const total = comResposta.map((r) => nsParaMs(r.total_duration));
-  const tokens = comResposta.map((r) => r.eval_count);
+  const total = comResposta.map((r) => r.totalMs);
+  const tokens = comResposta.map((r) => r.tokens);
   const chars = comResposta.map((r) => (r.textoUnico ?? "").length);
 
   const totalMs = mediana(total);
@@ -325,21 +437,27 @@ export function agregarVisoes(porImagem) {
 
 async function main() {
   const args = lerArgs();
-  const host = (args.host ?? process.env.OLLAMA_HOST ?? "http://localhost:11434").replace(/\/+$/, "");
+  const baseUrl = (
+    args.baseUrl ??
+    process.env.NEURO_BASE_URL ??
+    process.env.LMSTUDIO_URL ??
+    BASE_URL_PADRAO
+  ).replace(/\/+$/, "");
+  const apiKey = args.apiKey ?? process.env.NEURO_API_KEY ?? "";
   const iter = args.iter;
   const json = args.json;
 
   let modelos;
   try {
-    modelos = await listarModelos(host);
+    modelos = await listarModelos(baseUrl, apiKey);
   } catch (err) {
-    console.error(`ERRO: Ollama fora do ar em ${host} (${err.message}).`);
-    console.error("Inicie o Ollama antes de rodar o benchmark.");
+    console.error(`ERRO: backend de visao fora do ar em ${baseUrl} (${err.message}).`);
+    console.error("Inicie o servidor local do LM Studio (Developer > Start Server) antes de rodar o benchmark.");
     process.exit(1);
   }
 
   if (args.model.length) {
-    const faltantes = args.model.filter((m) => !modelos.includes(m));
+    const faltantes = args.model.filter((m) => !modelos.some((d) => mesmoModelo(d, m)));
     if (faltantes.length) {
       console.error(
         `Modelo(s) nao encontrado(s): ${faltantes.join(", ")}. Disponiveis: ${modelos.join(", ") || "(nenhum)"}`
@@ -347,6 +465,10 @@ async function main() {
       process.exit(1);
     }
     modelos = args.model;
+  }
+  if (!modelos.length) {
+    console.error("Nenhum modelo instalado no backend. Baixe um modelo no LM Studio antes de continuar.");
+    process.exit(1);
   }
 
   const imagens = await resolverImagens(args.image, [
@@ -367,7 +489,7 @@ async function main() {
     console.log(`Conjunto fixo de imagens (${imagens.length}): ${imagens.map((i) => i.nome).join(", ")}`);
   }
   console.log(
-    `Host: ${host} | iteracoes: ${iter} | num_predict: ${args.numPredict} | inicio: ${ambiente.dataHora}\n`
+    `Backend: ${baseUrl} | modelos: ${modelos.length} | iteracoes: ${iter} | num_predict: ${args.numPredict} | inicio: ${ambiente.dataHora}\n`
   );
 
   const linhas = [];
@@ -378,7 +500,7 @@ async function main() {
 
     if (!json) console.log("  garantindo modelo em memoria...");
     try {
-      const carga = await garantirCarga(host, modelo, args.timeout);
+      const carga = await garantirCarga(baseUrl, apiKey, modelo, args.timeout);
       medidas.cargaMs = Math.round(carga.cargaMs);
       if (!json)
         console.log(
@@ -394,7 +516,8 @@ async function main() {
 
     if (!json) console.log("  texto (sem imagem):");
     medidas.texto = await executarIteracoes(
-      host,
+      baseUrl,
+      apiKey,
       modelo,
       { prompt: PROMPT_TEXTO, numPredict: args.numPredict, timeoutMs: args.timeout },
       iter,
@@ -405,7 +528,8 @@ async function main() {
     medidas.visaoPorImagem = [];
     for (const img of conjunto) {
       const r = await executarIteracoes(
-        host,
+        baseUrl,
+        apiKey,
         modelo,
         { prompt: promptVisao, base64: img.base64, numPredict: args.numPredict, timeoutMs: args.timeout },
         iter,
@@ -417,7 +541,7 @@ async function main() {
     }
     medidas.visao = agregarVisoes(medidas.visaoPorImagem);
 
-    medidas.memoria = await memoriaDoModelo(host, modelo);
+    medidas.memoria = await memoriaDoModelo(baseUrl, apiKey, modelo);
 
     if (!json) {
       const v = medidas.visao;
@@ -429,10 +553,10 @@ async function main() {
         console.log(`    AVISO: o modelo nao processa visao (texto puro). Detalhe: ${v.erro}\n`);
       } else if (v.semResposta) {
         console.log(
-          `    AVISO: o modelo nao produziu texto (${v.pensou ? "thinking sempre ativo - o Ollama ignorou think:false neste modelo" : "resposta vazia"}). Os numeros acima medem raciocinio, nao descricao.\n`
+          `    AVISO: o modelo nao produziu texto (${v.pensou ? "raciocinio sempre ativo" : "resposta vazia"}). Os numeros acima medem raciocinio, nao descricao.\n`
         );
         console.log(
-          "    Sugestao: use um modelo de visao nao-pensante (ex.: `ollama pull qwen2.5vl:3b`) e rode com OLLAMA_MODEL=qwen2.5vl:3b.\n"
+          "    Sugestao: use um modelo de visao nao-pensante (ex.: qwen2.5-vl-3b-instruct).\n"
         );
       } else {
         console.log(
@@ -445,19 +569,34 @@ async function main() {
   }
 
   if (json) {
-    console.log(JSON.stringify({ ambiente, host, iter, numPredict: args.numPredict, imagens: conjunto.map((i) => i.nome), resultados: linhas }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          ambiente,
+          baseUrl,
+          iter,
+          numPredict: args.numPredict,
+          imagens: conjunto.map((i) => i.nome),
+          resultados: linhas,
+        },
+        null,
+        2
+      )
+    );
     return;
   }
 
-  console.log("=== Resumo ===");
+  console.log("=== Resumo comparativo ===");
   console.table(
     linhas.map((l) => {
+      const t = l.texto ?? {};
       const v = l.visao ?? {};
       const mem = l.memoria;
       return {
         modelo: l.modelo,
-        "carga inicial (s)": arredondar((l.cargaMs ?? 0) / 1000, 1),
-        "responde?": v.semVisao ? "sem visao" : v.semResposta ? "nao (thinking)" : "sim",
+        "carga (s)": arredondar((l.cargaMs ?? 0) / 1000, 1),
+        "responde?": v.semVisao ? "sem visao" : v.semResposta ? "nao (raciocinio)" : "sim",
+        "texto: geracao (tok/s)": t.geracaoTokS,
         "visao: geracao (tok/s)": v.geracaoTokS,
         "visao: prefill (tok/s)": v.prefillTokS,
         "1a resposta (ms)": v.primeiroMs,

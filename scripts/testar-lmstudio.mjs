@@ -4,8 +4,8 @@
  * Percorre o caminho real da aplicacao, do modelo ate a API do servidor:
  *   1. lista os modelos do LM Studio (`/v1/models`);
  *   2. gera um frame de teste (PNG com formas/cores reconheciveis);
- *   3. sobe o servidor `createServer` com o provedor `openai` apontando para o
- *      LM Studio em `NEURO_BASE_URL` (padrao: http://127.0.0.1:1234);
+ *   3. sobe o servidor `createServer` apontando para o LM Studio em
+ *      `NEURO_BASE_URL` (padrao: http://127.0.0.1:1234);
  *   4. consulta `/api/health` e `/api/visao/preparar`;
  *   5. faz um `POST /api/visao` de verdade (stream NDJSON) e valida a descricao.
  *
@@ -138,11 +138,10 @@ async function inicio() {
   ok("PNG gerado", `${Math.round(imagem.length / 1024)} KB (base64)`);
 
   secao("3. Servidor da aplicacao (createServer)");
-  process.env.NEURO_PROVIDER = "openai";
   process.env.NEURO_BASE_URL = BASE;
   process.env.NEURO_MODEL = alvo; // garante prioridade no processo para a instância atual
   const { createServer, LOG_DIR } = await import("../src/server.ts");
-  const httpServer = createServer({ provedor: "openai", ollamaUrl: BASE });
+  const httpServer = createServer({ backendUrl: BASE });
   httpServer.listen(0, "127.0.0.1");
   await once(httpServer, "listening");
   const { port } = httpServer.address();
@@ -154,10 +153,9 @@ async function inicio() {
     secao("4. GET /api/health");
     try {
       const { body } = await getJson(`${api}/api/health`, 8000);
-      const o = body?.ollama ?? {};
+      const o = body?.visao ?? {};
       if (o.online) {
-        ok("backend online", `provedor=${o.provedor} modelo=${o.modelo}`);
-        if (o.provedor !== "openai") falhou("provedor", `esperado 'openai', veio '${o.provedor}'`);
+        ok("backend online", `modelo=${o.modelo}`);
         if (!(o.modelos ?? []).length) falhou("modelos listados", "vazio");
       } else {
         falhou("backend online", o.erro || "offline");
