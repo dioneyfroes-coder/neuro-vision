@@ -141,6 +141,35 @@ describe("MotorVisao", () => {
     expect(resultado?.confianca?.semMudanca).toBe(true);
   });
 
+  it("envia o modelo escolhido no preparo e no payload", async () => {
+    vi.mocked(api.descreverFrame).mockResolvedValue({ evento: null, parcial: "" });
+    vi.mocked(api.prepararVisao).mockResolvedValue({ modelo: "gemma-4-e2b", carregado: true });
+    const motor = new MotorVisao({ modo: "descricao", modelo: "gemma-4-e2b" });
+
+    await motor.inicializar();
+    expect(api.prepararVisao).toHaveBeenCalledWith("gemma-4-e2b");
+
+    await motor.analisar({ imagem: "b64" }, new AbortController().signal);
+    expect(api.descreverFrame).toHaveBeenCalledWith(
+      { imagem: "b64", modelo: "gemma-4-e2b" },
+      expect.any(AbortSignal),
+      undefined
+    );
+  });
+
+  it("omite o modelo do payload quando nao ha escolha na interface", async () => {
+    vi.mocked(api.descreverFrame).mockResolvedValue({ evento: null, parcial: "" });
+    const motor = new MotorVisao({ modo: "descricao" });
+
+    await motor.analisar({ imagem: "b64" }, new AbortController().signal);
+
+    expect(api.descreverFrame).toHaveBeenCalledWith(
+      { imagem: "b64" },
+      expect.any(AbortSignal),
+      undefined
+    );
+  });
+
   it("inicializar notifica status com o tempo de carregamento", async () => {
     vi.mocked(api.prepararVisao).mockResolvedValue({
       modelo: "qwen2.5vl:3b",

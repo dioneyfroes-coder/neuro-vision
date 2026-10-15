@@ -41,6 +41,7 @@ const startBtn = el<HTMLButtonElement>("start");
 const stopBtn = el<HTMLButtonElement>("stop");
 const analisarAgoraBtn = el<HTMLButtonElement>("analisarAgora");
 const modelSelect = el<HTMLSelectElement>("model");
+const modeloVisaoSelect = el<HTMLSelectElement>("modeloVisao");
 const motorSelect = el<HTMLSelectElement>("motor");
 const intervalInput = el<HTMLInputElement>("interval");
 const intervalValue = el<HTMLSpanElement>("intervalValue");
@@ -115,6 +116,61 @@ function modeloDeDeteccaoAtivo(): string | null {
   return obterModo(motorSelect.value).usaDeteccao ? modelSelect.value : null;
 }
 
+/** Chave do modelo de visao escolhido na interface (persistido no navegador). */
+const MODELO_VISAO_STORAGE = "neuro.modeloVisao";
+
+/** Modelo de visao escolhido na interface; `undefined` = padrao do servidor. */
+function modeloVisaoSelecionado(): string | undefined {
+  return modeloVisaoSelect.value.trim() || undefined;
+}
+
+function carregarModeloVisaoSalvo(): void {
+  try {
+    const salvo = localStorage.getItem(MODELO_VISAO_STORAGE);
+    if (salvo) modeloVisaoSelect.value = salvo;
+  } catch {
+    // localStorage indisponivel (modo privado): segue com o padrao do servidor.
+  }
+}
+
+function salvarModeloVisao(): void {
+  try {
+    const valor = modeloVisaoSelect.value;
+    if (valor) localStorage.setItem(MODELO_VISAO_STORAGE, valor);
+    else localStorage.removeItem(MODELO_VISAO_STORAGE);
+  } catch {
+    // Best-effort: a escolha vale para a sessao mesmo sem persistir.
+  }
+}
+
+/**
+ * Preenche o seletor de modelo de visao com os modelos instalados no backend
+ * (`GET /api/health`) e preserva a escolha atual, mesmo que ela nao esteja na
+ * lista (backend offline ou modelo desinstalado) — a escolha nao e descartada
+ * em silencio.
+ */
+function atualizarOpcoesModeloVisao(): void {
+  const atual = modeloVisaoSelect.value.trim();
+  // Modelos de embedding (ex.: `text-embedding-...`) nunca respondem a visao:
+  // deixa-los no seletor seria um beco sem saida (502). Filtra por nome.
+  const instalados = (infoVisao?.modelos ?? []).filter((id) => !/embed/i.test(id));
+  const ids = ["", ...instalados];
+  if (atual && !instalados.includes(atual)) ids.splice(1, 0, atual);
+
+  modeloVisaoSelect.replaceChildren(
+    ...ids.map((id) => {
+      const opcao = document.createElement("option");
+      opcao.value = id;
+      opcao.textContent = id || "Padrão do servidor";
+      return opcao;
+    })
+  );
+  modeloVisaoSelect.value = atual;
+  modeloVisaoSelect.title = instalados.length
+    ? `Instalados no backend:\n${instalados.join("\n")}`
+    : "Backend offline ou sem modelos instalados.";
+}
+
 /** Rotulo curto do backend de visao em uso (LM Studio). */
 function rotuloBackend(): string {
   return "LM Studio";
@@ -129,7 +185,9 @@ function atualizarDiagnostico(): void {
   const motor = running ? motorSelect.value : "parado";
   const definicao = obterModo(motorSelect.value);
   const deteccao = modeloDeDeteccaoAtivo();
-  const modeloVisao = infoVisao?.modelo ?? "?";
+  // O diagnostico mostra o modelo de visao que a interface pediu; sem escolha
+  // explicita, o efetivo reportado pelo backend (configurado ou fallback).
+  const modeloVisao = modeloVisaoSelecionado() ?? infoVisao?.modelo ?? "?";
   const modelo =
     definicao.usaDeteccao && definicao.usaVisao
       ? `${deteccao} + ${modeloVisao}`
@@ -183,6 +241,7 @@ function atualizarBotoesAnalise(): void {
 function habilitarSeletoresDeMotor(habilitado: boolean): void {
   motorSelect.disabled = !habilitado;
   modelSelect.disabled = !habilitado;
+  modeloVisaoSelect.disabled = !habilitado;
 }
 
 function drawBoxes(objetos: ReadonlyArray<{ nome: string; score: number; caixa: Caixa }>): void {
@@ -415,6 +474,7 @@ async function analisarComVisao(
 
   const motor = new MotorVisao({
     modo: ehRoteiro ? "roteiro" : "descricao",
+    modelo: modeloVisaoSelecionado(),
     roteiro: ehRoteiro ? roteiroBeats.slice(-8).join(" ").slice(0, 1200) : undefined,
     base: ehRoteiro ? roteiroPrimeiro : undefined,
     anterior: ehRoteiro ? undefined : ultimaDescricao,
@@ -722,6 +782,7 @@ async function start(): Promise<void> {
     const motor = definicao.criarMotor({
       detector: detectorCoco,
       modelo: modelSelect.value,
+      modeloVisao: modeloVisaoSelecionado(),
       obterThreshold: () => Number(thresholdInput.value),
     });
     motorAtual = motor;
@@ -810,6 +871,7 @@ async function verificarVisao(): Promise<void> {
     modeloStatusEl.className = "health offline";
     modeloStatusEl.title = "Servidor indisponivel";
   }
+  atualizarOpcoesModeloVisao();
   atualizarDiagnostico();
 }
 
@@ -874,6 +936,18 @@ motorSelect.addEventListener("change", () => {
   atualizarDiagnostico();
 });
 
+modeloVisaoSelect.addEventListener("change", () => {
+  salvarModeloVisao();
+  atualizarDiagnostico();
+  const escolhido = modeloVisaoSelecionado();
+  setStatus(
+    escolhido
+      ? `Modelo de visao: ${escolhido}. Ele sera carregado ao iniciar a analise.`
+      : "Modelo de visao: padrao do servidor."
+  );
+});
+
+carregarModeloVisaoSalvo();
 atualizarContagem();
 atualizarDiagnostico();
 void carregarHistorico();

@@ -199,6 +199,7 @@ test("bloqueia trocar motor/modelo durante a execucao e libera ao parar", async 
   await page.locator("#motor").selectOption("deteccao");
   await expect(page.locator("#motor")).toBeEnabled();
   await expect(page.locator("#model")).toBeEnabled();
+  await expect(page.locator("#modeloVisao")).toBeEnabled();
 
   await page.locator("#start").click();
   await page.waitForFunction(
@@ -208,10 +209,82 @@ test("bloqueia trocar motor/modelo durante a execucao e libera ao parar", async 
   );
   await expect(page.locator("#motor")).toBeDisabled();
   await expect(page.locator("#model")).toBeDisabled();
+  await expect(page.locator("#modeloVisao")).toBeDisabled();
 
   await page.locator("#stop").click();
   await expect(page.locator("#motor")).toBeEnabled();
   await expect(page.locator("#model")).toBeEnabled();
+  await expect(page.locator("#modeloVisao")).toBeEnabled();
+});
+
+test("escolhe o modelo de visao na interface e o envia ao servidor", async ({ page }) => {
+  const modelos = ["qwen2.5-vl-3b-instruct", "gemma-4-e2b-uncensored-hauhaucs-aggressive"];
+  const embedding = "text-embedding-nomic-embed-text-v1.5";
+  await prepararPagina(page);
+  await page.route("**/api/health", (rota) =>
+    rota.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        visao: {
+          online: true,
+          solicitado: modelos[0],
+          modelo: modelos[0],
+          modelos: [...modelos, embedding],
+          carregados: [modelos[0]],
+          erro: "",
+        },
+      }),
+    })
+  );
+
+  const preparos: string[] = [];
+  await page.route("**/api/visao/preparar**", (rota) => {
+    preparos.push(rota.request().url());
+    return rota.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, modelo: modelos[1], carregado: true, carregandoMs: 10 }),
+    });
+  });
+
+  const payloads: { modelo?: string }[] = [];
+  await page.route("**/api/visao", (rota) => {
+    payloads.push(rota.request().postDataJSON() as { modelo?: string });
+    const ndjson =
+      JSON.stringify({
+        type: "done",
+        descricao: "Mesa e cadeira.",
+        modelo: modelos[1],
+        tokens: 4,
+        ms: 10,
+        tipo: "descricao",
+        semMudanca: false,
+      }) + "\n";
+    return rota.fulfill({ status: 200, contentType: "application/x-ndjson", body: ndjson });
+  });
+
+  await instalarCameraFalsa(page);
+  await page.goto("/");
+
+  // O seletor lista os modelos instalados de visao (+ "Padrão do servidor") e
+  // deixa de fora modelos de embedding, que nunca respondem a visao.
+  await expect(page.locator("#modeloVisao option")).toHaveCount(modelos.length + 1);
+  await expect(page.locator(`#modeloVisao option[value="${embedding}"]`)).toHaveCount(0);
+
+  await page.locator("#modeloVisao").selectOption(modelos[1]);
+  await page.locator("#motor").selectOption("visao");
+  await page.locator("#start").click();
+
+  await expect(page.locator("#status")).toContainText("Mesa e cadeira.", { timeout: 15_000 });
+
+  // O preparo pediu o modelo escolhido e a analise o levou no payload.
+  expect(preparos.some((u) => u.includes(`modelo=${modelos[1]}`))).toBe(true);
+  expect(payloads.at(-1)?.modelo).toBe(modelos[1]);
+
+  await page.locator("#stop").click();
+  await expect(page.locator("#start")).toBeEnabled();
 });
 
 test("parar durante a inferencia libera a webcam e permite iniciar de novo", async ({ page }) => {

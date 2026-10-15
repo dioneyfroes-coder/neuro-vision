@@ -11,7 +11,7 @@ Como os 4 modos funcionam e como o modelo é escolhido (detecção no navegador 
 | **Descrição** (modelo de visão) | Servidor (backend de visão) | Descreve cada frame em português, do zero (sem reenviar a descrição anterior). |
 | **Eventos** (leve + modelo de visão sob demanda) | Navegador + servidor | Roda a detecção a cada tick e só chama o modelo de visão quando a **política de eventos** decide: mudança de cena, nova entidade, desaparecimento, movimento, baixa confiança, resumo periódico ou pedido manual — com cooldown e teto de chamadas por minuto. Detalhes em [`eventos.md`](./eventos.md). |
 
-A troca de motor é centralizada em `public/modos.ts` (registro `MODOS`): cada modo descreve se usa detecção/modelo de visão, o prefixo da mensagem de falha e a fábrica de motor — o resto da aplicação não tem `if (modo === "...")` espalhado. O `<select id="motor">` abre em **Roteiro** (primeira opção) e `MODO_PADRAO = "deteccao"` é apenas o fallback para valores desconhecidos. O seletor de modelo ao lado (`#model`) é o do **navegador** (abaixo).
+A troca de motor é centralizada em `public/modos.ts` (registro `MODOS`): cada modo descreve se usa detecção/modelo de visão, o prefixo da mensagem de falha e a fábrica de motor — o resto da aplicação não tem `if (modo === "...")` espalhado. O `<select id="motor">` abre em **Roteiro** (primeira opção) e `MODO_PADRAO = "deteccao"` é apenas o fallback para valores desconhecidos. O seletor `#model` é o do **modelo de detecção do navegador** (abaixo); o `#modeloVisao` é o do **backend de visão** (seção seguinte).
 
 ## Backend de visão
 
@@ -24,12 +24,13 @@ O app fala **um único protocolo**, a API de "chat completions":
 
 ## Escolha do modelo do backend de visão
 
-O app usa **um modelo de visão por vez**, definido pelo ambiente (não há seletor na interface):
+O app usa **um modelo de visão por vez**. A escolha pode vir de dois lugares:
 
-- **Padrão:** `qwen2.5-vl-3b-instruct` (`MODELO_PADRAO` em `src/visao.ts`).
-- **Troca:** variável `NEURO_MODEL` (ex.: `NEURO_MODEL=Qwen2.5-VL-7B-Instruct npm start`). Use exatamente o id mostrado em `GET /v1/models`.
+- **Seletor "Modelo de visão" (`#modeloVisao`) na interface:** lista os modelos instalados no backend (`GET /api/health`), fica salvo no navegador (localStorage) e é enviado em cada análise (`POST /api/visao`) e no preparo (`GET /api/visao/preparar?modelo=...`). Permite alternar entre modelos (ex.: `qwen2.5-vl-3b-instruct` × `gemma-4-e2b-...`) sem reiniciar o servidor. Com ele em "Padrão do servidor", vale o ambiente. O seletor fica bloqueado durante a captura (como os demais): pare, escolha e inicie de novo — a troca carrega o novo modelo na próxima análise.
+- **Variável `NEURO_MODEL`** (ex.: `NEURO_MODEL=Qwen2.5-VL-7B-Instruct npm start`), usada quando o seletor está em "Padrão do servidor". Use exatamente o id mostrado em `GET /v1/models`.
+- **Padrão:** `qwen2.5-vl-3b-instruct` (`MODELO_PADRAO` em `src/visao.ts`), quando nem o seletor nem o ambiente definem um modelo.
 - **Fallback automático:** se o modelo configurado **não estiver disponível**, o app escolhe o melhor encontrado (`melhorModeloDisponivel`), na ordem de `PREFERENCIA_MODELOS` — modelos de visão capazes primeiro (`qwen2.5-vl`, `qwen2.5vl`, `qwen3-vl`, `qwen2-vl`, `llama-3.2-vision`, `minicpm-v`, `gemma-4`, `llava`, ...). Sem backend acessível, mantém o configurado.
-- **Requisito:** modelo **multimodal (visão)**. Modelos de **raciocínio** ("thinking") também funcionam: o app ignora `reasoning_content` e usa apenas o `content` final.
+- **Requisito:** modelo **multimodal (visão)**. Modelos de **raciocínio** ("thinking") também funcionam: o app ignora `reasoning_content` e usa apenas o `content` final. O seletor da interface esconde modelos claramente de **embedding** (nome com `embed`), que não respondem a imagens.
 
 > **Nota sobre modelos "thinking":** modelos como o `qwen3-vl` ou o
 > `gemma-4-e2b-uncensored-hauhaucs-aggressive` primeiro geram ~200–300 tokens de
@@ -46,7 +47,7 @@ O app usa **um modelo de visão por vez**, definido pelo ambiente (não há sele
 > (`NEURO_TRANSLATE_ENABLED=false`): com um modelo capaz, a descrição já sai em
 > português.
 
-A linha de diagnóstico mostra o **backend em uso** (`LM Studio`), o **modelo em uso** (o `NEURO_MODEL`/padrão, ou o substituto) e os **modelos carregados** — via `GET /api/health`, que lista o que está instalado (`/v1/models`), informa o `solicitado` e o `modelo` efetivo e, quando o backend permite (`/api/v0/models`), o que está em memória. Quando há substituição, a linha indica `fallback de <solicitado>`.
+A linha de diagnóstico mostra o **backend em uso** (`LM Studio`), o **modelo em uso** (o escolhido no seletor, o `NEURO_MODEL`/padrão, ou o substituto) e os **modelos carregados** — via `GET /api/health`, que lista o que está instalado (`/v1/models`), informa o `solicitado` e o `modelo` efetivo e, quando o backend permite (`/api/v0/models`), o que está em memória. Quando há substituição, a linha indica `fallback de <solicitado>`.
 
 ## Modelos de detecção (navegador)
 

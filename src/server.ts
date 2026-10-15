@@ -1163,8 +1163,18 @@ async function consultarVisao(baseUrl?: string): Promise<InfoVisao> {
   }
 }
 
-async function handlePreparar(res: ServerResponse, config: ServerConfig): Promise<void> {
-  const escolha = await escolherModelo({ baseUrl: config.backendUrl });
+async function handlePreparar(
+  res: ServerResponse,
+  config: ServerConfig,
+  modeloPedido?: string
+): Promise<void> {
+  // O cliente pode pedir um modelo especifico (seletor da interface); sem ele,
+  // vale o configurado no ambiente (NEURO_MODEL ou o padrao do servidor).
+  const pedido = modeloPedido?.trim();
+  const escolha =
+    pedido && pedido.length > 0
+      ? { solicitado: pedido, modelo: pedido, alternativo: false }
+      : await escolherModelo({ baseUrl: config.backendUrl });
   const modelo = escolha.modelo;
   if (escolha.alternativo) {
     logEvent("info", "modelo_fallback", {
@@ -1289,7 +1299,8 @@ export function createServer(config: ServerConfig = {}): http.Server {
       return;
     }
     if (req.method === "GET" && pathname === "/api/visao/preparar") {
-      void handlePreparar(res, config);
+      const modelo = new URL(req.url ?? "/", "http://localhost").searchParams.get("modelo");
+      void handlePreparar(res, config, modelo ?? undefined);
       return;
     }
     if (req.method === "GET" && pathname === "/api/logs") {

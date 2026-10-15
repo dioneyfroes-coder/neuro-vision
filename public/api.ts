@@ -213,10 +213,12 @@ export async function saudeVisao(): Promise<InfoVisao | null> {
 }
 
 /** `GET /api/visao/preparar` — garante o modelo de visao em memoria. */
-export async function prepararVisao(): Promise<PreparacaoVisao> {
+export async function prepararVisao(modelo?: string): Promise<PreparacaoVisao> {
+  const alvo = modelo?.trim();
+  const url = alvo ? `/api/visao/preparar?modelo=${encodeURIComponent(alvo)}` : "/api/visao/preparar";
   let resposta: Response;
   try {
-    resposta = await fetch("/api/visao/preparar");
+    resposta = await fetch(url);
   } catch (err) {
     throw new ErroPercepcao("visao", "Falha ao contactar o servidor (/api/visao/preparar)", {
       cause: err,

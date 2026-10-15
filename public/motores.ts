@@ -50,6 +50,8 @@ export class MotorDeteccao implements MotorPercepcao {
 
 export interface OpcoesMotorVisao {
   modo: "roteiro" | "descricao";
+  /** Id do modelo de visao no backend; sem ele vale o configurado no servidor. */
+  modelo?: string;
   /** Roteiro acumulado (modo roteiro). */
   roteiro?: string;
   /** Primeiro frame do roteiro (analise profunda). */
@@ -70,7 +72,7 @@ export class MotorVisao implements MotorPercepcao {
 
   async inicializar(aoStatus: (mensagem: string) => void = () => {}): Promise<void> {
     aoStatus("Carregando modelo de visao na memoria (pode demorar)...");
-    const dados = await api.prepararVisao();
+    const dados = await api.prepararVisao(this.opcoes.modelo);
     if (dados.carregado !== true) {
       throw new Error("modelo nao confirmado em memoria; verifique o servidor de visao.");
     }
@@ -87,6 +89,7 @@ export class MotorVisao implements MotorPercepcao {
   ): Promise<ResultadoPercepcao | null> {
     const inicio = performance.now();
     const payload: PayloadVisao = { imagem: entrada.imagem, snapshot: entrada.snapshot };
+    if (this.opcoes.modelo) payload.modelo = this.opcoes.modelo;
     if (this.opcoes.modo === "roteiro") {
       payload.modo = "roteiro";
       payload.roteiro = this.opcoes.roteiro;

@@ -51,7 +51,7 @@ Variáveis de ambiente lidas pelo servidor:
 | `PORT` | `3000` | Porta HTTP. |
 | `HOST` | `127.0.0.1` | Interface de escuta. Um host não-loopback exige `NEURO_ALLOW_REMOTE=1`. |
 | `NEURO_BASE_URL` | `http://localhost:1234` | URL base do backend de visão (LM Studio, llama.cpp, vLLM). |
-| `NEURO_MODEL` | `qwen2.5-vl-3b-instruct` | Modelo de visão usado na descrição. Se não estiver disponível, o app usa o melhor modelo de visão encontrado. |
+| `NEURO_MODEL` | `qwen2.5-vl-3b-instruct` | Modelo de visão usado na descrição (quando o seletor **Modelo de visão** da interface está em "Padrão do servidor"). Se não estiver disponível, o app usa o melhor modelo de visão encontrado. |
 | `NEURO_API_KEY` | (vazio) | Chave enviada como `Authorization: Bearer` (o LM Studio ignora). |
 | `NEURO_IMG_BASE64_CRU` | (vazio) | `1` envia a imagem como base64 cru em `image_url.url` (workaround para versões do LM Studio que rejeitam data URL). |
 | `NEURO_TRANSLATE_ENABLED` | `false` | `1` reativa a tradução da descrição para português (desnecessária com um modelo de visão capaz). |
@@ -125,7 +125,7 @@ A versão do Transformers.js é **fixa** (`3.8.1`), em vez do tag flutuante `@3`
 
 ## Diagnóstico
 
-O cabeçalho mostra uma **linha de diagnóstico** com o **motor ativo** (ou “parado”), o **backend em uso** (`LM Studio`), o **modelo em uso** (o do navegador nos modos detecção/eventos; o `NEURO_MODEL`/padrão nos modos de visão, ou o substituto quando há fallback) e os **modelos carregados** no backend (via `GET /api/health`, que também informa o `solicitado` e o `modelo` efetivo). Quando o modelo configurado não está disponível, a linha acrescenta `fallback de <solicitado>`.
+O cabeçalho mostra uma **linha de diagnóstico** com o **motor ativo** (ou “parado”), o **backend em uso** (`LM Studio`), o **modelo em uso** (o do navegador nos modos detecção/eventos; o escolhido no seletor **Modelo de visão**, o `NEURO_MODEL`/padrão nos modos de visão, ou o substituto quando há fallback) e os **modelos carregados** no backend (via `GET /api/health`, que também informa o `solicitado` e o `modelo` efetivo). Quando o modelo configurado não está disponível, a linha acrescenta `fallback de <solicitado>`.
 
 Ela separa três tempos para localizar a lentidão:
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { MODOS, obterModo } from "../public/modos";
 import { MotorDeteccao, MotorVisao } from "../public/motores";
+import * as api from "../public/api";
 import type { DetectorObjetos } from "../public/detector";
 
 vi.mock("../public/api", () => ({
@@ -32,6 +33,22 @@ describe("MODOS", () => {
     expect(descricao).toBeInstanceOf(MotorVisao);
     expect(descricao.id).toBe("visao");
     expect(roteiro.id).toBe("roteiro");
+  });
+
+  it("repassa o modelo de visao escolhido na interface para o motor", async () => {
+    vi.mocked(api.descreverFrame).mockResolvedValue({ evento: null, parcial: "" });
+    const motor = obterModo("visao").criarMotor({
+      ...deps,
+      modeloVisao: "gemma-4-e2b-uncensored-hauhaucs-aggressive",
+    }) as MotorVisao;
+
+    await motor.analisar({ imagem: "b64" }, new AbortController().signal);
+
+    expect(api.descreverFrame).toHaveBeenCalledWith(
+      { imagem: "b64", modelo: "gemma-4-e2b-uncensored-hauhaucs-aggressive" },
+      expect.any(AbortSignal),
+      undefined
+    );
   });
 
   it("expoe as flags usadas pelo diagnostico e pela interface", () => {

@@ -15,6 +15,8 @@ import { MotorDeteccao, MotorVisao } from "./motores";
 export interface DependenciasMotor {
   detector: DetectorObjetos;
   modelo: string;
+  /** Id do modelo de visao escolhido na interface (opcional). */
+  modeloVisao?: string;
   obterThreshold: () => number;
 }
 
@@ -42,8 +44,10 @@ const criarMotorDeteccao = (deps: DependenciasMotor): MotorPercepcao =>
     obterThreshold: deps.obterThreshold,
   });
 
-const criarMotorVisaoDescricao = (): MotorPercepcao => new MotorVisao({ modo: "descricao" });
-const criarMotorVisaoRoteiro = (): MotorPercepcao => new MotorVisao({ modo: "roteiro" });
+const criarMotorVisaoDescricao = (deps: DependenciasMotor): MotorPercepcao =>
+  new MotorVisao({ modo: "descricao", modelo: deps.modeloVisao });
+const criarMotorVisaoRoteiro = (deps: DependenciasMotor): MotorPercepcao =>
+  new MotorVisao({ modo: "roteiro", modelo: deps.modeloVisao });
 
 /** Registro de modos suportados, indexado pelo valor do select de motor. */
 export const MODOS: Record<string, DefinicaoModo> = {

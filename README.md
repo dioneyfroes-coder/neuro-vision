@@ -35,7 +35,7 @@ Configuração essencial (veja a tabela completa em [`docs/uso.md`](./docs/uso.m
 | --- | --- | --- |
 | `PORT` | `3000` | Porta HTTP. |
 | `NEURO_BASE_URL` | `http://localhost:1234` | URL base do backend de visão (LM Studio, llama.cpp, vLLM). |
-| `NEURO_MODEL` | `qwen2.5-vl-3b-instruct` | Modelo de visão usado na descrição. Se não estiver disponível, o app usa o melhor modelo de visão encontrado. |
+| `NEURO_MODEL` | `qwen2.5-vl-3b-instruct` | Modelo de visão usado na descrição (quando o seletor **Modelo de visão** da interface está em "Padrão do servidor"). Se não estiver disponível, o app usa o melhor modelo de visão encontrado. |
 | `NEURO_API_KEY` | (vazio) | Chave enviada como `Authorization: Bearer` (o LM Studio ignora). |
 
 > A configuração fica centralizada em [`src/env.ts`](./src/env.ts). Copie [`.env.example`](./.env.example) para `.env` (não versionado) para definir os valores de uma vez; variáveis já exportadas no shell têm prioridade. Sem `.env`, valem os padrões da tabela.

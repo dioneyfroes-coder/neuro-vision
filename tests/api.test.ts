@@ -133,6 +133,19 @@ describe("api de leitura", () => {
 
     await expect(prepararVisao()).rejects.toThrow("Backend: modelo indisponivel");
   });
+
+  it("prepararVisao pede o modelo escolhido quando informado", async () => {
+    const fetchMock = vi.fn(async (_entrada: RequestInfo | URL, _init?: RequestInit) =>
+      json({ ok: true, carregado: true })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await prepararVisao("gemma-4-e2b-uncensored-hauhaucs-aggressive");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/visao/preparar?modelo=gemma-4-e2b-uncensored-hauhaucs-aggressive"
+    );
+  });
 });
 
 describe("api de eventos e operacional", () => {

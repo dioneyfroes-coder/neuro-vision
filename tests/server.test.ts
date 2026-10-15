@@ -1522,6 +1522,64 @@ describe("createServer", () => {
     }
   });
 
+  it("GET /api/visao/preparar?modelo= carrega o modelo pedido pela interface", async () => {
+    const geracoes: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/v0/models")) {
+          return {
+            ok: true,
+            json: async () => ({
+              data: [
+                { id: "qwen2.5-vl-3b-instruct", state: "loaded" },
+                { id: "gemma-4-e2b-uncensored-hauhaucs-aggressive", state: "loaded" },
+              ],
+            }),
+          };
+        }
+        if (url.includes("/v1/models")) {
+          return {
+            ok: true,
+            json: async () => ({
+              data: [
+                { id: "qwen2.5-vl-3b-instruct" },
+                { id: "gemma-4-e2b-uncensored-hauhaucs-aggressive" },
+              ],
+            }),
+          };
+        }
+        if (url.includes("/v1/chat/completions")) {
+          const corpo = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+          geracoes.push(corpo.model ?? "");
+          return { ok: true, json: async () => ({ choices: [{ message: { content: "oi" } }] }) };
+        }
+        return realFetch(input, init);
+      })
+    );
+
+    const server = createServer({ publicDir: tmpDir, backendUrl: "http://localhost:1234" });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/api/visao/preparar?modelo=gemma-4-e2b-uncensored-hauhaucs-aggressive`
+      );
+      expect(res.status).toBe(200);
+      const corpo = (await res.json()) as { ok: boolean; modelo: string; carregado: boolean };
+      expect(corpo.ok).toBe(true);
+      expect(corpo.carregado).toBe(true);
+      // O modelo pedido pela interface vence o configurado no ambiente.
+      expect(corpo.modelo).toBe("gemma-4-e2b-uncensored-hauhaucs-aggressive");
+      // Ja estava em memoria: nada de geracao de teste.
+      expect(geracoes).toHaveLength(0);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("GET /api/visao/preparar confirma a carga no LM Studio sem introspecao de memoria", async () => {
     const modeloAnterior = process.env.NEURO_MODEL;
     process.env.NEURO_MODEL = "llama-3.2-11b-vision-instruct";
