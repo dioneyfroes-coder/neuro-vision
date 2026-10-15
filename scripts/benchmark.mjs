@@ -38,7 +38,9 @@ const PROMPT_VISAO =
 const SVG_BASE = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
 
 function lerArgs() {
-  const mapa = { model: [], image: [], iter: 3, timeout: 120000, numPredict: 256 };
+  // 1024 da espaco para modelos de raciocinio ("thinking") escreverem a resposta:
+  // com teto pequeno o `content` saiu vazio e o modelo pareceu nao responder.
+  const mapa = { model: [], image: [], iter: 3, timeout: 120000, numPredict: 1024 };
   const lista = process.argv.slice(2);
   for (let i = 0; i < lista.length; i++) {
     const a = lista[i];
@@ -515,7 +517,7 @@ async function main() {
     console.log(`Conjunto fixo de imagens (${imagens.length}): ${imagens.map((i) => i.nome).join(", ")}`);
   }
   console.log(
-    `Backend: ${baseUrl} | modelos: ${modelos.length} | iteracoes: ${iter} | num_predict: ${args.numPredict} | inicio: ${ambiente.dataHora}\n`
+    `Backend: ${baseUrl} | modelos: ${modelos.length} | iteracoes: ${iter} | max_tokens: ${args.numPredict} | inicio: ${ambiente.dataHora}\n`
   );
 
   const linhas = [];

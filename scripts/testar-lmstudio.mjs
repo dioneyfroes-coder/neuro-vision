@@ -123,10 +123,10 @@ async function inicio() {
 
   const alvo =
     MODELO ||
-    modelos.find((m) => /qwen2\.?5-vl|vision|llava|gemma3|minicpm/i.test(m)) ||
+    modelos.find((m) => /qwen2\.?5-vl|vision|llava|gemma\d|minicpm/i.test(m)) ||
     modelos[0];
   console.log(`\n  Modelo escolhido: ${alvo}`);
-  const modeloVision = /qwen2\.?5-vl|vision|llava|gemma3|minicpm/i.test(alvo);
+  const modeloVision = /qwen2\.?5-vl|vision|llava|gemma[0-9-]*|minicpm/i.test(alvo);
   if (!modeloVision) {
     falhou("modelo multimodal", `'${alvo}' nao parece ser um modelo de visao`);
   } else {
@@ -237,7 +237,7 @@ async function inicio() {
 
   secao("Resultado");
   if (falhas === 0) {
-    console.log("  Integracao OK: a aplicacao falou com o Qwen2.5-VL via LM Studio.");
+    console.log(`  Integracao OK: a aplicacao falou com ${alvo} via LM Studio.`);
     process.exit(0);
   }
   console.log(`  ${falhas} verificacao(oes) falharam. Veja os detalhes acima.`);

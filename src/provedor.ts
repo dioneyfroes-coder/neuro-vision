@@ -37,6 +37,8 @@ export interface ResultadoChat {
   duracaoMs?: number;
   /** O modelo emitiu raciocinio ("thinking"/"reasoning") neste trecho. */
   pensou?: boolean;
+  /** Motivo de termino informado pelo backend ("stop", "length", ...). */
+  motivoFim?: string;
   /** Indica o fim do stream. */
   done?: boolean;
   /** Erro devolvido pelo backend. */
@@ -193,6 +195,7 @@ export function interpretarChat(json: unknown): ResultadoChat {
     modelo: typeof obj.model === "string" ? obj.model : undefined,
     tokens: typeof uso.completion_tokens === "number" ? uso.completion_tokens : undefined,
     pensou,
+    motivoFim: typeof primeira.finish_reason === "string" ? primeira.finish_reason : undefined,
     done: primeira.finish_reason !== undefined && primeira.finish_reason !== null,
   };
 }

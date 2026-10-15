@@ -380,9 +380,14 @@ export async function forcarCarregamento(opcoes: OpcoesVisao = {}): Promise<numb
   return Math.round(performance.now() - inicio);
 }
 
-export const NUM_PREDICT_PADRAO = 256;
-export const NUM_PREDICT_BASE = 320;
-export const NUM_PREDICT_DELTA = 160;
+// Teto de tokens gerados por analise. E um *teto*: modelos que terminam antes
+// (a maioria dos nao-pensantes) param no fim de frase e nao pagam nada por ele.
+// Os valores cobrem modelos de raciocinio, que gastam ~200-300 tokens pensando
+// antes de escrever a resposta — com teto pequeno o `content` sai vazio e a
+// analise falha mesmo o modelo estando correto.
+export const NUM_PREDICT_PADRAO = 768;
+export const NUM_PREDICT_BASE = 768;
+export const NUM_PREDICT_DELTA = 512;
 
 function montarCorpo(
   imagem: string,
@@ -415,12 +420,18 @@ function montarCorpo(
   return { modelo, backend, requisicao };
 }
 
-function lancarSeVazioSemResposta(vistoPensamento: boolean, modelo: string): never {
+function lancarSeVazioSemResposta(
+  vistoPensamento: boolean,
+  modelo: string,
+  motivoFim?: string
+): never {
   if (vistoPensamento) {
-    throw new ErroVisao(
-      `o modelo ${modelo} derivou/raciocinou sem produzir resposta (o backend ignorou o desligamento do "thinking"). ` +
-        "Use um modelo de visao nao-pensante (ex.: qwen2.5-vl)."
-    );
+    const dica =
+      motivoFim === "length"
+        ? `o modelo gastou o limite de tokens (NUM_PREDICT_PADRAO=${NUM_PREDICT_PADRAO}) ` +
+          "raciocinando; aumente o limite ou use um modelo de visao nao-pensante (ex.: qwen2.5-vl)."
+        : 'o backend ignorou o desligamento do "thinking"; use um modelo de visao nao-pensante (ex.: qwen2.5-vl).';
+    throw new ErroVisao(`o modelo ${modelo} derivou/raciocinou sem produzir resposta: ${dica}`);
   }
   throw new ErroVisao(
     `o modelo ${modelo} nao retornou nenhum token de texto. ` +
@@ -452,7 +463,7 @@ export async function gerarDescricao(
   const evt = interpretarChat(dados);
   if (evt.erro) throw new ErroVisao(evt.erro);
   const texto = evt.texto ?? "";
-  if (!texto) lancarSeVazioSemResposta(Boolean(evt.pensou), modelo);
+  if (!texto) lancarSeVazioSemResposta(Boolean(evt.pensou), modelo, evt.motivoFim);
   const duracaoMs = evt.duracaoMs ?? Math.round(performance.now() - inicio);
 
   return {
@@ -502,6 +513,7 @@ export async function* gerarDescricaoStream(
   let duracaoMs = 0;
   let emitiuTexto = false;
   let pensou = false;
+  let motivoFim: string | undefined;
 
   try {
     while (true) {
@@ -521,6 +533,7 @@ export async function* gerarDescricaoStream(
           yield evt.texto;
         }
         if (evt.pensou) pensou = true;
+        if (evt.motivoFim) motivoFim = evt.motivoFim;
         if (evt.tokens !== undefined) tokens = evt.tokens;
         if (evt.done) {
           duracaoMs = evt.duracaoMs ?? Math.round(performance.now() - inicio);
@@ -531,6 +544,6 @@ export async function* gerarDescricaoStream(
     reader.releaseLock();
   }
 
-  if (!emitiuTexto) lancarSeVazioSemResposta(pensou, modeloFinal);
+  if (!emitiuTexto) lancarSeVazioSemResposta(pensou, modeloFinal, motivoFim);
   return { modelo: modeloFinal, tokens, duracaoMs };
 }

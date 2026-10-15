@@ -29,9 +29,22 @@ O app usa **um modelo de visão por vez**, definido pelo ambiente (não há sele
 - **Padrão:** `qwen2.5-vl-3b-instruct` (`MODELO_PADRAO` em `src/visao.ts`).
 - **Troca:** variável `NEURO_MODEL` (ex.: `NEURO_MODEL=Qwen2.5-VL-7B-Instruct npm start`). Use exatamente o id mostrado em `GET /v1/models`.
 - **Fallback automático:** se o modelo configurado **não estiver disponível**, o app escolhe o melhor encontrado (`melhorModeloDisponivel`), na ordem de `PREFERENCIA_MODELOS` — modelos de visão capazes primeiro (`qwen2.5-vl`, `qwen2.5vl`, `qwen3-vl`, `qwen2-vl`, `llama-3.2-vision`, `minicpm-v`, `gemma-4`, `llava`, ...). Sem backend acessível, mantém o configurado.
-- **Requisito:** modelo **multimodal (visão) e não-pensante**. O servidor detecta quando o modelo "só pensa" (devolve `reasoning_content`/`content` vazio) e reporta isso com uma orientação.
+- **Requisito:** modelo **multimodal (visão)**. Modelos de **raciocínio** ("thinking") também funcionam: o app ignora `reasoning_content` e usa apenas o `content` final.
 
-> **Nota sobre modelos "thinking":** modelos como o `qwen3-vl` gastam o `max_tokens` raciocinando e devolvem `content` vazio (nenhum log sai da descrição). Por isso a integração detecta esse caso e recomenda um modelo de visão não-pensante (ex.: `qwen2.5-vl-3b-instruct` ou `llama-3.2-vision`) para descrição de frames. Um modelo de texto puro (sem visão) também não serve. A tradução automática da saída é **desligada por padrão** (`NEURO_TRANSLATE_ENABLED=false`): com um modelo capaz, a descrição já sai em português.
+> **Nota sobre modelos "thinking":** modelos como o `qwen3-vl` ou o
+> `gemma-4-e2b-uncensored-hauhaucs-aggressive` primeiro geram ~200–300 tokens de
+> raciocínio e só depois escrevem a resposta. O teto de geração
+> (`NUM_PREDICT_PADRAO = 768` em `src/visao.ts`) é dimensionado para caber
+> raciocínio **e** resposta; é um *teto*, não uma meta — modelos que terminam
+> antes param no fim de frase e não pagam nada por ele. O custo real do
+> raciocínio é **tempo**: numa mesma máquina o gemma fecha uma análise em ~7 s
+> contra ~0,7 s do qwen2.5-vl (medido em `bench/comparativo-2026-10-15.md`).
+> Se o teto ainda for consumido inteiramente pelo raciocínio, o servidor devolve
+> `502` apontando o limite de tokens (`finish_reason: "length"`) e sugere
+> aumentar o teto ou usar um modelo não-pensante. Um modelo de texto puro (sem
+> visão) não serve. A tradução automática da saída é **desligada por padrão**
+> (`NEURO_TRANSLATE_ENABLED=false`): com um modelo capaz, a descrição já sai em
+> português.
 
 A linha de diagnóstico mostra o **backend em uso** (`LM Studio`), o **modelo em uso** (o `NEURO_MODEL`/padrão, ou o substituto) e os **modelos carregados** — via `GET /api/health`, que lista o que está instalado (`/v1/models`), informa o `solicitado` e o `modelo` efetivo e, quando o backend permite (`/api/v0/models`), o que está em memória. Quando há substituição, a linha indica `fallback de <solicitado>`.
 

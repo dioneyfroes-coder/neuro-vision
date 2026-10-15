@@ -17,6 +17,7 @@ import {
   normalizarNomeModelo,
   NUM_PREDICT_BASE,
   NUM_PREDICT_DELTA,
+  NUM_PREDICT_PADRAO,
   MODELO_PADRAO,
   PROMPT_DESCRICAO,
   PROMPT_ROTEIRO_BASE,
@@ -90,7 +91,7 @@ describe("gerarDescricao", () => {
       { type: "image_url", image_url: { url: "data:image/jpeg;base64,QkxPQ" } },
     ]);
     expect(corpo.stream).toBe(false);
-    expect(corpo.max_tokens).toBe(256);
+    expect(corpo.max_tokens).toBe(NUM_PREDICT_PADRAO);
     expect(corpo.temperature).toBe(0.2);
     expect(corpo.top_p).toBe(0.9);
 
@@ -173,6 +174,17 @@ describe("gerarDescricaoStream", () => {
 
     const iterator = gerarDescricaoStream("AAAA", { modelo: "m" });
     await expect(iterator.next()).rejects.toThrow(/derivou\/raciocinou sem produzir resposta/);
+  });
+
+  it("aponta o limite de tokens quando o raciocinio foi truncado (finish_reason=length)", async () => {
+    const corpo = sse(
+      { model: "m", choices: [{ delta: { reasoning_content: "Pensando..." } }] },
+      { model: "m", choices: [{ delta: {}, finish_reason: "length" }] }
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, body: new Response(corpo).body }));
+
+    const iterator = gerarDescricaoStream("AAAA", { modelo: "m" });
+    await expect(iterator.next()).rejects.toThrow(/limite de tokens/);
   });
 
   it("lanca erro quando o status nao e ok", async () => {

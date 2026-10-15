@@ -37,6 +37,9 @@ import type { EntradaLog } from "../src/types";
 import {
   limparCacheModelo,
   MODELO_PADRAO,
+  NUM_PREDICT_BASE,
+  NUM_PREDICT_DELTA,
+  NUM_PREDICT_PADRAO,
   PROMPT_DESCRICAO,
   PROMPT_ROTEIRO_BASE,
   PROMPT_ROTEIRO_DELTA,
@@ -667,7 +670,7 @@ describe("createServer", () => {
       expect(conteudo[0].text).toBe(PROMPT_DESCRICAO);
       expect(conteudo[1]).toMatchObject({ type: "image_url" });
       expect(corpoVisto.stream).toBe(true);
-      expect(corpoVisto.max_tokens).toBe(256);
+      expect(corpoVisto.max_tokens).toBe(NUM_PREDICT_PADRAO);
       expect(corpoVisto.temperature).toBe(0.2);
       expect(corpoVisto.top_p).toBe(0.9);
 
@@ -822,7 +825,7 @@ describe("createServer", () => {
       expect(doneBase.tipo).toBe("roteiro");
       expect(doneBase.papel).toBe("base");
       expect(textoDoCorpo(corpos[0])).toBe(PROMPT_ROTEIRO_BASE);
-      expect(corpos[0].max_tokens).toBe(320);
+      expect(corpos[0].max_tokens).toBe(NUM_PREDICT_BASE);
 
       const resDelta = await post({ imagem: "QkxPQ", modo: "roteiro", base: false, roteiro: "Pessoa de pe." });
       expect(resDelta.status).toBe(200);
@@ -831,7 +834,7 @@ describe("createServer", () => {
       expect(doneDelta.tipo).toBe("roteiro");
       expect(doneDelta.papel).toBe("delta");
       expect(textoDoCorpo(corpos[1])).toBe(PROMPT_ROTEIRO_DELTA);
-      expect(corpos[1].max_tokens).toBe(160);
+      expect(corpos[1].max_tokens).toBe(NUM_PREDICT_DELTA);
 
       const resInalterado = await post({
         imagem: "QkxPQ",

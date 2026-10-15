@@ -210,6 +210,14 @@ describe("interpretarChat", () => {
     expect(evt.texto).toBeUndefined();
   });
 
+  it("expoe o motivo de termino (finish_reason)", () => {
+    const evt = interpretarChat({
+      choices: [{ delta: {}, finish_reason: "length" }],
+    });
+    expect(evt.motivoFim).toBe("length");
+    expect(evt.done).toBe(true);
+  });
+
   it("marca done pelo finish_reason", () => {
     expect(interpretarChat({ choices: [{ delta: {}, finish_reason: "stop" }] }).done).toBe(true);
   });
