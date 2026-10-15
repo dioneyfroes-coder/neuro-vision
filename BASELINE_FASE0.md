@@ -3,6 +3,19 @@ Data: 2026-10-12 23:11:29
 Branch: fix/percepcao-temporal
 Commit: e55aeef
 
+> **Como ler este documento (papel histórico).** Este é o **transcrito bruto** do
+> estado da base **antes** das correções de percepção temporal: os erros de
+> typecheck, as 32 falhas de teste e a configuração inicial, exatamente como
+> saíram na máquina. Ele é a **prova dos problemas** (não das medições de
+> qualidade — essas estão em [`bench/comparativo-2026-10-15.md`](./bench/comparativo-2026-10-15.md)).
+> As **soluções** de cada problema listado aqui estão em
+> [`PLANO_DE_CORRECOES_PERCEPCAO_TEMPORAL.md`](./PLANO_DE_CORRECOES_PERCEPCAO_TEMPORAL.md)
+> (cada item marcado `[x]` descreve o que foi feito) e as metas/medições atuais,
+> em `bench/BASELINE.md`. O texto abaixo é o registro original, **sem
+> alterações** — menciona `src/ollama.ts`, `ErroOllama` e afins porque esse era o
+> estado do repositório na data (a camada Ollama foi removida depois; ver
+> `docs/modos.md`).
+
 ## Dependencias
 Lockfile presente: True
 
