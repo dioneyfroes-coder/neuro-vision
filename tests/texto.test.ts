@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { colapsarRepeticoes, cortarFraseIncompleta, ehSemMudanca, separarFrases } from "./texto";
+import { colapsarRepeticoes, cortarFraseIncompleta, ehSemMudanca, separarFrases } from "../src/texto";
 
 describe("separarFrases", () => {
   it("quebra o texto em frases", () => {

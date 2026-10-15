@@ -6,7 +6,7 @@ import {
   parsearEventos,
   resolverBaseMs,
   TIPOS_IGNORADOS_PADRAO,
-} from "./avaliar-qualidade.mjs";
+} from "../../scripts/avaliar-qualidade.mjs";
 
 const ev = (tipo, em, extra = {}) => ({ tipo, em, ...extra });
 

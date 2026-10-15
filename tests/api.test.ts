@@ -7,8 +7,8 @@ import {
   listarEventos,
   limparHistorico,
   obterContexto,
-  prepararOllama,
-  saudeOllama,
+  prepararVisao,
+  saudeVisao,
   gravarEntrada,
 } from "../public/api";
 
@@ -65,9 +65,9 @@ describe("descreverFrame", () => {
   });
 
   it("usa a mensagem do servidor quando a resposta nao e ok", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({ erro: "Ollama: falhou" }, 502)));
+    vi.stubGlobal("fetch", vi.fn(async () => json({ erro: "Backend: falhou" }, 502)));
 
-    await expect(descreverFrame({ imagem: "x" }, sinal())).rejects.toThrow("Ollama: falhou");
+    await expect(descreverFrame({ imagem: "x" }, sinal())).rejects.toThrow("Backend: falhou");
   });
 
   it("sinaliza falha de rede", async () => {
@@ -117,21 +117,21 @@ describe("api de leitura", () => {
     await expect(limparHistorico()).rejects.toThrow("HTTP 500");
   });
 
-  it("saudeOllama devolve o objeto ollama", async () => {
+  it("saudeVisao devolve o objeto visao", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => json({ ollama: { online: true, modelos: ["m"], carregados: [], erro: "" } }))
+      vi.fn(async () => json({ visao: { online: true, modelos: ["m"], carregados: [], erro: "" } }))
     );
 
-    const info = await saudeOllama();
+    const info = await saudeVisao();
     expect(info?.online).toBe(true);
     expect(info?.modelos).toEqual(["m"]);
   });
 
-  it("prepararOllama usa a mensagem de erro do servidor", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({ erro: "Ollama: modelo indisponivel" }, 502)));
+  it("prepararVisao usa a mensagem de erro do servidor", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ erro: "Backend: modelo indisponivel" }, 502)));
 
-    await expect(prepararOllama()).rejects.toThrow("Ollama: modelo indisponivel");
+    await expect(prepararVisao()).rejects.toThrow("Backend: modelo indisponivel");
   });
 });
 

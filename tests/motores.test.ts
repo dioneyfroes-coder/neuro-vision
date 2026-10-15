@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { MotorDeteccao, MotorOllama } from "../public/motores";
+import { MotorDeteccao, MotorVisao } from "../public/motores";
 import * as api from "../public/api";
 import type { DetectorObjetos } from "../public/detector";
 
 vi.mock("../public/api", () => ({
   descreverFrame: vi.fn(),
-  prepararOllama: vi.fn(),
+  prepararVisao: vi.fn(),
 }));
 
 describe("MotorDeteccao", () => {
@@ -76,7 +76,7 @@ describe("MotorDeteccao", () => {
   });
 });
 
-describe("MotorOllama", () => {
+describe("MotorVisao", () => {
   it("monta o payload de roteiro e devolve descricao padronizada", async () => {
     vi.mocked(api.descreverFrame).mockResolvedValue({
       evento: {
@@ -88,7 +88,7 @@ describe("MotorOllama", () => {
       },
       parcial: "",
     });
-    const motor = new MotorOllama({ modo: "roteiro", roteiro: "beat", base: false });
+    const motor = new MotorVisao({ modo: "roteiro", roteiro: "beat", base: false });
     const sinal = new AbortController().signal;
     const progressos: string[] = [];
 
@@ -116,7 +116,7 @@ describe("MotorOllama", () => {
 
   it("monta o payload de descricao com a observacao anterior", async () => {
     vi.mocked(api.descreverFrame).mockResolvedValue({ evento: null, parcial: "parcial" });
-    const motor = new MotorOllama({ modo: "descricao", anterior: "before" });
+    const motor = new MotorVisao({ modo: "descricao", anterior: "before" });
 
     const resultado = await motor.analisar(
       { imagem: "b64" },
@@ -136,18 +136,18 @@ describe("MotorOllama", () => {
       evento: { semMudanca: true, descricao: "sem mudanca" },
       parcial: "",
     });
-    const motor = new MotorOllama({ modo: "roteiro" });
+    const motor = new MotorVisao({ modo: "roteiro" });
     const resultado = await motor.analisar({ imagem: "b64" }, new AbortController().signal);
     expect(resultado?.confianca?.semMudanca).toBe(true);
   });
 
   it("inicializar notifica status com o tempo de carregamento", async () => {
-    vi.mocked(api.prepararOllama).mockResolvedValue({
+    vi.mocked(api.prepararVisao).mockResolvedValue({
       modelo: "qwen2.5vl:3b",
       carregado: true,
       carregandoMs: 3000,
     });
-    const motor = new MotorOllama({ modo: "descricao" });
+    const motor = new MotorVisao({ modo: "descricao" });
     const status: string[] = [];
     await motor.inicializar((m) => status.push(m));
     expect(status[0]).toContain("Carregando modelo");
@@ -156,8 +156,8 @@ describe("MotorOllama", () => {
   });
 
   it("falha quando o modelo nao e confirmado em memoria", async () => {
-    vi.mocked(api.prepararOllama).mockResolvedValue({ carregado: false });
-    const motor = new MotorOllama({ modo: "descricao" });
+    vi.mocked(api.prepararVisao).mockResolvedValue({ carregado: false });
+    const motor = new MotorVisao({ modo: "descricao" });
     await expect(motor.inicializar()).rejects.toThrow("modelo nao confirmado em memoria");
   });
 });

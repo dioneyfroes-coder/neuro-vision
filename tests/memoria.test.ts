@@ -104,6 +104,11 @@ describe("montarEvento", () => {
     expect(montarEvento({ tipo: "aparicao", origem: "rastreador" })).toBeNull();
   });
 
+  it("normaliza a origem legada 'ollama' para 'visao'", () => {
+    const evento = montarEvento({ tipo: "aparicao", origem: "ollama", descricao: "apareceu pessoa" });
+    expect(evento?.origem).toBe("visao");
+  });
+
   it("descarta confianca nao numerica", () => {
     const evento = montarEvento({
       tipo: "movimento",
@@ -179,7 +184,7 @@ describe("filtrarEventos", () => {
 
   it("mantem eventos com timestamp invalido quando nao ha filtro temporal", () => {
     const semData: EventoVisual[] = [
-      { id: "x", timestamp: "sem-data", tipo: "resumo", descricao: "r", origem: "ollama" },
+      { id: "x", timestamp: "sem-data", tipo: "resumo", descricao: "r", origem: "visao" },
     ];
     expect(filtrarEventos(semData, { tipos: ["resumo"] })).toHaveLength(1);
   });

@@ -129,7 +129,7 @@ describe("PoliticaAnalise", () => {
     expect(avaliacao).toEqual({ acionar: true, motivo: "manual" });
   });
 
-  it("falha da percepcao aciona o Ollama apos cooldown (nunca vira ausencia de mudanca)", () => {
+  it("falha da percepcao aciona a visao apos cooldown (nunca vira ausencia de mudanca)", () => {
     const politica = new PoliticaAnalise(configurarPolitica({ cooldownMs: 60_000 }));
     politica.registrarChamada(100_000);
     // Dentro do cooldown: nao aciona.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agregarVisoes, inferenciasPorMinuto, montarAmbiente } from "./benchmark.mjs";
+import { agregarVisoes, inferenciasPorMinuto, montarAmbiente } from "../../scripts/benchmark.mjs";
 
 describe("inferenciasPorMinuto", () => {
   it("respeita o intervalo minimo quando ele domina", () => {

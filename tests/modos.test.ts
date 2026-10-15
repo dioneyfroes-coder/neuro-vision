@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { MODOS, obterModo } from "../public/modos";
-import { MotorDeteccao, MotorOllama } from "../public/motores";
+import { MotorDeteccao, MotorVisao } from "../public/motores";
 import type { DetectorObjetos } from "../public/detector";
 
 vi.mock("../public/api", () => ({
   descreverFrame: vi.fn(),
-  prepararOllama: vi.fn(),
+  prepararVisao: vi.fn(),
 }));
 
 const detector = {
@@ -26,28 +26,28 @@ describe("MODOS", () => {
     expect(obterModo("eventos").criarMotor(deps)).toBeInstanceOf(MotorDeteccao);
   });
 
-  it("ollama e roteiro usam o motor do Ollama com o modo correto", () => {
-    const descricao = obterModo("ollama").criarMotor(deps) as MotorOllama;
-    const roteiro = obterModo("roteiro").criarMotor(deps) as MotorOllama;
-    expect(descricao).toBeInstanceOf(MotorOllama);
-    expect(descricao.id).toBe("ollama");
+  it("visao e roteiro usam o motor de visao com o modo correto", () => {
+    const descricao = obterModo("visao").criarMotor(deps) as MotorVisao;
+    const roteiro = obterModo("roteiro").criarMotor(deps) as MotorVisao;
+    expect(descricao).toBeInstanceOf(MotorVisao);
+    expect(descricao.id).toBe("visao");
     expect(roteiro.id).toBe("roteiro");
   });
 
   it("expoe as flags usadas pelo diagnostico e pela interface", () => {
     expect(obterModo("eventos")).toMatchObject({
       usaDeteccao: true,
-      usaOllama: true,
+      usaVisao: true,
       permiteAnaliseManual: true,
     });
     expect(obterModo("deteccao")).toMatchObject({
       usaDeteccao: true,
-      usaOllama: false,
+      usaVisao: false,
       permiteAnaliseManual: false,
     });
-    expect(obterModo("ollama")).toMatchObject({
+    expect(obterModo("visao")).toMatchObject({
       usaDeteccao: false,
-      usaOllama: true,
+      usaVisao: true,
       permiteAnaliseManual: false,
     });
   });
@@ -55,8 +55,8 @@ describe("MODOS", () => {
   it("preserva as mensagens de falha esperadas pelos testes E2E", () => {
     expect(obterModo("deteccao").falhaPrefixo).toBe("Falha ao carregar modelo");
     expect(obterModo("eventos").falhaPrefixo).toBe("Falha ao carregar modelo");
-    expect(obterModo("ollama").falhaPrefixo).toBe("Falha ao preparar o Ollama");
-    expect(obterModo("roteiro").falhaPrefixo).toBe("Falha ao preparar o Ollama");
+    expect(obterModo("visao").falhaPrefixo).toBe("Falha ao preparar o modelo de visao");
+    expect(obterModo("roteiro").falhaPrefixo).toBe("Falha ao preparar o modelo de visao");
   });
 
   it("modo desconhecido cai no padrao", () => {

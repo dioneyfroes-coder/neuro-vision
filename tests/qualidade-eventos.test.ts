@@ -10,7 +10,7 @@ import type { MotivoAnalise, ObjetoVisto } from "../src/types";
  * Roda a percepcao leve sobre roteiros sinteticos com mudancas conhecidas e
  * mede: mudancas detectadas, mudancas perdidas e falsos positivos por minuto.
  * A validacao com video real e anotacoes fica na Fase 7; aqui garantimos que a
- * decisao de acionar o Ollama e estavel e deterministica em CI.
+ * decisao de acionar a visao e estavel e deterministica em CI.
  */
 
 const INTERVALO_MS = 500; // 2 ticks por segundo

@@ -11,7 +11,7 @@ describe("ehCancelamento", () => {
 
   it("rejeita erros comuns e de outras origens", () => {
     expect(ehCancelamento(new Error("x"))).toBe(false);
-    expect(ehCancelamento(new ErroPercepcao("ollama", "x"))).toBe(false);
+    expect(ehCancelamento(new ErroPercepcao("visao", "x"))).toBe(false);
     expect(ehCancelamento(null)).toBe(false);
     expect(ehCancelamento("texto")).toBe(false);
   });

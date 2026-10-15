@@ -48,7 +48,7 @@ export async function pipeline() {
 const ENTRADAS = [
   {
     timestamp: "2026-10-10T12:00:05.000Z",
-    modelo: "qwen3-vl:4b",
+    modelo: "qwen2.5-vl-3b-instruct",
     objetos: [],
     resumo: "Uma pessoa no escritorio.",
     tipo: "descricao",
@@ -74,9 +74,9 @@ async function prepararPagina(page: Page, transformersBody = STUB_TRANSFORMERS):
       contentType: "application/json",
       body: JSON.stringify({
         ok: true,
-        ollama: {
+        visao: {
           online: false,
-          modelo: "qwen2.5vl:3b",
+          modelo: "qwen2.5-vl-3b-instruct",
           modelos: [],
           carregados: [],
           erro: "desligado",
@@ -124,7 +124,7 @@ test("filtra as entradas do historico", async ({ page }) => {
 
   await page.locator("#filter").fill("yolos");
   await expect(page.locator("#log li", { hasText: "yolos-tiny" })).toBeVisible();
-  await expect(page.locator("#log li", { hasText: "qwen3-vl" })).toBeHidden();
+  await expect(page.locator("#log li", { hasText: "qwen2.5-vl" })).toBeHidden();
 });
 
 test("exibe o status do backend de visao", async ({ page }) => {
@@ -167,7 +167,7 @@ test("libera a webcam quando o modelo de deteccao falha ao carregar", async ({ p
   expect(estado).toBe("ended");
 });
 
-test("libera a webcam quando a preparacao do Ollama falha", async ({ page }) => {
+test("libera a webcam quando a preparacao da visao falha", async ({ page }) => {
   await prepararPagina(page);
   await page.route("**/api/visao/preparar", (rota) =>
     rota.fulfill({
@@ -178,10 +178,10 @@ test("libera a webcam quando a preparacao do Ollama falha", async ({ page }) => 
   );
   await instalarCameraFalsa(page);
   await page.goto("/");
-  await page.locator("#motor").selectOption("ollama");
+  await page.locator("#motor").selectOption("visao");
   await page.locator("#start").click();
 
-  await expect(page.locator("#status")).toContainText("Falha ao preparar o Ollama");
+  await expect(page.locator("#status")).toContainText("Falha ao preparar o modelo de visao");
   await expect(page.locator("#start")).toBeEnabled();
   await expect(page.locator("#stop")).toBeDisabled();
   await expect(page.locator("#placeholder")).toBeVisible();
@@ -310,14 +310,14 @@ test("o snapshot do historico e o frame analisado, com o instante da captura", a
   await expect(page.locator("#start")).toBeEnabled();
 });
 
-test("modo eventos aciona o Ollama pela politica e pelo botao manual", async ({ page }) => {
+test("modo eventos aciona a visao pela politica e pelo botao manual", async ({ page }) => {
   const ndjson =
     [
       JSON.stringify({ type: "chunk", response: "Pessoa " }),
       JSON.stringify({
         type: "done",
         descricao: "Pessoa na sala.",
-        modelo: "qwen2.5vl:3b",
+        modelo: "qwen2.5-vl-3b-instruct",
         tokens: 6,
         ms: 40,
         tipo: "descricao",
@@ -336,7 +336,7 @@ test("modo eventos aciona o Ollama pela politica e pelo botao manual", async ({ 
   await page.locator("#start").click();
 
   // A politica aciona a primeira analise apos o primeiro tick (percepcao leve).
-  await expect(page.locator("#status")).toContainText("Ollama viu: Pessoa na sala.", {
+  await expect(page.locator("#status")).toContainText("LM Studio viu: Pessoa na sala.", {
     timeout: 20_000,
   });
   await expect(page.locator("#analisarAgora")).toBeEnabled();
@@ -366,7 +366,7 @@ test("rede offline nao quebra a pagina e a deteccao falha com mensagem clara", a
   await instalarCameraFalsa(page);
   await page.goto("/");
 
-  // A pagina carrega normalmente (historico + controles + status do Ollama).
+  // A pagina carrega normalmente (historico + controles + status da visao).
   await expect(page.locator("#start")).toBeEnabled();
   await expect(page.locator("#log li")).toHaveCount(2);
 
@@ -392,11 +392,11 @@ test("mostra no diagnostico o motor, o modelo e o backend carregado", async ({ p
       contentType: "application/json",
       body: JSON.stringify({
         ok: true,
-        ollama: {
+        visao: {
           online: true,
-          modelo: "qwen2.5vl:3b",
-          modelos: ["qwen2.5vl:3b"],
-          carregados: ["qwen2.5vl:3b"],
+          modelo: "qwen2.5-vl-3b-instruct",
+          modelos: ["qwen2.5-vl-3b-instruct"],
+          carregados: ["qwen2.5-vl-3b-instruct"],
           erro: "",
         },
       }),
@@ -407,7 +407,7 @@ test("mostra no diagnostico o motor, o modelo e o backend carregado", async ({ p
 
   const diag = page.locator("#diagInfo");
   await expect(diag).toContainText("motor parado");
-  await expect(diag).toContainText("qwen2.5vl:3b");
+  await expect(diag).toContainText("qwen2.5-vl-3b-instruct");
 
   // No motor de deteccao o modelo solicitado passa a ser o do navegador e a
   // inferencia medida entra no diagnostico (separada da carga e da persistencia).

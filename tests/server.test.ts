@@ -32,9 +32,15 @@ import {
   validarPayloadVisao,
   validarSnapshot,
   type PoliticaSnapshots,
-} from "./server";
-import type { EntradaLog } from "./types";
-import { limparCacheModelo, MODELO_PADRAO, PROMPT_ROTEIRO_BASE } from "./ollama";
+} from "../src/server";
+import type { EntradaLog } from "../src/types";
+import {
+  limparCacheModelo,
+  MODELO_PADRAO,
+  PROMPT_DESCRICAO,
+  PROMPT_ROTEIRO_BASE,
+  PROMPT_ROTEIRO_DELTA,
+} from "../src/visao";
 
 let tmpDir: string;
 
@@ -598,27 +604,26 @@ describe("createServer", () => {
     }
   });
 
-  it("POST /api/visao descreve via Ollama (streaming mock) e grava log", async () => {
-    let corpoOllama: Record<string, unknown> | null = null;
-    const ndjson =
+  it("POST /api/visao descreve via backend de visao (streaming mock) e grava log", async () => {
+    let corpoVisao: Record<string, unknown> | null = null;
+    const sse =
       [
-        JSON.stringify({ message: { content: "Uma pessoa " }, model: "qwen3-vl:4b" }),
-        JSON.stringify({
-          message: { content: "no escritorio." },
-          model: "qwen3-vl:4b",
-          eval_count: 10,
-          total_duration: 2_000_000_000,
-          done: true,
-        }),
+        `data: ${JSON.stringify({ model: "qwen2.5-vl-3b-instruct", choices: [{ delta: { content: "Uma pessoa " } }] })}`,
+        `data: ${JSON.stringify({
+          model: "qwen2.5-vl-3b-instruct",
+          choices: [{ delta: { content: "no escritorio." }, finish_reason: "stop" }],
+          usage: { completion_tokens: 10 },
+        })}`,
+        "data: [DONE]",
       ].join("\n") + "\n";
 
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("/api/chat")) {
-          if (init?.body) corpoOllama = JSON.parse(String(init.body)) as Record<string, unknown>;
-          return { ok: true, body: new Response(ndjson).body };
+        if (url.includes("/v1/chat/completions")) {
+          if (init?.body) corpoVisao = JSON.parse(String(init.body)) as Record<string, unknown>;
+          return { ok: true, body: new Response(sse).body };
         }
         return realFetch(input, init);
       })
@@ -628,7 +633,7 @@ describe("createServer", () => {
     const server = createServer({
       logFile,
       publicDir: tmpDir,
-      ollamaUrl: "http://localhost:11434",
+      backendUrl: "http://localhost:1234",
     });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const { port } = server.address() as AddressInfo;
@@ -649,21 +654,28 @@ describe("createServer", () => {
         .map((linha) => JSON.parse(linha) as { type: string; descricao?: string; modelo?: string });
       const done = eventos.find((e) => e.type === "done");
       expect(done?.descricao).toBe("Uma pessoa no escritorio.");
-      expect(done?.modelo).toBe("qwen3-vl:4b");
+      expect(done?.modelo).toBe("qwen2.5-vl-3b-instruct");
 
-      expect(corpoOllama).not.toBeNull();
-      const corpoOllamaVisto = corpoOllama as unknown as Record<string, unknown>;
-      const mensagens = corpoOllamaVisto.messages as { content: string }[];
-      expect(mensagens[0].content).toContain("Uma pessoa no sofa");
-      expect(corpoOllamaVisto.stream).toBe(true);
-      expect(corpoOllamaVisto.think).toBe(false);
-      expect(corpoOllamaVisto.options).toMatchObject({ num_predict: 256 });
+      expect(corpoVisao).not.toBeNull();
+      const corpoVisto = corpoVisao as unknown as Record<string, unknown>;
+      const conteudo = (corpoVisto.messages as { content: unknown }[])[0].content as {
+        type: string;
+        text?: string;
+      }[];
+      // Cada foto e descrita do zero: a observacao anterior nao entra no prompt.
+      expect(conteudo[0].type).toBe("text");
+      expect(conteudo[0].text).toBe(PROMPT_DESCRICAO);
+      expect(conteudo[1]).toMatchObject({ type: "image_url" });
+      expect(corpoVisto.stream).toBe(true);
+      expect(corpoVisto.max_tokens).toBe(256);
+      expect(corpoVisto.temperature).toBe(0.2);
+      expect(corpoVisto.top_p).toBe(0.9);
 
       const linhas = (await readFile(logFile, "utf8")).trim().split("\n");
       expect(linhas).toHaveLength(1);
       expect(JSON.parse(linhas[0])).toMatchObject({
         resumo: "Uma pessoa no escritorio.",
-        modelo: "qwen3-vl:4b",
+        modelo: "qwen2.5-vl-3b-instruct",
         objetos: [],
         tipo: "descricao",
       });
@@ -673,24 +685,23 @@ describe("createServer", () => {
   });
 
   it("POST /api/visao registra o motivo que acionou a analise", async () => {
-    const ndjson =
+    const sse =
       [
-        JSON.stringify({ message: { content: "Pessoa" }, model: "m" }),
-        JSON.stringify({
-          message: { content: " na sala." },
+        `data: ${JSON.stringify({ model: "m", choices: [{ delta: { content: "Pessoa" } }] })}`,
+        `data: ${JSON.stringify({
           model: "m",
-          eval_count: 5,
-          total_duration: 1_000_000,
-          done: true,
-        }),
+          choices: [{ delta: { content: " na sala." }, finish_reason: "stop" }],
+          usage: { completion_tokens: 5 },
+        })}`,
+        "data: [DONE]",
       ].join("\n") + "\n";
 
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("/api/chat")) {
-          return { ok: true, body: new Response(ndjson).body };
+        if (url.includes("/v1/chat/completions")) {
+          return { ok: true, body: new Response(sse).body };
         }
         return realFetch(input, init);
       })
@@ -700,7 +711,7 @@ describe("createServer", () => {
     const server = createServer({
       logFile,
       publicDir: tmpDir,
-      ollamaUrl: "http://localhost:11434",
+      backendUrl: "http://localhost:1234",
     });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const { port } = server.address() as AddressInfo;
@@ -741,7 +752,7 @@ describe("createServer", () => {
     const server = createServer({
       logFile,
       publicDir: tmpDir,
-      ollamaUrl: "http://localhost:11434",
+      backendUrl: "http://localhost:1234",
     });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const { port } = server.address() as AddressInfo;
@@ -760,32 +771,32 @@ describe("createServer", () => {
 
   it("POST /api/visao no modo roteiro grava a base e colapsa repeticoes nos deltas", async () => {
     const corpos: Record<string, unknown>[] = [];
+    const respostas = ["Pessoa de pe.", "A. B. A. B. A. B.", "INALTERADO."];
+    let chamada = 0;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (!url.includes("/api/chat")) return realFetch(input, init);
+        if (!url.includes("/v1/chat/completions")) return realFetch(input, init);
         const corpo = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
         corpos.push(corpo);
-        const prompt = (corpo.messages as { content: string }[])[0]?.content ?? "";
-        const base = prompt === PROMPT_ROTEIRO_BASE;
-        const inalterado = prompt.includes("MARCA_INALTERADO");
-        const linhas = base
-          ? [`${JSON.stringify({ message: { content: "Pessoa de pe." }, model: "qwen2.5vl:3b" })}`,
-             `${JSON.stringify({ eval_count: 12, total_duration: 2_000_000_000, done: true })}`]
-          : inalterado
-            ? [`${JSON.stringify({ message: { content: "INALTERADO." }, model: "qwen2.5vl:3b" })}`,
-               `${JSON.stringify({ eval_count: 3, total_duration: 800_000_000, done: true })}`]
-            : [
-                `${JSON.stringify({ message: { content: "A. B. A. B. A. B." }, model: "qwen2.5vl:3b" })}`,
-                `${JSON.stringify({ eval_count: 10, total_duration: 1_000_000_000, done: true })}`,
-              ];
-        return { ok: true, body: new Response(linhas.join("\n") + "\n").body };
+        const texto = respostas[Math.min(chamada, respostas.length - 1)];
+        chamada += 1;
+        const sse =
+          [
+            `data: ${JSON.stringify({
+              model: "qwen2.5-vl-3b-instruct",
+              choices: [{ delta: { content: texto }, finish_reason: "stop" }],
+              usage: { completion_tokens: 12 },
+            })}`,
+            "data: [DONE]",
+          ].join("\n") + "\n";
+        return { ok: true, body: new Response(sse).body };
       })
     );
 
     const logFile = path.join(tmpDir, "visao.jsonl");
-    const server = createServer({ logFile, publicDir: tmpDir, ollamaUrl: "http://localhost:11434" });
+    const server = createServer({ logFile, publicDir: tmpDir, backendUrl: "http://localhost:1234" });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const { port } = server.address() as AddressInfo;
 
@@ -796,6 +807,12 @@ describe("createServer", () => {
         body: JSON.stringify(payload),
       });
 
+    const textoDoCorpo = (corpo: Record<string, unknown>): string => {
+      const conteudo = (corpo.messages as { content: unknown }[])[0]?.content;
+      if (Array.isArray(conteudo)) return (conteudo[0] as { text?: string }).text ?? "";
+      return typeof conteudo === "string" ? conteudo : "";
+    };
+
     try {
       const resBase = await post({ imagem: "QkxPQ", modo: "roteiro", base: true, roteiro: "" });
       expect(resBase.status).toBe(200);
@@ -804,9 +821,8 @@ describe("createServer", () => {
       expect(doneBase.descricao).toBe("Pessoa de pe.");
       expect(doneBase.tipo).toBe("roteiro");
       expect(doneBase.papel).toBe("base");
-      const msgs0 = (corpos[0].messages as { content: string }[]);
-      expect(msgs0[0].content).toBe(PROMPT_ROTEIRO_BASE);
-      expect((corpos[0].options as { num_predict: number }).num_predict).toBe(320);
+      expect(textoDoCorpo(corpos[0])).toBe(PROMPT_ROTEIRO_BASE);
+      expect(corpos[0].max_tokens).toBe(320);
 
       const resDelta = await post({ imagem: "QkxPQ", modo: "roteiro", base: false, roteiro: "Pessoa de pe." });
       expect(resDelta.status).toBe(200);
@@ -814,15 +830,14 @@ describe("createServer", () => {
       expect(doneDelta.descricao).toBe("A. B.");
       expect(doneDelta.tipo).toBe("roteiro");
       expect(doneDelta.papel).toBe("delta");
-      const msgs1 = (corpos[1].messages as { content: string }[]);
-      expect(msgs1[0].content).toContain("Pessoa de pe.");
-      expect((corpos[1].options as { num_predict: number }).num_predict).toBe(160);
+      expect(textoDoCorpo(corpos[1])).toBe(PROMPT_ROTEIRO_DELTA);
+      expect(corpos[1].max_tokens).toBe(160);
 
       const resInalterado = await post({
         imagem: "QkxPQ",
         modo: "roteiro",
         base: false,
-        roteiro: "MARCA_INALTERADO",
+        roteiro: "Pessoa de pe.",
       });
       const doneInalterado = (await resInalterado.text())
         .trim()
@@ -859,12 +874,12 @@ describe("createServer", () => {
     }
   });
 
-  it("POST /api/visao com Ollama indisponivel retorna 502", async () => {
+  it("POST /api/visao com o backend indisponivel retorna 502", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("/api/chat")) {
+        if (url.includes("/v1/chat/completions")) {
           throw new TypeError("fetch failed");
         }
         return realFetch(input, init);
@@ -887,13 +902,17 @@ describe("createServer", () => {
     }
   });
 
-  it("POST /api/visao com stream vazio do Ollama retorna 502 e nao grava log", async () => {
-    const ndjson = JSON.stringify({ done: true, eval_count: 0 }) + "\n";
+  it("POST /api/visao com stream vazio do backend retorna 502 e nao grava log", async () => {
+    const sse =
+      [
+        `data: ${JSON.stringify({ model: "m", choices: [{ delta: {}, finish_reason: "stop" }] })}`,
+        "data: [DONE]",
+      ].join("\n") + "\n";
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("/api/chat")) return { ok: true, body: new Response(ndjson).body };
+        if (url.includes("/v1/chat/completions")) return { ok: true, body: new Response(sse).body };
         return realFetch(input, init);
       })
     );
@@ -920,16 +939,17 @@ describe("createServer", () => {
   });
 
   it("POST /api/visao com modelo always-thinking retorna 502 com orientacao", async () => {
-    const ndjson =
+    const sse =
       [
-        JSON.stringify({ message: { thinking: "Vamos analisar..." }, model: "qwen3-vl:4b" }),
-        JSON.stringify({ model: "qwen3-vl:4b", eval_count: 40, done: true }),
+        `data: ${JSON.stringify({ model: "m", choices: [{ delta: { reasoning_content: "Vamos analisar..." } }] })}`,
+        `data: ${JSON.stringify({ model: "m", choices: [{ delta: {}, finish_reason: "stop" }] })}`,
+        "data: [DONE]",
       ].join("\n") + "\n";
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("/api/chat")) return { ok: true, body: new Response(ndjson).body };
+        if (url.includes("/v1/chat/completions")) return { ok: true, body: new Response(sse).body };
         return realFetch(input, init);
       })
     );
@@ -955,13 +975,13 @@ describe("createServer", () => {
     }
   });
 
-  it("POST /api/visao com evento de erro do Ollama retorna 502 e nao grava log", async () => {
-    const ndjson = JSON.stringify({ error: "model not loaded" }) + "\n";
+  it("POST /api/visao com evento de erro do backend retorna 502 e nao grava log", async () => {
+    const sse = `data: ${JSON.stringify({ error: "model not loaded" })}\n` + "data: [DONE]\n";
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("/api/chat")) return { ok: true, body: new Response(ndjson).body };
+        if (url.includes("/v1/chat/completions")) return { ok: true, body: new Response(sse).body };
         return realFetch(input, init);
       })
     );
@@ -1269,19 +1289,20 @@ describe("createServer", () => {
     }
   });
 
-  it("GET /api/health informa o status do Ollama", async () => {
+  it("GET /api/health informa o status do backend de visao", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("/api/tags")) {
-          return { ok: true, json: async () => ({ models: [{ name: "qwen3-vl:4b" }] }) };
+        if (url.includes("/v1/models")) {
+          return { ok: true, json: async () => ({ data: [{ id: "qwen2.5-vl-3b-instruct" }] }) };
         }
+        if (url.includes("/api/v0/models")) return { ok: true, json: async () => ({ data: [] }) };
         return realFetch(input, init);
       })
     );
 
-    const server = createServer({ publicDir: tmpDir, ollamaUrl: "http://localhost:11434" });
+    const server = createServer({ publicDir: tmpDir, backendUrl: "http://localhost:1234" });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const { port } = server.address() as AddressInfo;
 
@@ -1290,11 +1311,11 @@ describe("createServer", () => {
       expect(res.status).toBe(200);
       const corpo = (await res.json()) as {
         ok: boolean;
-        ollama: { online: boolean; modelos: string[]; modelo: string };
+        visao: { online: boolean; modelos: string[]; modelo: string };
       };
-      expect(corpo.ollama.online).toBe(true);
-      expect(corpo.ollama.modelos).toContain("qwen3-vl:4b");
-      expect(corpo.ollama.modelo).toBeTruthy();
+      expect(corpo.visao.online).toBe(true);
+      expect(corpo.visao.modelos).toContain("qwen2.5-vl-3b-instruct");
+      expect(corpo.visao.modelo).toBeTruthy();
     } finally {
       server.close();
     }
@@ -1305,15 +1326,15 @@ describe("createServer", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("/api/tags")) {
-          return { ok: true, json: async () => ({ models: [{ name: "qwen2.5vl:7b" }] }) };
+        if (url.includes("/v1/models")) {
+          return { ok: true, json: async () => ({ data: [{ id: "qwen2.5vl:7b" }] }) };
         }
-        if (url.includes("/api/ps")) return { ok: true, json: async () => ({ models: [] }) };
+        if (url.includes("/api/v0/models")) return { ok: true, json: async () => ({ data: [] }) };
         return realFetch(input, init);
       })
     );
 
-    const server = createServer({ publicDir: tmpDir, ollamaUrl: "http://localhost:11434" });
+    const server = createServer({ publicDir: tmpDir, backendUrl: "http://localhost:1234" });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const { port } = server.address() as AddressInfo;
 
@@ -1321,21 +1342,22 @@ describe("createServer", () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/health`);
       expect(res.status).toBe(200);
       const corpo = (await res.json()) as {
-        ollama: { solicitado: string; modelo: string; modelos: string[] };
+        visao: { solicitado: string; modelo: string; modelos: string[] };
       };
-      expect(corpo.ollama.solicitado).toBe(MODELO_PADRAO);
-      expect(corpo.ollama.modelo).toBe("qwen2.5vl:7b");
+      expect(corpo.visao.solicitado).toBe(MODELO_PADRAO);
+      expect(corpo.visao.modelo).toBe("qwen2.5vl:7b");
     } finally {
       server.close();
     }
   });
 
-  it("GET /api/health reporta Ollama offline quando falha", async () => {
+  it("GET /api/health reporta o backend offline quando falha", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("/api/tags")) throw new TypeError("fetch failed");
+        if (url.includes("/v1/models")) throw new TypeError("fetch failed");
+        if (url.includes("/api/v0/models")) throw new TypeError("fetch failed");
         return realFetch(input, init);
       })
     );
@@ -1346,8 +1368,8 @@ describe("createServer", () => {
 
     try {
       const res = await fetch(`http://127.0.0.1:${port}/api/health`);
-      const corpo = (await res.json()) as { ollama: { online: boolean } };
-      expect(corpo.ollama.online).toBe(false);
+      const corpo = (await res.json()) as { visao: { online: boolean } };
+      expect(corpo.visao.online).toBe(false);
     } finally {
       server.close();
     }
@@ -1358,17 +1380,20 @@ describe("createServer", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("/api/tags")) {
-          return { ok: true, json: async () => ({ models: [{ name: "qwen3-vl:4b" }] }) };
+        if (url.includes("/v1/models")) {
+          return { ok: true, json: async () => ({ data: [{ id: "qwen2.5-vl-3b-instruct" }] }) };
         }
-        if (url.includes("/api/ps")) {
-          return { ok: true, json: async () => ({ models: [{ name: "qwen3-vl:4b" }] }) };
+        if (url.includes("/api/v0/models")) {
+          return {
+            ok: true,
+            json: async () => ({ data: [{ id: "qwen2.5-vl-3b-instruct", state: "loaded" }] }),
+          };
         }
         return realFetch(input, init);
       })
     );
 
-    const server = createServer({ publicDir: tmpDir, ollamaUrl: "http://localhost:11434" });
+    const server = createServer({ publicDir: tmpDir, backendUrl: "http://localhost:1234" });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const { port } = server.address() as AddressInfo;
 
@@ -1377,10 +1402,10 @@ describe("createServer", () => {
       expect(res.status).toBe(200);
       const corpo = (await res.json()) as {
         ok: boolean;
-        ollama: { online: boolean; carregados: string[] };
+        visao: { online: boolean; carregados: string[] };
       };
-      expect(corpo.ollama.online).toBe(true);
-      expect(corpo.ollama.carregados).toContain("qwen3-vl:4b");
+      expect(corpo.visao.online).toBe(true);
+      expect(corpo.visao.carregados).toContain("qwen2.5-vl-3b-instruct");
     } finally {
       server.close();
     }
@@ -1396,7 +1421,7 @@ describe("createServer", () => {
       "fetch",
       vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("/api/chat")) {
+        if (url.includes("/v1/chat/completions")) {
           // Simula uma inferencia longa: o fetch so "termina" quando o sinal e
           // abortado (como o fetch real do Node), permitindo testar a
           // propagacao de cancelamento quando o cliente desconecta.
@@ -1417,7 +1442,7 @@ describe("createServer", () => {
 
     const espiao = vi.spyOn(console, "log").mockImplementation(() => {});
     const logFile = path.join(tmpDir, "visao.jsonl");
-    const server = createServer({ logFile, publicDir: tmpDir, ollamaUrl: "http://localhost:11434" });
+    const server = createServer({ logFile, publicDir: tmpDir, backendUrl: "http://localhost:1234" });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const { port } = server.address() as AddressInfo;
 
@@ -1451,26 +1476,31 @@ describe("createServer", () => {
   });
 
   it("GET /api/visao/preparar confirma o modelo em memoria sem disparar geracao", async () => {
+    const modeloAnterior = process.env.NEURO_MODEL;
+    process.env.NEURO_MODEL = "qwen2.5-vl-3b-instruct";
     const geracoes: string[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("/api/tags")) {
-          return { ok: true, json: async () => ({ models: [{ name: "qwen2.5vl:3b" }] }) };
+        if (url.includes("/api/v0/models")) {
+          return {
+            ok: true,
+            json: async () => ({ data: [{ id: "qwen2.5-vl-3b-instruct", state: "loaded" }] }),
+          };
         }
-        if (url.includes("/api/ps")) {
-          return { ok: true, json: async () => ({ models: [{ name: "qwen2.5vl:3b" }] }) };
+        if (url.includes("/v1/models")) {
+          return { ok: true, json: async () => ({ data: [{ id: "qwen2.5-vl-3b-instruct" }] }) };
         }
-        if (url.includes("/api/chat")) {
+        if (url.includes("/v1/chat/completions")) {
           geracoes.push(url);
-          return { ok: true, json: async () => ({ message: { content: "oi" } }) };
+          return { ok: true, json: async () => ({ choices: [{ message: { content: "oi" } }] }) };
         }
         return realFetch(input, init);
       })
     );
 
-    const server = createServer({ publicDir: tmpDir, ollamaUrl: "http://localhost:11434" });
+    const server = createServer({ publicDir: tmpDir, backendUrl: "http://localhost:1234" });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const { port } = server.address() as AddressInfo;
 
@@ -1484,6 +1514,8 @@ describe("createServer", () => {
       expect(geracoes).toHaveLength(0);
     } finally {
       server.close();
+      if (modeloAnterior === undefined) delete process.env.NEURO_MODEL;
+      else process.env.NEURO_MODEL = modeloAnterior;
     }
   });
 
@@ -1517,8 +1549,7 @@ describe("createServer", () => {
 
     const server = createServer({
       publicDir: tmpDir,
-      ollamaUrl: "http://localhost:1234",
-      provedor: "openai",
+      backendUrl: "http://localhost:1234",
     });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const { port } = server.address() as AddressInfo;
@@ -1538,19 +1569,22 @@ describe("createServer", () => {
     }
   });
 
-  it("GET /api/visao/preparar nao confunde modelos de mesma base com tags diferentes", async () => {
-    const modeloAnterior = process.env.OLLAMA_MODEL;
-    process.env.OLLAMA_MODEL = "qwen2.5vl:3b";
+  it("GET /api/visao/preparar nao confunde modelos diferentes", async () => {
+    const modeloAnterior = process.env.NEURO_MODEL;
+    process.env.NEURO_MODEL = "qwen2.5-vl-3b-instruct";
     const chats: string[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("/api/ps")) {
-          // Outra tag do mesmo modelo base esta carregada: nao e o solicitado.
-          return { ok: true, json: async () => ({ models: [{ name: "qwen2.5vl:7b" }] }) };
+        if (url.includes("/api/v0/models")) {
+          // Outro modelo esta carregado: nao e o solicitado.
+          return { ok: true, json: async () => ({ data: [{ id: "qwen2.5-vl-7b", state: "loaded" }] }) };
         }
-        if (url.includes("/api/chat")) {
+        if (url.includes("/v1/models")) {
+          return { ok: true, json: async () => ({ data: [{ id: "qwen2.5-vl-3b-instruct" }] }) };
+        }
+        if (url.includes("/v1/chat/completions")) {
           chats.push(url);
           return { ok: false, status: 500, text: async (): Promise<string> => "boom" };
         }
@@ -1558,7 +1592,7 @@ describe("createServer", () => {
       })
     );
 
-    const server = createServer({ publicDir: tmpDir, ollamaUrl: "http://localhost:11434" });
+    const server = createServer({ publicDir: tmpDir, backendUrl: "http://localhost:1234" });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const { port } = server.address() as AddressInfo;
 
@@ -1571,8 +1605,8 @@ describe("createServer", () => {
       expect(corpo.ok).toBe(false);
     } finally {
       server.close();
-      if (modeloAnterior === undefined) delete process.env.OLLAMA_MODEL;
-      else process.env.OLLAMA_MODEL = modeloAnterior;
+      if (modeloAnterior === undefined) delete process.env.NEURO_MODEL;
+      else process.env.NEURO_MODEL = modeloAnterior;
     }
   });
 });
