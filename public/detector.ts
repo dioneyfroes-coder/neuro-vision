@@ -7,7 +7,7 @@ import { ErroPercepcao } from "../src/erros";
  * `@3`, para que o comportamento nao mude sem aviso. O carregamento e **sob
  * demanda**: a biblioteca so e baixada quando um modo de deteccao/eventos for
  * usado. Antes, o import estatico fazia a pagina inteira falhar ao carregar
- * quando o CDN estava inacessivel (rede offline) — hoje os modos Ollama seguem
+ * quando o CDN estava inacessivel (rede offline) — hoje os modos de visao seguem
  * funcionando e a deteccao falha com mensagem clara. A URL fica literal no
  * `import()` para o vite/vitest conseguirem aplicar o alias de teste e o
  * esbuild manter o carregamento externo no bundle do cliente.

@@ -1,6 +1,6 @@
 import type { MotorPercepcao } from "../src/percepcao";
 import type { DetectorObjetos } from "./detector";
-import { MotorDeteccao, MotorOllama } from "./motores";
+import { MotorDeteccao, MotorVisao } from "./motores";
 
 /**
  * Fase 2 — troca de motor sem espalhar condicoes pela aplicacao.
@@ -23,14 +23,14 @@ export interface DefinicaoModo {
   id: string;
   /** Precisa do modelo de deteccao carregado no navegador. */
   usaDeteccao: boolean;
-  /** Precisa do modelo de visao do Ollama preparado no servidor. */
-  usaOllama: boolean;
+  /** Precisa do modelo de visao preparado no servidor. */
+  usaVisao: boolean;
   /** "Analisar agora" so se aplica ao fluxo orientado a eventos. */
   permiteAnaliseManual: boolean;
   /** Prefixo da mensagem de falha de inicializacao do motor. */
   falhaPrefixo: string;
   /** Origem do registro operacional quando o motor falha. */
-  origemFalha: "detector" | "ollama";
+  origemFalha: "detector" | "visao";
   /** Constroi o motor de percepcao correspondente ao modo. */
   criarMotor: (deps: DependenciasMotor) => MotorPercepcao;
 }
@@ -42,42 +42,42 @@ const criarMotorDeteccao = (deps: DependenciasMotor): MotorPercepcao =>
     obterThreshold: deps.obterThreshold,
   });
 
-const criarMotorOllamaDescricao = (): MotorPercepcao => new MotorOllama({ modo: "descricao" });
-const criarMotorOllamaRoteiro = (): MotorPercepcao => new MotorOllama({ modo: "roteiro" });
+const criarMotorVisaoDescricao = (): MotorPercepcao => new MotorVisao({ modo: "descricao" });
+const criarMotorVisaoRoteiro = (): MotorPercepcao => new MotorVisao({ modo: "roteiro" });
 
 /** Registro de modos suportados, indexado pelo valor do select de motor. */
 export const MODOS: Record<string, DefinicaoModo> = {
   deteccao: {
     id: "deteccao",
     usaDeteccao: true,
-    usaOllama: false,
+    usaVisao: false,
     permiteAnaliseManual: false,
     falhaPrefixo: "Falha ao carregar modelo",
     origemFalha: "detector",
     criarMotor: criarMotorDeteccao,
   },
-  ollama: {
-    id: "ollama",
+  visao: {
+    id: "visao",
     usaDeteccao: false,
-    usaOllama: true,
+    usaVisao: true,
     permiteAnaliseManual: false,
-    falhaPrefixo: "Falha ao preparar o Ollama",
-    origemFalha: "ollama",
-    criarMotor: criarMotorOllamaDescricao,
+    falhaPrefixo: "Falha ao preparar o modelo de visao",
+    origemFalha: "visao",
+    criarMotor: criarMotorVisaoDescricao,
   },
   roteiro: {
     id: "roteiro",
     usaDeteccao: false,
-    usaOllama: true,
+    usaVisao: true,
     permiteAnaliseManual: false,
-    falhaPrefixo: "Falha ao preparar o Ollama",
-    origemFalha: "ollama",
-    criarMotor: criarMotorOllamaRoteiro,
+    falhaPrefixo: "Falha ao preparar o modelo de visao",
+    origemFalha: "visao",
+    criarMotor: criarMotorVisaoRoteiro,
   },
   eventos: {
     id: "eventos",
     usaDeteccao: true,
-    usaOllama: true,
+    usaVisao: true,
     permiteAnaliseManual: true,
     falhaPrefixo: "Falha ao carregar modelo",
     origemFalha: "detector",

@@ -1,11 +1,9 @@
 import type { EntradaLog, EventoVisual, MotivoAnalise, TipoEventoVisual } from "../src/types";
 import { ErroPercepcao } from "../src/erros";
 
-export interface InfoOllama {
+export interface InfoVisao {
   online: boolean;
-  /** Protocolo do backend em uso (`ollama` nativo ou `openai`/LM Studio). */
-  provedor?: "ollama" | "openai";
-  /** Modelo de visao configurado (NEURO_MODEL/OLLAMA_MODEL ou o padrao do servidor). */
+  /** Modelo de visao configurado (NEURO_MODEL ou o padrao do servidor). */
   solicitado?: string;
   /** Modelo efetivamente usado (o solicitado ou o melhor disponivel). */
   modelo: string;
@@ -14,7 +12,7 @@ export interface InfoOllama {
   erro: string;
 }
 
-export interface PreparacaoOllama {
+export interface PreparacaoVisao {
   modelo?: string;
   carregado?: boolean;
   carregandoMs?: number;
@@ -56,7 +54,7 @@ export interface ResultadoVisao {
 /** Erro reportado pelo proprio stream do backend de visao (nao deve ser reembrulhado). */
 class ErroEventoVisao extends ErroPercepcao {
   constructor(mensagem: string) {
-    super("ollama", mensagem);
+    super("visao", mensagem);
     this.name = "ErroEventoVisao";
   }
 }
@@ -203,32 +201,32 @@ export async function obterContexto(): Promise<ContextoRecente | null> {
 }
 
 /** `GET /api/health` — status do backend de visao. */
-export async function saudeOllama(): Promise<InfoOllama | null> {
+export async function saudeVisao(): Promise<InfoVisao | null> {
   let resposta: Response;
   try {
     resposta = await fetch("/api/health");
   } catch (err) {
-    throw new ErroPercepcao("ollama", "Backend de visao: servidor indisponivel", { cause: err });
+    throw new ErroPercepcao("visao", "Backend de visao: servidor indisponivel", { cause: err });
   }
-  const dados = (await resposta.json()) as { ollama?: InfoOllama };
-  return dados.ollama ?? null;
+  const dados = (await resposta.json()) as { visao?: InfoVisao };
+  return dados.visao ?? null;
 }
 
 /** `GET /api/visao/preparar` — garante o modelo de visao em memoria. */
-export async function prepararOllama(): Promise<PreparacaoOllama> {
+export async function prepararVisao(): Promise<PreparacaoVisao> {
   let resposta: Response;
   try {
     resposta = await fetch("/api/visao/preparar");
   } catch (err) {
-    throw new ErroPercepcao("ollama", "Falha ao contactar o servidor (/api/visao/preparar)", {
+    throw new ErroPercepcao("visao", "Falha ao contactar o servidor (/api/visao/preparar)", {
       cause: err,
     });
   }
   if (!resposta.ok) {
     const corpo = (await resposta.json().catch(() => null)) as { erro?: string } | null;
-    throw new ErroPercepcao("ollama", corpo?.erro ?? `Falha ao preparar o backend de visao (${resposta.status})`);
+    throw new ErroPercepcao("visao", corpo?.erro ?? `Falha ao preparar o backend de visao (${resposta.status})`);
   }
-  return (await resposta.json()) as PreparacaoOllama;
+  return (await resposta.json()) as PreparacaoVisao;
 }
 
 /**
@@ -251,12 +249,12 @@ export async function descreverFrame(
     });
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
-    throw new ErroPercepcao("ollama", "Falha ao contactar o servidor (/api/visao)", { cause: err });
+    throw new ErroPercepcao("visao", "Falha ao contactar o servidor (/api/visao)", { cause: err });
   }
 
   if (!resposta.ok || !resposta.body) {
     const corpo = (await resposta.json().catch(() => null)) as { erro?: string } | null;
-    throw new ErroPercepcao("ollama", corpo?.erro ?? `Backend de visao respondeu ${resposta.status}`);
+    throw new ErroPercepcao("visao", corpo?.erro ?? `Backend de visao respondeu ${resposta.status}`);
   }
 
   const reader = resposta.body.getReader();
@@ -289,7 +287,7 @@ export async function descreverFrame(
   } catch (err) {
     if (err instanceof ErroEventoVisao) throw err;
     if ((err as Error).name === "AbortError") throw err;
-    throw new ErroPercepcao("ollama", `Erro ao ler resposta do backend de visao: ${(err as Error).message}`, {
+    throw new ErroPercepcao("visao", `Erro ao ler resposta do backend de visao: ${(err as Error).message}`, {
       cause: err,
     });
   }

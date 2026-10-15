@@ -10,7 +10,7 @@ import { AgendadorAnalise } from "./scheduler";
 import * as api from "./api";
 import { DetectorObjetos } from "./detector";
 import { Camera, ErroCamera } from "./camera";
-import { MotorOllama } from "./motores";
+import { MotorVisao } from "./motores";
 import { obterModo } from "./modos";
 
 function el<T extends HTMLElement>(id: string): T {
@@ -91,7 +91,7 @@ function gerarIdempotencyKey(): string {
 }
 
 /** Ultimo status do backend de visao conhecido (motor/modelos/carregados), para o diagnostico. */
-let infoOllama: api.InfoOllama | null = null;
+let infoVisao: api.InfoVisao | null = null;
 /** Tempo de carregamento do modelo na ultima inicializacao (ms). */
 let ultimaCargaMs = 0;
 /** Tempo da ultima gravacao no servidor (persistencia), em ms. */
@@ -115,9 +115,9 @@ function modeloDeDeteccaoAtivo(): string | null {
   return obterModo(motorSelect.value).usaDeteccao ? modelSelect.value : null;
 }
 
-/** Rotulo curto do backend de visao em uso (Ollama nativo ou API OpenAI/LM Studio). */
-function rotuloProvedor(): string {
-  return infoOllama?.provedor === "openai" ? "LM Studio" : "Ollama";
+/** Rotulo curto do backend de visao em uso (LM Studio). */
+function rotuloBackend(): string {
+  return "LM Studio";
 }
 
 /**
@@ -129,22 +129,22 @@ function atualizarDiagnostico(): void {
   const motor = running ? motorSelect.value : "parado";
   const definicao = obterModo(motorSelect.value);
   const deteccao = modeloDeDeteccaoAtivo();
-  const modeloVisao = infoOllama?.modelo ?? "?";
+  const modeloVisao = infoVisao?.modelo ?? "?";
   const modelo =
-    definicao.usaDeteccao && definicao.usaOllama
+    definicao.usaDeteccao && definicao.usaVisao
       ? `${deteccao} + ${modeloVisao}`
       : deteccao ?? modeloVisao;
-  const carregados = !infoOllama
+  const carregados = !infoVisao
     ? "?"
-    : infoOllama.online === false
+    : infoVisao.online === false
       ? "offline"
-      : infoOllama.carregados?.length
-        ? infoOllama.carregados.join(", ")
+      : infoVisao.carregados?.length
+        ? infoVisao.carregados.join(", ")
         : "nenhum";
 
-  const partes = [`motor ${motor}`, `backend ${rotuloProvedor()}`, `modelo ${modelo}`, `carregados: ${carregados}`];
-  if (infoOllama?.solicitado && infoOllama.solicitado !== infoOllama.modelo) {
-    partes.push(`fallback de ${infoOllama.solicitado}`);
+  const partes = [`motor ${motor}`, `backend ${rotuloBackend()}`, `modelo ${modelo}`, `carregados: ${carregados}`];
+  if (infoVisao?.solicitado && infoVisao.solicitado !== infoVisao.modelo) {
+    partes.push(`fallback de ${infoVisao.solicitado}`);
   }
   if (ultimaCargaMs > 0) partes.push(`carga ${(ultimaCargaMs / 1000).toFixed(1)}s`);
   if (ultimaDuracaoMs > 0) partes.push(`inferencia ${ultimaDuracaoMs} ms`);
@@ -395,14 +395,14 @@ async function persistirEntrada(entry: EntradaLog): Promise<void> {
   atualizarDiagnostico();
 }
 
-async function analisarComOllama(
+async function analisarComVisao(
   signal: AbortSignal,
   ehRoteiro: boolean,
   motivo?: MotivoAnalise | null,
-  capturaOllama?: { imagem: string; thumb: string; capturadoEm: string }
+  capturaVisao?: { imagem: string; thumb: string; capturadoEm: string }
 ): Promise<void> {
-  const capturadoEm = capturaOllama?.capturadoEm ?? new Date().toISOString();
-  const dataUrl = capturaOllama?.imagem ?? camera.capturarFrame(512);
+  const capturadoEm = capturaVisao?.capturadoEm ?? new Date().toISOString();
+  const dataUrl = capturaVisao?.imagem ?? camera.capturarFrame(512);
   if (dataUrl === null) return;
   const width = camera.largura;
   const height = camera.altura;
@@ -411,9 +411,9 @@ async function analisarComOllama(
   ctx.clearRect(0, 0, width, height);
 
   const base64 = dataUrl.split(",")[1] ?? "";
-  setStatus(`${rotuloProvedor()} analisando frame... (pode demorar)`);
+  setStatus(`${rotuloBackend()} analisando frame... (pode demorar)`);
 
-  const motor = new MotorOllama({
+  const motor = new MotorVisao({
     modo: ehRoteiro ? "roteiro" : "descricao",
     roteiro: ehRoteiro ? roteiroBeats.slice(-8).join(" ").slice(0, 1200) : undefined,
     base: ehRoteiro ? roteiroPrimeiro : undefined,
@@ -426,11 +426,11 @@ async function analisarComOllama(
     resultado = await motor.analisar(
       { imagem: base64, snapshot: dataUrl, capturadoEm },
       signal,
-      (parcial) => setStatus(`${rotuloProvedor()}: ${colapsarRepeticoes(parcial)}`)
+      (parcial) => setStatus(`${rotuloBackend()}: ${colapsarRepeticoes(parcial)}`)
     );
   } catch (err) {
     if (ehCancelamento(err) || signal.aborted) return;
-    registrarOperacional("erro", "ollama", (err as Error).message);
+    registrarOperacional("erro", "visao", (err as Error).message);
     setStatus((err as Error).message);
     return;
   }
@@ -460,10 +460,10 @@ async function analisarComOllama(
     const tokS =
       resultado.duracaoMs > 0 ? Math.round(tokens / (resultado.duracaoMs / 1000)) : 0;
     setStatus(
-      `${rotuloProvedor()} viu: ${resultado.descricao} (${resultado.duracaoMs} ms · ${tokens} toks · ${tokS} tok/s)`
+      `${rotuloBackend()} viu: ${resultado.descricao} (${resultado.duracaoMs} ms · ${tokens} toks · ${tokS} tok/s)`
     );
   } else {
-    setStatus(`${rotuloProvedor()} viu: ${resultado.descricao} (${resultado.duracaoMs} ms)`);
+    setStatus(`${rotuloBackend()} viu: ${resultado.descricao} (${resultado.duracaoMs} ms)`);
   }
 }
 
@@ -537,7 +537,7 @@ async function analisarDeteccao(signal: AbortSignal): Promise<void> {
 
 /**
  * Fluxo orientado a eventos (Fase 5): a percepcao leve roda a cada tick; o
- * Ollama so e chamado quando a politica decide que ha motivo (mudanca,
+ * modelo de visao so e chamado quando a politica decide que ha motivo (mudanca,
  * nova entidade, baixa confianca, resumo periodico, pedido manual ou falha
  * da percepcao — nunca tratada como ausencia de mudanca).
  */
@@ -566,7 +566,7 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
     if (ehCancelamento(err) || signal.aborted) return;
     registrarOperacional("erro", "detector", (err as Error).message);
     // Falha da percepcao leve = estado desconhecido. Nunca vira "sem mudanca":
-    // deixa o Ollama julgar, respeitando a janela de chamadas.
+    // deixa o modelo de visao julgar, respeitando a janela de chamadas.
     const decisao = politica.avaliar({
       agora,
       eventos: [],
@@ -581,9 +581,9 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
       const motivo: MotivoAnalise | undefined =
         decisao.motivo === "sem_acao" ? undefined : decisao.motivo;
       setStatus(
-        `Percepcao leve falhou; acionando Ollama por ${rotuloMotivo(motivo ?? "falha_percepcao")}...`
+        `Percepcao leve falhou; acionando o modelo de visao por ${rotuloMotivo(motivo ?? "falha_percepcao")}...`
       );
-      await analisarComOllama(signal, false, motivo, { imagem: captura.imagem, thumb: captura.thumb, capturadoEm });
+      await analisarComVisao(signal, false, motivo, { imagem: captura.imagem, thumb: captura.thumb, capturadoEm });
     } else {
       setStatus(`Percepcao leve falhou: ${(err as Error).message}`);
     }
@@ -633,10 +633,10 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
     politica.registrarChamada(agora);
     const motivo: MotivoAnalise | undefined =
       decisao.motivo === "sem_acao" ? undefined : decisao.motivo;
-    setStatus(`Ollama acionado: ${rotuloMotivo(motivo ?? "manual")}...`);
-    await analisarComOllama(signal, false, motivo, { imagem: captura.imagem, thumb: captura.thumb, capturadoEm });
+    setStatus(`Modelo de visao acionado: ${rotuloMotivo(motivo ?? "manual")}...`);
+    await analisarComVisao(signal, false, motivo, { imagem: captura.imagem, thumb: captura.thumb, capturadoEm });
     if (signal.aborted) return;
-    // O Ollama limpa o canvas; desenha as caixas de novo por cima.
+    // O modelo de visao limpa o canvas; desenha as caixas de novo por cima.
     drawBoxes(quadro.objetos);
     return;
   }
@@ -656,8 +656,8 @@ async function analisar(): Promise<void> {
   setSpinner(true);
   try {
     const modo = motorSelect.value;
-    if (modo === "ollama" || modo === "roteiro") {
-      await analisarComOllama(signal, modo === "roteiro");
+    if (modo === "visao" || modo === "roteiro") {
+      await analisarComVisao(signal, modo === "roteiro");
       return;
     }
     if (modo === "eventos") {
@@ -745,8 +745,8 @@ async function start(): Promise<void> {
     stopBtn.disabled = false;
     atualizarBotoesAnalise();
     atualizarDiagnostico();
-    // Atualiza o "carregado" do Ollama agora que o modelo pode ter subido.
-    void verificarOllama();
+    // Atualiza o "carregado" do modelo de visao agora que ele pode ter subido.
+    void verificarVisao();
     await agendador.iniciar();
   } catch (err) {
     registrarOperacional("erro", "inicializacao", (err as Error).message);
@@ -790,22 +790,22 @@ function stop(): void {
   setStatus("Parado.");
 }
 
-async function verificarOllama(): Promise<void> {
+async function verificarVisao(): Promise<void> {
   try {
-    const o = await api.saudeOllama();
-    infoOllama = o;
+    const o = await api.saudeVisao();
+    infoVisao = o;
     if (o?.online) {
       const memoria = o.carregados?.length ? ` · em memoria: ${o.carregados.join(", ")}` : "";
-      modeloStatusEl.textContent = `${rotuloProvedor()}: online${o.modelos.length ? " (" + o.modelos.join(", ") + ")" : ""}${memoria}`;
+      modeloStatusEl.textContent = `${rotuloBackend()}: online${o.modelos.length ? " (" + o.modelos.join(", ") + ")" : ""}${memoria}`;
       modeloStatusEl.className = "health online";
-      modeloStatusEl.title = (o.modelos.join("\n") || `${rotuloProvedor()} acessivel`) + (memoria ? `\n${memoria}` : "");
+      modeloStatusEl.title = (o.modelos.join("\n") || `${rotuloBackend()} acessivel`) + (memoria ? `\n${memoria}` : "");
     } else {
-      modeloStatusEl.textContent = `${rotuloProvedor()}: offline${o?.erro ? " — " + o.erro : ""}`;
+      modeloStatusEl.textContent = `${rotuloBackend()}: offline${o?.erro ? " — " + o.erro : ""}`;
       modeloStatusEl.className = "health offline";
-      modeloStatusEl.title = o?.erro ?? `${rotuloProvedor()} inacessivel`;
+      modeloStatusEl.title = o?.erro ?? `${rotuloBackend()} inacessivel`;
     }
   } catch {
-    infoOllama = null;
+    infoVisao = null;
     modeloStatusEl.textContent = "Backend de visao: servidor indisponivel";
     modeloStatusEl.className = "health offline";
     modeloStatusEl.title = "Servidor indisponivel";
@@ -878,7 +878,7 @@ atualizarContagem();
 atualizarDiagnostico();
 void carregarHistorico();
 void carregarContexto();
-void verificarOllama();
+void verificarVisao();
 
 
 

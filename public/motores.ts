@@ -48,7 +48,7 @@ export class MotorDeteccao implements MotorPercepcao {
   }
 }
 
-export interface OpcoesMotorOllama {
+export interface OpcoesMotorVisao {
   modo: "roteiro" | "descricao";
   /** Roteiro acumulado (modo roteiro). */
   roteiro?: string;
@@ -61,16 +61,16 @@ export interface OpcoesMotorOllama {
 }
 
 /** Motor de descricao/roteiro via backend de visao, atras da interface comum. */
-export class MotorOllama implements MotorPercepcao {
+export class MotorVisao implements MotorPercepcao {
   readonly id: string;
 
-  constructor(private readonly opcoes: OpcoesMotorOllama) {
-    this.id = opcoes.modo === "roteiro" ? "roteiro" : "ollama";
+  constructor(private readonly opcoes: OpcoesMotorVisao) {
+    this.id = opcoes.modo === "roteiro" ? "roteiro" : "visao";
   }
 
   async inicializar(aoStatus: (mensagem: string) => void = () => {}): Promise<void> {
     aoStatus("Carregando modelo de visao na memoria (pode demorar)...");
-    const dados = await api.prepararOllama();
+    const dados = await api.prepararVisao();
     if (dados.carregado !== true) {
       throw new Error("modelo nao confirmado em memoria; verifique o servidor de visao.");
     }
@@ -99,7 +99,7 @@ export class MotorOllama implements MotorPercepcao {
     const { evento, parcial } = await api.descreverFrame(payload, sinal, aoProgresso);
     const descricao = evento?.descricao ?? parcial;
     return {
-      modelo: evento?.modelo ?? "ollama",
+      modelo: evento?.modelo ?? "visao",
       duracaoMs: Math.round(performance.now() - inicio),
       objetos: [],
       descricao,
