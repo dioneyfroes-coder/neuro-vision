@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { agregarVisoes, inferenciasPorMinuto, montarAmbiente } from "../../scripts/benchmark.mjs";
+import { agregarVisoes, inferenciasPorMinuto, montarAmbiente, segundosDeGeracao } from "../../scripts/benchmark.mjs";
+
+describe("segundosDeGeracao", () => {
+  it("mede do primeiro token gerado ate o fim", () => {
+    expect(segundosDeGeracao({ primeiroDeltaMs: 1000, primeiroMs: 1200, totalMs: 3000 })).toBe(2);
+  });
+
+  it("cai para o tempo total quando tudo chega no ultimo chunk", () => {
+    // delta < 20 ms nao separa prefill de geracao: usa o total
+    expect(segundosDeGeracao({ primeiroDeltaMs: 2999, primeiroMs: 3000, totalMs: 3000 })).toBe(3);
+  });
+
+  it("usa o primeiro conteudo quando nao ha primeiro delta", () => {
+    expect(segundosDeGeracao({ primeiroMs: 500, totalMs: 2500 })).toBe(2);
+  });
+});
 
 describe("inferenciasPorMinuto", () => {
   it("respeita o intervalo minimo quando ele domina", () => {
@@ -31,6 +46,16 @@ describe("agregarVisoes", () => {
     ]);
     expect(r.geracaoTokS).toBe(12);
     expect(r.imagens).toBe(1);
+  });
+
+  it("soma tentativas e respostas com conteudo entre as imagens", () => {
+    const r = agregarVisoes([
+      { semResposta: true, geracaoTokS: 0, tentativas: 3, comConteudo: 0 },
+      { geracaoTokS: 10, tentativas: 3, comConteudo: 1 },
+    ]);
+    expect(r.imagens).toBe(1);
+    expect(r.tentativas).toBe(6);
+    expect(r.comConteudo).toBe(1);
   });
 
   it("lida com lista vazia", () => {
