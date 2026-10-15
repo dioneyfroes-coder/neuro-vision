@@ -285,14 +285,14 @@ O detector de cena usa uma assinatura muito pequena — grade padrão de 4 × 4 
 
 ### Passo a passo
 
-- [ ] Manter os testes sintéticos rápidos na CI, mas não usá-los como única validação de qualidade.
+- [x] Manter os testes sintéticos rápidos na CI, mas não usá-los como única validação de qualidade.
 - [ ] Montar um conjunto de vídeos curtos anotados com: cena estática, pessoa entrando e saindo, pessoa parada, movimento, cruzamento de duas pessoas, oclusão parcial, objeto momentaneamente não detectado e alteração de iluminação sem mudança semântica.
 - [ ] Garantir que cada anotação especifique a duração do clipe, o tipo do evento esperado e seu instante aproximado.
 - [ ] Medir e acompanhar precisão, recall, mudanças perdidas, falsos positivos por minuto e atraso de detecção.
 - [ ] Alterar um limiar por vez e registrar o resultado no mesmo conjunto de vídeos. Não ajustar parâmetros e trocar de dataset simultaneamente.
-- [ ] Comparar aparição confirmada em um quadro com confirmação em observações consecutivas. Escolher o padrão com base no equilíbrio entre falsos positivos e atraso.
-- [ ] Testar a assinatura de cena sob variações de iluminação e cenas estáticas. Experimentar grades maiores (por exemplo, 8 × 8) ou normalização de luminância como hipóteses a medir — não presumir que a grade maior é automaticamente melhor.
-- [ ] Testar associação com ruído de caixas e ordem das detecções alterada.
+- [x] Comparar aparição confirmada em um quadro com confirmação em observações consecutivas. Escolher o padrão com base no equilíbrio entre falsos positivos e atraso. (padrão escolhido: 2 frames consecutivos — Fase 7a)
+- [x] Testar a assinatura de cena sob variações de iluminação e cenas estáticas. Experimentar grades maiores (por exemplo, 8 × 8) ou normalização de luminância como hipóteses a medir — não presumir que a grade maior é automaticamente melhor. (grade 4→8 e limiar 0.25→0.20 — Fase 7b; validação com vídeo real pendente)
+- [x] Testar associação com ruído de caixas e ordem das detecções alterada. (testes de jitter de caixa, ordem invertida e sobreposição em tests/rastreamento.test.ts; iluminação global vs mudança real em tests/cena.test.ts)
 - [ ] Atualizar `bench/BASELINE.md` somente com medições reproduzíveis, descrevendo modelo, configuração, máquina e clipes usados.
 
 ### Comandos documentados para o conjunto de vídeos
@@ -371,14 +371,14 @@ O detector já tenta WASM quando o carregamento do pipeline WebGPU falha. Porém
 
 Para evitar abrir muitas frentes ao mesmo tempo, implemente nesta ordem:
 
-1. [ ] Fase 0 — linha de base.
-2. [ ] Fase 1 — semântica e medição do agendador.
-3. [ ] Fase 2 — mesma captura até o Ollama.
-4. [ ] Fase 3 — expiração, confirmação e associação temporal.
-5. [ ] Fase 4 — IDs por sessão.
-6. [ ] Fase 5 — cooldown e limpeza de estado.
-7. [ ] Fase 6 — persistência HTTP, fila e deduplicação de snapshots.
-8. [ ] Fase 7 — validação com vídeos anotados.
+1. [x] Fase 0 — linha de base.
+2. [x] Fase 1 — semântica e medição do agendador.
+3. [x] Fase 2 — mesma captura até o Ollama.
+4. [x] Fase 3 — expiração, confirmação e associação temporal.
+5. [x] Fase 4 — IDs por sessão.
+6. [x] Fase 5 — cooldown e limpeza de estado.
+7. [~] Fase 6 — persistência HTTP, fila e deduplicação de snapshots. (parcial: 6A concluído; 6B deduplicação por hash concluída, referência de arquivo pendente; 6C idempotencyKey adicionada, fila pendente)
+8. [~] Fase 7 — validação com vídeos anotados. (parcial: confirmação 2 frames, grade 8x8, testes de ruído/ordem/iluminação concluídos; validação com vídeos reais pendente)
 9. [ ] Fase 8 — fallback de inferência WebGPU, se confirmado necessário.
 10. [ ] Fase 9 — regressão completa e documentação.
 

@@ -213,4 +213,51 @@ describe("RastreadorObjetos", () => {
     expect(f3.objetos).toHaveLength(1);
     expect(f3.objetos[0].id).toBe("obj-1");
   });
+
+  it("ruído pequeno nas caixas não quebra a identidade nem gera eventos extras", () => {
+    const r = new RastreadorObjetos();
+    r.processar([pessoa(0, 0)], 1000);
+    // jitter de ~5px em todas as bordas, bem abaixo do limiar de movimento
+    const ruidoso = det(
+      "person",
+      { xmin: 4, ymin: 6, xmax: 103, ymax: 97 },
+      0.88,
+      "pessoa"
+    );
+    const f2 = r.processar([ruidoso], 1100);
+    const id = f2.objetos[0].id;
+    const f3 = r.processar([pessoa(0, 0)], 1200);
+    expect(f3.objetos).toHaveLength(1);
+    expect(f3.objetos[0].id).toBe(id);
+    expect(f3.eventos.filter((e) => e.tipo !== "aparicao")).toEqual([]);
+  });
+
+  it("ordem invertida das deteccoes mantém a associação correta", () => {
+    const r = new RastreadorObjetos({ movimentoMinimoRelativo: 0.5 });
+    r.processar([pessoa(0, 0), pessoa(300, 300)], 1000);
+    const f1 = r.processar([pessoa(0, 0), pessoa(300, 300)], 1100);
+    const ids = f1.objetos.map((o) => o.id);
+    // ordem invertida: pessoa da direita vem primeiro
+    const f2 = r.processar([pessoa(300, 300), pessoa(0, 0)], 1200);
+    expect(f2.objetos).toHaveLength(2);
+    expect(f2.objetos.map((o) => o.id).sort()).toEqual([...ids].sort());
+    // sem movimento: nenhum evento de movimento
+    expect(f2.eventos.filter((e) => e.tipo === "movimento")).toEqual([]);
+  });
+
+  it("associação é por maior sobreposicao, não por ordem de chegada", () => {
+    const r = new RastreadorObjetos({ movimentoMinimoRelativo: 0.5 });
+    r.processar([pessoa(0, 0)], 1000);
+    r.processar([pessoa(0, 0)], 1100);
+    const id = r.rastreados[0].id;
+    // objeto novo à direita aparece ANTES da pessoa existente na lista
+    const outra = det("person", { xmin: 400, ymin: 0, xmax: 500, ymax: 100 }, 0.9, "outra");
+    const f2 = r.processar([outra, pessoa(0, 0)], 1200);
+    expect(f2.objetos).toHaveLength(2);
+    expect(f2.objetos.find((o) => o.caixa.xmin === 0)?.id).toBe(id);
+    // nova aparece com confirmacao de 2 frames; no primeiro frame ainda nao emite
+    expect(f2.eventos.filter((e) => e.tipo === "aparicao")).toEqual([]);
+    const f3 = r.processar([outra, pessoa(0, 0)], 1300);
+    expect(f3.eventos.filter((e) => e.tipo === "aparicao")).toHaveLength(1);
+  });
 });

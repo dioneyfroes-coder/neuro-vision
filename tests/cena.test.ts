@@ -74,4 +74,25 @@ describe("DetectorMudancaDeCena", () => {
     expect(CONFIG_MUDANCA_DE_CENA_PADRAO.limiarDiferenca).toBeGreaterThan(0);
     expect(CONFIG_MUDANCA_DE_CENA_PADRAO.intervaloMinimoMs).toBeGreaterThan(0);
   });
+
+  it("gradual de iluminacao global (grade 8x8) nao sinaliza mudanca", () => {
+    // simulacao de uma cena estatica em grade 8x8 (64 celulas) com nivel medio ~120
+    const cena = Array.from({ length: 64 }, (_, i) => 100 + (i % 7) * 6);
+    // lâmpada ligada: +25 em todas as celulas (~10% de luminancia relativa)
+    const iluminada = cena.map((v) => Math.min(255, v + 25));
+    const d = new DetectorMudancaDeCena(); // padrao: limiar 0.2
+    d.avaliar(cena, 1000);
+    expect(d.avaliar(iluminada, 2000)).toBeNull();
+  });
+
+  it("mudanca semantica real (grade 8x8) sinaliza", () => {
+    const cena = Array.from({ length: 64 }, () => 60);
+    // metade da cena passa a ser clara: diferenca media ~ (0.5*195)/255 ≈ 0.38
+    const trocada = cena.map((v, i) => (i % 2 === 0 ? v + 195 : v));
+    const d = new DetectorMudancaDeCena();
+    d.avaliar(cena, 1000);
+    const evento = d.avaliar(trocada, 2000);
+    expect(evento?.tipo).toBe("mudanca_de_cena");
+    expect(evento?.confianca).toBeGreaterThan(0.2);
+  });
 });
