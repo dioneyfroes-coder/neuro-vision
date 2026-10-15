@@ -8,7 +8,6 @@ import {
   urlEmMemoria,
   urlModelos,
   type Backend,
-  type ProvedorId,
 } from "./provedor";
 
 export { extrairBase64 } from "./provedor";
@@ -18,18 +17,15 @@ export type ModoAnalise = "descricao" | "roteiro";
 export interface OpcoesGerarDescricao {
   modelo?: string;
   prompt?: string;
-  host?: string;
+  /** URL base do backend (sobrepoe `NEURO_BASE_URL`). */
+  baseUrl?: string;
   timeoutMs?: number;
   modo?: ModoAnalise;
   roteiro?: string;
   base?: boolean;
-  /** Cancela o fetch do Ollama (ex.: cliente desconectou do stream). */
+  /** Cancela o fetch do backend de visao (ex.: cliente desconectou do stream). */
   signal?: AbortSignal;
-  /** Protocolo do backend (`ollama` nativo ou `openai`/LM Studio). */
-  provedor?: ProvedorId | "auto";
-  /** URL base do backend (sobrepoe `OLLAMA_HOST`/`NEURO_BASE_URL`). */
-  baseUrl?: string;
-  /** Chave enviada como `Authorization: Bearer` no protocolo OpenAI. */
+  /** Chave enviada como `Authorization: Bearer` no backend. */
   apiKey?: string;
 }
 
@@ -80,8 +76,8 @@ export function montarPromptRoteiro(base: boolean, _roteiro?: string): string {
 
 /**
  * Modelo de visao padrao (configuracao global). Pode ser trocado por
- * `NEURO_MODEL` (ou `OLLAMA_MODEL`); se o modelo resultante nao estiver
- * instalado no backend, `escolherModelo` cai para o melhor disponivel.
+ * `NEURO_MODEL`; se o modelo resultante nao estiver instalado no backend,
+ * `escolherModelo` cai para o melhor disponivel.
  */
 export const MODELO_PADRAO = "qwen2.5-vl-3b-instruct";
 
@@ -91,82 +87,64 @@ export const MODELO_PADRAO = "qwen2.5-vl-3b-instruct";
  * instalado vence. Modelos capazes vem primeiro.
  */
 export const PREFERENCIA_MODELOS = [
-  "llama-3.2-11b",
+  "qwen2.5-vl",
+  "qwen2.5vl",
+  "qwen3-vl",
+  "qwen2-vl",
   "llama-3.2-vision",
   "llama3.2-vision",
-  "llama3.2",
-  "qwen2.5vl",
-  "qwen2.5-vl",
-  "qwen2-vl",
+  "llama-3.2-11b",
   "minicpm-v",
+  "gemma-4",
+  "gemma4",
   "gemma3",
   "llava",
   "bakllava",
-  "qwen3-vl",
 ];
 
 export const MODELO_TRADUCAO_PADRAO = "";
 export const TRADUZIR_HABILITADO_PADRAO = false;
 
-export class ErroOllama extends Error {
+export class ErroVisao extends Error {
   constructor(mensagem: string) {
     super(mensagem);
-    this.name = "ErroOllama";
+    this.name = "ErroVisao";
   }
 }
 
-/** Resolve o backend (protocolo + URL base + chave) a partir das opcoes. */
-function backendDe(opcoes: OpcoesOllama | OpcoesGerarDescricao): Backend {
+/** Resolve o backend (URL base + chave) a partir das opcoes. */
+function backendDe(opcoes: OpcoesVisao | OpcoesGerarDescricao): Backend {
   return resolverBackend({
-    provedor: opcoes.provedor,
-    baseUrl: opcoes.host ?? opcoes.baseUrl,
+    baseUrl: opcoes.baseUrl,
     apiKey: opcoes.apiKey,
   });
 }
 
-export interface OpcoesOllama {
+export interface OpcoesVisao {
   modelo?: string;
-  host?: string;
-  timeoutMs?: number;
-  provedor?: ProvedorId | "auto";
+  /** URL base do backend (sobrepoe `NEURO_BASE_URL`). */
   baseUrl?: string;
+  timeoutMs?: number;
   apiKey?: string;
 }
 
 function modeloConfigurado(): string {
-  const m = env.NEURO_MODEL !== "" ? env.NEURO_MODEL : env.OLLAMA_MODEL;
-  return m !== "" ? m : MODELO_PADRAO;
+  return env.NEURO_MODEL !== "" ? env.NEURO_MODEL : MODELO_PADRAO;
 }
 
-function resolverModelo(opcoes: OpcoesOllama): string {
+function resolverModelo(opcoes: OpcoesVisao): string {
   return opcoes.modelo ?? modeloConfigurado();
 }
 
-/**
- * Normaliza o nome de um modelo do Ollama preservando a tag.
- *
- * Retirar a tag confundiria modelos diferentes com o mesmo nome base
- * (por exemplo `qwen2.5vl:3b` e `qwen2.5vl:7b`). O unico alias tratado
- * explicitamente e a ausencia de tag, que a API do Ollama interpreta como
- * `latest`.
- */
+/** Normaliza o nome de um modelo (remove espacos nas pontas). */
 export function normalizarNomeModelo(nome: string): string {
-  const texto = nome.trim();
-  if (!texto) return "";
-  const idx = texto.lastIndexOf(":");
-  const sufixo = idx === -1 ? "" : texto.slice(idx + 1);
-  // Um sufixo vazio ou com "/" nao e uma tag (pode ser uma porta de registry),
-  // entao o nome e tratado como sem tag.
-  if (idx === -1 || sufixo.length === 0 || sufixo.includes("/")) {
-    return `${texto}:latest`;
-  }
-  return texto;
+  return nome.trim();
 }
 
-/** Compara a identidade completa de dois modelos, preservando a tag. */
+/** Compara a identidade de dois modelos, ignorando caixa e espacos. */
 export function mesmoModelo(a: string, b: string): boolean {
-  const na = normalizarNomeModelo(a);
-  const nb = normalizarNomeModelo(b);
+  const na = normalizarNomeModelo(a).toLowerCase();
+  const nb = normalizarNomeModelo(b).toLowerCase();
   return na.length > 0 && na === nb;
 }
 
@@ -187,7 +165,7 @@ export function melhorModeloDisponivel(instalados: string[]): string {
 }
 
 /** Lista os modelos instalados/baixados no backend. */
-export async function modelosInstalados(opcoes: OpcoesOllama = {}): Promise<string[]> {
+export async function modelosInstalados(opcoes: OpcoesVisao = {}): Promise<string[]> {
   const backend = backendDe(opcoes);
   try {
     const resposta = await fetch(urlModelos(backend), {
@@ -196,13 +174,10 @@ export async function modelosInstalados(opcoes: OpcoesOllama = {}): Promise<stri
     });
     if (!resposta.ok) return [];
     const dados = (await resposta.json()) as {
-      models?: { name?: string; model?: string }[];
       data?: { id?: string }[];
+      models?: { id?: string }[];
     };
-    const nomes =
-      backend.id === "openai"
-        ? (dados.data ?? []).map((m) => m.id ?? "")
-        : (dados.models ?? []).map((m) => m.name ?? m.model ?? "");
+    const nomes = (dados.data ?? dados.models ?? []).map((m) => m.id ?? "");
     return nomes.filter((n) => n.length > 0);
   } catch {
     return [];
@@ -210,7 +185,7 @@ export async function modelosInstalados(opcoes: OpcoesOllama = {}): Promise<stri
 }
 
 export interface ModeloEscolhido {
-  /** Modelo configurado (`OLLAMA_MODEL` ou `MODELO_PADRAO`). */
+  /** Modelo configurado (`NEURO_MODEL` ou `MODELO_PADRAO`). */
   solicitado: string;
   /** Modelo efetivamente usado (pode ser o melhor disponivel). */
   modelo: string;
@@ -231,12 +206,12 @@ export function limparCacheModelo(): void {
  * (e o backend responder com a lista), escolhe o melhor disponivel. Um modelo
  * passado explicitamente em `opcoes.modelo` e sempre respeitado, sem fallback.
  */
-export async function escolherModelo(opcoes: OpcoesOllama = {}): Promise<ModeloEscolhido> {
+export async function escolherModelo(opcoes: OpcoesVisao = {}): Promise<ModeloEscolhido> {
   const solicitado = resolverModelo(opcoes);
   if (opcoes.modelo) return { solicitado, modelo: solicitado, alternativo: false };
 
   const backend = backendDe(opcoes);
-  const chave = `${backend.id}|${backend.baseUrl}|${solicitado}`;
+  const chave = `${backend.baseUrl}|${solicitado}`;
   const agora = Date.now();
   if (cacheModelo && cacheModelo.chave === chave && cacheModelo.expira > agora) {
     return cacheModelo.valor;
@@ -254,11 +229,9 @@ export async function escolherModelo(opcoes: OpcoesOllama = {}): Promise<ModeloE
 
 export interface OpcoesTraduzir {
   texto: string;
-  host?: string;
+  baseUrl?: string;
   timeoutMs?: number;
   modelo?: string;
-  provedor?: ProvedorId | "auto";
-  baseUrl?: string;
   apiKey?: string;
 }
 
@@ -270,8 +243,7 @@ export interface OpcoesTraduzir {
  */
 export async function traduzirTexto(opcoes: OpcoesTraduzir): Promise<string> {
   const backend = backendDe(opcoes);
-  const modeloTraduzir =
-    env.NEURO_TRANSLATE_MODEL !== "" ? env.NEURO_TRANSLATE_MODEL : env.OLLAMA_TRANSLATE_MODEL;
+  const modeloTraduzir = env.NEURO_TRANSLATE_MODEL;
   const modelo = opcoes.modelo || (modeloTraduzir !== "" ? modeloTraduzir : resolverModelo(opcoes));
   const texto = opcoes.texto.trim();
   if (!texto) return texto;
@@ -287,7 +259,7 @@ export async function traduzirTexto(opcoes: OpcoesTraduzir): Promise<string> {
     prompt,
     stream: false,
     numPredict: 256,
-    opcoesOllama: { temperature: 0, top_p: 0.9 },
+    amostragem: { temperature: 0, top_p: 0.9 },
   });
 
   try {
@@ -299,7 +271,7 @@ export async function traduzirTexto(opcoes: OpcoesTraduzir): Promise<string> {
     });
     if (!resposta.ok) return texto;
     const dados = await resposta.json();
-    const traduzido = (interpretarChat(backend, dados).texto ?? "").trim();
+    const traduzido = (interpretarChat(dados).texto ?? "").trim();
     return traduzido.length > 0 ? traduzido : texto;
   } catch {
     return texto;
@@ -307,7 +279,7 @@ export async function traduzirTexto(opcoes: OpcoesTraduzir): Promise<string> {
 }
 
 function traducaoHabilitada(): boolean {
-  return env.NEURO_TRANSLATE_ENABLED || env.OLLAMA_TRANSLATE_ENABLED || TRADUZIR_HABILITADO_PADRAO;
+  return env.NEURO_TRANSLATE_ENABLED || TRADUZIR_HABILITADO_PADRAO;
 }
 
 export function deveTraduzir(texto: string, habilitado?: boolean): boolean {
@@ -319,10 +291,9 @@ export function deveTraduzir(texto: string, habilitado?: boolean): boolean {
   return padroesIngles.test(` ${lower} `);
 }
 
-export async function modelosEmMemoria(opcoes: OpcoesOllama = {}): Promise<string[]> {
+export async function modelosEmMemoria(opcoes: OpcoesVisao = {}): Promise<string[]> {
   const backend = backendDe(opcoes);
   const url = urlEmMemoria(backend);
-  if (!url) return [];
   try {
     const resposta = await fetch(url, {
       headers: cabecalhos(backend),
@@ -330,25 +301,20 @@ export async function modelosEmMemoria(opcoes: OpcoesOllama = {}): Promise<strin
     });
     if (!resposta.ok) return [];
     const dados = (await resposta.json()) as {
-      models?: { name?: string; model?: string; state?: string }[];
       data?: { id?: string; state?: string }[];
+      models?: { id?: string; state?: string }[];
     };
-    if (backend.id === "openai") {
-      // LM Studio (REST v0): so considera "em memoria" os `state: loaded`.
-      return (dados.data ?? [])
-        .filter((m) => m.state === undefined || m.state === "loaded")
-        .map((m) => m.id ?? "")
-        .filter((n) => n.length > 0);
-    }
-    return (dados.models ?? [])
-      .map((m) => m.name ?? m.model ?? "")
+    // LM Studio (REST v0): so considera "em memoria" os `state: loaded`.
+    return (dados.data ?? dados.models ?? [])
+      .filter((m) => m.state === undefined || m.state === "loaded")
+      .map((m) => m.id ?? "")
       .filter((n) => n.length > 0);
   } catch {
     return [];
   }
 }
 
-export async function modeloEmMemoria(opcoes: OpcoesOllama = {}): Promise<boolean> {
+export async function modeloEmMemoria(opcoes: OpcoesVisao = {}): Promise<boolean> {
   const modelo = resolverModelo(opcoes);
   if (!normalizarNomeModelo(modelo)) return false;
   const memoria = await modelosEmMemoria(opcoes);
@@ -356,15 +322,14 @@ export async function modeloEmMemoria(opcoes: OpcoesOllama = {}): Promise<boolea
 }
 
 /**
- * Indica se o backend permite consultar o que esta em memoria. O Ollama expoe
- * `/api/ps`; no protocolo OpenAI tentamos o REST v0 do LM Studio
- * (`/api/v0/models`), que pode nao existir em outras implementacoes. Quando nao
- * ha como confirmar, tratamos a carga bem-sucedida como suficiente.
+ * Indica se o backend permite consultar o que esta em memoria. Tentamos o REST
+ * v0 do LM Studio (`/api/v0/models`), que pode nao existir em outras
+ * implementacoes. Quando nao ha como confirmar, tratamos a carga bem-sucedida
+ * como suficiente.
  */
-export async function memoriaIntrospectavel(opcoes: OpcoesOllama = {}): Promise<boolean> {
+export async function memoriaIntrospectavel(opcoes: OpcoesVisao = {}): Promise<boolean> {
   const backend = backendDe(opcoes);
   const url = urlEmMemoria(backend);
-  if (!url) return false;
   try {
     const resposta = await fetch(url, {
       headers: cabecalhos(backend),
@@ -376,7 +341,7 @@ export async function memoriaIntrospectavel(opcoes: OpcoesOllama = {}): Promise<
   }
 }
 
-export async function forcarCarregamento(opcoes: OpcoesOllama = {}): Promise<number> {
+export async function forcarCarregamento(opcoes: OpcoesVisao = {}): Promise<number> {
   const backend = backendDe(opcoes);
   const modelo = resolverModelo(opcoes);
   const timeoutMs = opcoes.timeoutMs ?? 180_000;
@@ -389,7 +354,7 @@ export async function forcarCarregamento(opcoes: OpcoesOllama = {}): Promise<num
     prompt: "oi",
     stream: false,
     numPredict: 1,
-    opcoesOllama: { temperature: 0 },
+    amostragem: { temperature: 0 },
   });
   const resposta = await fetch(requisicao.url, {
     method: "POST",
@@ -399,7 +364,7 @@ export async function forcarCarregamento(opcoes: OpcoesOllama = {}): Promise<num
   });
   if (!resposta.ok) {
     const texto = await resposta.text().catch(() => "");
-    throw new ErroOllama(`resposta HTTP ${resposta.status}: ${texto.slice(0, 300)}`);
+    throw new ErroVisao(`resposta HTTP ${resposta.status}: ${texto.slice(0, 300)}`);
   }
   await resposta.json().catch(() => null);
 
@@ -442,32 +407,25 @@ function montarCorpo(
     imagem,
     stream,
     numPredict,
-    opcoesOllama: {
+    amostragem: {
       temperature: 0.2,
-      repeat_penalty: 1.3,
-      repeat_last_n: 128,
       top_p: 0.9,
     },
   });
   return { modelo, backend, requisicao };
 }
 
-function lancarSeVazioSemResposta(
-  vistoPensamento: boolean,
-  modelo: string,
-  backend: Backend
-): never {
+function lancarSeVazioSemResposta(vistoPensamento: boolean, modelo: string): never {
   if (vistoPensamento) {
-    throw new ErroOllama(
+    throw new ErroVisao(
       `o modelo ${modelo} derivou/raciocinou sem produzir resposta (o backend ignorou o desligamento do "thinking"). ` +
-        "Use um modelo de visao nao-pensante (ex.: llama-3.2-vision ou qwen2.5vl)."
+        "Use um modelo de visao nao-pensante (ex.: qwen2.5-vl)."
     );
   }
-  const dica =
-    backend.id === "openai"
-      ? "Verifique se o modelo carregado no LM Studio aceita imagens (e o `max_tokens`)."
-      : "Verifique think/num_predict e se o modelo suporta visao.";
-  throw new ErroOllama(`o modelo ${modelo} nao retornou nenhum token de texto. ${dica}`);
+  throw new ErroVisao(
+    `o modelo ${modelo} nao retornou nenhum token de texto. ` +
+      "Verifique se o modelo carregado no LM Studio aceita imagens (e o `max_tokens`)."
+  );
 }
 
 export async function gerarDescricao(
@@ -475,7 +433,7 @@ export async function gerarDescricao(
   opcoes: OpcoesGerarDescricao = {}
 ): Promise<ResultadoDescricao> {
   const timeoutMs = opcoes.timeoutMs ?? 90_000;
-  const { modelo, backend, requisicao } = montarCorpo(imagem, opcoes, false);
+  const { modelo, requisicao } = montarCorpo(imagem, opcoes, false);
 
   const inicio = performance.now();
   const resposta = await fetch(requisicao.url, {
@@ -487,14 +445,14 @@ export async function gerarDescricao(
 
   if (!resposta.ok) {
     const texto = await resposta.text().catch(() => "");
-    throw new ErroOllama(`resposta HTTP ${resposta.status}: ${texto.slice(0, 300)}`);
+    throw new ErroVisao(`resposta HTTP ${resposta.status}: ${texto.slice(0, 300)}`);
   }
 
   const dados = await resposta.json();
-  const evt = interpretarChat(backend, dados);
-  if (evt.erro) throw new ErroOllama(evt.erro);
+  const evt = interpretarChat(dados);
+  if (evt.erro) throw new ErroVisao(evt.erro);
   const texto = evt.texto ?? "";
-  if (!texto) lancarSeVazioSemResposta(Boolean(evt.pensou), modelo, backend);
+  if (!texto) lancarSeVazioSemResposta(Boolean(evt.pensou), modelo);
   const duracaoMs = evt.duracaoMs ?? Math.round(performance.now() - inicio);
 
   return {
@@ -516,7 +474,7 @@ export async function* gerarDescricaoStream(
   opcoes: OpcoesGerarDescricao = {}
 ): AsyncGenerator<string, ResumoDescricao, void> {
   const timeoutMs = opcoes.timeoutMs ?? 90_000;
-  const { modelo, backend, requisicao } = montarCorpo(imagem, opcoes, true);
+  const { modelo, requisicao } = montarCorpo(imagem, opcoes, true);
 
   const inicio = performance.now();
   const sinais: AbortSignal[] = [AbortSignal.timeout(timeoutMs)];
@@ -530,10 +488,10 @@ export async function* gerarDescricaoStream(
 
   if (!resposta.ok) {
     const texto = await resposta.text().catch(() => "");
-    throw new ErroOllama(`resposta HTTP ${resposta.status}: ${texto.slice(0, 300)}`);
+    throw new ErroVisao(`resposta HTTP ${resposta.status}: ${texto.slice(0, 300)}`);
   }
   if (!resposta.body) {
-    throw new Error(`${backend.id} nao retornou corpo de streaming`);
+    throw new Error("o backend de visao nao retornou corpo de streaming");
   }
 
   const reader = resposta.body.getReader();
@@ -554,9 +512,9 @@ export async function* gerarDescricaoStream(
       while ((idx = buffer.indexOf("\n")) >= 0) {
         const linha = buffer.slice(0, idx);
         buffer = buffer.slice(idx + 1);
-        const evt = interpretarLinha(backend, linha);
+        const evt = interpretarLinha(linha);
         if (!evt) continue;
-        if (evt.erro) throw new ErroOllama(evt.erro);
+        if (evt.erro) throw new ErroVisao(evt.erro);
         if (evt.modelo) modeloFinal = evt.modelo;
         if (evt.texto) {
           emitiuTexto = true;
@@ -573,6 +531,6 @@ export async function* gerarDescricaoStream(
     reader.releaseLock();
   }
 
-  if (!emitiuTexto) lancarSeVazioSemResposta(pensou, modeloFinal, backend);
+  if (!emitiuTexto) lancarSeVazioSemResposta(pensou, modeloFinal);
   return { modelo: modeloFinal, tokens, duracaoMs };
 }

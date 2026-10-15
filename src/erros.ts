@@ -1,5 +1,5 @@
 /** Origem categorizada de um erro, para tratarmos cada falha pelo seu tipo. */
-export type OrigemErro = "camera" | "detector" | "ollama" | "armazenamento" | "cancelamento";
+export type OrigemErro = "camera" | "detector" | "visao" | "armazenamento" | "cancelamento";
 
 /**
  * Erro de percepcao com a origem explicita. Evita que o restante do codigo

@@ -99,46 +99,25 @@ export const env = {
     return str("NEURO_ALLOWED_ORIGINS", "");
   },
 
-  // Backend de visao
-  get NEURO_PROVIDER(): string {
-    return str("NEURO_PROVIDER", "");
-  },
+  // Backend de visao (LM Studio; ver `src/provedor.ts` e `src/visao.ts`)
   get NEURO_BASE_URL(): string {
     return str("NEURO_BASE_URL", "");
-  },
-  get OLLAMA_HOST(): string {
-    return str("OLLAMA_HOST", "http://localhost:11434");
-  },
-  get OPENAI_BASE_URL(): string {
-    return str("OPENAI_BASE_URL", "http://localhost:1234");
   },
   get NEURO_API_KEY(): string {
     return str("NEURO_API_KEY", "");
   },
-  get OPENAI_API_KEY(): string {
-    return str("OPENAI_API_KEY", "");
-  },
 
-  // Modelo de visao (o padrao final vive em `src/ollama.ts`)
+  // Modelo de visao (o padrao final vive em `src/visao.ts`)
   get NEURO_MODEL(): string {
     return str("NEURO_MODEL", "");
-  },
-  get OLLAMA_MODEL(): string {
-    return str("OLLAMA_MODEL", "");
   },
 
   // Traducao
   get NEURO_TRANSLATE_ENABLED(): boolean {
     return bool("NEURO_TRANSLATE_ENABLED", false);
   },
-  get OLLAMA_TRANSLATE_ENABLED(): boolean {
-    return bool("OLLAMA_TRANSLATE_ENABLED", false);
-  },
   get NEURO_TRANSLATE_MODEL(): string {
     return str("NEURO_TRANSLATE_MODEL", "");
-  },
-  get OLLAMA_TRANSLATE_MODEL(): string {
-    return str("OLLAMA_TRANSLATE_MODEL", "");
   },
 
   // Imagens

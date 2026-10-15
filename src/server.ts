@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-  ErroOllama,
+  ErroVisao,
   escolherModelo,
   forcarCarregamento,
   gerarDescricaoStream,
@@ -18,16 +18,8 @@ import {
   traduzirTexto,
   deveTraduzir,
   type ModoAnalise,
-} from "./ollama";
-import {
-  cabecalhos,
-  detectarProvedor,
-  definirProvedorDetectado,
-  modoAuto,
-  resolverBackend,
-  urlModelos,
-  type ProvedorId,
-} from "./provedor";
+} from "./visao";
+import { cabecalhos, resolverBackend, urlModelos } from "./provedor";
 import { colapsarRepeticoes, cortarFraseIncompleta, ehSemMudanca } from "./texto";
 import { ehCancelamento } from "./erros";
 import {
@@ -367,16 +359,19 @@ export async function salvarSnapshot(
   await fs.promises.mkdir(snapDir, { recursive: true });
   const hash = createHash("sha256").update(b64).digest("hex");
   limparCacheSnapshots(Date.now());
-  const existente = snapshotCache.get(hash);
+  // A chave inclui o diretorio: o mesmo conteudo gravado em pastas diferentes
+  // aponta para arquivos diferentes.
+  const chave = `${snapDir}\u0000${hash}`;
+  const existente = snapshotCache.get(chave);
   if (existente) {
-    snapshotCache.set(hash, { ...existente, ts: Date.now() });
+    snapshotCache.set(chave, { ...existente, ts: Date.now() });
     return existente.url;
   }
   // Se por acaso ja existe arquivo com mesmo hash? evita duplicar fisicamente
   const nome = `${Date.now()}-${hash.slice(0, 8)}.jpg`;
   await fs.promises.writeFile(path.join(snapDir, nome), Buffer.from(b64, "base64"));
   const url = `${SNAP_URL}/${nome}`;
-  snapshotCache.set(hash, { url, hash, ts: Date.now() });
+  snapshotCache.set(chave, { url, hash, ts: Date.now() });
   return url;
 }
 
@@ -878,14 +873,13 @@ async function streamVisao(
   imagem: string,
   opcoes: {
     modelo?: string;
-    host?: string;
+    baseUrl?: string;
     anterior?: string;
     modo?: ModoAnalise;
     roteiro?: string;
     base?: boolean;
     motivo?: MotivoAnalise;
     capturadoEm?: string;
-    provedor?: ProvedorId | "auto";
     apiKey?: string;
   },
   logFile: string,
@@ -894,7 +888,7 @@ async function streamVisao(
   snapshot: unknown
 ): Promise<void> {
   // Se o cliente desconectar (cancelar/fechar a pagina), aborta o fetch do
-  // Ollama em vez de deixar a inferencia continuar consumindo recursos.
+  // backend de visao em vez de deixar a inferencia continuar consumindo recursos.
   const controle = new AbortController();
   res.once("close", () => controle.abort());
   const iterador = gerarDescricaoStream(imagem, { ...opcoes, signal: controle.signal });
@@ -931,8 +925,7 @@ async function streamVisao(
     if (deveTraduzir(limpo)) {
       const traduzido = await traduzirTexto({
         texto: limpo,
-        host: opcoes.host,
-        provedor: opcoes.provedor,
+        baseUrl: opcoes.baseUrl,
         apiKey: opcoes.apiKey,
       });
       if (traduzido && traduzido !== limpo) {
@@ -1020,7 +1013,7 @@ async function handleVisao(
   const escolha =
     typeof p.modelo === "string"
       ? { solicitado: p.modelo, modelo: p.modelo, alternativo: false }
-      : await escolherModelo({ host: config.ollamaUrl, provedor: config.provedor });
+      : await escolherModelo({ baseUrl: config.backendUrl });
   if (escolha.alternativo) {
     logEvent("info", "modelo_fallback", {
       solicitado: escolha.solicitado,
@@ -1034,8 +1027,7 @@ async function handleVisao(
       imagem,
       {
         modelo: escolha.modelo,
-        host: config.ollamaUrl,
-        provedor: config.provedor,
+        baseUrl: config.backendUrl,
         apiKey: config.apiKey,
         anterior: typeof p.anterior === "string" ? p.anterior : undefined,
         modo: p.modo === "roteiro" ? "roteiro" : "descricao",
@@ -1060,7 +1052,7 @@ async function handleVisao(
     }
     const mensagem = (err as Error).message;
     const timeout = (err as Error).name === "TimeoutError";
-    const status = err instanceof TypeError || err instanceof ErroOllama ? 502 : 500;
+    const status = err instanceof TypeError || err instanceof ErroVisao ? 502 : 500;
     logEvent("error", timeout ? "visao_timeout" : "visao_falhou", { status, erro: mensagem, timeout });
     if (!res.headersSent) {
       sendJson(res, status, { ok: false, erro: timeout ? `Backend: tempo esgotado — ${mensagem}` : "Backend: " + mensagem });
@@ -1110,11 +1102,9 @@ async function handleClearLogs(
   }
 }
 
-interface InfoOllama {
+interface InfoVisao {
   online: boolean;
-  /** Protocolo do backend em uso (`ollama` nativo ou `openai`/LM Studio). */
-  provedor: ProvedorId;
-  /** Modelo de visao configurado (NEURO_MODEL/OLLAMA_MODEL ou o padrao). */
+  /** Modelo de visao configurado (NEURO_MODEL ou o padrao). */
   solicitado: string;
   /** Modelo efetivamente usado (o solicitado ou o melhor disponivel). */
   modelo: string;
@@ -1123,9 +1113,9 @@ interface InfoOllama {
   erro: string;
 }
 
-async function consultarOllama(host?: string, provedor?: ProvedorId | "auto"): Promise<InfoOllama> {
-  const backend = resolverBackend({ baseUrl: host, provedor });
-  const solicitado = env.NEURO_MODEL !== "" ? env.NEURO_MODEL : env.OLLAMA_MODEL !== "" ? env.OLLAMA_MODEL : MODELO_PADRAO;
+async function consultarVisao(baseUrl?: string): Promise<InfoVisao> {
+  const backend = resolverBackend({ baseUrl });
+  const solicitado = env.NEURO_MODEL !== "" ? env.NEURO_MODEL : MODELO_PADRAO;
   try {
     const resposta = await fetch(urlModelos(backend), {
       headers: cabecalhos(backend),
@@ -1134,7 +1124,6 @@ async function consultarOllama(host?: string, provedor?: ProvedorId | "auto"): P
     if (!resposta.ok) {
       return {
         online: false,
-        provedor: backend.id,
         solicitado,
         modelo: solicitado,
         modelos: [],
@@ -1143,23 +1132,19 @@ async function consultarOllama(host?: string, provedor?: ProvedorId | "auto"): P
       };
     }
     const dados = (await resposta.json()) as {
-      models?: { name?: string; model?: string }[];
       data?: { id?: string }[];
+      models?: { id?: string }[];
     };
-    const modelos =
-      backend.id === "openai"
-        ? (dados.data ?? []).map((m) => m.id ?? "")
-        : (dados.models ?? []).map((m) => m.name ?? m.model ?? "");
+    const modelos = (dados.data ?? dados.models ?? []).map((m) => m.id ?? "");
     const modelosValidos = modelos.filter((n) => n.length > 0);
     // Configurado instalado? Usa ele. Senao, cai para o melhor disponivel.
     const modelo =
       modelosValidos.length === 0 || modelosValidos.some((m) => mesmoModelo(m, solicitado))
         ? solicitado
         : melhorModeloDisponivel(modelosValidos) || solicitado;
-    const carregados = await modelosEmMemoria({ host, provedor, timeoutMs: 3000 });
+    const carregados = await modelosEmMemoria({ baseUrl, timeoutMs: 3000 });
     return {
       online: true,
-      provedor: backend.id,
       solicitado,
       modelo,
       modelos: modelosValidos,
@@ -1169,7 +1154,6 @@ async function consultarOllama(host?: string, provedor?: ProvedorId | "auto"): P
   } catch (err) {
     return {
       online: false,
-      provedor: backend.id,
       solicitado,
       modelo: solicitado,
       modelos: [],
@@ -1180,7 +1164,7 @@ async function consultarOllama(host?: string, provedor?: ProvedorId | "auto"): P
 }
 
 async function handlePreparar(res: ServerResponse, config: ServerConfig): Promise<void> {
-  const escolha = await escolherModelo({ host: config.ollamaUrl, provedor: config.provedor });
+  const escolha = await escolherModelo({ baseUrl: config.backendUrl });
   const modelo = escolha.modelo;
   if (escolha.alternativo) {
     logEvent("info", "modelo_fallback", {
@@ -1191,23 +1175,14 @@ async function handlePreparar(res: ServerResponse, config: ServerConfig): Promis
   try {
     const carregandoMs = await forcarCarregamento({
       modelo,
-      host: config.ollamaUrl,
-      provedor: config.provedor,
+      baseUrl: config.backendUrl,
       apiKey: config.apiKey,
     });
     // Quando o backend nao permite consultar a memoria (ex.: LM Studio sem
     // `/api/v0/models`), a carga bem-sucedida acima ja confirma o modelo.
     const emMemoria =
-      (await modeloEmMemoria({
-        modelo,
-        host: config.ollamaUrl,
-        provedor: config.provedor,
-      })) ||
-      !(await memoriaIntrospectavel({
-        modelo,
-        host: config.ollamaUrl,
-        provedor: config.provedor,
-      }));
+      (await modeloEmMemoria({ modelo, baseUrl: config.backendUrl })) ||
+      !(await memoriaIntrospectavel({ modelo, baseUrl: config.backendUrl }));
     sendJson(res, 200, { ok: true, modelo, carregado: emMemoria, carregandoMs });
     logEvent("info", "modelo_preparado", { modelo, carregandoMs, carregado: emMemoria });
   } catch (err) {
@@ -1217,8 +1192,8 @@ async function handlePreparar(res: ServerResponse, config: ServerConfig): Promis
 }
 
 async function handleHealth(res: ServerResponse, config: ServerConfig): Promise<void> {
-  const ollama = await consultarOllama(config.ollamaUrl, config.provedor);
-  sendJson(res, 200, { ok: true, ollama });
+  const visao = await consultarVisao(config.backendUrl);
+  sendJson(res, 200, { ok: true, visao });
 }
 
 function serveSnapshot(
@@ -1258,10 +1233,9 @@ export interface ServerConfig {
   logFile?: string;
   snapDir?: string;
   publicDir?: string;
-  ollamaUrl?: string;
-  /** Protocolo do backend: `ollama` nativo ou `openai` (LM Studio/llama.cpp). */
-  provedor?: ProvedorId | "auto";
-  /** Chave de API do backend OpenAI (LM Studio ignora). */
+  /** URL base do backend de visao (LM Studio). */
+  backendUrl?: string;
+  /** Chave de API do backend (LM Studio ignora). */
   apiKey?: string;
   /** Arquivo de eventos estruturados. Padrao: `eventos.jsonl` ao lado do log. */
   eventosFile?: string;
@@ -1374,17 +1348,10 @@ if (import.meta.url === entryUrl) {
       }
     })
     .catch((err) => logEvent("warn", "limpeza_snapshots_falhou", { erro: (err as Error).message }));
-  // Detecta o backend (Ollama nativo ou LM Studio/OpenAI) quando em modo auto.
-  if (modoAuto()) {
-    try {
-      const detectado = await detectarProvedor();
-      definirProvedorDetectado(detectado);
-      logEvent("info", "provedor_detectado", { provedor: detectado });
-      console.log(`  Backend detectado: ${detectado}`);
-    } catch (err) {
-      logEvent("warn", "provedor_deteccao_falhou", { erro: (err as Error).message });
-    }
-  }
+  // Registra o backend de visao configurado (URL base resolvida).
+  const backendUrl = resolverBackend({}).baseUrl;
+  logEvent("info", "backend_configurado", { baseUrl: backendUrl });
+  console.log(`  Backend de visao: ${backendUrl}`);
   createServer().listen(PORT, HOST, () => {
     logEvent("info", "servidor_iniciado", { host: HOST, port: PORT, logFile: LOG_FILE });
     console.log(`\n  Neuro Vision rodando em http://${HOST}:${PORT}`);

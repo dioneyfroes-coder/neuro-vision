@@ -12,7 +12,7 @@ export type NivelOperacional = "info" | "aviso" | "erro";
 export interface RegistroOperacional {
   timestamp: string;
   nivel: NivelOperacional;
-  /** Subsistema que originou o registro (ex.: `cliente`, `ollama`, `armazenamento`). */
+  /** Subsistema que originou o registro (ex.: `cliente`, `visao`, `armazenamento`). */
   origem: string;
   mensagem: string;
   detalhe?: string;
@@ -120,10 +120,12 @@ export function normalizarTipoEvento(valor: unknown): TipoEventoVisual | null {
 export function montarEvento(payload: unknown): EventoVisual | null {
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
   const p = payload as Record<string, unknown>;
-  const origens: EventoVisual["origem"][] = ["detector", "rastreador", "ollama"];
+  const origens: EventoVisual["origem"][] = ["detector", "rastreador", "visao"];
   if (normalizarTipoEvento(p.tipo) === null) return null;
   if (typeof p.descricao !== "string") return null;
-  if (typeof p.origem !== "string" || !origens.includes(p.origem as EventoVisual["origem"])) return null;
+  // `"ollama"` e o valor legado; normaliza para `"visao"` na leitura.
+  const origem = p.origem === "ollama" ? "visao" : p.origem;
+  if (typeof origem !== "string" || !origens.includes(origem as EventoVisual["origem"])) return null;
   return {
     id: typeof p.id === "string" && p.id ? p.id : `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     timestamp: typeof p.timestamp === "string" ? p.timestamp : new Date().toISOString(),
@@ -131,7 +133,7 @@ export function montarEvento(payload: unknown): EventoVisual | null {
     objetoId: typeof p.objetoId === "string" ? p.objetoId : undefined,
     descricao: p.descricao,
     confianca: typeof p.confianca === "number" && Number.isFinite(p.confianca) ? p.confianca : undefined,
-    origem: p.origem as EventoVisual["origem"],
+    origem: origem as EventoVisual["origem"],
     snapshot: typeof p.snapshot === "string" ? p.snapshot : undefined,
     modelo: typeof p.modelo === "string" ? p.modelo : undefined,
     sessaoId: typeof p.sessaoId === "string" ? p.sessaoId : undefined,

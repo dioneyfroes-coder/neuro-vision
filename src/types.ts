@@ -90,8 +90,12 @@ export type TipoEventoVisual =
   | "mudanca_de_cena"
   | "resumo";
 
-/** Subsistema que originou o evento. */
-export type OrigemEvento = "detector" | "rastreador" | "ollama";
+/**
+ * Subsistema que originou o evento. O valor legado `"ollama"` (gravado antes da
+ * migracao para o backend unico de visao) e normalizado para `"visao"` na
+ * leitura de `montarEvento` (ver `src/memoria.ts`).
+ */
+export type OrigemEvento = "detector" | "rastreador" | "visao";
 
 /** Acontecimento estruturado, distinto de uma deteccao crua. */
 export interface EventoVisual {

@@ -43,7 +43,7 @@ export interface EntradaPercepcao {
 
 /** Motor de percepcao com ciclo de vida explicito. */
 export interface MotorPercepcao {
-  /** Identificador do motor (ex.: "deteccao", "ollama", "roteiro"). */
+  /** Identificador do motor (ex.: "deteccao", "visao", "roteiro"). */
   readonly id: string;
   /** Garante que recursos externos estejam prontos. */
   inicializar(aoStatus?: (mensagem: string) => void): Promise<void>;
@@ -60,7 +60,8 @@ export interface MotorPercepcao {
 /**
  * Converte um resultado padronizado em entrada de historico. O modulo de memoria
  * depende apenas de `ResultadoPercepcao` — nao das APIs do Transformers.js nem
- * do Ollama — de modo que trocar de motor nao exige reescrever o historico.
+ * do modelo de visao do servidor — de modo que trocar de motor nao exige
+ * reescrever o historico.
  */
 export function entradaDeResultado(
   resultado: ResultadoPercepcao,

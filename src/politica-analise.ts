@@ -6,7 +6,7 @@ export type { MotivoAnalise };
  * Fase 5 — fluxo de analise orientado a eventos.
  *
  * A percepcao leve (deteccao + rastreamento) roda em todo tick; o modelo de
- * visao caro (Ollama) so e chamado quando a politica decide que ha motivo:
+ * visao caro so e chamado quando a politica decide que ha motivo:
  * mudanca relevante, nova entidade, baixa confianca, resumo periodico,
  * pedido manual ou falha da percepcao leve (nunca tratada como ausencia de
  * mudanca).
@@ -21,7 +21,7 @@ export interface AvaliacaoAnalise {
 }
 
 export interface ConfigPoliticaAnalise {
-  /** Intervalo minimo entre chamadas ao Ollama (anti-sequencia em cenas instaveis). */
+  /** Intervalo minimo entre chamadas ao modelo de visao (anti-sequencia em cenas instaveis). */
   cooldownMs: number;
   /** Janela deslizante para contar chamadas. */
   janelaMs: number;
@@ -29,9 +29,9 @@ export interface ConfigPoliticaAnalise {
   maxChamadasPorJanela: number;
   /** Mesmo sem mudanca, re-analisar a cada `resumoPeriodicoMs`. `0` desativa. */
   resumoPeriodicoMs: number;
-  /** Abaixo deste score, uma deteccao e considerada duvidosa e manda para o Ollama. */
+  /** Abaixo deste score, uma deteccao e considerada duvidosa e manda para o modelo de visao. */
   confiancaAlta: number;
-  /** Minimo de eventos de movimento no frame para acionar o Ollama. */
+  /** Minimo de eventos de movimento no frame para acionar o modelo de visao. */
   movimentoMinimo: number;
 }
 
@@ -87,7 +87,7 @@ export class PoliticaAnalise {
 
   constructor(private readonly config: ConfigPoliticaAnalise = CONFIG_POLITICA_PADRAO) {}
 
-  /** Mara a hora em que uma chamada ao Ollama foi executada. */
+  /** Mara a hora em que uma chamada ao modelo de visao foi executada. */
   registrarChamada(agora: number): void {
     this.ultimaChamadaMs = agora;
     if (this.chamadasNaJanela === 0) {
