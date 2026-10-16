@@ -8,10 +8,11 @@ Commit: e55aeef
 > typecheck, as 32 falhas de teste e a configuração inicial, exatamente como
 > saíram na máquina. Ele é a **prova dos problemas** (não das medições de
 > qualidade — essas estão em [`bench/comparativo-2026-10-15.md`](./bench/comparativo-2026-10-15.md)).
-> As **soluções** de cada problema listado aqui estão em
-> [`PLANO_DE_CORRECOES_PERCEPCAO_TEMPORAL.md`](./PLANO_DE_CORRECOES_PERCEPCAO_TEMPORAL.md)
-> (cada item marcado `[x]` descreve o que foi feito) e as metas/medições atuais,
-> em `bench/BASELINE.md`. O texto abaixo é o registro original, **sem
+> As **soluções** de cada problema listado aqui foram aplicadas no histórico de
+> commits seguinte a esta data (o documento de correções que as descrevia foi
+> removido); as metas/medições atuais estão em `bench/BASELINE.md` e o estado
+> congelado antes da modularização está em
+> [`bench/baseline-modularizacao-2026-10-16.json`](./bench/baseline-modularizacao-2026-10-16.json). O texto abaixo é o registro original, **sem
 > alterações** — menciona `src/ollama.ts`, `ErroOllama` e afins porque esse era o
 > estado do repositório na data (a camada Ollama foi removida depois; ver
 > `docs/modos.md`).

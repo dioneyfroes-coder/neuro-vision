@@ -1,0 +1,9 @@
+{
+  "clip": "webcam-atual.webm",
+  "duracaoMs": 10000,
+  "notas": "Clipe 10 s gravado na webcam. Evento importante: pessoa aparece logo no início (~0.5s) e permanece; em ~4-5s há movimento significativo; há presença de celular e gravata detectados pelo modelo.",
+  "eventos": [
+    { "tipo": "aparicao", "em": 500, "descricao": "pessoa entra/aparece no quadro" },
+    { "tipo": "movimento", "em": 4500, "descricao": "movimento de pessoa" }
+  ]
+}

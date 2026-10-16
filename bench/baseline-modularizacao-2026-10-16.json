@@ -1,0 +1,44 @@
+{
+  "data": "2026-10-16",
+  "commit": "bff4b8ae150e096d419800e30bf795ec6079b25e",
+  "branch": "main",
+  "objetivo": "Baseline congelado antes da Etapa 0 do ROTEIRO_MODULARIZACAO_NEURO_VISION.md",
+  "ambiente": {
+    "cpu": "Intel(R) Xeon(R) CPU E5-2660 v3 @ 2.60GHz",
+    "nucleosLogicos": 20,
+    "ramGb": 15.8,
+    "gpu": "AMD Radeon RX 5600 OEM",
+    "so": "Microsoft Windows 11 Pro build 26200",
+    "node": "v24.19.0",
+    "platform": "win32"
+  },
+  "verificacoes": {
+    "typecheck": "ok",
+    "lint": "ok",
+    "testesUnitarios": { "resultado": "ok", "arquivos": 19, "testes": 345 },
+    "e2e": { "resultado": "ok", "passaram": 16, "ignorados": 1, "nota": "e2e/webcam.spec.ts (clipe real) ficou skipped: requer reproducao interativa da webcam" }
+  },
+  "modelos": {
+    "deteccao": "Xenova/yolos-tiny (Transformers.js, WebGPU com fallback WASM)",
+    "visao": "conforme backend (LM Studio) e seletor da interface",
+    "pose": "ausente (Etapa 5 do roteiro)",
+    "maos": "ausente (Etapa 5 do roteiro)"
+  },
+  "bench": {
+    "relatorioReferencia": "bench/BASELINE.md",
+    "clipes": [
+      "bench/videos/webcam-teste.webm",
+      "bench/videos/webcam-mudanca.webm",
+      "bench/videos/webcam-atual.webm"
+    ],
+    "anotacoes": [
+      "bench/videos/webcam-mudanca.json",
+      "bench/videos/webcam-atual.json"
+    ],
+    "valores": "precisao 25%, recall 100%, ~6 falsos positivos/min, latencia ~3.4s (bench/BASELINE.md)"
+  },
+  "falhasAmbientais": [
+    "e2e/webcam.spec.ts avaliacao com clipe real fica skipped por padrao (depende de repro do clipe como webcam)",
+    "Backend de visao (LM Studio) nao disponivel neste ambiente de CI: testes de servidor usam mocks"
+  ]
+}
