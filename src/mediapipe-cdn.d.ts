@@ -1,0 +1,38 @@
+/**
+ * Tipos minimos do pacote `@mediapipe/tasks-vision` carregado via CDN.
+ *
+ * Cobre apenas o subconjunto usado pelo reconhecedor de maos/gestos
+ * (`public/gestos.ts`): criacao do `GestureRecognizer` e a saida de `recognize`.
+ * O esbuild mantem a URL externa no bundle do cliente; nenhum teste carrega o
+ * pacote de verdade (os adaptadores usam motores falsos injetados).
+ */
+declare module "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22" {
+  export interface CategoriaVision {
+    categoryName: string;
+    score: number;
+  }
+
+  export interface LandmarkVision {
+    x: number;
+    y: number;
+    z: number;
+  }
+
+  export interface ResultadoGestos {
+    gestures: CategoriaVision[][];
+    handedness: CategoriaVision[][];
+    landmarks: LandmarkVision[][];
+  }
+
+  export interface ReconhecedorVision {
+    recognize(imagem: unknown): ResultadoGestos;
+  }
+
+  export const FilesetResolver: {
+    forVisionTasks(caminhoWasm: string): Promise<unknown>;
+  };
+
+  export const GestureRecognizer: {
+    createFromOptions(vision: unknown, opcoes: unknown): Promise<ReconhecedorVision>;
+  };
+}
