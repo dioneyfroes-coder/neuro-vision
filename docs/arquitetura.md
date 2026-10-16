@@ -5,7 +5,9 @@ Estrutura de arquivos e como as partes conversam.
 ## Visão geral
 
 - **Servidor Node** (`src/server.ts`) — arquivos estáticos + API REST + persistência JSONL + snapshots + proxy para o backend de visão local.
-- **Cliente** (`public/`) — interface, captura da webcam, detecção no navegador (Transformers.js) e cliente HTTP.
+- **Domínio** (`src/domain/`) — contratos puros (IDs de sessão/ciclo/frame, observação, resultados de percepção, evento temporal, pacote de ciclo, resultado de interpretação e métricas) sem dependência de SDK de modelo.
+- **Controlador do ciclo** (`public/cycle/cycle-controller.ts`) — regra de negócio do ciclo de frame único (captura, inferência, rastreamento, persistência e progresso) com dependências injetadas; emite `EventoUi` em vez de tocar o DOM.
+- **Cliente** (`public/`) — interface, captura da webcam, detecção no navegador (Transformers.js) e cliente HTTP; `public/app.ts` é o ponto de composição e renderização.
 - **Motores de percepção** — interface única `MotorPercepcao` (`inicializar`/`analisar`/`encerrar`); o app escolhe o motor pelo registro `MODOS` (`public/modos.ts`), sem `if (modo === ...)` espalhado.
 
 ## Estrutura
@@ -25,15 +27,27 @@ src/
   types.ts             tipos compartilhados (EntradaLog, ObjetoVisto, EventoVisual, ...)
   env.ts               variáveis de ambiente (carrega o .env e expõe os padrões)
   transformers-cdn.d.ts  tipos para o transformers.js via CDN
+  domain/              contratos puros do domínio (sem SDK de modelo)
+    ids.ts             IDs de sessão/ciclo/frame e timestamps de captura x processamento
+    perception.ts      observação do frame e resultados de cada subsistema
+    observation.ts     adaptadores temporários de/para os tipos atuais (EntradaLog, ObjetoVisto)
+    temporal-event.ts  evento temporal (transições, IDs de frames de evidência)
+    cycle.ts           pacote do ciclo e métricas por etapa
+    interpretation.ts  resultado de interpretação (narrativa, evidências, incertezas)
+    adapters.ts        pontes explícitas entre domínio e tipos legados
+    index.ts           reexporta os contratos
 public/
   index.html           interface
-  app.ts               coordenação da interface (captura, motores, rastreamento, eventos)
+  app.ts               ponto de composição: liga botões/seletores, cria dependências e renderiza os `EventoUi`
+  cycle/
+    cycle-controller.ts  controlador do ciclo (captura, inferência, rastreamento, persistência, progresso)
   api.ts               cliente HTTP (histórico, eventos, contexto, backend de visão)
   detector.ts          detecção de objetos (Transformers.js/CDN)
   camera.ts            controle da webcam e assinatura de cena
   modos.ts             registro de modos/motores (Item do roadmap: trocar motor sem espalhar condições)
   motores.ts           adaptadores para o motor de percepção
   persistencia.ts      fila de gravação (ordem, retentativas, falhas expostas)
+  scheduler.ts         agendador do próximo ciclo (ritmo `max(intervalo, duração + 500 ms)`)
   style.css            estilos
 e2e/
   app.spec.ts          fluxos de interface (com o transformers.js substituído)
@@ -59,13 +73,14 @@ scripts/
 
 ## Fluxo de uma análise
 
-1. O agendador do cliente dispara um ciclo no ritmo `max(intervalo, duração da análise anterior + 500 ms)`.
+1. O `CycleController` (`public/cycle/cycle-controller.ts`) comanda o ciclo; o agendador dispara um ciclo no ritmo `max(intervalo, duração da análise anterior + 500 ms)`. As dependências (câmera, fábrica de motores, rastreador, política e fila de persistência) são **injetadas** por `app.ts`, não criadas dentro do controlador.
 2. A webcam **captura o frame uma única vez** (`Camera.capturarQuadro`): a mesma imagem vira entrada da análise, snapshot (thumbnail dos mesmos pixels) e assinatura de cena; o instante vira `capturadoEm`.
 3. O motor escolhido pelo `MODOS` roda: detecção no navegador (Transformers.js) ou descrição/roteiro via `POST /api/visao` → backend de visão local (stream NDJSON).
 4. O resultado normalizado (`ResultadoPercepcao`) vira uma `EntradaLog` (`entradaDeResultado`), exibida no histórico e gravada via `POST /api/log`.
 5. Nos modos com rastreamento, o `RastreadorObjetos` associa detecções entre frames e emite eventos (`aparicao`/`desaparecimento`/`movimento`); o `DetectorMudancaDeCena` emite `mudanca_de_cena` como sinal.
 6. A política de análise decide se o modelo de visão deve ser chamado, registrando o motivo — ver [`eventos.md`](./eventos.md).
 7. Entradas e eventos entram na fila de persistência (`public/persistencia.ts`): gravação serial em ordem, com retentativas e `idempotencyKey` (o servidor deduplica reenvios). Falhas persistentes aparecem no aviso/diagnóstico e podem ser exportadas pelo botão **Pendentes**.
+8. Em vez de tocar o DOM, o controlador emite `EventoUi` (status, spinner, entrada, caixas, canvas, pronto, falha, parado); `app.ts` traduz cada evento na renderização da interface.
 
 ## Testes e regressão
 
