@@ -33,6 +33,7 @@ public/
   camera.ts            controle da webcam e assinatura de cena
   modos.ts             registro de modos/motores (Item do roadmap: trocar motor sem espalhar condições)
   motores.ts           adaptadores para o motor de percepção
+  persistencia.ts      fila de gravação (ordem, retentativas, falhas expostas)
   style.css            estilos
 e2e/
   app.spec.ts          fluxos de interface (com o transformers.js substituído)
@@ -64,6 +65,7 @@ scripts/
 4. O resultado normalizado (`ResultadoPercepcao`) vira uma `EntradaLog` (`entradaDeResultado`), exibida no histórico e gravada via `POST /api/log`.
 5. Nos modos com rastreamento, o `RastreadorObjetos` associa detecções entre frames e emite eventos (`aparicao`/`desaparecimento`/`movimento`); o `DetectorMudancaDeCena` emite `mudanca_de_cena` como sinal.
 6. A política de análise decide se o modelo de visão deve ser chamado, registrando o motivo — ver [`eventos.md`](./eventos.md).
+7. Entradas e eventos entram na fila de persistência (`public/persistencia.ts`): gravação serial em ordem, com retentativas e `idempotencyKey` (o servidor deduplica reenvios). Falhas persistentes aparecem no aviso/diagnóstico e podem ser exportadas pelo botão **Pendentes**.
 
 ## Testes e regressão
 

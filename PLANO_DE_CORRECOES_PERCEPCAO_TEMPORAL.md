@@ -10,9 +10,9 @@ Este documento é um roteiro de implementação. Marque cada tarefa somente depo
 
 - [x] Trabalhar em uma branch própria, por exemplo `fix/percepcao-temporal`.
 - [x] Fazer uma alteração lógica por commit, com mensagem que descreva o comportamento corrigido.
-- [ ] Antes de mudar uma métrica, registrar o valor atual e a configuração usada.
+- [x] Antes de mudar uma métrica, registrar o valor atual e a configuração usada.
 - [ ] Não considerar os testes sintéticos como prova suficiente de desempenho com uma webcam real.
-- [ ] Preservar compatibilidade com entradas antigas do JSONL: novos campos devem ser opcionais ou migrados de forma explícita.
+- [x] Preservar compatibilidade com entradas antigas do JSONL: novos campos devem ser opcionais ou migrados de forma explícita.
 
 ---
 
@@ -132,7 +132,7 @@ A configuração padrão usa `expiracaoMs: 2000`, mas a detecção pode ocorrer 
 - [x] Medir a cadência real entre quadros observados, usando o tempo do ciclo completo; não estimá-la apenas pelo valor do controle da interface.
 - [x] Definir o que significa `maxFramesAusente`: quantos quadros consecutivos sem detecção são tolerados antes de confirmar desaparecimento.
 - [x] Ajustar `expiracaoMs` para que não seja menor que a cadência normal de observação. Como ponto inicial, considerar um timeout com base no percentil 95 do intervalo entre observações e no número de quadros ausentes tolerados; calibrar com vídeos anotados.
-- [ ] Tornar a confirmação de aparição configurável. Comparar a configuração de um único quadro com a confirmação em observações consecutivas; medir o custo em atraso versus a redução de falsos positivos.
+- [~] Tornar a confirmação de aparição configurável. Comparar a configuração de um único quadro com a confirmação em observações consecutivas; medir o custo em atraso versus a redução de falsos positivos. (configurável via `framesParaConfirmarAparicao`, padrão 2; a comparação e a medição dependem dos vídeos anotados)
 - [x] Evitar que uma única falha transitória de detecção seja interpretada como desaparecimento quando a cadência real for lenta.
 - [x] Registrar nos comentários e na documentação como os limites por tempo e por frames interagem; testar a condição combinada para que um limite não anule silenciosamente o outro.
 
@@ -153,7 +153,7 @@ O algoritmo percorre as detecções na ordem recebida e escolhe a melhor associa
 - [x] Uma ausência curta é tolerada conforme a configuração.
 - [x] Uma ausência prolongada gera um único desaparecimento.
 - [x] A ordem das detecções não troca a identidade em cenários controlados.
-- [ ] Baixa confiança, caixa com ruído e oclusão não criam eventos duplicados sem justificativa.
+- [x] Baixa confiança, caixa com ruído e oclusão não criam eventos duplicados sem justificativa.
 
 ### Critério para concluir
 
@@ -220,12 +220,12 @@ O servidor limpa os arquivos de entradas, eventos e snapshots. No cliente, a fun
 
 - [x] Falhas automáticas respeitam a regra de cooldown escolhida.
 - [x] A análise manual segue a exceção documentada.
-- [ ] Limpar o histórico remove entradas, eventos e snapshots no servidor e reseta o estado temporal no cliente.
-- [ ] Uma gravação iniciada antes da limpeza não reaparece depois dela.
+- [x] Limpar o histórico remove entradas, eventos e snapshots no servidor e reseta o estado temporal no cliente.
+- [x] Uma gravação iniciada antes da limpeza não reaparece depois dela. (`limparHistorico` pausa a fila e aguarda a gravação em andamento antes de apagar, depois descarta a fila e retoma; teste de fila em `tests/persistencia.test.ts` + e2e do botão Limpar)
 
 ### Critério para concluir
 
-- [ ] A política é previsível e limpar o histórico não deixa estado oculto nem corridas com gravações pendentes.
+- [x] A política é previsível e limpar o histórico não deixa estado oculto nem corridas com gravações pendentes.
 
 ---
 
@@ -243,7 +243,7 @@ O servidor limpa os arquivos de entradas, eventos e snapshots. No cliente, a fun
 - [x] Quando não for `ok`, tentar ler `{ erro }` do corpo da resposta e lançar `ErroPercepcao` com status HTTP e mensagem úteis.
 - [x] Evitar duplicar o mesmo tratamento em cada função: criar um helper local para verificar respostas, se isso simplificar o módulo.
 - [x] Adicionar testes em `src/api.test.ts` para resolução HTTP com status `400`/`500`, não apenas falhas de rede.
-- [ ] Garantir que a interface e o diagnóstico operacional indiquem a falha de persistência sem declarar o evento como salvo.
+- [x] Garantir que a interface e o diagnóstico operacional indiquem a falha de persistência sem declarar o evento como salvo. (aviso no cabeçalho, item marcado como não gravado, contagem no diagnóstico; exportável em "Pendentes")
 
 ### Problema B: múltiplos eventos da mesma captura podem gravar cópias do mesmo snapshot
 
@@ -252,10 +252,10 @@ Um único quadro pode gerar vários eventos. Cada `POST /api/eventos` envia o me
 ### Passo a passo — reutilização do snapshot
 
 - [x] Associar uma chave `frameId` à captura e aos eventos derivados dela.
-- [ ] Escolher uma solução de persistência única: (a) salvar a imagem uma vez e devolver uma referência reutilizável, ou (b) deduplicar no servidor por hash do conteúdo.
-- [ ] Se usar uma referência `/snapshots/...`, atualizar a validação do servidor para aceitar e verificar referências existentes com segurança; não mandar uma URL para uma função que espera dados base64 sem alterar o contrato.
+- [x] Escolher uma solução de persistência única: (a) salvar a imagem uma vez e devolver uma referência reutilizável, ou (b) deduplicar no servidor por hash do conteúdo. (opção (b): `salvarSnapshot` deduplica por SHA-256 do conteúdo)
+- [x] Se usar uma referência `/snapshots/...`, atualizar a validação do servidor para aceitar e verificar referências existentes com segurança; não mandar uma URL para uma função que espera dados base64 sem alterar o contrato. (não aplicável: a opção (b) foi escolhida, o cliente continua enviando data URL)
 - [x] Fazer todos os eventos da mesma captura referenciar o mesmo arquivo de snapshot.
-- [ ] Adicionar teste: N eventos oriundos de um mesmo quadro resultam em uma única imagem persistida; eventos de quadros diferentes não compartilham a imagem incorretamente.
+- [x] Adicionar teste: N eventos oriundos de um mesmo quadro resultam em uma única imagem persistida; eventos de quadros diferentes não compartilham a imagem incorretamente. (teste em `tests/server.test.ts`)
 
 ### Problema C: gravações concorrentes e possíveis perdas
 
@@ -263,15 +263,15 @@ O cliente dispara persistências com `void api.gravarEvento(...)`. Os erros são
 
 ### Passo a passo — fila de gravação
 
-- [ ] Introduzir uma fila pequena de persistência para manter a ordem dos eventos e limitar requisições simultâneas.
-- [ ] Usar IDs de evento idempotentes no servidor para que uma repetição de requisição não acrescente eventos duplicados.
-- [ ] Implementar no máximo algumas tentativas com atraso progressivo para falhas transitórias; não repetir indefinidamente nem bloquear o processamento visual.
-- [ ] Expor falhas persistentes na interface/diagnóstico e permitir exportar eventos não enviados, se houver fila pendente.
-- [ ] Testar queda do servidor, recuperação, resposta `500`, repetição da mesma requisição e encerramento da aplicação com fila pendente.
+- [x] Introduzir uma fila pequena de persistência para manter a ordem dos eventos e limitar requisições simultâneas. (`public/persistencia.ts`)
+- [x] Usar IDs de evento idempotentes no servidor para que uma repetição de requisição não acrescente eventos duplicados. (dedupe por `idempotencyKey` em `handleEventos`, com teto de 2000 chaves por arquivo)
+- [x] Implementar no máximo algumas tentativas com atraso progressivo para falhas transitórias; não repetir indefinidamente nem bloquear o processamento visual. (3 tentativas, 0,4 s/0,8 s)
+- [x] Expor falhas persistentes na interface/diagnóstico e permitir exportar eventos não enviados, se houver fila pendente. (botão "Pendentes")
+- [x] Testar queda do servidor, recuperação, resposta `500`, repetição da mesma requisição e encerramento da aplicação com fila pendente. (testes em `tests/persistencia.test.ts` e `tests/server.test.ts`)
 
 ### Critério para concluir
 
-- [ ] Falhas de gravação são detectáveis, reenvios não duplicam eventos e várias ocorrências do mesmo frame não multiplicam snapshots no disco.
+- [x] Falhas de gravação são detectáveis, reenvios não duplicam eventos e várias ocorrências do mesmo frame não multiplicam snapshots no disco.
 
 ---
 
@@ -320,15 +320,15 @@ O detector já tenta WASM quando o carregamento do pipeline WebGPU falha. Porém
 
 ### Passo a passo
 
-- [ ] Distinguir falha de carregamento de falha durante inferência.
-- [ ] Se WebGPU falhar durante a execução por erro compatível com dispositivo/contexto, descartar ou invalidar a instância em cache e tentar recriá-la em WASM uma única vez.
-- [ ] Não aplicar fallback silenciosamente a erros de entrada inválida ou bugs do processamento que também falhariam em WASM.
-- [ ] Atualizar o diagnóstico para mostrar o dispositivo efetivo após fallback.
-- [ ] Testar: falha WebGPU seguida de sucesso WASM, falha em ambos e erro de entrada que não deve ser mascarado pelo fallback.
+- [x] Distinguir falha de carregamento de falha durante inferência. (fallback na carga em `carregar`; fallback de execução em `executar` via `pareceFalhaDeDispositivo`)
+- [x] Se WebGPU falhar durante a execução por erro compatível com dispositivo/contexto, descartar ou invalidar a instância em cache e tentar recriá-la em WASM uma única vez.
+- [x] Não aplicar fallback silenciosamente a erros de entrada inválida ou bugs do processamento que também falhariam em WASM.
+- [x] Atualizar o diagnóstico para mostrar o dispositivo efetivo após fallback. (`dispositivo webgpu|wasm` no diagnóstico)
+- [x] Testar: falha WebGPU seguida de sucesso WASM, falha em ambos e erro de entrada que não deve ser mascarado pelo fallback. (testes em `tests/detector.test.ts`)
 
 ### Critério para concluir
 
-- [ ] Uma falha específica do dispositivo GPU pode ser recuperada sem iniciar inferências concorrentes nem esconder a causa original.
+- [x] Uma falha específica do dispositivo GPU pode ser recuperada sem iniciar inferências concorrentes nem esconder a causa original.
 
 ---
 
@@ -338,7 +338,7 @@ O detector já tenta WASM quando o carregamento do pipeline WebGPU falha. Porém
 
 ### Passo a passo
 
-- [ ] Executar a suíte completa depois de todas as alterações:
+- [x] Executar a suíte completa depois de todas as alterações:
 
   ```bash
   npm run typecheck
@@ -347,23 +347,23 @@ O detector já tenta WASM quando o carregamento do pipeline WebGPU falha. Porém
   npm run build
   ```
 
-- [ ] Executar E2E com stubs para fluxos de interface e câmera.
+- [x] Executar E2E com stubs para fluxos de interface e câmera.
 - [ ] Executar o teste com vídeo anotado e o modelo real, registrando o ambiente e o resultado.
-- [ ] Verificar start/stop/restart, pedido manual, falha de câmera, falha do detector, backend de visão indisponível, falha HTTP de gravação, limpeza de histórico e recuperação após falha.
-- [ ] Verificar que não existem IDs duplicados em várias sessões nem snapshots duplicados para a mesma captura.
-- [ ] Atualizar documentos para refletir o comportamento real, a semântica do intervalo, os campos de evento, as limitações e os passos de benchmark.
-- [ ] Fazer uma última revisão do diff e confirmar que nenhum arquivo de vídeo pessoal, segredo ou snapshot local foi incluído no repositório.
+- [x] Verificar start/stop/restart, pedido manual, falha de câmera, falha do detector, backend de visão indisponível, falha HTTP de gravação, limpeza de histórico e recuperação após falha.
+- [x] Verificar que não existem IDs duplicados em várias sessões nem snapshots duplicados para a mesma captura.
+- [x] Atualizar documentos para refletir o comportamento real, a semântica do intervalo, os campos de evento, as limitações e os passos de benchmark.
+- [x] Fazer uma última revisão do diff e confirmar que nenhum arquivo de vídeo pessoal, segredo ou snapshot local foi incluído no repositório.
 
 ### Critérios finais de aceitação
 
-- [ ] O agendador respeita a cadência documentada e não sobrepõe ciclos.
-- [ ] O evento e a interpretação apontam para a evidência temporal correta.
-- [ ] O rastreamento tolera falhas transitórias de detecção e mantém IDs estáveis nos cenários testados.
-- [ ] Os IDs são únicos entre sessões.
-- [ ] A política de análise respeita cooldown e limite de chamadas conforme regra documentada.
-- [ ] Falhas HTTP de persistência são detectadas; reenvios são controlados e não duplicam eventos.
+- [x] O agendador respeita a cadência documentada e não sobrepõe ciclos.
+- [x] O evento e a interpretação apontam para a evidência temporal correta.
+- [x] O rastreamento tolera falhas transitórias de detecção e mantém IDs estáveis nos cenários testados.
+- [x] Os IDs são únicos entre sessões.
+- [x] A política de análise respeita cooldown e limite de chamadas conforme regra documentada.
+- [x] Falhas HTTP de persistência são detectadas; reenvios são controlados e não duplicam eventos.
 - [ ] A medição com vídeos anotados mostra o efeito das alterações nos falsos positivos, recall e atraso.
-- [ ] Typecheck, lint, testes e build terminam sem erros no ambiente limpo.
+- [x] Typecheck, lint, testes e build terminam sem erros no ambiente limpo.
 
 ---
 
@@ -377,9 +377,9 @@ Para evitar abrir muitas frentes ao mesmo tempo, implemente nesta ordem:
 4. [x] Fase 3 — expiração, confirmação e associação temporal.
 5. [x] Fase 4 — IDs por sessão.
 6. [x] Fase 5 — cooldown e limpeza de estado.
-7. [~] Fase 6 — persistência HTTP, fila e deduplicação de snapshots. (parcial: 6A concluído; 6B deduplicação por hash concluída, referência de arquivo pendente; 6C idempotencyKey adicionada, fila pendente)
+7. [x] Fase 6 — persistência HTTP, fila e deduplicação de snapshots. (6A ok; 6B dedupe por hash, referência de arquivo não adotada; 6C fila + idempotência implementadas e testadas)
 8. [~] Fase 7 — validação com vídeos anotados. (parcial: confirmação 2 frames, grade 8x8, testes de ruído/ordem/iluminação concluídos; validação com vídeos reais pendente)
-9. [ ] Fase 8 — fallback de inferência WebGPU, se confirmado necessário.
-10. [ ] Fase 9 — regressão completa e documentação.
+9. [x] Fase 8 — fallback de inferência WebGPU, se confirmado necessário. (implementado: fallback só em erro de dispositivo; testado)
+10. [~] Fase 9 — regressão completa e documentação. (typecheck, lint, testes unitários, build e E2E com stubs verdes; docs atualizados; falta o teste com vídeo anotado real)
 
 **Não avance para memória vetorial, embeddings ou modelos maiores antes de cumprir os critérios finais.** Uma memória mais sofisticada não compensa eventos temporalmente incorretos nem persistência que parece ter funcionado quando falhou.

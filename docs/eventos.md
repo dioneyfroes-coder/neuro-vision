@@ -34,4 +34,10 @@ Quando o cliente cancela uma análise, ele encerra a leitura do stream e o servi
 
 Cada evento traz `confianca` e `snapshot` como evidência, respondendo **o que mudou**, **quando** e com quais **evidências**. Os filtros incidem sobre os eventos mais recentes dentro de `limit`.
 
+## Persistência e idempotência
+
+Cada evento carrega um `idempotencyKey` (gerado por evento) e o `frameId` da captura que o originou. O cliente envia pela fila de persistência (`public/persistencia.ts`), que serializa as requisições e repete falhas transitórias; como a chave é estável entre tentativas, o servidor reconhece o reenvio e responde `{ ok: true, duplicado: true }` **sem** gravar de novo. Perder a resposta do servidor, portanto, não vira evento duplicado.
+
+Vários eventos do mesmo quadro compartilham o mesmo `snapshot`: a imagem é deduplicada por hash do conteúdo em `logs/snapshots/`, então **um quadro = um arquivo**, mesmo que ele gere `aparicao` e `movimento`. Quando uma gravação falha de vez (após as tentativas), o evento entra no aviso de persistência e pode ser exportado no botão **Pendentes** — não é descartado em silêncio. Uma limpeza de histórico (`DELETE`) invalida as chaves de idempotência anteriores, porque o arquivo de eventos fica vazio.
+
 Tipos de evento (`TIPOS_EVENTO` em `src/memoria.ts`): `aparicao`, `desaparecimento`, `movimento`, `mudanca_de_cena`, `resumo`. Origem (`api.ts`): `detector`, `rastreador` ou `visao`. Registros operacionais (falhas/métricas, que **não** são acontecimentos visuais) vão para `operacional.jsonl` via `POST /api/operacional`.

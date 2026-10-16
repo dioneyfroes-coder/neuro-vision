@@ -11,7 +11,7 @@ Referência completa da API HTTP, formato das entradas, retenção de snapshots 
 | `GET` | `/api/visao/preparar` | Carrega o modelo de visão na memória (quando necessário) e responde quando estiver pronto: `{ ok, modelo, carregado, carregandoMs }`. |
 | `GET` | `/api/logs?limit=100` | Lista as entradas mais recentes (mais nova primeiro, limite máx. 500). |
 | `DELETE` | `/api/logs` | Limpa o histórico de log (inclui a rotação `.1`) **e** os eventos estruturados, removendo os snapshots que ficaram órfãos. |
-| `POST` | `/api/eventos` | Grava um evento visual estruturado (`EventoVisual`). Aceita `snapshot` (data URL) opcional. |
+| `POST` | `/api/eventos` | Grava um evento visual estruturado (`EventoVisual`). Aceita `snapshot` (data URL), `frameId`, `sessaoId` e `idempotencyKey` opcionais. Reenviar a mesma `idempotencyKey` responde `{ ok: true, duplicado: true }` sem gravar de novo. |
 | `GET` | `/api/eventos?limit=100` | Lista os eventos mais recentes (mais novo primeiro, limite máx. 500). Consultas por `tipo` (CSV, ex. `?tipo=aparicao,movimento`), `objetoId` e janela temporal (`desde`/`ate`, epoch ms ou ISO) respondem **o que mudou**, **quando** e as **evidências** (cada evento traz `confianca` e `snapshot`). Os filtros incidem sobre os eventos mais recentes dentro de `limit`. |
 | `DELETE` | `/api/eventos` | Limpa os eventos estruturados e remove os snapshots que ficaram órfãos. |
 | `POST` | `/api/operacional` | Grava um registro operacional (falha/métrica) que **não** é acontecimento visual. |
@@ -20,6 +20,12 @@ Referência completa da API HTTP, formato das entradas, retenção de snapshots 
 | `GET` | `/snapshots/<arquivo>` | Serve os snapshots (thumbnails) gravados. |
 
 As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jsonl` e os registros operacionais em `logs/operacional.jsonl` (uma linha JSON por registro, própria política de rotação); os snapshots ficam em `logs/snapshots/`.
+
+## Falhas de gravação e fila do cliente
+
+As rotas de gravação (`POST /api/log`, `/api/eventos`, `/api/operacional`) respondem com status HTTP de erro quando o payload é inválido ou a escrita falha. O cliente **verifica `response.ok`** e trata `4xx`/`5xx` como falha de persistência (lendo `{ erro }` do corpo quando existir) — uma resposta de erro nunca é tratada como sucesso.
+
+As gravações passam por uma fila serial (`public/persistencia.ts`): mantém a ordem, limita a uma requisição simultânea, faz no máximo 3 tentativas com atraso progressivo e tem teto de itens aguardando. Ao esgotar as tentativas, a falha aparece no aviso do cabeçalho, no diagnóstico (contagem) e no próprio item do log, e o conteúdo pode ser exportado pelo botão **Pendentes**. O `idempotencyKey` é mantido entre as tentativas, então o reenvio não duplica eventos.
 
 ## `POST /api/visao` — corpo
 
