@@ -7,6 +7,7 @@ Estrutura de arquivos e como as partes conversam.
 - **Servidor Node** (`src/server.ts`) — arquivos estáticos + API REST + persistência JSONL + snapshots + proxy para o backend de visão local.
 - **Domínio** (`src/domain/`) — contratos puros (IDs de sessão/ciclo/frame, observação, resultados de percepção, evento temporal, pacote de ciclo, resultado de interpretação e métricas) sem dependência de SDK de modelo.
 - **Controlador do ciclo** (`public/cycle/cycle-controller.ts`) — regra de negócio do ciclo de frame único (captura, inferência, rastreamento, persistência e progresso) com dependências injetadas; emite `EventoUi` em vez de tocar o DOM.
+- **Ciclo multiframe** (`public/cycle/ciclo-multiframe.ts`) — captura 4 snapshots identificados (~1 s), guarda-os sem inferência, processa-os em sequência e envia o `PacoteCiclo` à interpretação multimodal. As imagens que chegam ao interpretador são as mesmas capturadas (sem recaptura). Ainda não está ligado à interface: a ligação acontece nas Etapas 5–7.
 - **Cliente** (`public/`) — interface, captura da webcam, detecção no navegador (Transformers.js) e cliente HTTP; `public/app.ts` é o ponto de composição e renderização.
 - **Adaptadores de percepção** (`public/perception/`) — portas `DetectorObjetos`, `EstimadorPose` e `ReconhecedorGestos` independentes do SDK; o núcleo conhece apenas essas interfaces, e cada SDK (Transformers.js/YOLO/MediaPipe) entra por um adaptador em `public/perception/adapters/`.
 - **Motores de percepção** — interface única `MotorPercepcao` (`inicializar`/`analisar`/`encerrar`); o app escolhe o motor pelo registro `MODOS` (`public/modos.ts`), sem `if (modo === ...)` espalhado.
@@ -41,11 +42,17 @@ public/
   index.html           interface
   app.ts               ponto de composição: liga botões/seletores, cria dependências e renderiza os `EventoUi`
   cycle/
-    cycle-controller.ts  controlador do ciclo (captura, inferência, rastreamento, persistência, progresso)
+    cycle-controller.ts  controlador do ciclo de frame único (captura, inferência, rastreamento, persistência, progresso)
+    ciclo-multiframe.ts  ciclo de 4 snapshots: captura → processamento local sequencial → pacote → interpretação
+  capture/
+    webcam-capture.ts    coleta snapshots identificados em intervalo (sem inferência; cancelável)
+    snapshot-store.ts    buffer de snapshots com retenção limitada e limpeza
   perception/
     contracts.ts       portas `DetectorObjetos`, `EstimadorPose` e `ReconhecedorGestos` (sem SDK de modelo)
     adapters/
       object-detector.adapter.ts  adaptador do detector instalado (Transformers.js) para a porta
+  interpretation/
+    contracts.ts       porta `InterpretadorMultimodal` (recebe o pacote; nunca captura a câmera)
   api.ts               cliente HTTP (histórico, eventos, contexto, backend de visão)
   detector.ts          módulo do SDK Transformers.js/CDN (classe `DetectorTransformers`)
   camera.ts            controle da webcam e assinatura de cena

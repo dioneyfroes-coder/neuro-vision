@@ -74,9 +74,10 @@ export class Camera {
 
   /**
    * Captura o frame atual como data URL JPEG. `maxWidth` limita a largura
-   * (0 mantem o tamanho original). Retorna null se o video ainda nao tem frame.
+   * (0 mantem o tamanho original); `qualidade` (0..1) limita o tamanho do
+   * payload guardado em memoria. Retorna null se o video ainda nao tem frame.
    */
-  capturarFrame(maxWidth = 0): string | null {
+  capturarFrame(maxWidth = 0, qualidade = 0.85): string | null {
     const vw = this.video.videoWidth;
     const vh = this.video.videoHeight;
     if (!vw || !vh || !this.frameCtx) return null;
@@ -87,7 +88,7 @@ export class Camera {
     this.frameCanvas.width = w;
     this.frameCanvas.height = h;
     this.frameCtx.drawImage(this.video, 0, 0, w, h);
-    return this.frameCanvas.toDataURL("image/jpeg", 0.85);
+    return this.frameCanvas.toDataURL("image/jpeg", qualidade);
   }
 
   /**
@@ -99,9 +100,10 @@ export class Camera {
    */
   capturarQuadro(
     maxWidth = 0,
-    larguraThumb = 240
+    larguraThumb = 240,
+    qualidade = 0.85
   ): { imagem: string; thumb: string } | null {
-    const imagem = this.capturarFrame(maxWidth);
+    const imagem = this.capturarFrame(maxWidth, qualidade);
     if (imagem === null) return null;
 
     const largura = this.frameCanvas.width;
@@ -115,7 +117,7 @@ export class Camera {
     this.thumbCanvas.width = w;
     this.thumbCanvas.height = h;
     ctx.drawImage(this.frameCanvas, 0, 0, w, h);
-    return { imagem, thumb: this.thumbCanvas.toDataURL("image/jpeg", 0.85) };
+    return { imagem, thumb: this.thumbCanvas.toDataURL("image/jpeg", qualidade) };
   }
 
   /**
