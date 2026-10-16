@@ -1,4 +1,4 @@
-import type { Caixa, EntradaLog, MotivoAnalise } from "../src/types";
+import type { Caixa, EntradaLog, EventoVisual, MotivoAnalise } from "../src/types";
 import { colapsarRepeticoes } from "../src/texto";
 import { entradaDeResultado } from "../src/percepcao";
 import type { MotorPercepcao, ResultadoPercepcao } from "../src/percepcao";
@@ -12,6 +12,7 @@ import { DetectorObjetos } from "./detector";
 import { Camera, ErroCamera } from "./camera";
 import { MotorVisao } from "./motores";
 import { obterModo } from "./modos";
+import { FilaPersistencia } from "./persistencia";
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -31,11 +32,13 @@ const statusEl = el<HTMLDivElement>("status");
 const spinnerEl = el<HTMLDivElement>("spinner");
 const modeloStatusEl = el<HTMLSpanElement>("modeloStatus");
 const diagInfoEl = el<HTMLSpanElement>("diagInfo");
+const persistAvisoEl = el<HTMLSpanElement>("persistAviso");
 const gpuWarningEl = el<HTMLDivElement>("gpuWarning");
 const logEl = el<HTMLUListElement>("log");
 const logCountEl = el<HTMLSpanElement>("logCount");
 const clearLogBtn = el<HTMLButtonElement>("clearLog");
 const exportBtn = el<HTMLButtonElement>("exportLog");
+const exportPendentesBtn = el<HTMLButtonElement>("exportPendentes");
 const filterInput = el<HTMLInputElement>("filter");
 const startBtn = el<HTMLButtonElement>("start");
 const stopBtn = el<HTMLButtonElement>("stop");
@@ -60,6 +63,13 @@ function gerarSessaoCurta(): string {
 }
 
 const detectorCoco = new DetectorObjetos();
+// Fase 8: se o WebGPU falhar durante a inferencia e a deteccao cair para WASM,
+// avisa na interface, mostra o aviso de CPU e atualiza o diagnostico.
+detectorCoco.aoStatus = (mensagem) => {
+  setStatus(mensagem);
+  mostrarAvisoDispositivo();
+  atualizarDiagnostico();
+};
 let sessaoId = gerarSessaoCurta();
 const rastreador = new RastreadorObjetos({}, sessaoId);
 const detectorCena = new DetectorMudancaDeCena({}, sessaoId);
@@ -74,6 +84,14 @@ let intervaloMsConfigurado = Number(intervalInput.value) * 1000;
 let frameIdAtual: string | null = null;
 let manualSolicitado = false;
 const politica = new PoliticaAnalise();
+/**
+ * Fila de persistencia (Fase 6C): serializa as gravacoes do historico e dos
+ * eventos, retenta falhas transitorias com atraso progressivo e alimenta o
+ * diagnostico/aviso de persistencia (Fase 6A).
+ */
+const filaPersistencia = new FilaPersistencia({
+  aoMudar: () => atualizarDiagnostico(),
+});
 function gerarFrameId(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID().slice(0, 12);
@@ -201,6 +219,9 @@ function atualizarDiagnostico(): void {
         : "nenhum";
 
   const partes = [`motor ${motor}`, `backend ${rotuloBackend()}`, `modelo ${modelo}`, `carregados: ${carregados}`];
+  if (definicao.usaDeteccao && detectorCoco.dispositivo) {
+    partes.push(`dispositivo ${detectorCoco.dispositivo}`);
+  }
   if (infoVisao?.solicitado && infoVisao.solicitado !== infoVisao.modelo) {
     partes.push(`fallback de ${infoVisao.solicitado}`);
   }
@@ -208,8 +229,24 @@ function atualizarDiagnostico(): void {
   if (ultimaDuracaoMs > 0) partes.push(`inferencia ${ultimaDuracaoMs} ms`);
   if (ultimaPersistenciaMs > 0) partes.push(`persistencia ${ultimaPersistenciaMs} ms`);
 
+  const fila = filaPersistencia.estado;
+  if (fila.pendentes > 0) partes.push(`fila ${fila.pendentes}`);
+  if (fila.falhas > 0) partes.push(`falhas de persistencia ${fila.falhas}`);
+
   diagInfoEl.textContent = `Diagnostico: ${partes.join(" · ")}`;
   diagInfoEl.title = partes.join("\n");
+
+  // Fase 6A: uma falha de gravacao fica visivel e nao pode ser confundida com
+  // um evento salvo. O aviso so some quando nao ha mais gravacoes falhando.
+  if (fila.falhas > 0) {
+    const detalhe = fila.ultimoErro ? ` — ${fila.ultimoErro}` : "";
+    persistAvisoEl.textContent = `Aviso: ${fila.falhas} gravacao(oes) nao chegaram ao servidor${detalhe}. Use "Pendentes" para exportar.`;
+    persistAvisoEl.hidden = false;
+  } else {
+    persistAvisoEl.textContent = "";
+    persistAvisoEl.hidden = true;
+  }
+  exportPendentesBtn.disabled = fila.falhas === 0;
 }
 
 /**
@@ -357,9 +394,11 @@ function criarItem(entry: EntradaLog): HTMLLIElement {
   return li;
 }
 
-function addLogEntry(entry: EntradaLog): void {
-  logEl.prepend(criarItem(entry));
+function addLogEntry(entry: EntradaLog): HTMLLIElement {
+  const item = criarItem(entry);
+  logEl.prepend(item);
   atualizarContagem();
+  return item;
 }
 
 function limparLista(): void {
@@ -402,7 +441,13 @@ async function limparHistorico(): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
 
+    // Fase 5/6C: pausa a fila e aguarda a gravacao em andamento antes de apagar
+    // no servidor, para que nenhuma gravacao iniciada antes da limpeza reapareca
+    // depois dela. Em seguida a fila e descartada e volta a aceitar gravacoes.
+    await filaPersistencia.pausar();
     await api.limparHistorico();
+    filaPersistencia.limpar();
+
     // Reseta toda a percepcao temporal, nao apenas a lista visivel.
     sessaoId = gerarSessaoCurta();
     rastreador.reiniciar();
@@ -415,18 +460,24 @@ async function limparHistorico(): Promise<void> {
     }
     politica.reiniciar();
     frameIdAtual = gerarFrameId();
-  manualSolicitado = false;
+    manualSolicitado = false;
     ultimaDescricao = "";
     roteiroBeats = [];
     roteiroPrimeiro = true;
     limparLista();
     atualizarContagem();
     setStatus("Historico limpo.");
-    if (retomar) await agendador.iniciar();
   } catch (err) {
     setStatus(`Falha ao limpar historico: ${(err as Error).message}`);
     atualizarContagem();
-    if (retomar && !agendador.estaRodando) await agendador.iniciar();
+  } finally {
+    // Se a limpeza falhou, a fila ainda tem as gravacoes pendentes e retoma o
+    // processamento normal; se funcionou, `limpar()` ja esvaziou tudo.
+    filaPersistencia.retomar();
+    atualizarDiagnostico();
+    if (retomar && !agendador.estaRodando) {
+      await agendador.iniciar().catch(() => undefined);
+    }
   }
 }
 
@@ -440,18 +491,46 @@ function registrarOperacional(
 }
 
 /**
- * Persiste uma entrada no servidor medindo o tempo de gravacao (persistencia),
- * para diferenciar essa etapa da inferencia no diagnostico.
+ * Enfileira a gravacao de uma entrada. A fila mede o tempo de gravacao
+ * (persistencia), mantem a ordem e retenta falhas transitorias (Fase 6C). Em
+ * falha definitiva, marca o item do registro como nao gravado (Fase 6A), para
+ * nao declarar salvo o que nao chegou ao servidor.
  */
-async function persistirEntrada(entry: EntradaLog): Promise<void> {
-  const inicio = performance.now();
-  try {
-    await api.gravarEntrada(entry);
-    ultimaPersistenciaMs = Math.round(performance.now() - inicio);
-  } catch {
-    if (running) setStatus("Falha ao gravar no log do servidor");
-  }
-  atualizarDiagnostico();
+function persistirEntrada(entry: EntradaLog, item?: HTMLLIElement): void {
+  filaPersistencia.agendar({
+    descricao: `entrada:${entry.tipo}`,
+    payload: entry,
+    executar: async () => {
+      const inicio = performance.now();
+      await api.gravarEntrada(entry);
+      ultimaPersistenciaMs = Math.round(performance.now() - inicio);
+    },
+    aoFalhar: () => {
+      if (!item) return;
+      item.classList.add("nao-gravado");
+      item.title = "Nao gravado no servidor (falha de persistencia).";
+    },
+  });
+}
+
+/**
+ * Enfileira a gravacao de um evento estruturado. O `idempotencyKey` e estavel
+ * durante as tentativas, para o servidor nao duplicar em reenvios (Fase 6C).
+ * Movimento e o evento mais frequente: grava sem snapshot para poupar disco.
+ */
+function persistirEvento(evt: EventoVisual): void {
+  const payload: EventoVisual = {
+    ...evt,
+    snapshot: evt.tipo === "movimento" ? undefined : evt.snapshot,
+    frameId: frameIdAtual ?? undefined,
+    sessaoId,
+    idempotencyKey: gerarIdempotencyKey(),
+  };
+  filaPersistencia.agendar({
+    descricao: `evento:${evt.tipo}`,
+    payload,
+    executar: () => api.gravarEvento(payload),
+  });
 }
 
 async function analisarComVisao(
@@ -578,21 +657,15 @@ async function analisarDeteccao(signal: AbortSignal): Promise<void> {
   drawBoxes(quadro.objetos);
 
   const entry = { ...entradaDeResultado(resultado, "deteccao"), frameId: frameIdAtual ?? undefined };
-  addLogEntry(entry);
+  const item = addLogEntry(entry);
   const resumoEventos = eventos.map((e) => e.descricao).join(", ");
   setStatus(
     `Viu: ${entry.resumo}  (${resultado.duracaoMs} ms)${resumoEventos ? ` · ${resumoEventos}` : ""}`
   );
 
-  for (const evt of eventos) {
-    // Movimento e o evento mais frequente: grava sem snapshot para poupar disco.
-    const paraGravar = evt.tipo === "movimento" ? { ...evt, snapshot: undefined } : evt;
-    void api.gravarEvento({ ...paraGravar, frameId: frameIdAtual ?? undefined, sessaoId, idempotencyKey: gerarIdempotencyKey() }).catch(() => {
-      if (running) setStatus("Falha ao gravar evento no servidor");
-    });
-  }
+  for (const evt of eventos) persistirEvento(evt);
 
-  void persistirEntrada(entry);
+  persistirEntrada(entry, item);
 }
 
 /**
@@ -667,13 +740,7 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
   });
   const eventos = sinalCena ? [...quadro.eventos, sinalCena] : quadro.eventos;
 
-  for (const evt of eventos) {
-    // Movimento e o evento mais frequente: grava sem snapshot para poupar disco.
-    const paraGravar = evt.tipo === "movimento" ? { ...evt, snapshot: undefined } : evt;
-    void api.gravarEvento({ ...paraGravar, frameId: frameIdAtual ?? undefined, sessaoId, idempotencyKey: gerarIdempotencyKey() }).catch(() => {
-      if (running) setStatus("Falha ao gravar evento no servidor");
-    });
-  }
+  for (const evt of eventos) persistirEvento(evt);
 
   const menorScore =
     resultado.objetos.length > 0
@@ -703,9 +770,9 @@ async function analisarEventos(signal: AbortSignal): Promise<void> {
 
   drawBoxes(quadro.objetos);
   const entry = { ...entradaDeResultado(resultado, "deteccao"), frameId: frameIdAtual ?? undefined };
-  addLogEntry(entry);
+  const item = addLogEntry(entry);
   setStatus(`Viu: ${entry.resumo} (${resultado.duracaoMs} ms) · sem mudanca relevante`);
-  void persistirEntrada(entry);
+  persistirEntrada(entry, item);
 }
 
 async function analisar(): Promise<void> {
@@ -905,6 +972,27 @@ async function exportarLog(): Promise<void> {
   }
 }
 
+/**
+ * Exporta as gravacoes que falharam de vez (Fase 6C): os eventos/entradas que
+ * nao chegaram ao servidor e ficaram retidos na fila, para nao serem perdidos.
+ */
+function exportarPendentes(): void {
+  const pendentes = filaPersistencia.naoEnviados;
+  if (pendentes.length === 0) {
+    setStatus("Nenhuma gravacao pendente.");
+    return;
+  }
+  const blob = new Blob([JSON.stringify(pendentes, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  a.download = `neuro-vision-pendentes-${stamp}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  setStatus(`${pendentes.length} gravacao(oes) pendente(s) exportada(s).`);
+}
+
 startBtn.addEventListener("click", () => void start());
 stopBtn.addEventListener("click", stop);
 analisarAgoraBtn.addEventListener("click", () => {
@@ -914,6 +1002,7 @@ analisarAgoraBtn.addEventListener("click", () => {
 });
 clearLogBtn.addEventListener("click", () => void limparHistorico());
 exportBtn.addEventListener("click", () => void exportarLog());
+exportPendentesBtn.addEventListener("click", exportarPendentes);
 filterInput.addEventListener("input", aplicarFiltro);
 
 intervalInput.addEventListener("input", () => {

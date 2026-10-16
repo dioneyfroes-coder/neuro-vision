@@ -138,6 +138,7 @@ export function montarEvento(payload: unknown): EventoVisual | null {
     modelo: typeof p.modelo === "string" ? p.modelo : undefined,
     sessaoId: typeof p.sessaoId === "string" ? p.sessaoId : undefined,
     idempotencyKey: typeof p.idempotencyKey === "string" ? p.idempotencyKey : undefined,
+    frameId: typeof p.frameId === "string" ? p.frameId : undefined,
   };
 }
 

@@ -327,6 +327,37 @@ export async function lerEventos(
 
 export async function limparEventos(filePath: string = EVENTOS_FILE): Promise<void> {
   await limparJsonl(filePath);
+  // Arquivo zerado: as chaves de idempotencia antigas deixam de valer.
+  eventosIdempotentes.delete(filePath);
+}
+
+/**
+ * Chaves de idempotencia ja registradas, por arquivo de eventos (Fase 6C).
+ * O reenvio da mesma requisicao (retentativa da fila do cliente) nao pode
+ * acrescentar um evento duplicado. Limitado por `IDEMPOTENTES_MAX`; a ordem de
+ * insercao e a de chegada, entao as chaves mais antigas saem primeiro.
+ */
+const eventosIdempotentes = new Map<string, Set<string>>();
+const IDEMPOTENTES_MAX = 2000;
+
+/** Indica se a chave de idempotencia ja foi processada para este arquivo. */
+export function eventoJaRegistrado(filePath: string, chave: string): boolean {
+  return eventosIdempotentes.get(filePath)?.has(chave) ?? false;
+}
+
+/** Marca a chave como processada, descartando as mais antigas no limite. */
+export function marcarEventoRegistrado(filePath: string, chave: string): void {
+  let chaves = eventosIdempotentes.get(filePath);
+  if (!chaves) {
+    chaves = new Set();
+    eventosIdempotentes.set(filePath, chaves);
+  }
+  chaves.add(chave);
+  while (chaves.size > IDEMPOTENTES_MAX) {
+    const primeira = chaves.values().next().value;
+    if (primeira === undefined) break;
+    chaves.delete(primeira);
+  }
 }
 
 export async function appendOperacional(
@@ -732,10 +763,18 @@ async function handleEventos(
       sendJson(res, 400, { ok: false, erro: "evento invalido (tipo ou origem desconhecidos)" });
       return;
     }
+    // Idempotencia (Fase 6C): o reenvio da mesma requisicao pela fila do cliente
+    // nao acrescenta um evento duplicado nem regrava o snapshot.
+    const chave = evento.idempotencyKey;
+    if (chave && eventoJaRegistrado(eventosFile, chave)) {
+      sendJson(res, 200, { ok: true, evento, duplicado: true });
+      return;
+    }
     const p = payload as Record<string, unknown>;
     const snapshot = await salvarSnapshot(p.snapshot, snapDir);
     if (snapshot) evento.snapshot = snapshot;
     await appendEvento(evento, eventosFile);
+    if (chave) marcarEventoRegistrado(eventosFile, chave);
     if (snapshot) agendarLimpezaSnapshots(snapDir, logFile, eventosFile);
     sendJson(res, 200, { ok: true, evento });
   } catch (err) {

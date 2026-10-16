@@ -127,6 +127,34 @@ test("filtra as entradas do historico", async ({ page }) => {
   await expect(page.locator("#log li", { hasText: "qwen2.5-vl" })).toBeHidden();
 });
 
+test("limpar o historico zera a lista e apaga no servidor", async ({ page }) => {
+  const chamadas: string[] = [];
+  await prepararPagina(page);
+  await page.route("**/api/logs", (rota) => {
+    if (rota.request().method() === "DELETE") {
+      chamadas.push("DELETE");
+      return rota.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, snapshots: 0 }),
+      });
+    }
+    return rota.continue();
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#log li")).toHaveCount(2);
+  await expect(page.locator("#clearLog")).toBeEnabled();
+
+  await page.locator("#clearLog").click();
+
+  await expect(page.locator("#status")).toContainText("Historico limpo");
+  await expect(page.locator("#log li")).toHaveCount(0);
+  await expect(page.locator("#logCount")).toHaveText("0");
+  await expect(page.locator("#clearLog")).toBeDisabled();
+  expect(chamadas).toEqual(["DELETE"]);
+});
+
 test("exibe o status do backend de visao", async ({ page }) => {
   await prepararPagina(page);
   await page.goto("/");

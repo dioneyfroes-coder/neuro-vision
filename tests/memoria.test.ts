@@ -118,6 +118,22 @@ describe("montarEvento", () => {
     });
     expect(evento?.confianca).toBeUndefined();
   });
+
+  it("preserva sessaoId, frameId e idempotencyKey", () => {
+    const evento = montarEvento({
+      tipo: "aparicao",
+      origem: "rastreador",
+      descricao: "apareceu pessoa",
+      sessaoId: "ses-1",
+      frameId: "frame-1",
+      idempotencyKey: "chave-1",
+    });
+    expect(evento).toMatchObject({
+      sessaoId: "ses-1",
+      frameId: "frame-1",
+      idempotencyKey: "chave-1",
+    });
+  });
 });
 
 describe("filtrarEventos", () => {

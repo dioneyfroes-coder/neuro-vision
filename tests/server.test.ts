@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
@@ -1731,6 +1731,137 @@ describe("memoria persistente (eventos e operacional)", () => {
       });
       expect(res.status).toBe(400);
       expect(await lerEventos(eventosFile, 10)).toHaveLength(0);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("POST /api/eventos com a mesma idempotencyKey nao duplica o evento", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const eventosFile = path.join(tmpDir, "eventos.jsonl");
+    const snapDir = path.join(tmpDir, "snapshots");
+    const server = createServer({ logFile, eventosFile, snapDir, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const corpo = {
+        tipo: "aparicao",
+        origem: "rastreador",
+        descricao: "apareceu pessoa",
+        snapshot: "data:image/jpeg;base64,AAAA",
+        idempotencyKey: "chave-1",
+      };
+      const enviar = () =>
+        fetch(`http://127.0.0.1:${port}/api/eventos`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(corpo),
+        });
+
+      const primeira = await enviar();
+      expect(primeira.status).toBe(200);
+
+      const segunda = await enviar();
+      expect(segunda.status).toBe(200);
+      expect(await segunda.json()).toMatchObject({ ok: true, duplicado: true });
+
+      // O evento foi gravado uma unica vez e o snapshot nao foi reescrito.
+      expect(await lerEventos(eventosFile, 10)).toHaveLength(1);
+      expect(await readdir(snapDir)).toHaveLength(1);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("eventos da mesma captura compartilham um unico snapshot por hash", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const eventosFile = path.join(tmpDir, "eventos.jsonl");
+    const snapDir = path.join(tmpDir, "snapshots");
+    const server = createServer({ logFile, eventosFile, snapDir, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    const enviar = (corpo: Record<string, unknown>) =>
+      fetch(`http://127.0.0.1:${port}/api/eventos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(corpo),
+      });
+
+    try {
+      // Dois eventos do mesmo frame (mesmo conteudo de imagem) e um de outro.
+      await enviar({
+        tipo: "aparicao",
+        origem: "rastreador",
+        descricao: "a",
+        frameId: "frame-1",
+        idempotencyKey: "k1",
+        snapshot: "data:image/jpeg;base64,QUJD",
+      });
+      await enviar({
+        tipo: "movimento",
+        origem: "rastreador",
+        descricao: "m",
+        frameId: "frame-1",
+        idempotencyKey: "k2",
+        snapshot: "data:image/jpeg;base64,QUJD",
+      });
+      await enviar({
+        tipo: "aparicao",
+        origem: "rastreador",
+        descricao: "b",
+        snapshot: "data:image/jpeg;base64,REVG",
+        frameId: "frame-2",
+        idempotencyKey: "chave-2",
+      });
+
+      const eventos = await lerEventos(eventosFile, 10);
+      expect(eventos).toHaveLength(3);
+
+      const porFrame = new Map(eventos.map((e) => [e.frameId, e.snapshot]));
+      expect(porFrame.get("frame-1")).toBeDefined();
+      expect(porFrame.get("frame-2")).toBeDefined();
+      expect(porFrame.get("frame-1")).not.toBe(porFrame.get("frame-2"));
+      // O snapshot foi deduplicado por conteudo: um arquivo por conteudo.
+      expect(await readdir(snapDir)).toHaveLength(2);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("limpar eventos invalida as chaves de idempotencia anteriores", async () => {
+    const logFile = path.join(tmpDir, "visao.jsonl");
+    const eventosFile = path.join(tmpDir, "eventos.jsonl");
+    const server = createServer({ logFile, eventosFile, publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    const corpo = {
+      tipo: "aparicao",
+      origem: "rastreador",
+      descricao: "apareceu pessoa",
+      idempotencyKey: "chave-limpeza",
+    };
+    const enviar = () =>
+      fetch(`http://127.0.0.1:${port}/api/eventos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(corpo),
+      });
+
+    try {
+      await enviar();
+      expect(await lerEventos(eventosFile, 10)).toHaveLength(1);
+
+      const limpeza = await fetch(`http://127.0.0.1:${port}/api/eventos`, {
+        method: "DELETE",
+      });
+      expect(limpeza.status).toBe(200);
+
+      // Apos limpar, a mesma chave volta a valer (arquivo novo).
+      await enviar();
+      expect(await lerEventos(eventosFile, 10)).toHaveLength(1);
     } finally {
       server.close();
     }

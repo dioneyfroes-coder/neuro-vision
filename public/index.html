@@ -12,6 +12,7 @@
     <p class="sub">Visao computacional local — a webcam enxerga e registra o que ve.</p>
     <span id="modeloStatus" class="health" title="Status do backend de visao">Modelo: verificando...</span>
     <span id="diagInfo" class="diag" title="Diagnostico da sessao">Diagnostico: —</span>
+    <span id="persistAviso" class="aviso persist-aviso" role="status" hidden></span>
   </header>
 
   <main>
@@ -70,6 +71,7 @@
         <h2>Registro do que viu <span id="logCount" class="count">0</span></h2>
         <div class="logpanel-actions">
           <button id="exportLog" class="ghost" type="button" disabled>Exportar</button>
+          <button id="exportPendentes" class="ghost" type="button" disabled title="Exportar gravacoes que nao chegaram ao servidor">Pendentes</button>
           <button id="clearLog" class="ghost" type="button" disabled>Limpar</button>
         </div>
       </div>
