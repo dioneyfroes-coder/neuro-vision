@@ -4,8 +4,7 @@ import type {
   ResultadoPercepcao,
 } from "../src/percepcao";
 import type { MotivoAnalise } from "../src/types";
-import type { DetectorObjetos } from "./detector";
-import { descreverDeteccoes } from "./detector";
+import type { DetectorObjetos } from "./perception/contracts";
 import * as api from "./api";
 import type { PayloadVisao } from "./api";
 
@@ -28,16 +27,15 @@ export class MotorDeteccao implements MotorPercepcao {
 
   async analisar(entrada: EntradaPercepcao, _sinal?: AbortSignal): Promise<ResultadoPercepcao> {
     const inicio = performance.now();
-    const deteccoes = await this.opcoes.detector.executar(entrada.imagem, {
-      threshold: this.opcoes.obterThreshold(),
-      percentage: false,
-    });
-    const { objetos, resumo } = descreverDeteccoes(deteccoes);
+    const resultado = await this.opcoes.detector.detectar(
+      { imagem: entrada.imagem, dimensoes: entrada.dimensoes },
+      { threshold: this.opcoes.obterThreshold(), percentage: false }
+    );
     return {
-      modelo: this.opcoes.detector.modelo ?? "desconhecido",
+      modelo: resultado.modelo ?? this.opcoes.detector.modelo ?? "desconhecido",
       duracaoMs: Math.round(performance.now() - inicio),
-      objetos,
-      descricao: resumo,
+      objetos: resultado.deteccoes,
+      descricao: resultado.resumo ?? "",
       snapshot: entrada.snapshot,
       capturadoEm: entrada.capturadoEm,
     };

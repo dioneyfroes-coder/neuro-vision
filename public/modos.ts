@@ -1,5 +1,5 @@
 import type { MotorPercepcao } from "../src/percepcao";
-import type { DetectorObjetos } from "./detector";
+import type { DetectorObjetos } from "./perception/contracts";
 import { MotorDeteccao, MotorVisao } from "./motores";
 
 /**

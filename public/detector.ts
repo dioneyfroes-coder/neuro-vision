@@ -165,12 +165,18 @@ export function pareceFalhaDeDispositivo(err: unknown): boolean {
  * Encapsula o detector de objetos do Transformers.js: cache por modelo,
  * fallback de WebGPU para CPU e execucao da inferencia.
  *
+ * E o modulo **especifico do SDK** (Transformers.js). O resto da aplicacao
+ * depende da porta `DetectorObjetos` (`public/perception/contracts.ts`); o
+ * adaptador `AdaptadorDetectorObjetos`
+ * (`public/perception/adapters/object-detector.adapter.ts`) envolve esta classe
+ * e traduz a saida para os contratos de dominio.
+ *
  * O fallback acontece em duas situacoes distintas: (1) ao **carregar** o
  * pipeline em WebGPU; (2) numa **inferencia** posterior, quando o dispositivo
  * se perde (contexto reiniciado, memoria esgotada). No segundo caso o detector e
  * recarregado em WASM uma unica vez e a inferencia e repetida.
  */
-export class DetectorObjetos {
+export class DetectorTransformers {
   private readonly cache = new Map<string, Detector>();
   private atualInterno: Detector | null = null;
   private modeloAtual: string | null = null;

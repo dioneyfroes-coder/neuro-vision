@@ -1,5 +1,5 @@
 import type { Caixa, EntradaLog } from "../src/types";
-import { DetectorObjetos } from "./detector";
+import { AdaptadorDetectorObjetos } from "./perception/adapters/object-detector.adapter";
 import { Camera } from "./camera";
 import { obterModo } from "./modos";
 import { MotorVisao } from "./motores";
@@ -46,7 +46,7 @@ const intervalValue = el<HTMLSpanElement>("intervalValue");
 const thresholdInput = el<HTMLInputElement>("threshold");
 const thresholdValue = el<HTMLSpanElement>("thresholdValue");
 
-const detectorCoco = new DetectorObjetos();
+const detectorCoco = new AdaptadorDetectorObjetos();
 let running = false;
 let intervaloMsConfigurado = Number(intervalInput.value) * 1000;
 

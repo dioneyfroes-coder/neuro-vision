@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { MotorDeteccao, MotorVisao } from "../public/motores";
 import * as api from "../public/api";
-import type { DetectorObjetos } from "../public/detector";
+import type { DetectorObjetos } from "../public/perception/contracts";
 
 vi.mock("../public/api", () => ({
   descreverFrame: vi.fn(),
@@ -13,13 +13,19 @@ describe("MotorDeteccao", () => {
     const detector = {
       modelo: "Xenova/yolos-tiny",
       carregar: vi.fn(async () => undefined),
-      executar: vi.fn(async () => [
-        {
-          label: "person",
-          score: 0.92,
-          box: { xmin: 0, ymin: 2, xmax: 3, ymax: 4 },
-        },
-      ]),
+      detectar: vi.fn(async () => ({
+        deteccoes: [
+          {
+            nome: "pessoa",
+            rotulo: "person",
+            score: 0.92,
+            caixa: { xmin: 0, ymin: 2, xmax: 3, ymax: 4 },
+          },
+        ],
+        dimensoes: { largura: 640, altura: 480 },
+        modelo: "Xenova/yolos-tiny",
+        resumo: "pessoa",
+      })),
     } as unknown as DetectorObjetos;
     const motor = new MotorDeteccao({
       detector,
@@ -35,10 +41,10 @@ describe("MotorDeteccao", () => {
       { imagem: "data:image/png;base64,AAAA" },
       new AbortController().signal
     );
-    expect(detector.executar).toHaveBeenCalledWith("data:image/png;base64,AAAA", {
-      threshold: 0.4,
-      percentage: false,
-    });
+    expect(detector.detectar).toHaveBeenCalledWith(
+      { imagem: "data:image/png;base64,AAAA", dimensoes: undefined },
+      { threshold: 0.4, percentage: false }
+    );
     expect(resultado?.modelo).toBe("Xenova/yolos-tiny");
     expect(resultado?.descricao).toBe("pessoa");
     expect(resultado?.objetos[0]).toEqual({
@@ -50,11 +56,28 @@ describe("MotorDeteccao", () => {
     expect(typeof resultado?.duracaoMs).toBe("number");
   });
 
+  it("repassa as dimensoes do frame ao adaptador", async () => {
+    const detector = {
+      modelo: "x",
+      carregar: vi.fn(async () => undefined),
+      detectar: vi.fn(async () => ({ deteccoes: [], resumo: "nada reconhecido" })),
+    } as unknown as DetectorObjetos;
+    const motor = new MotorDeteccao({ detector, modelo: "x", obterThreshold: () => 0.5 });
+    await motor.analisar(
+      { imagem: "a", dimensoes: { largura: 1280, altura: 720 } },
+      new AbortController().signal
+    );
+    expect(detector.detectar).toHaveBeenCalledWith(
+      { imagem: "a", dimensoes: { largura: 1280, altura: 720 } },
+      { threshold: 0.5, percentage: false }
+    );
+  });
+
   it("usa o limiar lido a cada analise", async () => {
     const detector = {
       modelo: "x",
       carregar: vi.fn(async () => undefined),
-      executar: vi.fn(async () => []),
+      detectar: vi.fn(async () => ({ deteccoes: [], resumo: "nada reconhecido" })),
     } as unknown as DetectorObjetos;
     let threshold = 0.3;
     const motor = new MotorDeteccao({
@@ -65,14 +88,16 @@ describe("MotorDeteccao", () => {
     await motor.analisar({ imagem: "a" }, new AbortController().signal);
     threshold = 0.7;
     await motor.analisar({ imagem: "b" }, new AbortController().signal);
-    expect(detector.executar).toHaveBeenNthCalledWith(1, "a", {
-      threshold: 0.3,
-      percentage: false,
-    });
-    expect(detector.executar).toHaveBeenNthCalledWith(2, "b", {
-      threshold: 0.7,
-      percentage: false,
-    });
+    expect(detector.detectar).toHaveBeenNthCalledWith(
+      1,
+      { imagem: "a", dimensoes: undefined },
+      { threshold: 0.3, percentage: false }
+    );
+    expect(detector.detectar).toHaveBeenNthCalledWith(
+      2,
+      { imagem: "b", dimensoes: undefined },
+      { threshold: 0.7, percentage: false }
+    );
   });
 });
 

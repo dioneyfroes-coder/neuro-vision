@@ -466,7 +466,12 @@ export class CycleController {
     try {
       if (!this.motorAtual) return;
       resultado = await this.motorAtual.analisar(
-        { imagem: captura.imagem, snapshot: captura.thumb, capturadoEm },
+        {
+          imagem: captura.imagem,
+          snapshot: captura.thumb,
+          capturadoEm,
+          dimensoes: { largura: width, altura: height },
+        },
         signal
       );
     } catch (err) {
@@ -533,7 +538,12 @@ export class CycleController {
     try {
       if (!this.motorAtual) return;
       resultado = await this.motorAtual.analisar(
-        { imagem: captura.imagem, snapshot: captura.thumb, capturadoEm },
+        {
+          imagem: captura.imagem,
+          snapshot: captura.thumb,
+          capturadoEm,
+          dimensoes: { largura: width, altura: height },
+        },
         signal
       );
     } catch (err) {

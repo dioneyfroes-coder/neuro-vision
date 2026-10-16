@@ -57,10 +57,16 @@ export interface Deteccao {
 /** Resultado do detector de objetos para um frame. */
 export interface ResultadoDeteccaoLocal {
   deteccoes: Deteccao[];
-  /** Dimensoes reais da imagem analisada, para normalizar caixas/coordenadas. */
-  dimensoes: { largura: number; altura: number };
+  /**
+   * Dimensoes reais da imagem analisada, para normalizar caixas/coordenadas.
+   * Opcional: o adaptador pode nao receber as dimensoes do frame (ex.: quando o
+   * motor nao as conhece); caixas permanecem em pixels da imagem original.
+   */
+  dimensoes?: { largura: number; altura: number };
   /** Modelo/motor que produziu o resultado (quando conhecido). */
   modelo?: string;
+  /** Resumo legivel (ex.: `2x pessoa, cachorro`), derivado das deteccoes. */
+  resumo?: string;
 }
 
 /** Ponto-chave corporal em coordenadas normalizadas [0,1] (quando houver). */

@@ -39,6 +39,8 @@ export interface EntradaPercepcao {
   snapshot?: string;
   /** Instante ISO da captura do frame (antes da inferencia). */
   capturadoEm?: string;
+  /** Dimensoes da imagem, para normalizar caixas/coordenadas (quando conhecidas). */
+  dimensoes?: { largura: number; altura: number };
 }
 
 /** Motor de percepcao com ciclo de vida explicito. */

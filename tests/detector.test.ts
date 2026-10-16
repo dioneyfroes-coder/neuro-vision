@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DetectorObjetos, descreverDeteccoes, traduzir } from "../public/detector";
+import { DetectorTransformers, descreverDeteccoes, traduzir } from "../public/detector";
 import { chamadas, controle } from "../src/transformers.stub";
 
 beforeEach(() => {
@@ -44,12 +44,12 @@ describe("descreverDeteccoes", () => {
   });
 });
 
-describe("DetectorObjetos", () => {
+describe("DetectorTransformers", () => {
   it("carrega, executa e reutiliza o modelo em cache", async () => {
     controle.deteccoes = [
       { label: "car", score: 0.9, box: { xmin: 0, ymin: 0, xmax: 1, ymax: 1 } },
     ];
-    const detector = new DetectorObjetos();
+    const detector = new DetectorTransformers();
     const status: string[] = [];
 
     await detector.carregar("modelo-a", (m) => status.push(m));
@@ -69,7 +69,7 @@ describe("DetectorObjetos", () => {
   it("faz fallback para wasm quando a primeira tentativa falha", async () => {
     vi.stubGlobal("navigator", { gpu: {} });
     controle.falharPrimeira = true;
-    const detector = new DetectorObjetos();
+    const detector = new DetectorTransformers();
     const status: string[] = [];
 
     await detector.carregar("modelo-b", (m) => status.push(m));
@@ -79,7 +79,7 @@ describe("DetectorObjetos", () => {
   });
 
   it("lanca ao executar sem modelo carregado", async () => {
-    const detector = new DetectorObjetos();
+    const detector = new DetectorTransformers();
     await expect(
       detector.executar("x", { threshold: 0.5, percentage: false })
     ).rejects.toThrow("Detector nao carregado");
@@ -91,7 +91,7 @@ describe("DetectorObjetos", () => {
       { label: "person", score: 0.9, box: { xmin: 0, ymin: 0, xmax: 1, ymax: 1 } },
     ];
     controle.falharExecucao = 1;
-    const detector = new DetectorObjetos();
+    const detector = new DetectorTransformers();
     const status: string[] = [];
     detector.aoStatus = (mensagem) => status.push(mensagem);
 
@@ -113,7 +113,7 @@ describe("DetectorObjetos", () => {
     vi.stubGlobal("navigator", { gpu: {} });
     controle.falharExecucao = 1;
     controle.erroExecucao = "imagem invalida";
-    const detector = new DetectorObjetos();
+    const detector = new DetectorTransformers();
 
     await detector.carregar("modelo-d", () => {});
     await expect(
@@ -128,7 +128,7 @@ describe("DetectorObjetos", () => {
   it("propaga o erro quando WebGPU e WASM falham", async () => {
     vi.stubGlobal("navigator", { gpu: {} });
     controle.falharExecucao = 5;
-    const detector = new DetectorObjetos();
+    const detector = new DetectorTransformers();
 
     await detector.carregar("modelo-e", () => {});
     await expect(

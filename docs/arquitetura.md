@@ -8,6 +8,7 @@ Estrutura de arquivos e como as partes conversam.
 - **Domínio** (`src/domain/`) — contratos puros (IDs de sessão/ciclo/frame, observação, resultados de percepção, evento temporal, pacote de ciclo, resultado de interpretação e métricas) sem dependência de SDK de modelo.
 - **Controlador do ciclo** (`public/cycle/cycle-controller.ts`) — regra de negócio do ciclo de frame único (captura, inferência, rastreamento, persistência e progresso) com dependências injetadas; emite `EventoUi` em vez de tocar o DOM.
 - **Cliente** (`public/`) — interface, captura da webcam, detecção no navegador (Transformers.js) e cliente HTTP; `public/app.ts` é o ponto de composição e renderização.
+- **Adaptadores de percepção** (`public/perception/`) — portas `DetectorObjetos`, `EstimadorPose` e `ReconhecedorGestos` independentes do SDK; o núcleo conhece apenas essas interfaces, e cada SDK (Transformers.js/YOLO/MediaPipe) entra por um adaptador em `public/perception/adapters/`.
 - **Motores de percepção** — interface única `MotorPercepcao` (`inicializar`/`analisar`/`encerrar`); o app escolhe o motor pelo registro `MODOS` (`public/modos.ts`), sem `if (modo === ...)` espalhado.
 
 ## Estrutura
@@ -29,8 +30,8 @@ src/
   transformers-cdn.d.ts  tipos para o transformers.js via CDN
   domain/              contratos puros do domínio (sem SDK de modelo)
     ids.ts             IDs de sessão/ciclo/frame e timestamps de captura x processamento
-    perception.ts      observação do frame e resultados de cada subsistema
-    observation.ts     adaptadores temporários de/para os tipos atuais (EntradaLog, ObjetoVisto)
+    perception.ts      caixas, detecções, pose, mãos e indisponibilidade (contratos de percepção)
+    observation.ts     observação do frame (imagem, IDs e resultado de cada subsistema)
     temporal-event.ts  evento temporal (transições, IDs de frames de evidência)
     cycle.ts           pacote do ciclo e métricas por etapa
     interpretation.ts  resultado de interpretação (narrativa, evidências, incertezas)
@@ -41,11 +42,15 @@ public/
   app.ts               ponto de composição: liga botões/seletores, cria dependências e renderiza os `EventoUi`
   cycle/
     cycle-controller.ts  controlador do ciclo (captura, inferência, rastreamento, persistência, progresso)
+  perception/
+    contracts.ts       portas `DetectorObjetos`, `EstimadorPose` e `ReconhecedorGestos` (sem SDK de modelo)
+    adapters/
+      object-detector.adapter.ts  adaptador do detector instalado (Transformers.js) para a porta
   api.ts               cliente HTTP (histórico, eventos, contexto, backend de visão)
-  detector.ts          detecção de objetos (Transformers.js/CDN)
+  detector.ts          módulo do SDK Transformers.js/CDN (classe `DetectorTransformers`)
   camera.ts            controle da webcam e assinatura de cena
   modos.ts             registro de modos/motores (Item do roadmap: trocar motor sem espalhar condições)
-  motores.ts           adaptadores para o motor de percepção
+  motores.ts           adaptadores para o motor de percepção (deteccao usa a porta `DetectorObjetos`)
   persistencia.ts      fila de gravação (ordem, retentativas, falhas expostas)
   scheduler.ts         agendador do próximo ciclo (ritmo `max(intervalo, duração + 500 ms)`)
   style.css            estilos
@@ -75,7 +80,7 @@ scripts/
 
 1. O `CycleController` (`public/cycle/cycle-controller.ts`) comanda o ciclo; o agendador dispara um ciclo no ritmo `max(intervalo, duração da análise anterior + 500 ms)`. As dependências (câmera, fábrica de motores, rastreador, política e fila de persistência) são **injetadas** por `app.ts`, não criadas dentro do controlador.
 2. A webcam **captura o frame uma única vez** (`Camera.capturarQuadro`): a mesma imagem vira entrada da análise, snapshot (thumbnail dos mesmos pixels) e assinatura de cena; o instante vira `capturadoEm`.
-3. O motor escolhido pelo `MODOS` roda: detecção no navegador (Transformers.js) ou descrição/roteiro via `POST /api/visao` → backend de visão local (stream NDJSON).
+3. O motor escolhido pelo `MODOS` roda: detecção no navegador (Transformers.js, atrás da porta `DetectorObjetos`) ou descrição/roteiro via `POST /api/visao` → backend de visão local (stream NDJSON). O adaptador normaliza a saída do SDK (rótulos, caixas em pixels, confiança em [0,1], dimensões) e mede carga, inferência e memória.
 4. O resultado normalizado (`ResultadoPercepcao`) vira uma `EntradaLog` (`entradaDeResultado`), exibida no histórico e gravada via `POST /api/log`.
 5. Nos modos com rastreamento, o `RastreadorObjetos` associa detecções entre frames e emite eventos (`aparicao`/`desaparecimento`/`movimento`); o `DetectorMudancaDeCena` emite `mudanca_de_cena` como sinal.
 6. A política de análise decide se o modelo de visão deve ser chamado, registrando o motivo — ver [`eventos.md`](./eventos.md).

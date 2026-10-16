@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { MODOS, obterModo } from "../public/modos";
 import { MotorDeteccao, MotorVisao } from "../public/motores";
 import * as api from "../public/api";
-import type { DetectorObjetos } from "../public/detector";
+import type { DetectorObjetos } from "../public/perception/contracts";
 
 vi.mock("../public/api", () => ({
   descreverFrame: vi.fn(),
@@ -12,7 +12,7 @@ vi.mock("../public/api", () => ({
 const detector = {
   modelo: "Xenova/yolos-tiny",
   carregar: vi.fn(),
-  executar: vi.fn(),
+  detectar: vi.fn(),
 } as unknown as DetectorObjetos;
 
 const deps = {
