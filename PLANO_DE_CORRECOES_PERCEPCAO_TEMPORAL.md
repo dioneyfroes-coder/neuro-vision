@@ -348,7 +348,7 @@ O detector já tenta WASM quando o carregamento do pipeline WebGPU falha. Porém
   ```
 
 - [x] Executar E2E com stubs para fluxos de interface e câmera.
-- [ ] Executar o teste com vídeo anotado e o modelo real, registrando o ambiente e o resultado.
+- [x] Executar o teste com v??deo anotado e o modelo real, registrando o ambiente e o resultado.
 - [x] Verificar start/stop/restart, pedido manual, falha de câmera, falha do detector, backend de visão indisponível, falha HTTP de gravação, limpeza de histórico e recuperação após falha.
 - [x] Verificar que não existem IDs duplicados em várias sessões nem snapshots duplicados para a mesma captura.
 - [x] Atualizar documentos para refletir o comportamento real, a semântica do intervalo, os campos de evento, as limitações e os passos de benchmark.
@@ -362,7 +362,7 @@ O detector já tenta WASM quando o carregamento do pipeline WebGPU falha. Porém
 - [x] Os IDs são únicos entre sessões.
 - [x] A política de análise respeita cooldown e limite de chamadas conforme regra documentada.
 - [x] Falhas HTTP de persistência são detectadas; reenvios são controlados e não duplicam eventos.
-- [ ] A medição com vídeos anotados mostra o efeito das alterações nos falsos positivos, recall e atraso.
+- [x] A medi??o com v??deos anotados mostra o efeito das altera????es nos falsos positivos, recall e atraso.
 - [x] Typecheck, lint, testes e build terminam sem erros no ambiente limpo.
 
 ---

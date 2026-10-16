@@ -64,6 +64,15 @@ Resultado da avaliação (WebGPU, 4 análises sobre os 30 s):
 | Recall | 100% |
 | Mudanças perdidas | 0 |
 | Falsos positivos/min | 6 |
+
+**Clipe: webcam-atual.webm (640×480, 10 s) — WebGPU, cadência ~2,5 s/quadro (observada)**
+
+| Métrica | Valor |
+|---------|-------|
+| Precisão | 100% |
+| Recall | 50% |
+| Mudanças perdidas | 1 (movimento @ 4,5 s) |
+| Falsos positivos/min | 0 |
 | Latência da saída detectada | ~3,4 s (após o instante real) |
 
 Os falsos positivos foram rótulos instáveis do detector (`gravata`, `forno`) e uma
