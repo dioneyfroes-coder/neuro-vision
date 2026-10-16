@@ -150,14 +150,34 @@ export function descreverDeteccoes(deteccoes: Deteccao[]): ResultadoDeteccao {
 }
 
 /**
+ * Erros que apontam para falha do dispositivo WebGPU (e nao para entrada
+ * invalida). So esses justificam recarregar em WASM; um erro de entrada nao
+ * pode ser mascarado por um fallback silencioso.
+ */
+export function pareceFalhaDeDispositivo(err: unknown): boolean {
+  const mensagem = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return /webgpu|adapter|device lost|device removed|context lost|out of memory|\boom\b/.test(
+    mensagem
+  );
+}
+
+/**
  * Encapsula o detector de objetos do Transformers.js: cache por modelo,
  * fallback de WebGPU para CPU e execucao da inferencia.
+ *
+ * O fallback acontece em duas situacoes distintas: (1) ao **carregar** o
+ * pipeline em WebGPU; (2) numa **inferencia** posterior, quando o dispositivo
+ * se perde (contexto reiniciado, memoria esgotada). No segundo caso o detector e
+ * recarregado em WASM uma unica vez e a inferencia e repetida.
  */
 export class DetectorObjetos {
   private readonly cache = new Map<string, Detector>();
   private atualInterno: Detector | null = null;
   private modeloAtual: string | null = null;
   private dispositivoInterno: "webgpu" | "wasm" | null = null;
+
+  /** Aviso de status (ex.: fallback de dispositivo durante a inferencia). */
+  aoStatus?: (mensagem: string) => void;
 
   get modelo(): string | null {
     return this.modeloAtual;
@@ -176,41 +196,68 @@ export class DetectorObjetos {
       return cacheado;
     }
 
+    aoStatus(`Carregando modelo ${modelId}...`);
+    const gpu = (navigator as Navigator & { gpu?: unknown }).gpu;
+    if (gpu) {
+      try {
+        return await this.carregarComDispositivo(modelId, "webgpu", aoStatus);
+      } catch (err) {
+        aoStatus(`WebGPU indisponivel, usando CPU: ${(err as Error).message}`);
+      }
+    }
+    try {
+      return await this.carregarComDispositivo(modelId, "wasm", aoStatus);
+    } catch (errFallback) {
+      throw new ErroPercepcao("detector", (errFallback as Error).message, { cause: errFallback });
+    }
+  }
+
+  /** Carrega o pipeline num dispositivo especifico e atualiza o cache. */
+  private async carregarComDispositivo(
+    modelId: string,
+    device: "webgpu" | "wasm",
+    aoStatus?: (mensagem: string) => void
+  ): Promise<Detector> {
     const onProgress = (p: ProgressInfo): void => {
       if (p.status === "progress" && p.file) {
         const pct = p.progress ? Math.round(p.progress) : 0;
-        aoStatus(`Baixando ${p.file}... ${pct}%`);
+        aoStatus?.(`Baixando ${p.file}... ${pct}%`);
       }
     };
-
-    aoStatus(`Carregando modelo ${modelId}...`);
-    const gpu = (navigator as Navigator & { gpu?: unknown }).gpu;
-    const device = gpu ? "webgpu" : "wasm";
     const { pipeline } = await carregarTransformers();
-    let novo: Detector;
-    try {
-      novo = await pipeline("object-detection", modelId, { device, progress_callback: onProgress });
-      this.dispositivoInterno = gpu ? "webgpu" : "wasm";
-    } catch (err) {
-      aoStatus(`WebGPU indisponivel, usando CPU: ${(err as Error).message}`);
-      try {
-        novo = await pipeline("object-detection", modelId, {
-          device: "wasm",
-          progress_callback: onProgress,
-        });
-        this.dispositivoInterno = "wasm";
-      } catch (errFallback) {
-        throw new ErroPercepcao("detector", (errFallback as Error).message, { cause: errFallback });
-      }
-    }
-    this.cache.set(modelId, novo);
-    this.atualInterno = novo;
+    const detector = await pipeline("object-detection", modelId, {
+      device,
+      progress_callback: onProgress,
+    });
+    this.dispositivoInterno = device;
+    this.cache.set(modelId, detector);
+    this.atualInterno = detector;
     this.modeloAtual = modelId;
-    return novo;
+    return detector;
   }
 
-  async executar(imagem: string, opcoes: { threshold: number; percentage: false }): Promise<Deteccao[]> {
-    if (!this.atualInterno) throw new ErroPercepcao("detector", "Detector nao carregado");
-    return this.atualInterno(imagem, opcoes);
+  async executar(
+    imagem: string,
+    opcoes: { threshold: number; percentage: boolean }
+  ): Promise<Deteccao[]> {
+    const atual = this.atualInterno;
+    const modelo = this.modeloAtual;
+    if (!atual || !modelo) {
+      throw new ErroPercepcao("detector", "Detector nao carregado");
+    }
+    try {
+      return await atual(imagem, opcoes);
+    } catch (err) {
+      // Fallback so quando a inferencia falha por causa do dispositivo WebGPU.
+      if (this.dispositivoInterno !== "webgpu" || !pareceFalhaDeDispositivo(err)) throw err;
+      this.aoStatus?.(
+        `WebGPU falhou na inferencia; recarregando na CPU (WASM): ${(err as Error).message}`
+      );
+      // Descarta o detector quebrado e recarrega uma unica vez em WASM.
+      this.cache.delete(modelo);
+      this.atualInterno = null;
+      const recarregado = await this.carregarComDispositivo(modelo, "wasm", this.aoStatus);
+      return await recarregado(imagem, opcoes);
+    }
   }
 }

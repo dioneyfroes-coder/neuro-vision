@@ -84,4 +84,59 @@ describe("DetectorObjetos", () => {
       detector.executar("x", { threshold: 0.5, percentage: false })
     ).rejects.toThrow("Detector nao carregado");
   });
+
+  it("recarrega em wasm quando a inferencia do WebGPU falha", async () => {
+    vi.stubGlobal("navigator", { gpu: {} });
+    controle.deteccoes = [
+      { label: "person", score: 0.9, box: { xmin: 0, ymin: 0, xmax: 1, ymax: 1 } },
+    ];
+    controle.falharExecucao = 1;
+    const detector = new DetectorObjetos();
+    const status: string[] = [];
+    detector.aoStatus = (mensagem) => status.push(mensagem);
+
+    await detector.carregar("modelo-c", () => {});
+    expect(detector.dispositivo).toBe("webgpu");
+
+    const deteccoes = await detector.executar("data:image/png;base64,AAAA", {
+      threshold: 0.5,
+      percentage: false,
+    });
+
+    expect(deteccoes).toHaveLength(1);
+    expect(chamadas.map((c) => c.device)).toEqual(["webgpu", "wasm"]);
+    expect(detector.dispositivo).toBe("wasm");
+    expect(status.some((s) => s.includes("recarregando na CPU"))).toBe(true);
+  });
+
+  it("nao usa fallback para erros que nao sao de dispositivo", async () => {
+    vi.stubGlobal("navigator", { gpu: {} });
+    controle.falharExecucao = 1;
+    controle.erroExecucao = "imagem invalida";
+    const detector = new DetectorObjetos();
+
+    await detector.carregar("modelo-d", () => {});
+    await expect(
+      detector.executar("x", { threshold: 0.5, percentage: false })
+    ).rejects.toThrow("imagem invalida");
+
+    // Nao recarregou: segue em webgpu e sem segunda chamada ao pipeline.
+    expect(chamadas).toHaveLength(1);
+    expect(detector.dispositivo).toBe("webgpu");
+  });
+
+  it("propaga o erro quando WebGPU e WASM falham", async () => {
+    vi.stubGlobal("navigator", { gpu: {} });
+    controle.falharExecucao = 5;
+    const detector = new DetectorObjetos();
+
+    await detector.carregar("modelo-e", () => {});
+    await expect(
+      detector.executar("x", { threshold: 0.5, percentage: false })
+    ).rejects.toThrow("device lost");
+
+    // Tentou WebGPU, recarregou em WASM e desistiu (sem terceira carga).
+    expect(chamadas.map((c) => c.device)).toEqual(["webgpu", "wasm"]);
+    expect(detector.dispositivo).toBe("wasm");
+  });
 });
