@@ -11,6 +11,7 @@ Estrutura de arquivos e como as partes conversam.
 - **Pipeline local de percepcao** (`public/perception/local-perception-pipeline.ts`) — executa detector, pose (YOLO Pose) e maos/gestos (MediaPipe) por snapshot em sequencia, com isolamento de falhas: um subsistema quebrado vira `ResultadoIndisponivel` e nao apaga os demais. Usa portas em `public/perception/contracts.ts`.
 - **Adaptadores de percepção** (`public/perception/`) — portas `DetectorObjetos`, `EstimadorPose` e `ReconhecedorGestos` independentes do SDK; o núcleo conhece apenas essas interfaces, e cada SDK entra por um adaptador em `public/perception/adapters/` (`object-detector.adapter.ts`, `pose-estimator.adapter.ts`, `hand-gesture.adapter.ts`). Motores SDK concretos: `public/detector.ts` (Transformers.js), `public/pose.ts` (YOLO Pose via Transformers.js) e `public/gestos.ts` (MediaPipe Gesture Recognizer).
 - **Composicao da percepcao** (`public/perception/percepcao-local.ts`) — cria os adaptadores concretos, coordena o carregamento isolado (`configurarSubsistemas`) e expõe `processarFrame` pronto para o ciclo multiframe; ainda nao esta ligada a UI.
+- **Motor temporal** (`public/temporal/`) — encapsula o rastreamento de objetos (`rastreamento.ts`) e a mudança de cena (`cena.ts`) **sem reescrever os algoritmos** e adiciona rastreadores de pose (pessoas) e mãos com IDs estáveis na sessão, suavização e métricas de movimento em coordenadas normalizadas, além de máquinas de estado de gestos e de braço levantado com confirmação/encerramento temporais. Emite `EventoTemporal` (identidade única, duração, confiança, timestamps e IDs dos frames de evidência) e trata frames ausentes, inferências falhas, mudanças de resolução (coordenadas normalizadas) e períodos cegos. O estado é reutilizado entre ciclos; `resetar()` só é chamado em evento explícito de sessão.
 
 ## Estrutura
 
@@ -57,6 +58,13 @@ public/
       hand-gesture.adapter.ts    adaptador do reconhecedor de maos/gestos (MediaPipe) para a porta
   interpretation/
     contracts.ts       porta `InterpretadorMultimodal` (recebe o pacote; nunca captura a câmera)
+  temporal/
+    contracts.ts       config do motor/rastreadores/máquinas e a porta `MotorTemporal`
+    suavizador.ts      suavização exponencial e métricas de movimento (coordenadas normalizadas)
+    rastreador-entidades.ts  rastreador genérico (pose/mãos) com IDs estáveis na sessão
+    maquina-sinais.ts  máquina de estados com confirmação/encerramento temporais (gestos e braço)
+    motor-temporal.ts  fachada: objetos + cena + pose + mãos + máquinas → `ResumoTemporal`
+    index.ts           reexporta o motor temporal
   api.ts               cliente HTTP (histórico, eventos, contexto, backend de visão)
   detector.ts          módulo do SDK Transformers.js/CDN (classe `DetectorTransformers`)
   pose.ts              motor SDK para YOLO Pose (Transformers.js) usado pelo adaptador
@@ -95,13 +103,13 @@ scripts/
 2. A webcam **captura o frame uma única vez** (`Camera.capturarQuadro`): a mesma imagem vira entrada da análise, snapshot (thumbnail dos mesmos pixels) e assinatura de cena; o instante vira `capturadoEm`.
 3. O motor escolhido pelo `MODOS` roda: detecção no navegador (Transformers.js, atrás da porta `DetectorObjetos`) ou descrição/roteiro via `POST /api/visao` → backend de visão local (stream NDJSON). O adaptador normaliza a saída do SDK (rótulos, caixas em pixels, confiança em [0,1], dimensões) e mede carga, inferência e memória.
 4. O resultado normalizado (`ResultadoPercepcao`) vira uma `EntradaLog` (`entradaDeResultado`), exibida no histórico e gravada via `POST /api/log`.
-5. Nos modos com rastreamento, o `RastreadorObjetos` associa detecções entre frames e emite eventos (`aparicao`/`desaparecimento`/`movimento`); o `DetectorMudancaDeCena` emite `mudanca_de_cena` como sinal.
+5. Nos modos com rastreamento, o `RastreadorObjetos` associa detecções entre frames e emite eventos (`aparicao`/`desaparecimento`/`movimento`); o `DetectorMudancaDeCena` emite `mudanca_de_cena` como sinal. O `MotorTemporal` (`public/temporal/`) encapsula esses dois algoritmos e acrescenta rastreamento de pose/mãos com IDs estáveis, suavização e métricas de movimento, e máquinas de estado de gestos/braço com confirmação temporal; a saída é um `ResumoTemporal` de `EventoTemporal` de identidade única, com frames de evidência e duração.
 6. A política de análise decide se o modelo de visão deve ser chamado, registrando o motivo — ver [`eventos.md`](./eventos.md).
 7. Entradas e eventos entram na fila de persistência (`public/persistencia.ts`): gravação serial em ordem, com retentativas e `idempotencyKey` (o servidor deduplica reenvios). Falhas persistentes aparecem no aviso/diagnóstico e podem ser exportadas pelo botão **Pendentes**.
 8. Em vez de tocar o DOM, o controlador emite `EventoUi` (status, spinner, entrada, caixas, canvas, pronto, falha, parado); `app.ts` traduz cada evento na renderização da interface.
 
 ## Testes e regressão
 
-- Unitários/integração: `npm test` (vitest, incluindo `percepcao`, `motores`, `rastreamento`, `cena`, `memoria`, `server`, `politica-analise`, `provedor`, `visao`).
+- Unitários/integração: `npm test` (vitest, incluindo `percepcao`, `motores`, `rastreamento`, `cena`, `motor-temporal`, `memoria`, `server`, `politica-analise`, `provedor`, `visao`).
 - E2E: `npm run test:e2e` (Playwright; o transformers.js é substituído por stubs em `e2e/app.spec.ts`; `e2e/webcam.spec.ts` é opt-in com modelo real).
 - Desempenho/qualidade: ver [`qualidade.md`](./qualidade.md).

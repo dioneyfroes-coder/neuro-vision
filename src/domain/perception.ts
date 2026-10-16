@@ -37,10 +37,14 @@ export function indisponivel(
   return { indisponivel: true, subsistema, motivo };
 }
 
-export function estaIndisponivel(
-  valor: { indisponivel?: boolean } | null | undefined
+export function estaIndisponivel<T>(
+  valor: T | ResultadoIndisponivel | null | undefined
 ): valor is ResultadoIndisponivel {
-  return valor !== null && valor !== undefined && valor.indisponivel === true;
+  return (
+    valor !== null &&
+    valor !== undefined &&
+    (valor as { indisponivel?: boolean }).indisponivel === true
+  );
 }
 
 /** Deteccao de um objeto em um frame. */
