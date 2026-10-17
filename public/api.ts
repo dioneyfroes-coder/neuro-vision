@@ -33,7 +33,12 @@ export interface EventoVisao {
 }
 
 export interface PayloadVisao {
-  imagem: string;
+  /** Imagem unica (compatibilidade). Ignorada quando `imagens` e informado. */
+  imagem?: string;
+  /** Varias imagens, na ordem em que devem ser interpretadas (ciclo multiframe). */
+  imagens?: string[];
+  /** Prompt explicito, substituindo o padrao do servidor. */
+  prompt?: string;
   snapshot?: string;
   /** Instante ISO da captura do frame (antes da inferencia). */
   capturadoEm?: string;

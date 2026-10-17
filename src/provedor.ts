@@ -116,12 +116,25 @@ export interface OpcoesRequisicao {
   prompt: string;
   /** Imagem como base64 cru ou data URL (opcional: usado tambem na traducao). */
   imagem?: string;
+  /**
+   * Varias imagens, na ordem em que devem ser interpretadas. Quando presente,
+   * tem prioridade sobre `imagem`.
+   */
+  imagens?: string[];
+  /**
+   * Convencao de envio das imagens:
+   * - `openai` (padrao): blocos `image_url` no conteudo da mensagem;
+   * - `ollama`: campo `images` (base64 cru) na mensagem.
+   */
+  formatoImagens?: FormatoImagens;
   stream: boolean;
   /** Opcoes de amostragem (`temperature`, `top_p`, ...). */
   amostragem?: Record<string, number>;
   /** Limite de tokens da resposta. */
   numPredict?: number;
 }
+
+export type FormatoImagens = "openai" | "ollama";
 
 export interface Requisicao {
   url: string;
@@ -130,29 +143,42 @@ export interface Requisicao {
 }
 
 /**
- * Monta a requisicao de chat. A imagem vai como bloco `image_url` com data URL
- * (ou base64 cru quando `NEURO_IMG_BASE64_CRU=1`).
+ * Monta a requisicao de chat. As imagens vao como blocos `image_url` com data
+ * URL (padrao OpenAI/LM Studio) ou como campo `images` (Ollama), sempre na
+ * ordem informada. `imagem` (singular) continua suportado para compatibilidade.
  */
 export function montarRequisicaoChat(opcoes: OpcoesRequisicao): Requisicao {
-  const { backend, modelo, prompt, imagem, stream } = opcoes;
+  const { backend, modelo, prompt, stream } = opcoes;
   const url = urlChat(backend);
   const headers = cabecalhos(backend);
+  const imagens = opcoes.imagens ?? (opcoes.imagem ? [opcoes.imagem] : []);
+  const formato = opcoes.formatoImagens ?? "openai";
 
-  const conteudo: unknown = imagem
-    ? [
-        { type: "text", text: prompt },
-        { type: "image_url", image_url: { url: urlDaImagem(imagem) } },
-      ]
-    : prompt;
+  const mensagem: Record<string, unknown> =
+    imagens.length === 0
+      ? { role: "user", content: prompt }
+      : formato === "ollama"
+        ? { role: "user", content: prompt, images: imagens.map((img) => extrairBase64(img)) }
+        : {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              ...imagens.map((img) => ({
+                type: "image_url",
+                image_url: { url: urlDaImagem(img) },
+              })),
+            ],
+          };
+
   const corpo: Record<string, unknown> = {
     model: modelo,
-    messages: [{ role: "user", content: conteudo }],
+    messages: [mensagem],
     stream,
     temperature: opcoes.amostragem?.temperature ?? 0.2,
     top_p: opcoes.amostragem?.top_p ?? 0.9,
   };
   if (opcoes.numPredict !== undefined) corpo.max_tokens = opcoes.numPredict;
-  if (stream) corpo.stream_options = { include_usage: true };
+  if (stream && formato !== "ollama") corpo.stream_options = { include_usage: true };
   return { url, headers, body: JSON.stringify(corpo) };
 }
 

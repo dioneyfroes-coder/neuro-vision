@@ -390,7 +390,7 @@ export const NUM_PREDICT_BASE = 768;
 export const NUM_PREDICT_DELTA = 512;
 
 function montarCorpo(
-  imagem: string,
+  imagem: string | string[],
   opcoes: OpcoesGerarDescricao,
   stream: boolean
 ): { modelo: string; backend: Backend; requisicao: ReturnType<typeof montarRequisicaoChat> } {
@@ -409,7 +409,7 @@ function montarCorpo(
     backend,
     modelo,
     prompt,
-    imagem,
+    ...(Array.isArray(imagem) ? { imagens: imagem } : { imagem }),
     stream,
     numPredict,
     amostragem: {
@@ -440,7 +440,7 @@ function lancarSeVazioSemResposta(
 }
 
 export async function gerarDescricao(
-  imagem: string,
+  imagem: string | string[],
   opcoes: OpcoesGerarDescricao = {}
 ): Promise<ResultadoDescricao> {
   const timeoutMs = opcoes.timeoutMs ?? 90_000;
@@ -481,7 +481,7 @@ export interface ResumoDescricao {
 }
 
 export async function* gerarDescricaoStream(
-  imagem: string,
+  imagem: string | string[],
   opcoes: OpcoesGerarDescricao = {}
 ): AsyncGenerator<string, ResumoDescricao, void> {
   const timeoutMs = opcoes.timeoutMs ?? 90_000;

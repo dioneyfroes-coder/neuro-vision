@@ -442,6 +442,20 @@ export function validarPayloadLog(payload: unknown): string | null {
   return validarSnapshot(p.snapshot);
 }
 
+/** Valida uma lista de imagens (data URL/base64) para `POST /api/visao`. */
+function validarListaImagens(valor: unknown): string | null {
+  if (valor === undefined || valor === null) return null;
+  if (!Array.isArray(valor)) return "campo 'imagens' deve ser uma lista";
+  if (valor.length === 0) return "campo 'imagens' nao pode ser vazio";
+  for (let i = 0; i < valor.length; i += 1) {
+    const item = valor[i];
+    if (typeof item !== "string" || item.length === 0) {
+      return `campo 'imagens[${i}]' deve ser texto (data URL)`;
+    }
+  }
+  return null;
+}
+
 /** Valida tipos do payload de `POST /api/visao`. Retorna a mensagem de erro ou null. */
 export function validarPayloadVisao(payload: unknown): string | null {
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
@@ -453,12 +467,23 @@ export function validarPayloadVisao(payload: unknown): string | null {
     campoTipoTexto(p.modelo, "modelo") ??
     campoTipoTexto(p.anterior, "anterior") ??
     campoTipoTexto(p.roteiro, "roteiro") ??
+    campoTipoTexto(p.prompt, "prompt") ??
     campoTipoTexto(p.capturadoEm, "capturadoEm");
   if (texto) return texto;
+  const erroImagens = validarListaImagens(p.imagens);
+  if (erroImagens) return erroImagens;
   if (p.motivo !== undefined && p.motivo !== null && !normalizarMotivo(p.motivo)) {
     return "campo 'motivo' tem valor invalido";
   }
   return validarSnapshot(p.snapshot);
+}
+
+/** Extrai a lista de imagens do payload (`imagens[]` ou `imagem` singular). */
+function extrairImagens(p: Record<string, unknown>): string[] {
+  if (Array.isArray(p.imagens)) {
+    return p.imagens.filter((v): v is string => typeof v === "string" && v.length > 0);
+  }
+  return typeof p.imagem === "string" && p.imagem.length > 0 ? [p.imagem] : [];
 }
 
 interface ArquivoSnapshot {
@@ -909,11 +934,12 @@ async function handleOperacional(
 
 async function streamVisao(
   res: ServerResponse,
-  imagem: string,
+  imagem: string | string[],
   opcoes: {
     modelo?: string;
     baseUrl?: string;
     anterior?: string;
+    prompt?: string;
     modo?: ModoAnalise;
     roteiro?: string;
     base?: boolean;
@@ -1043,9 +1069,9 @@ async function handleVisao(
     string,
     unknown
   >;
-  const imagem = typeof p.imagem === "string" ? p.imagem : "";
-  if (!imagem) {
-    sendJson(res, 400, { ok: false, erro: "campo 'imagem' obrigatorio (base64)" });
+  const imagens = extrairImagens(p);
+  if (imagens.length === 0) {
+    sendJson(res, 400, { ok: false, erro: "campo 'imagem' ou 'imagens' obrigatorio (base64)" });
     return;
   }
 
@@ -1063,12 +1089,13 @@ async function handleVisao(
   try {
     await streamVisao(
       res,
-      imagem,
+      imagens,
       {
         modelo: escolha.modelo,
         baseUrl: config.backendUrl,
         apiKey: config.apiKey,
         anterior: typeof p.anterior === "string" ? p.anterior : undefined,
+        prompt: typeof p.prompt === "string" && p.prompt.trim() ? p.prompt : undefined,
         modo: p.modo === "roteiro" ? "roteiro" : "descricao",
         roteiro: typeof p.roteiro === "string" ? p.roteiro : undefined,
         base: p.base === true,
