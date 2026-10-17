@@ -381,7 +381,7 @@ Cada etapa deve terminar com testes passando e o app podendo ser executado. Evit
 4. Exportar um relatório JSON com versão do Node, navegador, CPU/RAM, GPU disponível, modelo local e configuração da câmera.
 5. Guardar os clipes e anotações utilizados. Não usar os mesmos clipes de ajuste como único teste final.
 
-**Aceite:** há uma referência reproduzível e a lista de falhas ambientais está documentada.
+**Aceite:** [CONCLUÍDO] há uma referência reproduzível e a lista de falhas ambientais está documentada.
 
 ### Etapa 1 — Definir contratos sem alterar comportamento
 
@@ -390,7 +390,7 @@ Cada etapa deve terminar com testes passando e o app podendo ser executado. Evit
 3. Manter adaptadores temporários de/para os tipos atuais `EntradaLog`, `ResultadoPercepcao`, `ObjetoVisto` e `EventoVisual`.
 4. Proibir importações de APIs específicas dos modelos dentro dos tipos de domínio.
 
-**Aceite:** testes de tipo e testes unitários validam o contrato sem mudar a experiência atual.
+**Aceite:** [CONCLUÍDO] testes de tipo e testes unitários validam o contrato sem mudar a experiência atual.
 
 ### Etapa 2 — Extrair o controlador do ciclo atual de frame único
 
@@ -400,7 +400,7 @@ Cada etapa deve terminar com testes passando e o app podendo ser executado. Evit
 4. Injetar câmera, detectores, motor temporal, interpretador e repositórios; não criar dependências escondidas dentro do controlador.
 5. Preservar os modos antigos como adaptadores para não exigir a migração de todos ao mesmo tempo.
 
-**Aceite:** o ciclo atual de uma imagem funciona pelo novo controlador e os testes de interface continuam passando.
+**Aceite:** [CONCLUÍDO] o ciclo atual de uma imagem funciona pelo novo controlador e os testes de interface continuam passando.
 
 ### Etapa 3 — Criar os limites dos adaptadores de percepção
 
@@ -410,7 +410,7 @@ Cada etapa deve terminar com testes passando e o app podendo ser executado. Evit
 4. Padronizar coordenadas, dimensões e confiança.
 5. Medir individualmente tempo de carga, inferência e memória de cada adaptador.
 
-**Aceite:** o controlador usa a interface, e não importa diretamente classes concretas de modelos.
+**Aceite:** [CONCLUÍDO] o controlador usa a interface, e não importa diretamente classes concretas de modelos.
 
 ### Etapa 4 — Implementar o ciclo de quatro snapshots
 
@@ -422,7 +422,7 @@ Cada etapa deve terminar com testes passando e o app podendo ser executado. Evit
 6. Proibir nova captura de webcam dentro do interpretador.
 7. Adicionar cancelamento e limpeza do buffer ao parar a sessão ou ao falhar o ciclo.
 
-**Aceite:** um teste comprova que as imagens, IDs e timestamps usados na detecção são os mesmos registrados e enviados para a interpretação.
+**Aceite:** [CONCLUÍDO] um teste comprova que as imagens, IDs e timestamps usados na detecção são os mesmos registrados e enviados para a interpretação.
 
 ### Etapa 5 — Implementar o pipeline local com os três componentes
 
@@ -433,7 +433,7 @@ Cada etapa deve terminar com testes passando e o app podendo ser executado. Evit
 5. Registrar resultados e latências por subsistema, inclusive falhas e fallback.
 6. Só experimentar execução paralela ou acionamento condicional depois do primeiro benchmark sequencial.
 
-**Aceite:** cada frame gera observações estruturadas associadas corretamente ao seu timestamp; falha de um modelo não apaga os resultados dos demais.
+**Aceite:** [CONCLUÍDO] cada frame gera observações estruturadas associadas corretamente ao seu timestamp; falha de um modelo não apaga os resultados dos demais.
 
 ### Etapa 6 — Evoluir o motor temporal para ações
 
@@ -446,7 +446,7 @@ Cada etapa deve terminar com testes passando e o app podendo ser executado. Evit
 7. Criar testes sintéticos determinísticos para sequências conhecidas: braço parado, braço subindo, mão aberta, polegar para cima, gesto instável e mão ocultada.
 8. Reutilizar o estado entre ciclos; resetar apenas em evento explícito de sessão.
 
-**Aceite:** o motor reconhece transições básicas usando observações de teste sem depender do Ollama.
+**Aceite:** [CONCLUÍDO] o motor reconhece transições básicas usando observações de teste sem depender do Ollama.
 
 ### Etapa 7 — Tornar o interpretador multimodal realmente multimodal por ciclo
 
@@ -459,7 +459,7 @@ Cada etapa deve terminar com testes passando e o app podendo ser executado. Evit
 7. Pedir ao modelo uma narrativa cronológica, evidências e incertezas; não solicitar que “adivinhe” ações não vistas.
 8. Cobrir com testes de payload a quantidade de imagens, sua ordem e as diferenças entre provedores.
 
-**Aceite:** o backend recebe as quatro imagens na ordem correta e o contexto estruturado; o texto gerado refere-se à janela real observada.
+**Aceite:** [CONCLUÍDO] o backend recebe as quatro imagens na ordem correta e o contexto estruturado; o texto gerado refere-se à janela real observada.
 
 ### Etapa 8 — Persistência, diagnóstico e recuperação
 
