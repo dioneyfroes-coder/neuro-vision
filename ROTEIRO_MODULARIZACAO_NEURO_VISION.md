@@ -471,7 +471,7 @@ Cada etapa deve terminar com testes passando e o app podendo ser executado. Evit
 6. Adicionar métricas por ciclo: captura, detecção, pose, mãos, motor temporal, chamada multimodal, persistência e total.
 7. Definir o comportamento de “limpar histórico”: separar apagar dados persistidos de reiniciar o estado temporal em memória, e informar claramente o que a operação faz.
 
-**Aceite:** ciclos incompletos e falhas ficam diagnosticáveis; registros preservam as relações entre sessão, imagens e eventos.
+**Aceite:** [PENDENTE] ciclos incompletos e falhas ficam diagnosticáveis; registros preservam as relações entre sessão, imagens e eventos.
 
 ### Etapa 9 — Benchmark completo e decisão arquitetural
 
@@ -483,7 +483,7 @@ Cada etapa deve terminar com testes passando e o app podendo ser executado. Evit
 6. Registrar os relatórios sem substituir o baseline anterior.
 7. Só depois decidir se mantém os três componentes sempre ativos, executa algum sob demanda ou reduz a frequência.
 
-**Aceite:** a decisão se baseia em precisão/recall, falsos positivos, latência e consumo medidos, e não apenas em exemplos que funcionaram.
+**Aceite:** [PENDENTE] a decisão se baseia em precisão/recall, falsos positivos, latência e consumo medidos, e não apenas em exemplos que funcionaram.
 
 ### Etapa 10 — Limpeza final
 
