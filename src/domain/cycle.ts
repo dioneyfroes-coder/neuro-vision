@@ -1,4 +1,6 @@
 import type { ObservacaoFrame } from "./observation";
+import type { ResultadoIndisponivel } from "./perception";
+import { estaIndisponivel } from "./perception";
 import type { EventoTemporal } from "./temporal-event";
 
 /** Leitura consolidada do motor temporal para um ciclo. */
@@ -54,4 +56,64 @@ export interface ResultadoCiclo {
   interpretacao?: string;
   erros: ErroEtapa[];
   cancelado: boolean;
+}
+
+/**
+ * Registro persistido de um ciclo (roteiro 5.7 e Etapa 8).
+ *
+ * Reune o que e preciso para **diagnosticar** um ciclo (metricas por etapa,
+ * erros parciais, subsistemas indisponiveis) e para **rastrear as relacoes**
+ * entre sessao, imagens e eventos (`sessionId`, `cycleId`, `frameIds`). Nao
+ * incorpora as imagens: elas vivem nos snapshots, referenciados pelos frameIds.
+ */
+export interface RegistroCiclo {
+  sessionId: string;
+  cycleId: string;
+  iniciadoEm: string;
+  concluidoEm?: string;
+  /** Frames do ciclo, em ordem de captura — a relacao entre ciclo e imagens. */
+  frameIds: string[];
+  /** Quantidade de frames efetivamente observados. */
+  observacoes: number;
+  /** Quantidade de eventos temporais emitidos no ciclo. */
+  eventosTemporais: number;
+  /** Subsistemas que estavam indisponiveis em pelo menos um frame. */
+  subsistemasIndisponiveis: Array<ResultadoIndisponivel["subsistema"]>;
+  /** Erros por etapa: um ciclo parcial continua diagnosticavel. */
+  erros: ErroEtapa[];
+  metricas: MetricasCiclo;
+  /** Interpretacao multimodal, quando houve. */
+  interpretacao?: string;
+  cancelado: boolean;
+  /** Instante ISO em que o registro foi gravado. */
+  registroEm: string;
+}
+
+/** Deriva o registro persistido a partir do resultado do ciclo (funcao pura). */
+export function criarRegistroCiclo(
+  resultado: ResultadoCiclo,
+  opcoes: { registroEm?: string } = {}
+): RegistroCiclo {
+  const { pacote } = resultado;
+  const indisponiveis = new Set<ResultadoIndisponivel["subsistema"]>();
+  for (const observacao of pacote.observacoes) {
+    for (const subsistema of [observacao.deteccoes, observacao.pose, observacao.maos]) {
+      if (estaIndisponivel(subsistema)) indisponiveis.add(subsistema.subsistema);
+    }
+  }
+  return {
+    sessionId: pacote.sessionId,
+    cycleId: pacote.cycleId,
+    iniciadoEm: pacote.iniciadoEm,
+    concluidoEm: pacote.concluidoEm,
+    frameIds: pacote.observacoes.map((observacao) => observacao.frameId),
+    observacoes: pacote.observacoes.length,
+    eventosTemporais: pacote.eventosTemporais.length,
+    subsistemasIndisponiveis: [...indisponiveis],
+    erros: resultado.erros,
+    metricas: pacote.metricas,
+    interpretacao: resultado.interpretacao,
+    cancelado: resultado.cancelado,
+    registroEm: opcoes.registroEm ?? new Date().toISOString(),
+  };
 }

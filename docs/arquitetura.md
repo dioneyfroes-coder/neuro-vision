@@ -4,7 +4,8 @@ Estrutura de arquivos e como as partes conversam.
 
 ## Visão geral
 
-- **Servidor Node** (`src/server.ts`) — arquivos estáticos + API REST + persistência JSONL + snapshots + proxy para o backend de visão local.
+- **Servidor Node** (`src/server.ts`) — arquivos estáticos + API REST + snapshots + proxy para o backend de visão local. É o **ponto de composição** da persistência: expõe as rotas e delega a leitura/escrita aos repositórios.
+- **Camada de persistência** (`src/persistence/`) — primitivas JSONL (`armazenamento-jsonl.ts`) e um repositório por tipo de registro (observações, eventos, registros operacionais e ciclos). Cada repositório só conhece o seu arquivo; o servidor HTTP não carrega detalhes de armazenamento.
 - **Domínio** (`src/domain/`) — contratos puros (IDs de sessão/ciclo/frame, observação, resultados de percepção, evento temporal, pacote de ciclo, resultado de interpretação e métricas) sem dependência de SDK de modelo.
 - **Controlador do ciclo** (`public/cycle/cycle-controller.ts`) — regra de negócio do ciclo de frame único (captura, inferência, rastreamento, persistência e progresso) com dependências injetadas; emite `EventoUi` em vez de tocar o DOM.
 - **Ciclo multiframe** (`public/cycle/ciclo-multiframe.ts`) — captura 4 snapshots identificados (~1 s), guarda-os sem inferência, processa-os em sequência e envia o `PacoteCiclo` à interpretação multimodal. As imagens que chegam ao interpretador são as mesmas capturadas (sem recaptura). Ainda não está ligado à interface: a ligação acontece nas Etapas 5–7.
@@ -17,8 +18,8 @@ Estrutura de arquivos e como as partes conversam.
 
 ```
 src/
-  server.ts            servidor HTTP (estático + API) e persistência (memória + snapshots)
-  memoria.ts           armazenamento JSONL genérico, eventos, registros operacionais e reidratação de contexto
+  server.ts            servidor HTTP (estático + API) e composição da persistência (memória + snapshots)
+  memoria.ts           reidratação de contexto e montagem de entradas/eventos (reexporta as primitivas JSONL de `persistence/`)
   politica-analise.ts  política de análise orientada a eventos (cooldown, janela, motivos)
   percepcao.ts         interface de motor de percepção e resultado normalizado
   erros.ts             taxonomia de erros (origem, cancelamento)
@@ -39,6 +40,12 @@ src/
     interpretation.ts  resultado de interpretação (narrativa, evidências, incertezas)
     adapters.ts        pontes explícitas entre domínio e tipos legados
     index.ts           reexporta os contratos
+  persistence/         camada de persistência (Etapa 8): primitivas JSONL + repositórios por registro
+    armazenamento-jsonl.ts      append com rotação, leitura das últimas linhas e limpeza de arquivos JSONL
+    repositorio-observacoes.ts  histórico de observações (`EntradaLog`)
+    repositorio-eventos.ts      eventos estruturados (`EventoVisual`) + idempotência por arquivo
+    repositorio-operacional.ts  registros operacionais (falhas/métricas que não são eventos)
+    repositorio-ciclos.ts       registros de ciclo (`RegistroCiclo`) para diagnóstico
 public/
   index.html           interface
   app.ts               ponto de composição: liga botões/seletores, cria dependências e renderiza os `EventoUi`
@@ -85,6 +92,7 @@ logs/
   visao.jsonl          observações gravadas (ignorado no git)
   eventos.jsonl        eventos estruturados (ignorado no git)
   operacional.jsonl    registros operacionais (ignorado no git)
+  ciclos.jsonl         diagnósticos por ciclo (ignorado no git)
 bench/
   imagens/             conjunto fixo de imagens do benchmark (reproduzível)
   videos/              anotações dos clipes de avaliação de eventos (vídeos ficam locais)
@@ -108,8 +116,26 @@ scripts/
 7. Entradas e eventos entram na fila de persistência (`public/persistencia.ts`): gravação serial em ordem, com retentativas e `idempotencyKey` (o servidor deduplica reenvios). Falhas persistentes aparecem no aviso/diagnóstico e podem ser exportadas pelo botão **Pendentes**.
 8. Em vez de tocar o DOM, o controlador emite `EventoUi` (status, spinner, entrada, caixas, canvas, pronto, falha, parado); `app.ts` traduz cada evento na renderização da interface.
 
+## Persistência, diagnóstico e recuperação
+
+A persistência é separada do servidor HTTP (`src/persistence/`), com uma primitiva JSONL e um repositório por tipo de registro. Cada arquivo tem rotação por tamanho (`LOG_MAX_BYTES`):
+
+| Registro | Arquivo | Repositório | Rota de escrita/leitura | Limpeza |
+| --- | --- | --- | --- | --- |
+| Observações (`EntradaLog`) | `visao.jsonl` | `repositorio-observacoes.ts` | `POST /api/log`, `GET /api/logs` | `DELETE /api/logs` |
+| Eventos (`EventoVisual`) | `eventos.jsonl` | `repositorio-eventos.ts` | `POST /api/eventos`, `GET /api/eventos` | `DELETE /api/eventos` |
+| Operacionais (`RegistroOperacional`) | `operacional.jsonl` | `repositorio-operacional.ts` | `POST /api/operacional` | `DELETE /api/logs` |
+| Ciclos (`RegistroCiclo`) | `ciclos.jsonl` | `repositorio-ciclos.ts` | `POST /api/ciclos`, `GET /api/ciclos` | `DELETE /api/ciclos` |
+
+- **Diagnóstico por ciclo.** `RegistroCiclo` (derivado de `ResultadoCiclo` por `criarRegistroCiclo`, em `src/domain/cycle.ts`) reúne métricas por etapa (`capturaMs`, `deteccaoMs`, `poseMs`, `maosMs`, `temporalMs`, `multimodalMs`, `persistenciaMs`, `totalMs`), os `erros` por etapa, os `subsistemasIndisponiveis` e a **relação** entre sessão, ciclo e imagens (`sessionId`, `cycleId`, `frameIds`). As imagens não são copiadas: vivem nos snapshots, referenciados por `frameId`.
+- **Ciclos incompletos continuam diagnosticáveis.** O `executarCicloMultiframe` aceita um `persistirCiclo` opcional. Ao final do ciclo envia o registro; em falha/cancelamento, registra um **registro parcial** (frames já observados, erros e a flag `cancelado`) antes de propagar o erro. A falha de **gravação** nunca derruba o ciclo: vira um `ErroEtapa` de etapa `persistencia` e o resultado da inferência segue válido (falha de logging ≠ falha de inferência).
+- **IDs únicos.** `sessionId`, `cycleId` e `frameId` são gerados em `src/domain/ids.ts` com um componente aleatório/sequencial de sessão, o que evita colisão com o histórico de execuções anteriores.
+- **Idempotência.** Os eventos guardam uma `idempotencyKey` por arquivo (`repositorio-eventos.ts`), de modo que o reenvio da fila de persistência do cliente após uma falha transitória não duplica o evento. Limpar o arquivo invalida as chaves antigas.
+- **Idempotência de leitura/`response.ok`.** O cliente (`public/api.ts`) só trata uma operação como concluída após `response.ok`; `gravarCiclo`/`listarCiclos` seguem o mesmo contrato das demais rotas.
+- **Semântica de "limpar histórico".** `DELETE /api/logs` apaga os **dados persistidos** (observações, eventos, registros de ciclo e os snapshots que ficaram órfãos) — não é o mesmo que **resetar o estado temporal em memória** do cliente, que é uma ação separada. `DELETE /api/eventos` e `DELETE /api/ciclos` limpam apenas o seu próprio arquivo.
+
 ## Testes e regressão
 
-- Unitários/integração: `npm test` (vitest, incluindo `percepcao`, `motores`, `rastreamento`, `cena`, `motor-temporal`, `memoria`, `server`, `politica-analise`, `provedor`, `visao`).
+- Unitários/integração: `npm test` (vitest, incluindo `percepcao`, `motores`, `rastreamento`, `cena`, `motor-temporal`, `memoria`, `persistence`, `server`, `politica-analise`, `provedor`, `visao`).
 - E2E: `npm run test:e2e` (Playwright; o transformers.js é substituído por stubs em `e2e/app.spec.ts`; `e2e/webcam.spec.ts` é opt-in com modelo real).
 - Desempenho/qualidade: ver [`qualidade.md`](./qualidade.md).

@@ -1,4 +1,5 @@
 import type { EntradaLog, EventoVisual, MotivoAnalise, TipoEventoVisual } from "../src/types";
+import type { RegistroCiclo } from "../src/domain/cycle";
 import { ErroPercepcao } from "../src/erros";
 
 export interface InfoVisao {
@@ -157,6 +158,39 @@ export async function listarEventos(
   if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
   const dados = (await resposta.json()) as { eventos?: EventoVisual[] };
   return dados.eventos ?? [];
+}
+
+/**
+ * `POST /api/ciclos` — grava o diagnostico de um ciclo (metricas por etapa,
+ * erros parciais, subsistemas indisponiveis e relacoes sessao/ciclo/frames).
+ */
+export async function gravarCiclo(registro: RegistroCiclo): Promise<void> {
+  let resposta: Response;
+  try {
+    resposta = await fetch("/api/ciclos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(registro),
+    });
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao gravar o diagnostico do ciclo", {
+      cause: err,
+    });
+  }
+  await exigirRespostaOk(resposta, "Falha ao gravar o diagnostico do ciclo");
+}
+
+/** `GET /api/ciclos` — lista os diagnosticos de ciclo mais recentes. */
+export async function listarCiclos(limite = 50): Promise<RegistroCiclo[]> {
+  let resposta: Response;
+  try {
+    resposta = await fetch(`/api/ciclos?limit=${limite}`);
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao ler os diagnosticos de ciclo", { cause: err });
+  }
+  if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
+  const dados = (await resposta.json()) as { ciclos?: RegistroCiclo[] };
+  return dados.ciclos ?? [];
 }
 
 /** `POST /api/operacional` — registra falha/metrica operacional (nao e evento visual). */

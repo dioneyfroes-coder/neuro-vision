@@ -10,6 +10,7 @@ import type {
 import type { InterpretadorMultimodal } from "../public/interpretation/contracts";
 import type { PacoteCiclo } from "../src/domain";
 import type { ResultadoInterpretacao } from "../src/domain";
+import type { RegistroCiclo } from "../src/domain/cycle";
 import { ehCancelamento } from "../src/erros";
 
 function fonteComImagens(imagens: string[]): FonteCaptura {
@@ -171,5 +172,59 @@ describe("executarCicloMultiframe", () => {
     expect(pacote.observacoes).toHaveLength(4);
     // O interpretador nao tem acesso a uma fonte de captura: so o pacote.
     expect(Object.keys(pacote)).not.toContain("camera");
+  });
+
+  it("persiste o diagnostico do ciclo com as relacoes sessao/ciclo/frames", async () => {
+    const { deps } = montar();
+    const registros: RegistroCiclo[] = [];
+    deps.persistirCiclo = (registro) => {
+      registros.push(registro);
+    };
+    const resultado = await executarCicloMultiframe(deps);
+
+    expect(registros).toHaveLength(1);
+    expect(registros[0]).toMatchObject({
+      sessionId: "sess0001",
+      cycleId: "sess0001-c1",
+      frameIds: ["sess0001-c1-f0", "sess0001-c1-f1", "sess0001-c1-f2", "sess0001-c1-f3"],
+      observacoes: 4,
+      cancelado: false,
+      interpretacao: "quatro frames analisados",
+    });
+    // A gravacao entra nas metricas do ciclo.
+    expect(typeof resultado.pacote.metricas.persistenciaMs).toBe("number");
+  });
+
+  it("falha de gravacao nao derruba o ciclo nem a interpretacao", async () => {
+    const { deps } = montar();
+    deps.persistirCiclo = () => {
+      throw new Error("disco cheio");
+    };
+    const resultado = await executarCicloMultiframe(deps);
+    expect(resultado.interpretacao).toBe("quatro frames analisados");
+    expect(resultado.erros).toContainEqual({
+      etapa: "persistencia",
+      mensagem: "disco cheio",
+    });
+  });
+
+  it("persiste o diagnostico de um ciclo cancelado antes de propagar", async () => {
+    const { deps, store } = montar();
+    const registros: RegistroCiclo[] = [];
+    deps.persistirCiclo = (registro) => {
+      registros.push(registro);
+    };
+    const controller = new AbortController();
+    controller.abort();
+    await expect(executarCicloMultiframe(deps, controller.signal)).rejects.toSatisfy(
+      ehCancelamento
+    );
+    expect(store.tamanho).toBe(0);
+    expect(registros).toHaveLength(1);
+    expect(registros[0]).toMatchObject({
+      sessionId: "sess0001",
+      cycleId: "sess0001-c1",
+      cancelado: true,
+    });
   });
 });

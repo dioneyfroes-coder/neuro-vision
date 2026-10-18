@@ -23,16 +23,39 @@ import { cabecalhos, resolverBackend, urlModelos } from "./provedor";
 import { colapsarRepeticoes, cortarFraseIncompleta, ehSemMudanca } from "./texto";
 import { ehCancelamento } from "./erros";
 import {
-  appendJsonl,
   filtrarEventos,
-  lerUltimosJsonl,
-  limparJsonl,
   montarEvento,
   montarOperacional,
   normalizarTipoEvento,
   reidratarContexto,
 } from "./memoria";
 import type { RegistroOperacional } from "./memoria";
+import type { RegistroCiclo } from "./domain/cycle";
+// Persistencia (Etapa 8): o servidor HTTP compoe os repositorios; a gravacao e a
+// leitura de observacoes, eventos, registros operacionais e ciclos ficam em
+// `src/persistence/`, sem conhecer as rotas.
+import {
+  gravarObservacao,
+  lerObservacoes,
+  limparObservacoes,
+} from "./persistence/repositorio-observacoes";
+import {
+  eventoJaRegistrado,
+  gravarEvento,
+  lerEventos as lerEventosRepo,
+  limparEventos as limparEventosRepo,
+  marcarEventoRegistrado,
+} from "./persistence/repositorio-eventos";
+export { eventoJaRegistrado, marcarEventoRegistrado } from "./persistence/repositorio-eventos";
+import {
+  gravarOperacional,
+  lerOperacional as lerOperacionalRepo,
+} from "./persistence/repositorio-operacional";
+import {
+  gravarCiclo,
+  lerCiclos as lerCiclosRepo,
+  limparCiclos,
+} from "./persistence/repositorio-ciclos";
 import type {
   Caixa,
   EntradaLog,
@@ -50,6 +73,7 @@ export const LOG_DIR = path.join(ROOT, "logs");
 export const LOG_FILE = path.join(LOG_DIR, "visao.jsonl");
 export const EVENTOS_FILE = path.join(LOG_DIR, "eventos.jsonl");
 export const OPERACIONAL_FILE = path.join(LOG_DIR, "operacional.jsonl");
+export const CICLOS_FILE = path.join(LOG_DIR, "ciclos.jsonl");
 import { env } from "./env";
 export const LOG_MAX_BYTES = env.LOG_MAX_BYTES || 5_000_000;
 export const SNAP_DIR = path.join(LOG_DIR, "snapshots");
@@ -297,81 +321,114 @@ export function montarEntrada(payload: unknown): EntradaLog {
 }
 
 export async function appendLogEntry(entry: EntradaLog, filePath: string = LOG_FILE): Promise<void> {
-  await appendJsonl(entry, filePath, LOG_MAX_BYTES);
+  await gravarObservacao(entry, filePath, LOG_MAX_BYTES);
 }
 
 export async function lerLogEntries(
   filePath: string = LOG_FILE,
   limit = 100
 ): Promise<EntradaLog[]> {
-  return lerUltimosJsonl<EntradaLog>(filePath, limit);
+  return lerObservacoes(filePath, limit);
 }
 
 export async function limparLog(filePath: string = LOG_FILE): Promise<void> {
-  await limparJsonl(filePath);
+  await limparObservacoes(filePath);
 }
 
 export async function appendEvento(
   evento: EventoVisual,
   filePath: string = EVENTOS_FILE
 ): Promise<void> {
-  await appendJsonl(evento, filePath, LOG_MAX_BYTES);
+  await gravarEvento(evento, filePath, LOG_MAX_BYTES);
 }
 
 export async function lerEventos(
   filePath: string = EVENTOS_FILE,
   limit = 100
 ): Promise<EventoVisual[]> {
-  return lerUltimosJsonl<EventoVisual>(filePath, limit);
+  return lerEventosRepo(filePath, limit);
 }
 
 export async function limparEventos(filePath: string = EVENTOS_FILE): Promise<void> {
-  await limparJsonl(filePath);
-  // Arquivo zerado: as chaves de idempotencia antigas deixam de valer.
-  eventosIdempotentes.delete(filePath);
-}
-
-/**
- * Chaves de idempotencia ja registradas, por arquivo de eventos (Fase 6C).
- * O reenvio da mesma requisicao (retentativa da fila do cliente) nao pode
- * acrescentar um evento duplicado. Limitado por `IDEMPOTENTES_MAX`; a ordem de
- * insercao e a de chegada, entao as chaves mais antigas saem primeiro.
- */
-const eventosIdempotentes = new Map<string, Set<string>>();
-const IDEMPOTENTES_MAX = 2000;
-
-/** Indica se a chave de idempotencia ja foi processada para este arquivo. */
-export function eventoJaRegistrado(filePath: string, chave: string): boolean {
-  return eventosIdempotentes.get(filePath)?.has(chave) ?? false;
-}
-
-/** Marca a chave como processada, descartando as mais antigas no limite. */
-export function marcarEventoRegistrado(filePath: string, chave: string): void {
-  let chaves = eventosIdempotentes.get(filePath);
-  if (!chaves) {
-    chaves = new Set();
-    eventosIdempotentes.set(filePath, chaves);
-  }
-  chaves.add(chave);
-  while (chaves.size > IDEMPOTENTES_MAX) {
-    const primeira = chaves.values().next().value;
-    if (primeira === undefined) break;
-    chaves.delete(primeira);
-  }
+  await limparEventosRepo(filePath);
 }
 
 export async function appendOperacional(
   registro: RegistroOperacional,
   filePath: string = OPERACIONAL_FILE
 ): Promise<void> {
-  await appendJsonl(registro, filePath, LOG_MAX_BYTES);
+  await gravarOperacional(registro, filePath, LOG_MAX_BYTES);
 }
 
 export async function lerOperacional(
   filePath: string = OPERACIONAL_FILE,
   limit = 100
 ): Promise<RegistroOperacional[]> {
-  return lerUltimosJsonl<RegistroOperacional>(filePath, limit);
+  return lerOperacionalRepo(filePath, limit);
+}
+
+/** Grava o registro de diagnostico de um ciclo (Etapa 8). */
+export async function appendCiclo(
+  registro: RegistroCiclo,
+  filePath: string = CICLOS_FILE
+): Promise<void> {
+  await gravarCiclo(registro, filePath, LOG_MAX_BYTES);
+}
+
+/** Le os registros de ciclo mais recentes (mais recente primeiro). */
+export async function lerCiclos(
+  filePath: string = CICLOS_FILE,
+  limit = 100
+): Promise<RegistroCiclo[]> {
+  return lerCiclosRepo(filePath, limit);
+}
+
+/** Esvazia os registros de ciclo persistidos. */
+export async function limparCiclosPersistidos(filePath: string = CICLOS_FILE): Promise<void> {
+  await limparCiclos(filePath);
+}
+
+type SubsistemaIndisponivel = RegistroCiclo["subsistemasIndisponiveis"][number];
+const SUBSISTEMAS_VALIDOS: SubsistemaIndisponivel[] = ["deteccao", "pose", "maos"];
+
+/**
+ * Normaliza o corpo de `POST /api/ciclos` em um `RegistroCiclo`. O registro
+ * chega pronto do cliente (derivado com `criarRegistroCiclo`); aqui apenas
+ * garantimos os campos essenciais e descartamos o que vier com tipo errado.
+ */
+export function montarRegistroCiclo(payload: unknown): RegistroCiclo | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.sessionId !== "string" || !p.sessionId) return null;
+  if (typeof p.cycleId !== "string" || !p.cycleId) return null;
+  const frameIds = Array.isArray(p.frameIds)
+    ? p.frameIds.filter((id): id is string => typeof id === "string")
+    : [];
+  const erros = Array.isArray(p.erros) ? (p.erros as RegistroCiclo["erros"]) : [];
+  const subsistemas = Array.isArray(p.subsistemasIndisponiveis)
+    ? p.subsistemasIndisponiveis.filter((s): s is SubsistemaIndisponivel =>
+        SUBSISTEMAS_VALIDOS.includes(s as SubsistemaIndisponivel)
+      )
+    : [];
+  const metricas =
+    typeof p.metricas === "object" && p.metricas !== null
+      ? (p.metricas as RegistroCiclo["metricas"])
+      : {};
+  return {
+    sessionId: p.sessionId,
+    cycleId: p.cycleId,
+    iniciadoEm: typeof p.iniciadoEm === "string" ? p.iniciadoEm : new Date().toISOString(),
+    concluidoEm: typeof p.concluidoEm === "string" ? p.concluidoEm : undefined,
+    frameIds,
+    observacoes: typeof p.observacoes === "number" ? p.observacoes : frameIds.length,
+    eventosTemporais: typeof p.eventosTemporais === "number" ? p.eventosTemporais : 0,
+    subsistemasIndisponiveis: subsistemas,
+    erros,
+    metricas,
+    interpretacao: typeof p.interpretacao === "string" ? p.interpretacao : undefined,
+    cancelado: p.cancelado === true,
+    registroEm: typeof p.registroEm === "string" ? p.registroEm : new Date().toISOString(),
+  };
 }
 
 function extrairBase64Imagem(imagem: unknown): string | null {
@@ -932,6 +989,60 @@ async function handleOperacional(
   }
 }
 
+/**
+ * `POST /api/ciclos` — grava o diagnostico de um ciclo (metricas por etapa,
+ * erros, subsistemas indisponiveis e relacoes sessao/ciclo/frames). Um ciclo
+ * incompleto continua registravel: o erro fica no proprio registro.
+ */
+async function handleCiclos(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ciclosFile: string
+): Promise<void> {
+  try {
+    const raw = await readBody(req, BODY_MAX_BYTES);
+    const payload: unknown = JSON.parse(raw || "{}");
+    const registro = montarRegistroCiclo(payload);
+    if (!registro) {
+      sendJson(res, 400, { ok: false, erro: "campos 'sessionId' e 'cycleId' obrigatorios" });
+      return;
+    }
+    await appendCiclo(registro, ciclosFile);
+    sendJson(res, 200, { ok: true, ciclo: registro });
+  } catch (err) {
+    sendJson(res, 400, { ok: false, erro: (err as Error).message });
+  }
+}
+
+/** `GET /api/ciclos` — lista os diagnosticos de ciclo mais recentes. */
+async function handleListCiclos(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ciclosFile: string
+): Promise<void> {
+  try {
+    const url = new URL(req.url ?? "/api/ciclos", "http://localhost");
+    const limitParam = Number(url.searchParams.get("limit"));
+    const limite = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 500) : 50;
+    const ciclos = await lerCiclos(ciclosFile, limite);
+    sendJson(res, 200, { ok: true, total: ciclos.length, ciclos });
+  } catch (err) {
+    logEvent("error", "listar_ciclos_falhou", { erro: (err as Error).message });
+    sendJson(res, 500, { ok: false, erro: (err as Error).message });
+  }
+}
+
+/** `DELETE /api/ciclos` — esvazia os diagnosticos de ciclo persistidos. */
+async function handleClearCiclos(res: ServerResponse, ciclosFile: string): Promise<void> {
+  try {
+    await limparCiclosPersistidos(ciclosFile);
+    sendJson(res, 200, { ok: true });
+  } catch (err) {
+    logEvent("error", "limpar_ciclos_falhou", { erro: (err as Error).message });
+    sendJson(res, 500, { ok: false, erro: (err as Error).message });
+  }
+}
+
 async function streamVisao(
   res: ServerResponse,
   imagem: string | string[],
@@ -1150,11 +1261,16 @@ async function handleClearLogs(
   res: ServerResponse,
   logFile: string,
   snapDir: string,
-  eventosFile: string
+  eventosFile: string,
+  ciclosFile: string
 ): Promise<void> {
   try {
+    // "Limpar historico" apaga os dados persistidos: observacoes, eventos,
+    // diagnosticos de ciclo e os snapshots que ficaram orfaos. Nao mexe no
+    // estado temporal em memoria do cliente — esse reset e uma acao separada.
     await limparLog(logFile);
     await limparEventos(eventosFile);
+    await limparCiclosPersistidos(ciclosFile);
     // Sem historico nem eventos, todos os snapshots ficam orfaos: a limpeza os
     // remove de imediato, mantendo o uso de disco limitado pela politica.
     const snapshots = await limparSnapshots({
@@ -1317,6 +1433,8 @@ export interface ServerConfig {
   eventosFile?: string;
   /** Arquivo de registros operacionais. Padrao: `operacional.jsonl` ao lado do log. */
   operacionalFile?: string;
+  /** Arquivo de diagnosticos de ciclo. Padrao: `ciclos.jsonl` ao lado do log. */
+  ciclosFile?: string;
 }
 
 export function createServer(config: ServerConfig = {}): http.Server {
@@ -1326,6 +1444,7 @@ export function createServer(config: ServerConfig = {}): http.Server {
   const eventosFile = config.eventosFile ?? path.join(path.dirname(logFile), "eventos.jsonl");
   const operacionalFile =
     config.operacionalFile ?? path.join(path.dirname(logFile), "operacional.jsonl");
+  const ciclosFile = config.ciclosFile ?? path.join(path.dirname(logFile), "ciclos.jsonl");
   const permitidas = origensPermitidas(env.NEURO_ALLOWED_ORIGINS);
 
   return http.createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -1360,6 +1479,18 @@ export function createServer(config: ServerConfig = {}): http.Server {
       void handleOperacional(req, res, operacionalFile);
       return;
     }
+    if (req.method === "POST" && url === "/api/ciclos") {
+      void handleCiclos(req, res, ciclosFile);
+      return;
+    }
+    if (req.method === "GET" && pathname === "/api/ciclos") {
+      void handleListCiclos(req, res, ciclosFile);
+      return;
+    }
+    if (req.method === "DELETE" && pathname === "/api/ciclos") {
+      void handleClearCiclos(res, ciclosFile);
+      return;
+    }
     if (req.method === "GET" && pathname === "/api/contexto") {
       void handleContexto(req, res, logFile, eventosFile);
       return;
@@ -1374,7 +1505,7 @@ export function createServer(config: ServerConfig = {}): http.Server {
       return;
     }
     if (req.method === "DELETE" && pathname === "/api/logs") {
-      void handleClearLogs(res, logFile, snapDir, eventosFile);
+      void handleClearLogs(res, logFile, snapDir, eventosFile, ciclosFile);
       return;
     }
     if (req.method === "GET" && pathname === "/api/health") {
