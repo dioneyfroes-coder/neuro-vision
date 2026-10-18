@@ -8,8 +8,10 @@ import type {
   ProcessamentoFrame,
 } from "../public/cycle/ciclo-multiframe";
 import type { InterpretadorMultimodal } from "../public/interpretation/contracts";
+import type { MotorTemporal } from "../public/temporal/contracts";
 import type { PacoteCiclo } from "../src/domain";
 import type { ResultadoInterpretacao } from "../src/domain";
+import type { EventoTemporal, ObservacaoFrame, ResumoTemporal } from "../src/domain";
 import type { RegistroCiclo } from "../src/domain/cycle";
 import { ehCancelamento } from "../src/erros";
 
@@ -54,19 +56,60 @@ function interpretadorFalso(vistos: string[][]): InterpretadorMultimodal {
   };
 }
 
+function fonteVazia(): FonteCaptura {
+  return {
+    ativa: true,
+    largura: 1280,
+    altura: 720,
+    capturarQuadro: () => null,
+    assinaturaDeCena: () => null,
+  };
+}
+
+function evento(n: number): EventoTemporal {
+  return {
+    eventoId: `ev${n}`,
+    sessionId: "sess0001",
+    tipo: "gesto_detectado",
+    inicioEm: "2026-10-16T10:00:00.000Z",
+    descricao: `evento ${n}`,
+    origens: ["maos"],
+    frameIds: ["sess0001-c1-f0"],
+    estado: "confirmado",
+  };
+}
+
+function motorTemporalFalso(
+  vistos: ObservacaoFrame[][],
+  produzir: ResumoTemporal | (() => ResumoTemporal) = { eventos: [evento(1)], entidadesAtivas: 1 }
+): MotorTemporal {
+  return {
+    processar: (observacoes) => {
+      vistos.push([...observacoes]);
+      return typeof produzir === "function" ? produzir() : produzir;
+    },
+    resetar: () => undefined,
+  };
+}
+
 function montar(opcoes: {
   imagens?: string[];
   processarFrame?: DependenciasCicloMultiframe["processarFrame"];
+  fonte?: FonteCaptura;
 } = {}) {
   const imagens = opcoes.imagens ?? ["A", "B", "C", "D"];
   const capturados: string[] = [];
   const interpretados: string[][] = [];
   const store = new SnapshotStore({ maxQuadros: 4 });
-  const captura = new WebcamCapture(fonteComImagens(imagens), CONFIG_CAPTURA_PADRAO, {
-    agora: () => 0,
-    esperar: async () => undefined,
-    agoraIso: () => "2026-10-16T10:00:00.000Z",
-  });
+  const captura = new WebcamCapture(
+    opcoes.fonte ?? fonteComImagens(imagens),
+    CONFIG_CAPTURA_PADRAO,
+    {
+      agora: () => 0,
+      esperar: async () => undefined,
+      agoraIso: () => "2026-10-16T10:00:00.000Z",
+    }
+  );
   const processarFrame =
     opcoes.processarFrame ??
     (async (snapshot) => {
@@ -226,5 +269,64 @@ describe("executarCicloMultiframe", () => {
       cycleId: "sess0001-c1",
       cancelado: true,
     });
+  });
+
+  it("liga o motor temporal: consome as observacoes e alimenta o pacote", async () => {
+    const { deps } = montar();
+    const vistos: ObservacaoFrame[][] = [];
+    deps.motorTemporal = motorTemporalFalso(vistos);
+
+    const resultado = await executarCicloMultiframe(deps);
+
+    // O motor recebeu exatamente as observacoes do ciclo, na ordem.
+    expect(vistos).toHaveLength(1);
+    expect(vistos[0].map((o) => o.frameId)).toEqual([
+      "sess0001-c1-f0",
+      "sess0001-c1-f1",
+      "sess0001-c1-f2",
+      "sess0001-c1-f3",
+    ]);
+    // O resumo temporal entra no pacote (eventos + leitura consolidada).
+    expect(resultado.pacote.eventosTemporais).toEqual([evento(1)]);
+    expect(resultado.pacote.resumoTemporal).toEqual({
+      eventos: [evento(1)],
+      entidadesAtivas: 1,
+    });
+    expect(typeof resultado.pacote.metricas.temporalMs).toBe("number");
+    expect(resultado.erros).toHaveLength(0);
+  });
+
+  it("falha do motor temporal vira erro de etapa sem derrubar a interpretacao", async () => {
+    const { deps } = montar();
+    deps.motorTemporal = motorTemporalFalso([], () => {
+      throw new Error("motor temporal quebrou");
+    });
+
+    const resultado = await executarCicloMultiframe(deps);
+
+    expect(resultado.erros).toContainEqual({
+      etapa: "temporal",
+      mensagem: "motor temporal quebrou",
+    });
+    expect(resultado.pacote.eventosTemporais).toEqual([]);
+    expect(resultado.pacote.resumoTemporal).toEqual({ eventos: [], entidadesAtivas: 0 });
+    // O ciclo segue: a interpretacao multimodal ainda acontece.
+    expect(resultado.interpretacao).toBe("quatro frames analisados");
+  });
+
+  it("sem frame disponivel nao interpreta nem persiste (nao e falha)", async () => {
+    const { deps, interpretados } = montar({ fonte: fonteVazia() });
+    const registros: RegistroCiclo[] = [];
+    deps.persistirCiclo = (registro) => {
+      registros.push(registro);
+    };
+
+    const resultado = await executarCicloMultiframe(deps);
+
+    expect(resultado.pacote.observacoes).toHaveLength(0);
+    expect(resultado.interpretacao).toBeUndefined();
+    expect(resultado.cancelado).toBe(false);
+    expect(interpretados).toHaveLength(0);
+    expect(registros).toHaveLength(0);
   });
 });

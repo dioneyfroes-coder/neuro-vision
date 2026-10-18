@@ -69,6 +69,17 @@ describe("MODOS", () => {
     });
   });
 
+  it("percepcao e o modo multiframe e nao usa motor de frame unico", () => {
+    expect(obterModo("percepcao")).toMatchObject({
+      id: "percepcao",
+      usaDeteccao: true,
+      usaVisao: true,
+      permiteAnaliseManual: false,
+      multiframe: true,
+    });
+    expect(obterModo("percepcao").criarMotor).toBeUndefined();
+  });
+
   it("preserva as mensagens de falha esperadas pelos testes E2E", () => {
     expect(obterModo("deteccao").falhaPrefixo).toBe("Falha ao carregar modelo");
     expect(obterModo("eventos").falhaPrefixo).toBe("Falha ao carregar modelo");

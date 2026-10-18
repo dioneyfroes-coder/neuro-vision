@@ -14,10 +14,12 @@ import type {
   PacoteCiclo,
   RegistroCiclo,
   ResultadoCiclo,
+  ResumoTemporal,
 } from "../../src/domain/cycle";
 import type { WebcamCapture } from "../capture/webcam-capture";
 import type { SnapshotCapturado, SnapshotStore } from "../capture/snapshot-store";
 import type { InterpretadorMultimodal } from "../interpretation/contracts";
+import type { MotorTemporal } from "../temporal/contracts";
 
 /**
  * `CicloMultiframe` (Etapa 4 do roteiro).
@@ -58,6 +60,12 @@ export interface DependenciasCicloMultiframe {
   ) => Promise<ProcessamentoFrame>;
   /** Interpretador multimodal; recebe o pacote, nunca a camera. */
   interpretador: InterpretadorMultimodal;
+  /**
+   * Motor temporal opcional (Etapa 6): consome as observacoes do ciclo e devolve
+   * o `ResumoTemporal` que alimenta o pacote e a interpretacao. Mantem estado
+   * entre ciclos; ausente, o resumo temporal fica vazio (compatibilidade).
+   */
+  motorTemporal?: MotorTemporal;
   /** Sessao atual (ids de ciclo derivam dela). */
   sessaoId: string;
   /** Sequencia do proximo ciclo na sessao (1, 2, 3, ...). */
@@ -116,6 +124,7 @@ export async function executarCicloMultiframe(
   // Declarado fora do try para que o diagnostico de um ciclo incompleto
   // (catch) tambem possa registrar o que ja foi observado.
   const observacoes: ObservacaoFrame[] = [];
+  let resumoTemporal: ResumoTemporal = { eventos: [], entidadesAtivas: 0 };
   let metricas: MetricasCiclo = {};
 
   try {
@@ -126,6 +135,25 @@ export async function executarCicloMultiframe(
     deps.store.limpar();
     for (const snapshot of capturados) deps.store.adicionar(snapshot);
     const capturaMs = Math.round(agora() - inicioMs);
+
+    if (capturados.length === 0) {
+      // Camera ainda sem frame: nao ha evidencia a interpretar. Nao e falha,
+      // apenas um instante sem imagem (mesma semantica do ciclo de frame unico).
+      return {
+        pacote: {
+          sessionId: deps.sessaoId,
+          cycleId,
+          iniciadoEm,
+          concluidoEm: agoraIso(),
+          observacoes: [],
+          eventosTemporais: [],
+          resumoTemporal: { eventos: [], entidadesAtivas: 0 },
+          metricas: { capturaMs, totalMs: Math.round(agora() - inicioMs) },
+        },
+        erros,
+        cancelado: false,
+      };
+    }
 
     // 2) Processamento local do conjunto, depois da captura, em sequencia.
     const quadros = deps.store.quadros;
@@ -172,6 +200,20 @@ export async function executarCicloMultiframe(
       );
     }
 
+    // 2.5) Leitura temporal consolidada (motor com estado entre ciclos). Uma
+    // falha do motor e isolada como etapa `temporal`: o ciclo segue com o
+    // resumo vazio em vez de derrubar a interpretacao.
+    let temporalMs = 0;
+    if (deps.motorTemporal && observacoes.length > 0) {
+      const inicioTemporal = agora();
+      try {
+        resumoTemporal = deps.motorTemporal.processar(observacoes);
+      } catch (err) {
+        erros.push({ etapa: "temporal", mensagem: (err as Error).message });
+      }
+      temporalMs = Math.round(agora() - inicioTemporal);
+    }
+
     // 3) Pacote do ciclo: fronteira entre analise local e interpretacao.
     const pacote: PacoteCiclo = {
       sessionId: deps.sessaoId,
@@ -179,13 +221,14 @@ export async function executarCicloMultiframe(
       iniciadoEm,
       concluidoEm: agoraIso(),
       observacoes,
-      eventosTemporais: [],
-      resumoTemporal: { eventos: [], entidadesAtivas: 0 },
+      eventosTemporais: resumoTemporal.eventos,
+      resumoTemporal,
       metricas: {
         capturaMs,
         deteccaoMs,
         poseMs,
         maosMs,
+        temporalMs,
         totalMs: Math.round(agora() - inicioMs),
       },
     };
@@ -221,8 +264,8 @@ export async function executarCicloMultiframe(
           iniciadoEm,
           concluidoEm: agoraIso(),
           observacoes,
-          eventosTemporais: [],
-          resumoTemporal: { eventos: [], entidadesAtivas: 0 },
+          eventosTemporais: resumoTemporal.eventos,
+          resumoTemporal,
           metricas,
         },
         erros,

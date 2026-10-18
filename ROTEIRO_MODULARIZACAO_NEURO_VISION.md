@@ -473,6 +473,10 @@ Cada etapa deve terminar com testes passando e o app podendo ser executado. Evit
 
 **Aceite:** [CONCLUÍDO] ciclos incompletos e falhas ficam diagnosticáveis; registros preservam as relações entre sessão, imagens e eventos.
 
+### Integração à interface — modo `percepcao`
+
+**[CONCLUÍDO]** O pipeline completo (captura multiframe + percepção local + motor temporal + interpretador) está ligado à interface pelo modo `percepcao` (`<select id="motor">`), conduzido por `public/cycle/ciclo-percepcao-controller.ts`. A `DefinicaoModo` ganhou a flag `multiframe` (e `criarMotor` passou a ser opcional), de modo que `app.ts` escolhe entre `CycleController` e `CicloPercepcaoController` pela definição do modo — os dois implementam `ControladorCiclo` e a interface usa a mesma superfície (`iniciar`, `parar`, `solicitarManual`, …). O modo reaproveita o detector já carregado (`AdaptadorDetectorObjetos`), segue com a sessão apenas se ao menos um subsistema carregar e persiste o diagnóstico do ciclo (`RegistroCiclo`) em best-effort.
+
 ### Etapa 9 — Benchmark completo e decisão arquitetural
 
 1. Comparar a versão atual com o pipeline de quatro snapshots.

@@ -93,7 +93,31 @@ function gerarId(): string {
   return uuid().replace(/-/g, "").slice(0, 12);
 }
 
-export class CycleController {
+/**
+ * Superficie comum dos controladores de ciclo (frame unico e multiframe).
+ *
+ * A interface (`public/app.ts`) escolhe o controlador pelo modo ativo e usa
+ * apenas estes metodos, sem conhecer qual implementacao esta por tras.
+ */
+export interface ControladorCiclo {
+  readonly estaRodando: boolean;
+  readonly ultimaDuracaoMs: number;
+  readonly ultimaCargaMs: number;
+  readonly ultimaPersistenciaMs: number;
+  readonly agendamentoExecutando: boolean;
+  iniciar(): Promise<void>;
+  parar(): void;
+  aoTrocarModo(): void;
+  reiniciarSessao(opcoes?: { manterContexto?: boolean }): void;
+  reidratarContexto(roteiro: string[], ultimaDescricao: string): void;
+  solicitarManual(): void;
+  reajustarAgendamento(): void;
+  pararAgendamento(): void;
+  aguardarExecucao(): Promise<void>;
+  retomarAgendamento(): Promise<void>;
+}
+
+export class CycleController implements ControladorCiclo {
   private readonly rastreador: RastreadorObjetos;
   private readonly detectorCena: DetectorMudancaDeCena;
   private readonly politica = new PoliticaAnalise();

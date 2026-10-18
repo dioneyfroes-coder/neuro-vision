@@ -4,6 +4,7 @@ import { AdaptadorMaos } from "./adapters/hand-gesture.adapter";
 import { criarMotorPoseTransformers, MODELO_POSE_PADRAO } from "../pose";
 import { criarMotorGestosMediaPipe, MODELO_MAOS_PADRAO } from "../gestos";
 import { PipelineLocal, configurarSubsistemas, criarProcessadorFrameLocal } from "./local-perception-pipeline";
+import type { DetectorObjetos } from "./contracts";
 import type {
   ConfiguracaoParcial,
   DependenciasPipelineLocal,
@@ -25,6 +26,8 @@ import type {
  */
 
 export interface OpcoesPercepcaoLocal {
+  /** Detector de objetos ja existente (reutiliza o modelo carregado no app). */
+  detector?: DetectorObjetos;
   /** Ids de modelo a carregar; utiliza MODELOS_PERCEPCAO_PADRAO quando ausente. */
   modelos?: ModelosPercepcao;
   /** Limiar de deteccao lido a cada frame. */
@@ -34,8 +37,8 @@ export interface OpcoesPercepcaoLocal {
 }
 
 export interface PercepcaoLocal {
-  /** Adaptador do detector de objetos. */
-  detector: AdaptadorDetectorObjetos;
+  /** Detector de objetos (o injetado ou um adaptador proprio). */
+  detector: DetectorObjetos;
   /** Adaptador do estimador de pose (YOLO Pose). */
   pose: AdaptadorPose;
   /** Adaptador do reconhecedor de maos/gestos (MediaPipe). */
@@ -44,8 +47,11 @@ export interface PercepcaoLocal {
   dependencias: DependenciasPipelineLocal;
   /** Processador de frame pronto para o ciclo multiframe. */
   processarFrame: ProcessarFrameLocal;
-  /** Carrega os modelos de forma isolada. */
-  configurar(aoStatus?: (mensagem: string) => void): Promise<ConfiguracaoParcial>;
+  /** Carrega os modelos de forma isolada; aceita override de modelos. */
+  configurar(
+    aoStatus?: (mensagem: string) => void,
+    modelos?: ModelosPercepcao
+  ): Promise<ConfiguracaoParcial>;
   /** Encerra os tres subsistemas. */
   encerrar(): void;
 }
@@ -58,7 +64,7 @@ export const MODELOS_PERCEPCAO_PADRAO: Required<ModelosPercepcao> = {
 };
 
 export function criarPercepcaoLocal(opcoes: OpcoesPercepcaoLocal = {}): PercepcaoLocal {
-  const detector = new AdaptadorDetectorObjetos();
+  const detector = opcoes.detector ?? new AdaptadorDetectorObjetos();
   const pose = new AdaptadorPose(criarMotorPoseTransformers);
   const maos = new AdaptadorMaos(criarMotorGestosMediaPipe);
 
@@ -79,8 +85,8 @@ export function criarPercepcaoLocal(opcoes: OpcoesPercepcaoLocal = {}): Percepca
     maos,
     dependencias,
     processarFrame: criarProcessadorFrameLocal(dependencias),
-    configurar: (aoStatus?: (mensagem: string) => void) =>
-      configurarSubsistemas(dependencias, modelos, aoStatus),
+    configurar: (aoStatus?: (mensagem: string) => void, override?: ModelosPercepcao) =>
+      configurarSubsistemas(dependencias, { ...modelos, ...override }, aoStatus),
     encerrar: () => pipeline.encerrar(),
   };
 }

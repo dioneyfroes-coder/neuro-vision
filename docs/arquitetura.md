@@ -8,10 +8,11 @@ Estrutura de arquivos e como as partes conversam.
 - **Camada de persistência** (`src/persistence/`) — primitivas JSONL (`armazenamento-jsonl.ts`) e um repositório por tipo de registro (observações, eventos, registros operacionais e ciclos). Cada repositório só conhece o seu arquivo; o servidor HTTP não carrega detalhes de armazenamento.
 - **Domínio** (`src/domain/`) — contratos puros (IDs de sessão/ciclo/frame, observação, resultados de percepção, evento temporal, pacote de ciclo, resultado de interpretação e métricas) sem dependência de SDK de modelo.
 - **Controlador do ciclo** (`public/cycle/cycle-controller.ts`) — regra de negócio do ciclo de frame único (captura, inferência, rastreamento, persistência e progresso) com dependências injetadas; emite `EventoUi` em vez de tocar o DOM.
-- **Ciclo multiframe** (`public/cycle/ciclo-multiframe.ts`) — captura 4 snapshots identificados (~1 s), guarda-os sem inferência, processa-os em sequência e envia o `PacoteCiclo` à interpretação multimodal. As imagens que chegam ao interpretador são as mesmas capturadas (sem recaptura). Ainda não está ligado à interface: a ligação acontece nas Etapas 5–7.
+- **Ciclo multiframe** (`public/cycle/ciclo-multiframe.ts`) — captura 4 snapshots identificados (~1 s), guarda-os sem inferência, processa-os em sequência, roda a leitura temporal e envia o `PacoteCiclo` à interpretação multimodal. As imagens que chegam ao interpretador são as mesmas capturadas (sem recaptura). Sem frame disponível o ciclo retorna vazio, sem interpretar nem persistir (não é falha).
+- **Controlador multiframe** (`public/cycle/ciclo-percepcao-controller.ts`) — liga o pipeline completo (captura + percepção local + motor temporal + interpretação) à interface, como `ControladorCiclo` do modo `percepcao`; emite `EventoUi` e persiste o diagnóstico do ciclo (best-effort).
 - **Pipeline local de percepcao** (`public/perception/local-perception-pipeline.ts`) — executa detector, pose (YOLO Pose) e maos/gestos (MediaPipe) por snapshot em sequencia, com isolamento de falhas: um subsistema quebrado vira `ResultadoIndisponivel` e nao apaga os demais. Usa portas em `public/perception/contracts.ts`.
 - **Adaptadores de percepção** (`public/perception/`) — portas `DetectorObjetos`, `EstimadorPose` e `ReconhecedorGestos` independentes do SDK; o núcleo conhece apenas essas interfaces, e cada SDK entra por um adaptador em `public/perception/adapters/` (`object-detector.adapter.ts`, `pose-estimator.adapter.ts`, `hand-gesture.adapter.ts`). Motores SDK concretos: `public/detector.ts` (Transformers.js), `public/pose.ts` (YOLO Pose via Transformers.js) e `public/gestos.ts` (MediaPipe Gesture Recognizer).
-- **Composicao da percepcao** (`public/perception/percepcao-local.ts`) — cria os adaptadores concretos, coordena o carregamento isolado (`configurarSubsistemas`) e expõe `processarFrame` pronto para o ciclo multiframe; ainda nao esta ligada a UI.
+- **Composicao da percepcao** (`public/perception/percepcao-local.ts`) — cria os adaptadores concretos (reaproveitando o detector já carregado), coordena o carregamento isolado (`configurarSubsistemas`, com override de modelos por sessão) e expõe `processarFrame` pronto para o ciclo multiframe.
 - **Motor temporal** (`public/temporal/`) — encapsula o rastreamento de objetos (`rastreamento.ts`) e a mudança de cena (`cena.ts`) **sem reescrever os algoritmos** e adiciona rastreadores de pose (pessoas) e mãos com IDs estáveis na sessão, suavização e métricas de movimento em coordenadas normalizadas, além de máquinas de estado de gestos e de braço levantado com confirmação/encerramento temporais. Emite `EventoTemporal` (identidade única, duração, confiança, timestamps e IDs dos frames de evidência) e trata frames ausentes, inferências falhas, mudanças de resolução (coordenadas normalizadas) e períodos cegos. O estado é reutilizado entre ciclos; `resetar()` só é chamado em evento explícito de sessão.
 
 ## Estrutura
@@ -51,7 +52,8 @@ public/
   app.ts               ponto de composição: liga botões/seletores, cria dependências e renderiza os `EventoUi`
   cycle/
     cycle-controller.ts  controlador do ciclo de frame único (captura, inferência, rastreamento, persistência, progresso)
-    ciclo-multiframe.ts  ciclo de 4 snapshots: captura → processamento local sequencial → pacote → interpretação
+    ciclo-multiframe.ts  ciclo de 4 snapshots: captura → processamento local sequencial → temporal → pacote → interpretação
+    ciclo-percepcao-controller.ts  controlador do modo multiframe (liga pipeline + temporal + interpretação à interface)
   capture/
     webcam-capture.ts    coleta snapshots identificados em intervalo (sem inferência; cancelável)
     snapshot-store.ts    buffer de snapshots com retenção limitada e limpeza
@@ -104,6 +106,20 @@ scripts/
   gravar-webcam.mjs         grava alguns segundos da webcam em .webm (clipe de avaliação)
   extrair-frames.mjs        extrai quadros de um clipe para anotação
 ```
+
+8. Em vez de tocar o DOM, o controlador emite `EventoUi` (status, spinner, entrada, caixas, canvas, pronto, falha, parado); `app.ts` traduz cada evento na renderização da interface.
+
+## Modo multiframe (`percepcao`)
+
+O modo `percepcao` (opção **Percepção multi-frame** no seletor de motor) troca o `CycleController` de frame único por um `CicloPercepcaoController`. Os dois implementam `ControladorCiclo`, e `app.ts` escolhe a implementação por `obterModo(motor).multiframe` — a interface usa sempre a mesma superfície (`iniciar`, `parar`, `solicitarManual`, …).
+
+1. A cada ciclo o `WebcamCapture` coleta 4 snapshots identificados (~1 s) **sem inferência** e os guarda no `SnapshotStore`.
+2. O `PercepcaoLocal` processa os snapshots em sequência: detecção (porta `DetectorObjetos`, reaproveitando o modelo já carregado), pose (YOLO Pose) e mãos/gestos (MediaPipe). Cada subsistema é isolado: uma falha vira `ResultadoIndisponivel` para aquele frame e não apaga os demais. Se **nenhum** subsistema carregar, a sessão não inicia.
+3. O `MotorTemporalImpl` consome as observações e devolve um `ResumoTemporal` (eventos com identidade e continuidade entre ciclos) que entra no `PacoteCiclo`.
+4. O `InterpretadorCiclo` interpreta o pacote pelo transporte do servidor (`POST /api/visao` via `transporte-servidor.ts`) e devolve a narrativa.
+5. O diagnóstico do ciclo é gravado em `POST /api/ciclos`; a entrada do histórico entra na `FilaPersistencia` como nos demais modos. A troca de modo/início de sessão reseta o estado temporal (`MotorTemporal.resetar()`).
+
+A ausência de frames (câmera sem imagem) não é tratada como falha: o ciclo retorna vazio, sem interpretação e sem persistência.
 
 ## Fluxo de uma análise
 

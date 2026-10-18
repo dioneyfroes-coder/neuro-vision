@@ -7,7 +7,12 @@ import { FilaPersistencia } from "./persistencia";
 import { rotuloMotivo } from "../src/politica-analise";
 import * as api from "./api";
 import { CycleController } from "./cycle/cycle-controller";
-import type { EventoUi, ItemHistorico } from "./cycle/cycle-controller";
+import type { ControladorCiclo, EventoUi, ItemHistorico } from "./cycle/cycle-controller";
+import { CicloPercepcaoController } from "./cycle/ciclo-percepcao-controller";
+import { criarPercepcaoLocal } from "./perception/percepcao-local";
+import { MotorTemporalImpl } from "./temporal/motor-temporal";
+import { InterpretadorCiclo } from "./interpretation/interpretador-ciclo";
+import { criarTransporteServidor } from "./interpretation/transporte-servidor";
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -118,11 +123,11 @@ function aoUi(evento: EventoUi): ItemHistorico | void {
 }
 
 /**
- * Controlador do ciclo: dono da logica de captura/inferencia/temporal/
- * persistencia. Todas as dependencias sao injetadas aqui, no ponto de
+ * Controlador do ciclo de frame unico: dono da logica de captura/inferencia/
+ * temporal/persistencia. Todas as dependencias sao injetadas aqui, no ponto de
  * composicao — o controlador nao cria nada escondido.
  */
-const controlador = new CycleController({
+const controladorFrame = new CycleController({
   camera,
   aoUi,
   repositorio: {
@@ -134,6 +139,9 @@ const controlador = new CycleController({
   obterModo: () => obterModo(motorSelect.value),
   criarMotor: () => {
     const definicao = obterModo(motorSelect.value);
+    if (!definicao.criarMotor) {
+      throw new Error(`O modo ${definicao.id} nao usa motor de frame unico.`);
+    }
     return definicao.criarMotor({
       detector: detectorCoco,
       modelo: modelSelect.value,
@@ -145,6 +153,42 @@ const controlador = new CycleController({
   obterModeloVisao: () => modeloVisaoSelecionado(),
   obterIntervaloMs: () => intervaloMsConfigurado,
 });
+
+/**
+ * Controlador do ciclo multiframe: pipeline local completo (deteccao + pose +
+ * maos), motor temporal e interpretacao multimodal. Reaproveita o detector ja
+ * carregado no navegador para nao baixar o mesmo modelo duas vezes.
+ */
+const controladorPercepcao = new CicloPercepcaoController({
+  camera,
+  aoUi,
+  repositorio: {
+    gravarCiclo: api.gravarCiclo,
+    gravarEntrada: api.gravarEntrada,
+    gravarOperacional: api.gravarOperacional,
+  },
+  fila: filaPersistencia,
+  obterModo: () => obterModo(motorSelect.value),
+  criarPercepcao: () =>
+    criarPercepcaoLocal({
+      detector: detectorCoco,
+      obterThreshold: () => Number(thresholdInput.value),
+      aoStatus: (mensagem) => setStatus(mensagem),
+    }),
+  obterModelosPercepcao: () => ({ objetos: modelSelect.value }),
+  criarMotorTemporal: () => new MotorTemporalImpl(),
+  criarInterpretador: () =>
+    new InterpretadorCiclo({
+      enviar: criarTransporteServidor(),
+      modelo: modeloVisaoSelecionado(),
+    }),
+  obterIntervaloMs: () => intervaloMsConfigurado,
+});
+
+/** Controlador do modo ativo: o multiframe tem um fluxo proprio, sem `MotorPercepcao`. */
+function controlador(): ControladorCiclo {
+  return obterModo(motorSelect.value).multiframe ? controladorPercepcao : controladorFrame;
+}
 
 function setStatus(text: string): void {
   statusEl.textContent = text;
@@ -240,9 +284,9 @@ function atualizarDiagnostico(): void {
   if (infoVisao?.solicitado && infoVisao.solicitado !== infoVisao.modelo) {
     partes.push(`fallback de ${infoVisao.solicitado}`);
   }
-  if (controlador.ultimaCargaMs > 0) partes.push(`carga ${(controlador.ultimaCargaMs / 1000).toFixed(1)}s`);
-  if (controlador.ultimaDuracaoMs > 0) partes.push(`inferencia ${controlador.ultimaDuracaoMs} ms`);
-  if (controlador.ultimaPersistenciaMs > 0) partes.push(`persistencia ${controlador.ultimaPersistenciaMs} ms`);
+  if (controlador().ultimaCargaMs > 0) partes.push(`carga ${(controlador().ultimaCargaMs / 1000).toFixed(1)}s`);
+  if (controlador().ultimaDuracaoMs > 0) partes.push(`inferencia ${controlador().ultimaDuracaoMs} ms`);
+  if (controlador().ultimaPersistenciaMs > 0) partes.push(`persistencia ${controlador().ultimaPersistenciaMs} ms`);
 
   const fila = filaPersistencia.estado;
   if (fila.pendentes > 0) partes.push(`fila ${fila.pendentes}`);
@@ -434,7 +478,7 @@ async function carregarContexto(): Promise<void> {
   try {
     const contexto = await api.obterContexto();
     if (!contexto) return;
-    controlador.reidratarContexto(contexto.roteiro, contexto.ultimaDescricao);
+    controlador().reidratarContexto(contexto.roteiro, contexto.ultimaDescricao);
   } catch {
     // memoria indisponivel; segue sem contexto reidratado
   }
@@ -446,8 +490,8 @@ async function limparHistorico(): Promise<void> {
   try {
     // Limpar historico e um limite de contexto: nenhum evento novo pode depender
     // do estado temporal anterior nem surgir de um ciclo em andamento.
-    if (retomar) controlador.pararAgendamento();
-    await controlador.aguardarExecucao();
+    if (retomar) controlador().pararAgendamento();
+    await controlador().aguardarExecucao();
 
     // Pausa a fila e aguarda a gravacao em andamento antes de apagar no
     // servidor; em seguida a fila e descartada e volta a aceitar gravacoes.
@@ -456,7 +500,7 @@ async function limparHistorico(): Promise<void> {
     filaPersistencia.limpar();
 
     // Reseta toda a percepcao temporal, nao apenas a lista visivel.
-    controlador.reiniciarSessao();
+    controlador().reiniciarSessao();
     limparLista();
     atualizarContagem();
     setStatus("Historico limpo.");
@@ -466,7 +510,7 @@ async function limparHistorico(): Promise<void> {
   } finally {
     filaPersistencia.retomar();
     atualizarDiagnostico();
-    if (retomar) await controlador.retomarAgendamento();
+    if (retomar) await controlador().retomarAgendamento();
   }
 }
 
@@ -563,11 +607,11 @@ detectorCoco.aoStatus = (mensagem) => {
   atualizarDiagnostico();
 };
 
-startBtn.addEventListener("click", () => void controlador.iniciar());
-stopBtn.addEventListener("click", () => controlador.parar());
+startBtn.addEventListener("click", () => void controlador().iniciar());
+stopBtn.addEventListener("click", () => controlador().parar());
 analisarAgoraBtn.addEventListener("click", () => {
   if (!running || motorSelect.value !== "eventos") return;
-  controlador.solicitarManual();
+  controlador().solicitarManual();
 });
 clearLogBtn.addEventListener("click", () => void limparHistorico());
 exportBtn.addEventListener("click", () => void exportarLog());
@@ -577,7 +621,7 @@ filterInput.addEventListener("input", aplicarFiltro);
 intervalInput.addEventListener("input", () => {
   intervalValue.textContent = `${intervalInput.value}s`;
   intervaloMsConfigurado = Number(intervalInput.value) * 1000;
-  controlador.reajustarAgendamento();
+  controlador().reajustarAgendamento();
 });
 
 thresholdInput.addEventListener("input", () => {
@@ -585,7 +629,7 @@ thresholdInput.addEventListener("input", () => {
 });
 
 motorSelect.addEventListener("change", () => {
-  controlador.aoTrocarModo();
+  controlador().aoTrocarModo();
   atualizarBotoesAnalise();
   atualizarDiagnostico();
 });

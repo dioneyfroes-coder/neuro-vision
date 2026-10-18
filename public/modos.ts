@@ -33,8 +33,13 @@ export interface DefinicaoModo {
   falhaPrefixo: string;
   /** Origem do registro operacional quando o motor falha. */
   origemFalha: "detector" | "visao";
-  /** Constroi o motor de percepcao correspondente ao modo. */
-  criarMotor: (deps: DependenciasMotor) => MotorPercepcao;
+  /**
+   * Modo conduzido pelo ciclo multiframe (`CicloPercepcaoController`), com
+   * pipeline local completo + motor temporal. Nao usa `criarMotor`.
+   */
+  multiframe?: boolean;
+  /** Constroi o motor de percepcao de frame unico (ausente no multiframe). */
+  criarMotor?: (deps: DependenciasMotor) => MotorPercepcao;
 }
 
 const criarMotorDeteccao = (deps: DependenciasMotor): MotorPercepcao =>
@@ -86,6 +91,15 @@ export const MODOS: Record<string, DefinicaoModo> = {
     falhaPrefixo: "Falha ao carregar modelo",
     origemFalha: "detector",
     criarMotor: criarMotorDeteccao,
+  },
+  percepcao: {
+    id: "percepcao",
+    usaDeteccao: true,
+    usaVisao: true,
+    permiteAnaliseManual: false,
+    falhaPrefixo: "Falha ao carregar o pipeline de percepcao",
+    origemFalha: "detector",
+    multiframe: true,
   },
 };
 
