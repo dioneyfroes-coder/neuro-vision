@@ -1,0 +1,6 @@
+{
+  "clip": "face-demographics-walking.mp4",
+  "duracaoMs": 61000,
+  "notas": "RASCUNHO — eventos ainda nao revisados por humano (duracao medida por sonda: 61,0s). Pessoa caminhando (acao continua) — no tuning mede FP/min sob movimento permanente. Anotar eventos reais antes de uso em eval.",
+  "eventos": []
+}

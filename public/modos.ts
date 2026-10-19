@@ -1,5 +1,7 @@
 import type { MotorPercepcao } from "../src/percepcao";
 import type { DetectorObjetos } from "./perception/contracts";
+import type { VariantePercepcao } from "./perception/variantes";
+import { VARIANTES_PERCEPCAO } from "./perception/variantes";
 import { MotorDeteccao, MotorVisao } from "./motores";
 
 /**
@@ -38,6 +40,12 @@ export interface DefinicaoModo {
    * pipeline local completo + motor temporal. Nao usa `criarMotor`.
    */
   multiframe?: boolean;
+  /**
+   * Variante do benchmark multiframe (Etapa 9): decide se a percepcao local roda,
+   * se os dados locais vao ao multimodal e qual leitura temporal se aplica.
+   * Ausente no multiframe = variante alvo (D).
+   */
+  variante?: VariantePercepcao;
   /** Constroi o motor de percepcao de frame unico (ausente no multiframe). */
   criarMotor?: (deps: DependenciasMotor) => MotorPercepcao;
 }
@@ -92,6 +100,8 @@ export const MODOS: Record<string, DefinicaoModo> = {
     origemFalha: "detector",
     criarMotor: criarMotorDeteccao,
   },
+  // Modos multiframe do benchmark (Etapa 9). Todos usam o `CicloPercepcaoController`
+  // (`multiframe: true`) e diferem apenas pela `variante` declarada.
   percepcao: {
     id: "percepcao",
     usaDeteccao: true,
@@ -100,6 +110,28 @@ export const MODOS: Record<string, DefinicaoModo> = {
     falhaPrefixo: "Falha ao carregar o pipeline de percepcao",
     origemFalha: "detector",
     multiframe: true,
+    variante: VARIANTES_PERCEPCAO.completa,
+  },
+  "percepcao-fundida": {
+    id: "percepcao-fundida",
+    usaDeteccao: true,
+    usaVisao: true,
+    permiteAnaliseManual: false,
+    falhaPrefixo: "Falha ao carregar o pipeline de percepcao",
+    origemFalha: "detector",
+    multiframe: true,
+    variante: VARIANTES_PERCEPCAO.fundida,
+  },
+  "percepcao-sequencia": {
+    id: "percepcao-sequencia",
+    // Sem percepcao local: a variante B envia apenas as imagens ao multimodal.
+    usaDeteccao: false,
+    usaVisao: true,
+    permiteAnaliseManual: false,
+    falhaPrefixo: "Falha ao capturar a sequencia de frames",
+    origemFalha: "visao",
+    multiframe: true,
+    variante: VARIANTES_PERCEPCAO.sequencia,
   },
 };
 

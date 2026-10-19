@@ -35,8 +35,19 @@ export type EnviarMultimodal = (
 
 export interface DependenciasInterpretadorCiclo {
   enviar: EnviarMultimodal;
-  modelo?: string;
+  /**
+   * Modelo de visao a usar. Pode ser uma funcao, resolvida a cada
+   * interpretacao — assim trocar o modelo na interface durante a sessao
+   * multiframe tem efeito imediato e o `modelo` registrado em cada entrada
+   * (`/api/log`) e o que realmente rodou (garantia de mesmo modelo da Etapa 9).
+   */
+  modelo?: string | (() => string | undefined | null);
   limites?: Partial<LimitesContexto>;
+  /**
+   * Inclui os dados locais no contexto multimodal. `false` (variante B) envia
+   * apenas as imagens + cronologia. Padrao: `true`.
+   */
+  incluirDadosLocais?: boolean;
   agora?: () => number;
 }
 
@@ -53,36 +64,43 @@ export interface DependenciasInterpretadorCiclo {
  */
 export class InterpretadorCiclo implements InterpretadorMultimodal {
   private readonly enviar: EnviarMultimodal;
-  private readonly modeloAtual: string | null;
+  private readonly obterModelo: () => string | null;
   private readonly limites: LimitesContexto;
+  private readonly incluirDadosLocais: boolean;
   private readonly agora: () => number;
 
   constructor(deps: DependenciasInterpretadorCiclo) {
     this.enviar = deps.enviar;
-    this.modeloAtual = deps.modelo ?? null;
+    const modelo = deps.modelo;
+    this.obterModelo =
+      typeof modelo === "function" ? () => modelo() ?? null : () => modelo ?? null;
     this.limites = { ...LIMITES_CONTEXTO_PADRAO, ...deps.limites };
+    this.incluirDadosLocais = deps.incluirDadosLocais ?? true;
     this.agora = deps.agora ?? (() => performance.now());
   }
 
   get modelo(): string | null {
-    return this.modeloAtual;
+    return this.obterModelo();
   }
 
   async interpretar(pacote: PacoteCiclo, sinal?: AbortSignal): Promise<ResultadoInterpretacao> {
-    const { imagens, contexto } = montarContextoCiclo(pacote, this.limites);
+    const { imagens, contexto } = montarContextoCiclo(pacote, this.limites, {
+      incluirDadosLocais: this.incluirDadosLocais,
+    });
     const prompt = montarPromptInterpretacao(contexto);
+    const modelo = this.obterModelo();
     const inicio = this.agora();
     const resposta = await this.enviar(
       {
         imagens,
         prompt,
         contexto,
-        modelo: this.modeloAtual ?? undefined,
+        modelo: modelo ?? undefined,
       },
       sinal
     );
     const duracaoMs = resposta.duracaoMs ?? Math.round(this.agora() - inicio);
-    const resultado = normalizarInterpretacao(resposta.texto, resposta.modelo ?? this.modeloAtual ?? undefined);
+    const resultado = normalizarInterpretacao(resposta.texto, resposta.modelo ?? modelo ?? undefined);
     return { ...resultado, duracaoMs };
   }
 }

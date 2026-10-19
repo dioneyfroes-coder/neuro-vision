@@ -5,7 +5,10 @@ import { indisponivel } from "../src/domain/perception";
 import { montarContextoCiclo } from "../public/interpretation/contexto";
 import { montarPromptInterpretacao } from "../public/interpretation/prompt";
 import { normalizarInterpretacao } from "../public/interpretation/normalizar";
-import { InterpretadorCiclo } from "../public/interpretation/interpretador-ciclo";
+import {
+  InterpretadorCiclo,
+  type RequisicaoMultimodal,
+} from "../public/interpretation/interpretador-ciclo";
 
 const OBS_BASE: ObservacaoFrame = {
   sessionId: "s1",
@@ -73,6 +76,42 @@ describe("montarContextoCiclo", () => {
     // score arredondado a 2 decimais
     expect(contexto.frames[0].deteccoes).toContain("0.91");
   });
+
+  it("sem dados locais (variante B) envia so imagens + cronologia", () => {
+    const o1: ObservacaoFrame = { ...OBS_BASE, frameId: "f1", capturadoEmMs: 0, imagem: "img1" };
+    const o2: ObservacaoFrame = { ...OBS_BASE, frameId: "f2", capturadoEmMs: 100, imagem: "img2" };
+    const evento: EventoTemporal = {
+      eventoId: "e1",
+      sessionId: "s1",
+      cycleId: "s1-c1",
+      tipo: "gesto_detectado",
+      inicioEm: "2026-10-17T12:00:00.000Z",
+      descricao: "Gesto confirmado",
+      origens: ["maos"],
+      frameIds: ["f1"],
+      estado: "confirmado",
+    };
+    const pacote: PacoteCiclo = {
+      ...PACOTE,
+      observacoes: [o1, o2],
+      eventosTemporais: [evento],
+    };
+    const { imagens, contexto } = montarContextoCiclo(pacote, {}, { incluirDadosLocais: false });
+
+    expect(imagens).toEqual(["img1", "img2"]);
+    expect(contexto.frames[0]).toMatchObject({
+      frameId: "f1",
+      indice: 1,
+      deteccoes: "",
+      pose: "",
+      maos: "",
+      pontos: [],
+    });
+    expect(contexto.frames[1].offsetMs).toBe(100);
+    expect(contexto.eventosTemporais).toEqual([]);
+    expect(contexto.indisponibilidades).toEqual([]);
+    expect(contexto.resumoTemporal.entidadesAtivas).toBe(0);
+  });
 });
 
 describe("montarPromptInterpretacao", () => {
@@ -105,6 +144,18 @@ describe("montarPromptInterpretacao", () => {
     const prompt = montarPromptInterpretacao(contexto);
     expect(prompt).toContain("braco_levantado");
     expect(prompt).toContain("f1");
+  });
+
+  it("sem dados locais (variante B) o prompt nao cita det/pose/maos", () => {
+    const o1: ObservacaoFrame = { ...OBS_BASE, frameId: "f1", capturadoEmMs: 0, imagem: "img1" };
+    const pacote: PacoteCiclo = { ...PACOTE, observacoes: [o1] };
+    const { contexto } = montarContextoCiclo(pacote, {}, { incluirDadosLocais: false });
+    const prompt = montarPromptInterpretacao(contexto);
+    expect(prompt).toContain("Imagem 1");
+    // Nao ha dados locais: o prompt nao deve sugerir deteccao/pose/maos.
+    expect(prompt).not.toContain("det=");
+    expect(prompt).not.toContain("pose=");
+    expect(prompt).not.toContain("maos=");
   });
 });
 
@@ -188,5 +239,53 @@ describe("InterpretadorCiclo", () => {
     const res = await interpreter.interpretar(pacote);
     expect(res.bruto).toBe("nao era json");
     expect(res.incertezas).toContain("resposta nao estruturada");
+  });
+
+  it("incluirDadosLocais=false envia contexto apenas com imagens e cronologia", async () => {
+    const o1: ObservacaoFrame = { ...OBS_BASE, frameId: "f1", capturadoEmMs: 0, imagem: "img1" };
+    const pacote: PacoteCiclo = { ...PACOTE, observacoes: [o1] };
+    let requisicao: RequisicaoMultimodal | null = null;
+    const interpreter = new InterpretadorCiclo({
+      incluirDadosLocais: false,
+      enviar: async (req) => {
+        requisicao = req;
+        return {
+          texto: '{"resumo":"ok","acoes":[],"evidencias":["f1"],"incertezas":[],"contradicacoes":[]}',
+          modelo: "m",
+        };
+      },
+    });
+    await interpreter.interpretar(pacote);
+
+    expect(requisicao).not.toBeNull();
+    expect(requisicao!.imagens).toEqual(["img1"]);
+    expect(requisicao!.contexto.frames[0].deteccoes).toBe("");
+    expect(requisicao!.contexto.frames[0].pose).toBe("");
+    expect(requisicao!.contexto.frames[0].maos).toBe("");
+    expect(requisicao!.contexto.indisponibilidades).toEqual([]);
+  });
+
+  it("resolve o modelo a cada interpretacao quando passado como funcao", async () => {
+    const o1: ObservacaoFrame = { ...OBS_BASE, frameId: "f1", capturadoEmMs: 0, imagem: "img1" };
+    const pacote: PacoteCiclo = { ...PACOTE, observacoes: [o1] };
+    let selecionado: string | undefined = "modelo-inicial";
+    const enviados: Array<string | undefined> = [];
+    const interpreter = new InterpretadorCiclo({
+      modelo: () => selecionado,
+      enviar: async (req) => {
+        enviados.push(req.modelo);
+        return {
+          texto: '{"resumo":"ok","acoes":[],"evidencias":["f1"],"incertezas":[],"contradicacoes":[]}',
+          modelo: selecionado,
+        };
+      },
+    });
+    expect(interpreter.modelo).toBe("modelo-inicial");
+    await interpreter.interpretar(pacote);
+    // Troca de modelo no meio da sessao vale a partir do proximo ciclo.
+    selecionado = "qwen2.5-vl-3b-instruct";
+    expect(interpreter.modelo).toBe("qwen2.5-vl-3b-instruct");
+    await interpreter.interpretar(pacote);
+    expect(enviados).toEqual(["modelo-inicial", "qwen2.5-vl-3b-instruct"]);
   });
 });

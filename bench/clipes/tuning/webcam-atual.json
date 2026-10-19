@@ -1,0 +1,9 @@
+{
+  "clip": "webcam-atual.webm",
+  "duracaoMs": 10000,
+  "notas": "Clipe 10 s. Pessoa aparece (~0,5 s) e permanece. Movimento significativo (~4,5 s). Anotação para uso em tuning/eval; executar com sidecar de eventos quando testar contra detecções reais.",
+  "eventos": [
+    { "tipo": "aparicao", "em": 500, "descricao": "pessoa aparece no quadro" },
+    { "tipo": "movimento", "em": 4500, "descricao": "movimento de pessoa" }
+  ]
+}

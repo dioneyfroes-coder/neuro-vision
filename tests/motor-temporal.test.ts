@@ -332,6 +332,41 @@ describe("MotorTemporalImpl — objetos e cena", () => {
     expect(cena?.origens).toEqual(["cena"]);
   });
 
+  it("modo basico (variante C) nao emite gestos nem braco, mas mantem objetos e cena", () => {
+    reiniciarContador();
+    const motor = new MotorTemporalImpl({ modo: "basico" });
+    const deteccao = {
+      nome: "pessoa",
+      rotulo: "person",
+      score: 0.9,
+      caixa: { xmin: 0, ymin: 0, xmax: 100, ymax: 100 },
+    };
+    const eventos = [];
+    for (let i = 0; i < 4; i += 1) {
+      const r = motor.processar([
+        obs({
+          ms: i * 100,
+          pose: posePessoa(0.2, 0.2),
+          maos: maoComGesto("mao_aberta"),
+          deteccoes: { deteccoes: [deteccao] },
+        }),
+      ]);
+      eventos.push(...r.eventos);
+    }
+    // A leitura ampliada (pose/maos + maquinas) nao roda no modo basico.
+    expect(eventos.some((e) => e.tipo === "gesto_detectado")).toBe(false);
+    expect(eventos.some((e) => e.tipo === "braco_levantado")).toBe(false);
+    expect(motor.pessoasVivas).toHaveLength(0);
+    expect(motor.maosVivas).toHaveLength(0);
+    // Objetos continuam sendo rastreados (logica pre-existente).
+    expect(eventos.some((e) => e.tipo === "aparicao")).toBe(true);
+
+    // Cena tambem continua valendo no modo basico.
+    const cena = motor.processar([obs({ ms: 400, assinaturaCena: Array(9).fill(255) })]);
+    const rBase = motor.processar([obs({ ms: 500, assinaturaCena: Array(9).fill(0) })]);
+    expect([...cena.eventos, ...rBase.eventos].some((e) => e.tipo === "mudanca_de_cena")).toBe(true);
+  });
+
   it("mudanca de resolucao nao troca o ID da pessoa (coordenadas normalizadas)", () => {
     reiniciarContador();
     const motor = criarMotor();

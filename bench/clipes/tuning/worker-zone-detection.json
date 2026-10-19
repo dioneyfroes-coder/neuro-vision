@@ -1,0 +1,6 @@
+{
+  "clip": "worker-zone-detection.mp4",
+  "duracaoMs": 76000,
+  "notas": "RASCUNHO — eventos ainda nao revisados por humano (duracao medida por sonda: 75,9s). Cena industrial com oclusoes e iluminacao mista; no tuning serve para medir FP/min e robustez. Anotar antes de uso em eval.",
+  "eventos": []
+}

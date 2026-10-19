@@ -80,6 +80,41 @@ describe("MODOS", () => {
     expect(obterModo("percepcao").criarMotor).toBeUndefined();
   });
 
+  it("os modos multiframe expoem as variantes B/C/D do benchmark (Etapa 9)", () => {
+    expect(obterModo("percepcao").variante).toMatchObject({
+      id: "completa",
+      percepcaoLocal: true,
+      dadosLocais: true,
+      temporal: "ampliado",
+    });
+    expect(obterModo("percepcao-fundida")).toMatchObject({
+      id: "percepcao-fundida",
+      usaDeteccao: true,
+      multiframe: true,
+    });
+    expect(obterModo("percepcao-fundida").variante).toMatchObject({
+      id: "fundida",
+      percepcaoLocal: true,
+      dadosLocais: true,
+      temporal: "basico",
+    });
+    expect(obterModo("percepcao-sequencia")).toMatchObject({
+      id: "percepcao-sequencia",
+      usaDeteccao: false,
+      usaVisao: true,
+      multiframe: true,
+    });
+    expect(obterModo("percepcao-sequencia").variante).toMatchObject({
+      id: "sequencia",
+      percepcaoLocal: false,
+      dadosLocais: false,
+      temporal: "ausente",
+    });
+    // Nenhum modo multiframe usa o motor de frame unico.
+    expect(obterModo("percepcao-fundida").criarMotor).toBeUndefined();
+    expect(obterModo("percepcao-sequencia").criarMotor).toBeUndefined();
+  });
+
   it("preserva as mensagens de falha esperadas pelos testes E2E", () => {
     expect(obterModo("deteccao").falhaPrefixo).toBe("Falha ao carregar modelo");
     expect(obterModo("eventos").falhaPrefixo).toBe("Falha ao carregar modelo");

@@ -12,6 +12,7 @@ import type { MotorTemporal } from "../public/temporal/contracts";
 import type { InterpretadorMultimodal } from "../public/interpretation/contracts";
 import type { ConfiguracaoParcial, ModelosPercepcao } from "../public/perception/local-perception-pipeline";
 import type { DefinicaoModo } from "../public/modos";
+import { VARIANTES_PERCEPCAO } from "../public/perception/variantes";
 import { CONFIG_CAPTURA_PADRAO } from "../public/capture/webcam-capture";
 import type { TarefaPersistencia } from "../public/persistencia";
 import type { RegistroCiclo } from "../src/domain/cycle";
@@ -26,6 +27,28 @@ const MODO: DefinicaoModo = {
   falhaPrefixo: "Falha ao carregar o pipeline de percepcao",
   origemFalha: "detector",
   multiframe: true,
+};
+
+const MODO_B: DefinicaoModo = {
+  id: "percepcao-sequencia",
+  usaDeteccao: false,
+  usaVisao: true,
+  permiteAnaliseManual: false,
+  falhaPrefixo: "Falha ao capturar a sequencia de frames",
+  origemFalha: "visao",
+  multiframe: true,
+  variante: VARIANTES_PERCEPCAO.sequencia,
+};
+
+const MODO_C: DefinicaoModo = {
+  id: "percepcao-fundida",
+  usaDeteccao: true,
+  usaVisao: true,
+  permiteAnaliseManual: false,
+  falhaPrefixo: "Falha ao carregar o pipeline de percepcao",
+  origemFalha: "detector",
+  multiframe: true,
+  variante: VARIANTES_PERCEPCAO.fundida,
 };
 
 const CONFIG_CAPTURA = { ...CONFIG_CAPTURA_PADRAO, quadros: 2, intervaloMs: 0 };
@@ -119,6 +142,7 @@ interface Contexto {
   cameraEstado: { iniciadas: number; encerradas: number };
   modelosVistos: ModelosPercepcao[];
   naoGravados: number;
+  modosTemporais: string[];
 }
 
 function montar(
@@ -127,6 +151,7 @@ function montar(
     falhaAoIniciar?: Error;
     modelos?: ModelosPercepcao;
     semFrame?: boolean;
+    modo?: DefinicaoModo;
   } = {}
 ): Contexto {
   const eventos: EventoUi[] = [];
@@ -165,6 +190,7 @@ function montar(
     processar: () => ({ eventos: [], entidadesAtivas: 0 }),
     resetar: resetes,
   };
+  const modosTemporais: string[] = [];
 
   const aoUi = (evento: EventoUi): ItemHistorico | void => {
     eventos.push(evento);
@@ -182,10 +208,13 @@ function montar(
     aoUi,
     repositorio,
     fila,
-    obterModo: () => MODO,
+    obterModo: () => opcoes.modo ?? MODO,
     criarPercepcao: () => percepcao,
     obterModelosPercepcao: () => opcoes.modelos ?? { objetos: "Xenova/yolos-tiny" },
-    criarMotorTemporal: () => motorTemporal,
+    criarMotorTemporal: (modo) => {
+      modosTemporais.push(modo);
+      return motorTemporal;
+    },
     criarInterpretador: () => interpretadorFalso(),
     obterIntervaloMs: () => 4000,
     configuracaoCaptura: CONFIG_CAPTURA,
@@ -203,6 +232,7 @@ function montar(
     resetes,
     cameraEstado: estado,
     modelosVistos,
+    modosTemporais,
     get naoGravados() {
       return naoGravados;
     },
@@ -291,6 +321,48 @@ describe("CicloPercepcaoController", () => {
     ctx.controle.reiniciarSessao();
     expect(ctx.resetes).toHaveBeenCalledTimes(1);
     expect(ctx.controle.estaRodando).toBe(false);
+  });
+
+  it("variante B (sequencia) nao carrega modelos, nao pede temporal e roda sem caixas", async () => {
+    const ctx = montar({ modo: MODO_B });
+    await ctx.controle.iniciar();
+
+    expect(ctx.controle.estaRodando).toBe(true);
+    // Sem percepcao local: nada de modelos e a fabrica de temporal nunca e usada.
+    expect(ctx.modelosVistos).toHaveLength(0);
+    expect(ctx.modosTemporais).toHaveLength(0);
+    // O ciclo roda normalmente e o processador inativo nao desenha caixas.
+    expect(ctx.ciclos).toHaveLength(1);
+    expect(ctx.ciclos[0].observacoes).toBe(2);
+    expect(ctx.ciclos[0].eventosTemporais).toBe(0);
+    expect(ctx.ciclos[0].subsistemasIndisponiveis).toEqual(
+      expect.arrayContaining(["deteccao", "pose", "maos"])
+    );
+    expect(primeiro(ctx.eventos, "desenhar_caixas")?.objetos).toHaveLength(0);
+    // A interpretacao (multimodal) continua acontecendo com as imagens.
+    expect(primeiro(ctx.eventos, "exibir_entrada")).toBeTruthy();
+
+    ctx.controle.parar();
+  });
+
+  it("variante C (fundida) carrega modelos e pede motor temporal basico", async () => {
+    const ctx = montar({ modo: MODO_C });
+    await ctx.controle.iniciar();
+
+    expect(ctx.controle.estaRodando).toBe(true);
+    expect(ctx.modelosVistos).toHaveLength(1);
+    expect(ctx.modosTemporais).toContain("basico");
+    expect(ctx.modosTemporais).not.toContain("ampliado");
+    // Percepcao local ativa: as caixas voltam a ser desenhadas.
+    expect(primeiro(ctx.eventos, "desenhar_caixas")?.objetos).toHaveLength(1);
+    ctx.controle.parar();
+  });
+
+  it("variante padrao (D) pede motor temporal ampliado", async () => {
+    const ctx = montar();
+    await ctx.controle.iniciar();
+    expect(ctx.modosTemporais).toContain("ampliado");
+    ctx.controle.parar();
   });
 
   it("carrega os modelos escolhidos na interface ao iniciar a sessao", async () => {

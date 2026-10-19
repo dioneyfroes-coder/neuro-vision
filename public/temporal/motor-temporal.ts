@@ -129,6 +129,11 @@ export class MotorTemporalImpl implements MotorTemporal {
         }
       }
 
+      // 3–6. Leitura temporal ampliada (pose/maos + maquinas de estado). No
+      // modo `basico` apenas objetos e cena (acima) sao considerados: a variante
+      // C do benchmark nao deve ganhar interpretacao temporal explicita.
+      if (this.config.modo === "basico") continue;
+
       // 3. Rastreamento de pose (pessoas) em coordenadas normalizadas.
       let poses: PessoaPose[] = [];
       if (!estaIndisponivel(obs.pose)) {

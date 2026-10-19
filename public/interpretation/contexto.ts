@@ -92,6 +92,17 @@ export interface PayloadContexto {
   contexto: ContextoCicloSerializavel;
 }
 
+/** Opcoes de montagem do contexto (Etapa 9). */
+export interface OpcoesContexto {
+  /**
+   * Inclui no contexto os dados derivados da percepcao local (deteccoes, pose,
+   * maos, pontos e eventos temporais). Na variante B (`false`) vao ao multimodal
+   * apenas as imagens e a cronologia (`frameId`, `indice`, `capturadoEm`,
+   * `offsetMs`), para isolar o valor do contexto entre imagens.
+   */
+  incluirDadosLocais?: boolean;
+}
+
 /** Indices COCO dos pontos corporais relevantes (nariz e punhos). */
 const PONTOS_RELEVANTES: Array<{ indice: number; nome: string }> = [
   { indice: 0, nome: "nariz" },
@@ -105,9 +116,11 @@ const PONTOS_RELEVANTES: Array<{ indice: number; nome: string }> = [
  */
 export function montarContextoCiclo(
   pacote: PacoteCiclo,
-  limites: Partial<LimitesContexto> = {}
+  limites: Partial<LimitesContexto> = {},
+  opcoes: OpcoesContexto = {}
 ): PayloadContexto {
   const cfg: LimitesContexto = { ...LIMITES_CONTEXTO_PADRAO, ...limites };
+  const incluirDadosLocais = opcoes.incluirDadosLocais ?? true;
   const ordenadas = [...pacote.observacoes].sort((a, b) => a.capturadoEmMs - b.capturadoEmMs);
   const selecionadas = amostrar(ordenadas, cfg.maxImagens);
   const baseMs = selecionadas.length > 0 ? selecionadas[0].capturadoEmMs : 0;
@@ -117,22 +130,24 @@ export function montarContextoCiclo(
     indice: i + 1,
     capturadoEm: obs.capturadoEm,
     offsetMs: Math.round(obs.capturadoEmMs - baseMs),
-    deteccoes: resumirDeteccoes(obs.deteccoes, cfg.decimais),
-    pose: resumirPose(obs.pose),
-    maos: resumirMaos(obs.maos, cfg.decimais),
-    pontos: pontosRelevantes(obs.pose, cfg.maxPontosPorFrame, cfg.decimais),
+    deteccoes: incluirDadosLocais ? resumirDeteccoes(obs.deteccoes, cfg.decimais) : "",
+    pose: incluirDadosLocais ? resumirPose(obs.pose) : "",
+    maos: incluirDadosLocais ? resumirMaos(obs.maos, cfg.decimais) : "",
+    pontos: incluirDadosLocais ? pontosRelevantes(obs.pose, cfg.maxPontosPorFrame, cfg.decimais) : [],
   }));
 
-  const eventosTemporais = pacote.eventosTemporais.slice(0, cfg.maxEventos).map((e) => ({
-    tipo: e.tipo,
-    descricao: e.descricao,
-    inicioEm: e.inicioEm,
-    fimEm: e.fimEm,
-    confianca: e.confianca === undefined ? undefined : arredondar(e.confianca, cfg.decimais),
-    frameIds: e.frameIds.slice(0, 8),
-  }));
+  const eventosTemporais = incluirDadosLocais
+    ? pacote.eventosTemporais.slice(0, cfg.maxEventos).map((e) => ({
+        tipo: e.tipo,
+        descricao: e.descricao,
+        inicioEm: e.inicioEm,
+        fimEm: e.fimEm,
+        confianca: e.confianca === undefined ? undefined : arredondar(e.confianca, cfg.decimais),
+        frameIds: e.frameIds.slice(0, 8),
+      }))
+    : [];
 
-  const indisponibilidades = coletarIndisponibilidades(ordenadas);
+  const indisponibilidades = incluirDadosLocais ? coletarIndisponibilidades(ordenadas) : [];
 
   const janelaMs =
     ordenadas.length > 1
@@ -147,8 +162,10 @@ export function montarContextoCiclo(
     frames,
     eventosTemporais,
     resumoTemporal: {
-      entidadesAtivas: pacote.resumoTemporal.entidadesAtivas,
-      houveIntervaloSemObservacao: Boolean(pacote.resumoTemporal.houveIntervaloSemObservacao),
+      entidadesAtivas: incluirDadosLocais ? pacote.resumoTemporal.entidadesAtivas : 0,
+      houveIntervaloSemObservacao: incluirDadosLocais
+        ? Boolean(pacote.resumoTemporal.houveIntervaloSemObservacao)
+        : false,
     },
     indisponibilidades,
   };

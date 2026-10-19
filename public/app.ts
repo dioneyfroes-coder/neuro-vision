@@ -10,6 +10,8 @@ import { CycleController } from "./cycle/cycle-controller";
 import type { ControladorCiclo, EventoUi, ItemHistorico } from "./cycle/cycle-controller";
 import { CicloPercepcaoController } from "./cycle/ciclo-percepcao-controller";
 import { criarPercepcaoLocal } from "./perception/percepcao-local";
+import { obterVariante } from "./perception/variantes";
+import type { VariantePercepcao } from "./perception/variantes";
 import { MotorTemporalImpl } from "./temporal/motor-temporal";
 import { InterpretadorCiclo } from "./interpretation/interpretador-ciclo";
 import { criarTransporteServidor } from "./interpretation/transporte-servidor";
@@ -176,14 +178,22 @@ const controladorPercepcao = new CicloPercepcaoController({
       aoStatus: (mensagem) => setStatus(mensagem),
     }),
   obterModelosPercepcao: () => ({ objetos: modelSelect.value }),
-  criarMotorTemporal: () => new MotorTemporalImpl(),
+  criarMotorTemporal: (modo) => new MotorTemporalImpl({ modo }),
   criarInterpretador: () =>
     new InterpretadorCiclo({
       enviar: criarTransporteServidor(),
-      modelo: modeloVisaoSelecionado(),
+      // Getter dinamico: segue a selecao atual da interface, mesmo que ela
+      // mude (ou seja preenchida) depois do inicio da sessao.
+      modelo: () => modeloVisaoSelecionado(),
+      incluirDadosLocais: varianteDoModoAtual().dadosLocais,
     }),
   obterIntervaloMs: () => intervaloMsConfigurado,
 });
+
+/** Variante do benchmark declarada pelo modo ativo (B/C/D); padrao: alvo (D). */
+function varianteDoModoAtual(): VariantePercepcao {
+  return obterVariante(obterModo(motorSelect.value).variante);
+}
 
 /** Controlador do modo ativo: o multiframe tem um fluxo proprio, sem `MotorPercepcao`. */
 function controlador(): ControladorCiclo {

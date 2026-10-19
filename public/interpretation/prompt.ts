@@ -10,12 +10,23 @@ import type { ContextoCicloSerializavel } from "./contexto";
  */
 export function montarPromptInterpretacao(contexto: ContextoCicloSerializavel): string {
   const frames = contexto.frames
-    .map(
-      (f) =>
-        `- Imagem ${f.indice} (frameId ${f.frameId}, t ${f.capturadoEm}, offset ${f.offsetMs}ms): ` +
-        `det=${f.deteccoes}; pose=${f.pose}; maos=${f.maos}` +
-        (f.pontos.length ? `; pontos=${JSON.stringify(f.pontos)}` : "")
-    )
+    .map((f) => {
+      // Variante B nao envia dados locais: os campos vem vazios e nao devem
+      // sugerir "indisponivel" (nao houve tentativa de percepcao local).
+      const locais = [
+        f.deteccoes ? `det=${f.deteccoes}` : "",
+        f.pose ? `pose=${f.pose}` : "",
+        f.maos ? `maos=${f.maos}` : "",
+      ]
+        .filter(Boolean)
+        .join("; ");
+      const detalhe = locais ? `: ${locais}` : "";
+      const pontos = f.pontos.length ? `; pontos=${JSON.stringify(f.pontos)}` : "";
+      return (
+        `- Imagem ${f.indice} (frameId ${f.frameId}, t ${f.capturadoEm}, ` +
+        `offset ${f.offsetMs}ms)${detalhe}${pontos}`
+      );
+    })
     .join("\n");
 
   const eventos = contexto.eventosTemporais

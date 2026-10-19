@@ -1,0 +1,6 @@
+{
+  "clip": "bottle-detection.mp4",
+  "duracaoMs": 40000,
+  "notas": "RASCUNHO — eventos ainda nao revisados por humano (duracao medida por sonda: 39,9s). Cena com garrafas; serve no tuning para medir FP/min em cena sem pessoas. Para recall, anotar eventos manualmente antes de promover a eval.",
+  "eventos": []
+}

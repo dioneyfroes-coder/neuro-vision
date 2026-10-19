@@ -22,12 +22,15 @@ import type {
 } from "./cycle-controller";
 import type { DefinicaoModo } from "../modos";
 import type { TarefaPersistencia } from "../persistencia";
+import { criarProcessadorInativo } from "../perception/local-perception-pipeline";
 import type {
   ConfiguracaoParcial,
   ModelosPercepcao,
   ProcessarFrameLocal,
 } from "../perception/local-perception-pipeline";
-import type { MotorTemporal } from "../temporal/contracts";
+import { obterVariante } from "../perception/variantes";
+import type { VariantePercepcao } from "../perception/variantes";
+import type { ModoMotorTemporal, MotorTemporal } from "../temporal/contracts";
 import type { InterpretadorMultimodal } from "../interpretation/contracts";
 
 /**
@@ -38,6 +41,10 @@ import type { InterpretadorMultimodal } from "../interpretation/contracts";
  * `ResultadoCiclo` em `EventoUi`, do mesmo jeito que o `CycleController` de frame
  * unico. Toda a composicao concreta (detector, pose, maos, motor temporal,
  * interpretador) entra por injecao, para que a interface apenas escolha o modo.
+ *
+ * A variante do modo (`variantes.ts`, Etapa 9) decide o que roda: sem percepcao
+ * local (B) o ciclo usa um processador inativo e nao carrega modelos; sem leitura
+ * temporal (`ausente`) o `motorTemporal` e omitido do ciclo.
  *
  * Regras preservadas:
  * - a falha de um subsistema nao derruba o ciclo (o pipeline devolve
@@ -85,8 +92,11 @@ export interface DependenciasCicloPercepcao {
   criarPercepcao: () => PercepcaoMultiframe;
   /** Modelos a carregar no inicio da sessao (respeita o seletor da interface). */
   obterModelosPercepcao: () => ModelosPercepcao;
-  /** Motor temporal (estado entre ciclos); recriado por sessao. */
-  criarMotorTemporal: () => MotorTemporal;
+  /**
+   * Cria o motor temporal do nivel pedido (`basico`/`ampliado`), recriado por
+   * sessao. A variante sem leitura temporal (`ausente`, B) nao chama a fabrica.
+   */
+  criarMotorTemporal: (modo: ModoMotorTemporal) => MotorTemporal;
   /** Interpretador multimodal (sem acesso a camera). */
   criarInterpretador: () => InterpretadorMultimodal;
   /** Intervalo entre ciclos lido da interface. */
@@ -112,7 +122,8 @@ export class CicloPercepcaoController implements ControladorCiclo {
   private readonly captura: WebcamCapture;
   private readonly store: SnapshotStore;
   private readonly percepcao: PercepcaoMultiframe;
-  private motorTemporal: MotorTemporal;
+  private readonly processarInativo: ProcessarFrameLocal = criarProcessadorInativo();
+  private motorTemporal: MotorTemporal | null;
   private interpretadorAtual: InterpretadorMultimodal | null = null;
   private sessaoId = criarSessionId();
   private cicloSeq = 0;
@@ -125,7 +136,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
   constructor(private readonly deps: DependenciasCicloPercepcao) {
     const config = deps.configuracaoCaptura ?? CONFIG_CAPTURA_PADRAO;
     this.percepcao = deps.criarPercepcao();
-    this.motorTemporal = deps.criarMotorTemporal();
+    this.motorTemporal = this.criarMotorTemporal();
     this.store = new SnapshotStore({ maxQuadros: config.quadros });
     this.captura = new WebcamCapture(deps.camera, config, deps.dependenciasCaptura);
     this.agendador = new AgendadorAnalise({
@@ -154,16 +165,29 @@ export class CicloPercepcaoController implements ControladorCiclo {
     return this.agendador.estaExecutando;
   }
 
+  /** Variante do modo ativo (B/C/D); sem declaracao explicita assume a alvo (D). */
+  private variante(): VariantePercepcao {
+    return obterVariante(this.deps.obterModo().variante);
+  }
+
+  /** Cria o motor temporal do nivel da variante; `null` quando nao ha leitura. */
+  private criarMotorTemporal(): MotorTemporal | null {
+    const nivel = this.variante().temporal;
+    return nivel === "ausente" ? null : this.deps.criarMotorTemporal(nivel);
+  }
+
   reiniciarSessao(_opcoes: { manterContexto?: boolean } = {}): void {
     this.sessaoId = criarSessionId();
     this.cicloSeq = 0;
-    this.motorTemporal.resetar();
+    this.motorTemporal?.resetar();
     this.store.limpar();
   }
 
   /** Troca de modo zera o estado temporal e os ids (nova sessao logica). */
   aoTrocarModo(): void {
     this.reiniciarSessao();
+    // A variante pode mudar (basico/ampliado/ausente): recria o motor.
+    this.motorTemporal = this.criarMotorTemporal();
   }
 
   reidratarContexto(_roteiro: string[], _ultimaDescricao: string): void {
@@ -203,7 +227,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
     this.ultimaPersistenciaMsValor = 0;
     this.sessaoId = criarSessionId();
     this.cicloSeq = 0;
-    this.motorTemporal.resetar();
+    this.motorTemporal?.resetar();
     this.store.limpar();
 
     try {
@@ -221,28 +245,34 @@ export class CicloPercepcaoController implements ControladorCiclo {
     this.deps.aoUi({ tipo: "camera_iniciada" });
 
     const definicao = this.deps.obterModo();
+    const variante = obterVariante(definicao.variante);
     try {
-      const inicioCarga = performance.now();
-      const configuracao = await this.percepcao.configurar(
-        (mensagem) => this.status(mensagem),
-        this.deps.obterModelosPercepcao()
-      );
-      this.ultimaCargaMsValor = Math.round(performance.now() - inicioCarga);
+      // A variante B (sequencia) nao roda percepcao local: nada de modelos para
+      // carregar e a sessao segue apenas com as imagens capturadas.
+      if (variante.percepcaoLocal) {
+        const inicioCarga = performance.now();
+        const configuracao = await this.percepcao.configurar(
+          (mensagem) => this.status(mensagem),
+          this.deps.obterModelosPercepcao()
+        );
+        this.ultimaCargaMsValor = Math.round(performance.now() - inicioCarga);
 
-      // Sem nenhum subsistema carregado nao ha evidencia possivel: falha.
-      if (configuracao.carregados.length === 0) {
-        const motivo =
-          configuracao.falhas.map((f) => `${f.subsistema}: ${f.motivo}`).join("; ") ||
-          "nenhum subsistema disponivel";
-        this.registrarOperacional("erro", definicao.origemFalha, motivo);
-        this.falharInicializacao(`${definicao.falhaPrefixo}: ${motivo}`);
-        return;
+        // Sem nenhum subsistema carregado nao ha evidencia possivel: falha.
+        if (configuracao.carregados.length === 0) {
+          const motivo =
+            configuracao.falhas.map((f) => `${f.subsistema}: ${f.motivo}`).join("; ") ||
+            "nenhum subsistema disponivel";
+          this.registrarOperacional("erro", definicao.origemFalha, motivo);
+          this.falharInicializacao(`${definicao.falhaPrefixo}: ${motivo}`);
+          return;
+        }
       }
       if (!this.deps.camera.ativa) {
         this.falharInicializacao("A camera foi encerrada durante a inicializacao.");
         return;
       }
 
+      this.motorTemporal = this.criarMotorTemporal();
       this.interpretadorAtual = this.deps.criarInterpretador();
       this.rodando = true;
       this.deps.aoUi({ tipo: "pronto", definicao });
@@ -285,9 +315,11 @@ export class CicloPercepcaoController implements ControladorCiclo {
     return {
       captura: this.captura,
       store: this.store,
-      processarFrame: this.percepcao.processarFrame,
+      processarFrame: this.variante().percepcaoLocal
+        ? this.percepcao.processarFrame
+        : this.processarInativo,
       interpretador: this.interpretadorAtual ?? this.deps.criarInterpretador(),
-      motorTemporal: this.motorTemporal,
+      motorTemporal: this.motorTemporal ?? undefined,
       sessaoId: this.sessaoId,
       proximoCycleId: () => criarCycleId(this.sessaoId, (this.cicloSeq += 1)),
       persistirCiclo: (registro) => this.deps.repositorio.gravarCiclo(registro),

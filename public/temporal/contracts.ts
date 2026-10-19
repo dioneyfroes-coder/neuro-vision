@@ -42,7 +42,23 @@ export const CONFIG_MAQUINA_PADRAO: ConfigMaquinaSinais = {
   confiancaMinima: 0.5,
 };
 
+/**
+ * Nivel de leitura temporal (Etapa 9 do roteiro):
+ *
+ * - `basico`: apenas a logica pre-existente de frame unico — rastreamento de
+ *   objetos (`rastreamento.ts`) e mudanca de cena (`cena.ts`) — emitida como
+ *   eventos. Sem rastreadores de pose/maos nem maquinas de estado de gesto/braco.
+ * - `ampliado`: acrescenta rastreamento de pose/maos com IDs estaveis,
+ *   suavizacao, maquinas de estado de gesto/braco e eventos com duracao.
+ *
+ * A definicao de `basico` e explicita para que a variante C do benchmark nao
+ * seja ambigua em relacao a `ampliado` (variante D).
+ */
+export type ModoMotorTemporal = "basico" | "ampliado";
+
 export interface ConfigMotorTemporal {
+  /** Nivel de leitura temporal: `basico` ou `ampliado`. */
+  modo: ModoMotorTemporal;
   rastreador: ConfigRastreador;
   gestos: ConfigMaquinaSinais;
   braco: ConfigMaquinaSinais;
@@ -56,6 +72,7 @@ export interface ConfigMotorTemporal {
 }
 
 export const CONFIG_MOTOR_TEMPORAL_PADRAO: ConfigMotorTemporal = {
+  modo: "ampliado",
   rastreador: CONFIG_RASTREADOR_PADRAO,
   gestos: CONFIG_MAQUINA_PADRAO,
   braco: CONFIG_MAQUINA_PADRAO,

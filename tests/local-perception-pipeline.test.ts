@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { PipelineLocal, criarProcessadorFrameLocal } from "../public/perception/local-perception-pipeline";
+import {
+  PipelineLocal,
+  criarProcessadorFrameLocal,
+  criarProcessadorInativo,
+} from "../public/perception/local-perception-pipeline";
 import type {
   DetectorObjetos,
   EntradaAdaptador,
@@ -288,5 +292,17 @@ describe("configurarSubsistemas", () => {
     expect(resultado.carregados).toEqual(["deteccao", "maos"]);
     expect(resultado.falhas).toEqual([{ subsistema: "pose", motivo: "erro ao carregar pose" }]);
     expect(status).toEqual(expect.arrayContaining(["pose indisponivel: erro ao carregar pose"]));
+  });
+});
+
+describe("criarProcessadorInativo (variante B, sem percepcao local)", () => {
+  it("devolve os tres subsistemas indisponiveis sem carregar modelo", async () => {
+    const processar = criarProcessadorInativo();
+    const resultado = await processar(snapshot());
+
+    expect(estaIndisponivel(resultado.deteccoes)).toBe(true);
+    expect(estaIndisponivel(resultado.pose)).toBe(true);
+    expect(estaIndisponivel(resultado.maos)).toBe(true);
+    expect(resultado.metricas).toEqual({});
   });
 });

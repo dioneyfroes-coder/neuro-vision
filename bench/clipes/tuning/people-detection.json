@@ -1,0 +1,6 @@
+{
+  "clip": "people-detection.mp4",
+  "duracaoMs": 50000,
+  "notas": "RASCUNHO — eventos ainda nao revisados por humano (duracao medida por sonda: 49,7s). Multiplas pessoas com movimento/oclusoes; no tuning serve para observar FP/min e estabilidade de eventos temporais. Anotar entradas/saidas reais antes de qualquer uso em eval.",
+  "eventos": []
+}

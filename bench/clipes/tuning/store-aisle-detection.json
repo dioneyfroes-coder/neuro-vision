@@ -1,0 +1,6 @@
+{
+  "clip": "store-aisle-detection.mp4",
+  "duracaoMs": 65000,
+  "notas": "RASCUNHO — eventos ainda nao revisados por humano (duracao medida por sonda: 65,4s). Corredor de loja com pessoas/oclusoes; no tuning serve para verificar estabilidade temporal sob oclusao. Anotar antes de uso em eval.",
+  "eventos": []
+}
