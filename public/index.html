@@ -29,21 +29,19 @@
         <label>
           Motor
           <select id="motor">
+            <option value="percepcao">Percepção multi-frame (4 frames + detecção local)</option>
             <option value="roteiro">Roteiro (modelo de visão)</option>
             <option value="deteccao">Detecção (transformers.js)</option>
             <option value="visao">Descrição (modelo de visão)</option>
             <option value="eventos">Eventos (leve + modelo de visão sob demanda)</option>
-            <option value="percepcao">Percepção multi-frame D (dados locais + temporal ampliado)</option>
-            <option value="percepcao-fundida">Percepção multi-frame C (dados locais + temporal básico)</option>
-            <option value="percepcao-sequencia">Percepção multi-frame B (4 imagens, sem dados locais)</option>
           </select>
         </label>
         <button id="analisarAgora" type="button" disabled>Analisar agora</button>
         <label>
           Modelo
           <select id="model">
-            <option value="Xenova/yolos-tiny">YOLOS tiny (rapido)</option>
-            <option value="Xenova/detr-resnet-50">DETR ResNet-50 (preciso)</option>
+            <option value="onnx-community/yolov10n">YOLOv10 nano (ONNX, rapido)</option>
+            <option value="onnx-community/yolov10s">YOLOv10 small (ONNX, preciso)</option>
           </select>
         </label>
         <label>
@@ -64,9 +62,6 @@
         </label>
       </div>
       <div id="status" class="status">Pronto.</div>
-      <div id="gpuWarning" class="aviso" hidden>
-        Aviso: o WebGPU não está disponível — a detecção está rodando na CPU (WASM) e será mais lenta.
-      </div>
     </section>
 
     <aside class="logpanel">

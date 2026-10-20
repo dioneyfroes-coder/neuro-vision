@@ -35,6 +35,19 @@ npm run qualidade -- --anotacao bench/videos/sala-com-pessoa.json --json > quali
 
 O formato da anotação, o fluxo de captura e as regras de casamento estão em [`bench/videos/README.md`](../bench/videos/README.md). Os vídeos ficam **locais** (não versionados); a anotação `.json` é versionada para a medição ser reproduzível em qualquer máquina que tenha o mesmo clipe. A camada de política/rastreamento, que não depende de vídeo, também é medida em `tests/qualidade-eventos.test.ts`.
 
+### Clipes separados em tuning e eval
+
+`bench/clipes/` separa os clipes de **ajuste** (`bench/clipes/tuning/`) dos
+reservados para **avaliação final** (`bench/clipes/eval/`), com o mapeamento de
+cenários × clipes e a cobertura mínima (ações lentas/rápidas, gestos, oclusões,
+iluminação ruim, cena estática, ausência de pessoa) em
+[`bench/clipes/MATRIZ_COBERTURA.md`](../bench/clipes/MATRIZ_COBERTURA.md).
+Passe o conjunto ao avaliador:
+
+```bash
+npm run qualidade -- --anotacao bench/clipes/eval/webcam-mudanca.json --eventos logs/eventos.jsonl
+```
+
 ### Clipe real (ponta a ponta)
 
 Dá para gravar um clipe curto da própria webcam e reproduzi-lo para o app com o modelo de verdade (sem stubs):
@@ -48,7 +61,7 @@ Depois, com estas variáveis de ambiente (no PowerShell, `$env:NOME = "valor"`):
 
 ```text
 E2E_WEBCAM_CLIP=bench/videos/webcam-mudanca.webm
-E2E_WEBCAM_CHANNEL=chrome          # usa o Chrome instalado (WebGPU); sem ele, roda em WASM/CPU
+E2E_WEBCAM_CHANNEL=chrome          # opcional: usa o Chrome instalado; por padrão roda no Chromium do Playwright
 E2E_WEBCAM_EVENTOS=logs/webcam-eventos.jsonl
 ```
 
@@ -58,6 +71,40 @@ npm run qualidade -- --anotacao bench/videos/webcam-mudanca.json --eventos logs/
 ```
 
 O modelo real é **pesado**: no Chromium do Playwright (WASM/CPU) uma inferência leva ~24 s; com o Chrome instalado (WebGPU) cai para ~5–6 s. Por isso a tolerância precisa acomodar a cadência entre análises (aqui, `--tolerancia 8000`). A medição de referência desta máquina (clipe de 30 s com uma saída de pessoa; 4 análises via WebGPU) deu **precisão 25% · recall 100% · ~6 falsos positivos/min** — os falsos positivos foram rótulos instáveis do detector e uma `mudanca_de_cena` espúria. Os números e a metodologia estão em [`bench/BASELINE.md`](../bench/BASELINE.md).
+
+### Smoke multiframe (3 modos, pipeline real)
+
+`e2e/webcam-multiframe.spec.ts` roda os modos `percepcao-sequencia` (variante B), `percepcao-fundida` (C) e `percepcao` (D) com o **mesmo clipe no lugar da webcam** (4 frames a 1 frame/s), e grava por modo:
+
+- `logs/e2e-multiframe-<modo>.jsonl` — eventos (`POST /api/eventos`);
+- `logs/e2e-multiframe-<modo>.log.jsonl` — entradas da IA local (`POST /api/log`);
+- `logs/e2e-multiframe-<modo>.ciclos.jsonl` — `RegistroCiclo` com métricas por etapa;
+- `logs/e2e-multiframe-<modo>.inicio` — base temporal para a avaliação.
+
+```bash
+$env:E2E_WEBCAM_CLIP = "bench/videos/webcam-mudanca.webm"
+$env:E2E_WEBCAM_EVENTOS = "logs/e2e-multiframe"
+npx playwright test e2e/webcam-multiframe.spec.ts --workers=1
+npm run qualidade -- --anotacao bench/clipes/eval/webcam-mudanca.json --eventos logs/e2e-multiframe-percepcao.jsonl --tolerancia 8000
+```
+
+O resultado de referência (ciclos, latências por etapa, texto da IA) está em [`bench/RELATORIO_SMOKE_MULTIFRAME_2026-10-19.md`](../bench/RELATORIO_SMOKE_MULTIFRAME_2026-10-19.md). Em CPU/WASM um ciclo multiframe leva dezenas de segundos (ver limites em [`limites.md`](./limites.md)), então o teste espera janelas longas antes de encerrar.
+
+## Benchmark de variantes (A–D) — Etapa 9
+
+`scripts/benchmark-variantes.mjs` compara as quatro variantes sobre o **mesmo conjunto de clipes** e **verifica a versão do modelo multimodal** usada por todas (`logs/visao.jsonl` pelo `frameId` dos ciclos + campo `modelo` dos arquivos de eventos, confrontados com `--modelo-visao`; divergências viram avisos no relatório):
+
+```bash
+node scripts/benchmark-variantes.mjs --help
+node scripts/benchmark-variantes.mjs --anotacoes-dir bench/clipes/eval `
+  --ciclos-B logs/e2e-multiframe-percepcao-sequencia.ciclos.jsonl `
+  --eventos-C logs/e2e-multiframe-percepcao-fundida.jsonl `
+  --modelo-visao qwen2.5-vl-3b-instruct
+```
+
+- **Conjuntos:** `bench/clipes/tuning/` (ajuste de limiares) e `bench/clipes/eval/` (avaliação final); mapeamento e cobertura mínima em [`bench/clipes/MATRIZ_COBERTURA.md`](../bench/clipes/MATRIZ_COBERTURA.md).
+- **Saídas:** `bench/RELATORIO_VARIANTE_{A,B,C,D}_<data>.md` e `bench/COMPARATIVO_A_B_C_D_<data>.md`. O script **se recusa a escrever em `bench/BASELINE.md`** (proteção coberta por teste).
+- **Decisão arquitetural** (sempre ativos × sob demanda × reduzir frequência) com as métricas que a sustentam: [`bench/DECISAO_ARQUITETURAL_2026-10-19.md`](../bench/DECISAO_ARQUITETURAL_2026-10-19.md).
 
 ## Carregamento do modelo
 

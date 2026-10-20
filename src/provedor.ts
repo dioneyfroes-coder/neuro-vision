@@ -243,15 +243,3 @@ export function interpretarLinha(linha: string): ResultadoChat | null {
     return null;
   }
 }
-
-/** Formato do corpo de erro de um backend, para mensagens de diagnostico. */
-export function pareceErroDeImagem(msg: string): boolean {
-  return /base64 encoded image|invalid image|image_url/i.test(msg);
-}
-
-export function instrucaoImagemCrua(): string {
-  return (
-    "O backend rejeitou a imagem como data URL. Se estiver no LM Studio, " +
-    "atualize para a versao que aceita data URIs ou defina NEURO_IMG_BASE64_CRU=1."
-  );
-}

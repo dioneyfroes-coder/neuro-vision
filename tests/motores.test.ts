@@ -11,7 +11,7 @@ vi.mock("../public/api", () => ({
 describe("MotorDeteccao", () => {
   it("carrega o modelo e devolve um ResultadoPercepcao padronizado", async () => {
     const detector = {
-      modelo: "Xenova/yolos-tiny",
+      modelo: "onnx-community/yolov10n",
       carregar: vi.fn(async () => undefined),
       detectar: vi.fn(async () => ({
         deteccoes: [
@@ -23,19 +23,19 @@ describe("MotorDeteccao", () => {
           },
         ],
         dimensoes: { largura: 640, altura: 480 },
-        modelo: "Xenova/yolos-tiny",
+        modelo: "onnx-community/yolov10n",
         resumo: "pessoa",
       })),
     } as unknown as DetectorObjetos;
     const motor = new MotorDeteccao({
       detector,
-      modelo: "Xenova/yolos-tiny",
+      modelo: "onnx-community/yolov10n",
       obterThreshold: () => 0.4,
     });
 
     const status: string[] = [];
     await motor.inicializar((m) => status.push(m));
-    expect(detector.carregar).toHaveBeenCalledWith("Xenova/yolos-tiny", expect.any(Function));
+    expect(detector.carregar).toHaveBeenCalledWith("onnx-community/yolov10n", expect.any(Function));
 
     const resultado = await motor.analisar(
       { imagem: "data:image/png;base64,AAAA" },
@@ -45,7 +45,7 @@ describe("MotorDeteccao", () => {
       { imagem: "data:image/png;base64,AAAA", dimensoes: undefined },
       { threshold: 0.4, percentage: false }
     );
-    expect(resultado?.modelo).toBe("Xenova/yolos-tiny");
+    expect(resultado?.modelo).toBe("onnx-community/yolov10n");
     expect(resultado?.descricao).toBe("pessoa");
     expect(resultado?.objetos[0]).toEqual({
       nome: "pessoa",

@@ -3,7 +3,6 @@ import {
   escolherModelo,
   extrairBase64,
   forcarCarregamento,
-  gerarDescricao,
   gerarDescricaoStream,
   limparCacheModelo,
   melhorModeloDisponivel,
@@ -28,18 +27,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
   limparCacheModelo();
 });
-
-/** Corpo de resposta completa (nao-stream) no formato do backend. */
-function respostaChat(texto: string, modelo = "qwen2.5-vl-3b-instruct", tokens = 20) {
-  return {
-    ok: true,
-    json: async () => ({
-      model: modelo,
-      choices: [{ message: { role: "assistant", content: texto }, finish_reason: "stop" }],
-      usage: { completion_tokens: tokens },
-    }),
-  };
-}
 
 /** Monta um corpo de stream SSE a partir de objetos por linha. */
 function sse(...linhas: object[]): string {
@@ -71,15 +58,34 @@ describe("prompts", () => {
   });
 });
 
-describe("gerarDescricao", () => {
-  it("envia a requisicao e devolve a descricao", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(respostaChat("Uma pessoa sentada.", "m", 20));
+describe("montagem da requisicao (via stream)", () => {
+  it("envia prompt, imagem e parametros padrao no corpo", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new Response(
+        sse({
+          model: "m",
+          choices: [{ delta: { content: "Uma pessoa sentada." }, finish_reason: "stop" }],
+          usage: { completion_tokens: 20 },
+        })
+      ).body,
+    });
     vi.stubGlobal("fetch", fetchMock);
 
-    const resultado = await gerarDescricao("data:image/jpeg;base64,QkxPQ", {
+    const iterator = gerarDescricaoStream("data:image/jpeg;base64,QkxPQ", {
       baseUrl: "http://localhost:1234",
       modelo: "m",
     });
+    const partes: string[] = [];
+    let resultado = await iterator.next();
+    while (!resultado.done) {
+      partes.push(resultado.value);
+      resultado = await iterator.next();
+    }
+
+    expect(partes.join("")).toBe("Uma pessoa sentada.");
+    expect(resultado.value).toMatchObject({ modelo: "m", tokens: 20 });
+    expect(resultado.value.duracaoMs).toBeGreaterThanOrEqual(0);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -90,50 +96,10 @@ describe("gerarDescricao", () => {
       { type: "text", text: PROMPT_DESCRICAO },
       { type: "image_url", image_url: { url: "data:image/jpeg;base64,QkxPQ" } },
     ]);
-    expect(corpo.stream).toBe(false);
+    expect(corpo.stream).toBe(true);
     expect(corpo.max_tokens).toBe(NUM_PREDICT_PADRAO);
     expect(corpo.temperature).toBe(0.2);
     expect(corpo.top_p).toBe(0.9);
-
-    expect(resultado.texto).toBe("Uma pessoa sentada.");
-    expect(resultado.modelo).toBe("m");
-    expect(resultado.tokens).toBe(20);
-    expect(resultado.duracaoMs).toBeGreaterThanOrEqual(0);
-  });
-
-  it("lanca erro quando o modelo deriva sem responder (thinking)", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          model: "m",
-          choices: [{ delta: { reasoning_content: "Hmm..." }, finish_reason: "stop" }],
-        }),
-      })
-    );
-
-    await expect(gerarDescricao("AAAA", { modelo: "m" })).rejects.toThrow(
-      /derivou\/raciocinou sem produzir resposta/
-    );
-  });
-
-  it("lanca erro quando o status nao e ok", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: false, status: 404, text: async () => "model not found" })
-    );
-
-    await expect(gerarDescricao("AAAA", { modelo: "inexistente" })).rejects.toThrow(/404/);
-  });
-
-  it("lanca erro quando a resposta traz um erro", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ error: "model not loaded" }) })
-    );
-
-    await expect(gerarDescricao("AAAA", { modelo: "x" })).rejects.toThrow(/model not loaded/);
   });
 });
 
@@ -513,28 +479,38 @@ describe("memoriaIntrospectavel", () => {
   });
 });
 
-describe("gerarDescricao no modo roteiro", () => {
-  it("frame base usa num_predict de base e prompt de base", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(respostaChat("Base detalhada.", "m", 30));
+describe("requisicao no modo roteiro", () => {
+  /** Dispara o fetch do generator e devolve o corpo enviado ao backend. */
+  async function corpoDaRequisicao(opcoes: { base: boolean; roteiro: string }) {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new Response(
+        sse({ model: "m", choices: [{ delta: { content: "ok" }, finish_reason: "stop" }] })
+      ).body,
+    });
     vi.stubGlobal("fetch", fetchMock);
-
-    await gerarDescricao("AAAA", { modelo: "m", modo: "roteiro", base: true, roteiro: "" });
-
+    const iterator = gerarDescricaoStream("AAAA", {
+      modelo: "m",
+      modo: "roteiro",
+      base: opcoes.base,
+      roteiro: opcoes.roteiro,
+    });
+    while (!(await iterator.next()).done) {
+      // Esgota o gerador para disparar a requisicao.
+    }
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const corpo = JSON.parse(String(init.body));
+    return JSON.parse(String(init.body));
+  }
+
+  it("frame base usa num_predict de base e prompt de base", async () => {
+    const corpo = await corpoDaRequisicao({ base: true, roteiro: "" });
     // A imagem vai como bloco: o texto e o primeiro item do array de conteudo.
     expect(corpo.messages[0].content[0]).toMatchObject({ type: "text", text: PROMPT_ROTEIRO_BASE });
     expect(corpo.max_tokens).toBe(NUM_PREDICT_BASE);
   });
 
   it("delta usa num_predict reduzido e prompt de delta", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(respostaChat("Pessoa sentou.", "m", 8));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await gerarDescricao("AAAA", { modelo: "m", modo: "roteiro", base: false, roteiro: "Pessoa de pe." });
-
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const corpo = JSON.parse(String(init.body));
+    const corpo = await corpoDaRequisicao({ base: false, roteiro: "Pessoa de pe." });
     expect(corpo.messages[0].content[0]).toMatchObject({ type: "text", text: PROMPT_ROTEIRO_DELTA });
     expect(corpo.max_tokens).toBe(NUM_PREDICT_DELTA);
   });

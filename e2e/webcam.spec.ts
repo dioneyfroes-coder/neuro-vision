@@ -6,16 +6,16 @@ import { env } from "../src/env";
 /**
  * Avaliacao com clipe REAL de webcam (Fase 7).
  *
- * Diferente de `app.spec.ts`, este teste **nao** substitui o transformers.js:
- * ele usa o modelo real (Xenova/yolos-tiny) e reproduz um clipe `.webm` gravado
- * com `scripts/gravar-webcam.mjs` como se fosse a webcam. Os eventos que o app
- * grava (`POST /api/eventos`) sao capturados e salvos em JSONL, para serem
- * comparados com uma anotacao via `npm run qualidade`.
+ * Diferente de `app.spec.ts`, este teste **nao** substitui o runtime: ele usa o
+ * YOLOv10n real em ONNX (onnxruntime-web + pesos do Hugging Face) e reproduz
+ * um clipe `.webm` gravado com `scripts/gravar-webcam.mjs` como se fosse a
+ * webcam. Os eventos que o app grava (`POST /api/eventos`) sao capturados e
+ * salvos em JSONL, para serem comparados com uma anotacao via `npm run qualidade`.
  *
  * Fica desligado por padrao (depende de rede, clipe gravado e modelo baixado).
- * O modelo e pesado: no Chromium do Playwright (sem WebGPU) a inferencia roda em
- * WASM/CPU e leva ~20s por quadro. Com o Chrome instalado (WebGPU) cai para
- * ~5s. Passe o canal para usar a GPU:
+ * A inferencia roda em WASM/CPU (~1-2 s por quadro no Chromium do Playwright),
+ * sem depender de WebGPU — a mesma rota de producao. Passe o canal se quiser o
+ * Chrome instalado:
  *
  *   $env:E2E_WEBCAM_CLIP = "bench/videos/webcam.webm"
  *   $env:E2E_WEBCAM_CHANNEL = "chrome"   # usa o Chrome instalado (WebGPU)

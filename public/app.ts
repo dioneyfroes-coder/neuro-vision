@@ -35,7 +35,6 @@ const spinnerEl = el<HTMLDivElement>("spinner");
 const modeloStatusEl = el<HTMLSpanElement>("modeloStatus");
 const diagInfoEl = el<HTMLSpanElement>("diagInfo");
 const persistAvisoEl = el<HTMLSpanElement>("persistAviso");
-const gpuWarningEl = el<HTMLDivElement>("gpuWarning");
 const logEl = el<HTMLUListElement>("log");
 const logCountEl = el<HTMLSpanElement>("logCount");
 const clearLogBtn = el<HTMLButtonElement>("clearLog");
@@ -103,7 +102,6 @@ function aoUi(evento: EventoUi): ItemHistorico | void {
     case "pronto":
       running = true;
       stopBtn.disabled = false;
-      if (evento.definicao.usaDeteccao) mostrarAvisoDispositivo();
       atualizarBotoesAnalise();
       atualizarDiagnostico();
       // O modelo de visao pode ter subido junto com a inicializacao.
@@ -167,6 +165,7 @@ const controladorPercepcao = new CicloPercepcaoController({
   repositorio: {
     gravarCiclo: api.gravarCiclo,
     gravarEntrada: api.gravarEntrada,
+    gravarEvento: api.gravarEvento,
     gravarOperacional: api.gravarOperacional,
   },
   fila: filaPersistencia,
@@ -183,8 +182,11 @@ const controladorPercepcao = new CicloPercepcaoController({
     new InterpretadorCiclo({
       enviar: criarTransporteServidor(),
       // Getter dinamico: segue a selecao atual da interface, mesmo que ela
-      // mude (ou seja preenchida) depois do inicio da sessao.
-      modelo: () => modeloVisaoSelecionado(),
+      // mude (ou seja preenchida) depois do inicio da sessao. Sem escolha
+      // explicita, registra o modelo efetivo do backend (o que o /api/health
+      // reporta) — nunca o fallback "multiframe", para a verificacao de mesmo
+      // modelo da Etapa 9 valer em qualquer execucao.
+      modelo: () => modeloVisaoSelecionado() ?? infoVisao?.modelo ?? undefined,
       incluirDadosLocais: varianteDoModoAtual().dadosLocais,
     }),
   obterIntervaloMs: () => intervaloMsConfigurado,
@@ -316,20 +318,6 @@ function atualizarDiagnostico(): void {
     persistAvisoEl.hidden = true;
   }
   exportPendentesBtn.disabled = fila.falhas === 0;
-}
-
-/**
- * Aviso persistente de fallback de CPU: mostrado quando a deteccao roda em
- * WASM em vez de WebGPU. Permanece ate recarregar a pagina.
- */
-function mostrarAvisoDispositivo(): void {
-  if (modeloDeDeteccaoAtivo() === null) return;
-  if (detectorCoco.dispositivo !== "wasm") return;
-  const temGpu = Boolean((navigator as Navigator & { gpu?: unknown }).gpu);
-  gpuWarningEl.textContent = temGpu
-    ? "Aviso: o WebGPU não pôde ser usado — a detecção está rodando na CPU (WASM) e será mais lenta."
-    : "Aviso: este navegador não oferece WebGPU — a detecção está rodando na CPU (WASM) e será mais lenta.";
-  gpuWarningEl.hidden = false;
 }
 
 /** "Analisar agora" so faz sentido no modo eventos, com a sessao rodando. */
@@ -609,11 +597,10 @@ async function verificarVisao(): Promise<void> {
   atualizarDiagnostico();
 }
 
-// Fase 8: se o WebGPU falhar durante a inferencia e a deteccao cair para WASM,
-// avisa na interface, mostra o aviso de CPU e atualiza o diagnostico.
+// Repassa o status do detector (carga/inferencia YOLO ONNX) para a interface e
+// mantem o diagnostico atualizado.
 detectorCoco.aoStatus = (mensagem) => {
   setStatus(mensagem);
-  mostrarAvisoDispositivo();
   atualizarDiagnostico();
 };
 

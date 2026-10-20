@@ -24,6 +24,15 @@ O frame é capturado **uma única vez** por ciclo e, no mesmo instante, são lid
 
 Quando o cliente cancela uma análise, ele encerra a leitura do stream e o servidor **propaga o abort ao `fetch` do backend de visão** (um `AbortController` ligado ao `close` da resposta), derrubando a inferência em vez de deixá-la consumir recursos. O cancelamento é registrado como `visao_cancelada` no log operacional; timeout vira `visao_timeout`.
 
+## Ciclos multiframe (modos `percepcao*`)
+
+Nos modos multiframe (variantes B/C/D da Etapa 9), quem produz eventos é o **motor temporal dentro de cada ciclo de 4 frames** (`public/cycle/ciclo-multiframe.ts` → `RegistroCiclo.eventosTemporais`). No controlador (`persistirEventosTemporais`), os eventos confirmados do tipo `aparicao`, `desaparecimento` e `mudanca_de_cena` são gravados em `eventos.jsonl` **uma única vez por identidade** — um `EventoTemporal` é atualizado entre ciclos, então a gravação usa o `eventoId` como chave deduplicada e `timestamp = inicioEm` (o instante real do acontecimento, não o fim da confirmação):
+
+- Só estados **`confirmado`/`encerrado`** viram arquivo; `candidato`/`incerto` nunca — a mesma regra de evidência do modo Eventos.
+- Tipos sem equivalente visual (`gesto_detectado`, `braco_levantado`, `movimento_corporal`) ficam apenas no diagnóstico do ciclo e no contexto da interpretação.
+- `origem` = `rastreador`, `frameId` = último frame da evidência; o `RegistroCiclo` relaciona o `cycleId` aos mesmos `frameIds`.
+- A variante B **não tem percepção local** e portanto não emite eventos — só interpretação multimodal.
+
 ## Consulta ao histórico
 
 `GET /api/eventos` aceita filtros:

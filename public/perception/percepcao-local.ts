@@ -3,6 +3,7 @@ import { AdaptadorPose } from "./adapters/pose-estimator.adapter";
 import { AdaptadorMaos } from "./adapters/hand-gesture.adapter";
 import { criarMotorPoseTransformers, MODELO_POSE_PADRAO } from "../pose";
 import { criarMotorGestosMediaPipe, MODELO_MAOS_PADRAO } from "../gestos";
+import { MODELO_YOLO_PADRAO } from "../yolo-onnx";
 import { PipelineLocal, configurarSubsistemas, criarProcessadorFrameLocal } from "./local-perception-pipeline";
 import type { DetectorObjetos } from "./contracts";
 import type {
@@ -58,7 +59,7 @@ export interface PercepcaoLocal {
 
 /** Modelos padrao para a primeira configuracao de referencia (Etapa 5). */
 export const MODELOS_PERCEPCAO_PADRAO: Required<ModelosPercepcao> = {
-  objetos: "Xenova/yolos-tiny",
+  objetos: MODELO_YOLO_PADRAO,
   pose: MODELO_POSE_PADRAO,
   maos: MODELO_MAOS_PADRAO,
 };

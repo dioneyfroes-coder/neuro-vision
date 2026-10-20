@@ -1,7 +1,7 @@
-import type { Caixa, EntradaLog } from "../../src/types";
-import type { RegistroCiclo, ResultadoCiclo } from "../../src/domain/cycle";
+import type { Caixa, EntradaLog, EventoVisual } from "../../src/types";
+import type { PacoteCiclo, RegistroCiclo, ResultadoCiclo } from "../../src/domain/cycle";
 import type { ObservacaoFrame } from "../../src/domain/observation";
-import { criarCycleId, criarSessionId } from "../../src/domain/ids";
+import { criarCycleId, criarSessionId, uuid } from "../../src/domain/ids";
 import { estaIndisponivel } from "../../src/domain/perception";
 import { ehCancelamento } from "../../src/erros";
 import { AgendadorAnalise } from "../scheduler";
@@ -58,6 +58,8 @@ import type { InterpretadorMultimodal } from "../interpretation/contracts";
 export interface RepositorioPercepcao {
   gravarCiclo(registro: RegistroCiclo): Promise<void>;
   gravarEntrada(entrada: EntradaLog): Promise<void>;
+  /** Evento estruturado confirmado pelo motor temporal (mesmo arquivo dos demais modos). */
+  gravarEvento(evento: EventoVisual): Promise<void>;
   gravarOperacional(registro: {
     nivel?: "info" | "aviso" | "erro";
     origem?: string;
@@ -127,6 +129,8 @@ export class CicloPercepcaoController implements ControladorCiclo {
   private interpretadorAtual: InterpretadorMultimodal | null = null;
   private sessaoId = criarSessionId();
   private cicloSeq = 0;
+  /** Eventos temporais ja gravados nesta sessao (identidade unica por evento). */
+  private readonly eventosPersistidos = new Set<string>();
   private rodando = false;
   private abortador: AbortController | null = null;
   private ultimaDuracaoMsValor = 0;
@@ -179,6 +183,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
   reiniciarSessao(_opcoes: { manterContexto?: boolean } = {}): void {
     this.sessaoId = criarSessionId();
     this.cicloSeq = 0;
+    this.eventosPersistidos.clear();
     this.motorTemporal?.resetar();
     this.store.limpar();
   }
@@ -227,6 +232,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
     this.ultimaPersistenciaMsValor = 0;
     this.sessaoId = criarSessionId();
     this.cicloSeq = 0;
+    this.eventosPersistidos.clear();
     this.motorTemporal?.resetar();
     this.store.limpar();
 
@@ -366,6 +372,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
     };
     const item = this.deps.aoUi({ tipo: "exibir_entrada", entrada });
     this.persistirEntrada(entrada, item);
+    this.persistirEventosTemporais(pacote);
     this.status(this.resumoStatus(pacote.cycleId, resumo, pacote.metricas.totalMs));
   }
 
@@ -382,6 +389,60 @@ export class CicloPercepcaoController implements ControladorCiclo {
       executar: () => this.deps.repositorio.gravarEntrada(entrada),
       aoFalhar: () => item?.marcarNaoGravado(),
     });
+  }
+
+  /**
+   * Persiste os eventos temporais do ciclo como `EventoVisual` — mesmo
+   * arquivo (`eventos.jsonl`) e API dos demais modos, para que
+   * `npm run qualidade` meça cada variante (Etapa 9) sobre os mesmos eventos.
+   *
+   * Um `EventoTemporal` tem identidade unica e e atualizado entre ciclos, entao:
+   * - **uma gravacao por `eventoId`** (o Set `eventosPersistidos` evita duplicar
+   *   a mesma identidade a cada ciclo em que ela aparece);
+   * - **so `confirmado`/`encerrado`**: candidato/incerto nunca vira fato;
+   * - `timestamp` = `inicioEm` (o instante real do acontecimento, nao o fim da
+   *   confirmacao) — e o que o casamento da avaliacao usa.
+   *
+   * Tipos sem equivalente em `EventoVisual` (`gesto_detectado`,
+   * `braco_levantado`, `movimento_corporal`) ficam apenas no diagnostico do
+   * ciclo (`RegistroCiclo.eventosTemporais`) e no contexto da interpretacao.
+   */
+  private persistirEventosTemporais(pacote: PacoteCiclo): void {
+    for (const evt of pacote.eventosTemporais) {
+      if (this.eventosPersistidos.has(evt.eventoId)) continue;
+      if (evt.estado !== "confirmado" && evt.estado !== "encerrado") continue;
+      if (evt.tipo !== "aparicao" && evt.tipo !== "desaparecimento" && evt.tipo !== "mudanca_de_cena") {
+        continue;
+      }
+      this.eventosPersistidos.add(evt.eventoId);
+
+      // Evidencia: o ultimo frame do evento; sem ele, o ultimo frame do ciclo.
+      const ultimoFrameId = evt.frameIds[evt.frameIds.length - 1];
+      const obs =
+        pacote.observacoes.find((o) => o.frameId === ultimoFrameId) ??
+        pacote.observacoes[pacote.observacoes.length - 1];
+      const modeloDeteccao =
+        obs && !estaIndisponivel(obs.deteccoes) ? obs.deteccoes.modelo : undefined;
+      const evento: EventoVisual = {
+        id: evt.eventoId,
+        timestamp: evt.inicioEm,
+        tipo: evt.tipo,
+        objetoId: evt.entidadeId,
+        descricao: evt.descricao,
+        confianca: evt.confianca,
+        origem: "rastreador",
+        snapshot: obs?.thumb,
+        modelo: modeloDeteccao,
+        sessaoId: pacote.sessionId,
+        idempotencyKey: uuid(),
+        frameId: obs?.frameId,
+      };
+      this.deps.fila.agendar({
+        descricao: `evento:multiframe:${evt.tipo}`,
+        payload: evento,
+        executar: () => this.deps.repositorio.gravarEvento(evento),
+      });
+    }
   }
 
   private encerrar(): void {

@@ -102,6 +102,12 @@ export const MODOS: Record<string, DefinicaoModo> = {
   },
   // Modos multiframe do benchmark (Etapa 9). Todos usam o `CicloPercepcaoController`
   // (`multiframe: true`) e diferem apenas pela `variante` declarada.
+  //
+  // **`percepcao` e o modo da interface e o padrao**: a arquitetura-alvo
+  // (4 frames + deteccao + pose + maos + temporal ampliado). As variantes B e C
+  // **nao aparecem no `<select id="motor">`** — sao categorias de benchmark,
+  // acessiveis por codigo/E2E (`tests/` e `e2e/webcam-multiframe.spec.ts`), nao
+  // escolhas de usuario.
   percepcao: {
     id: "percepcao",
     usaDeteccao: true,
@@ -135,7 +141,12 @@ export const MODOS: Record<string, DefinicaoModo> = {
   },
 };
 
-export const MODO_PADRAO = "deteccao";
+/**
+ * Modo usado quando o seletor traz um valor desconhecido — e o padrao da
+ * interface (a primeira opcao do `<select id="motor">`): o pipeline
+ * multi-frame completo.
+ */
+export const MODO_PADRAO = "percepcao";
 
 /** Resolve a definicao de um modo, caindo no padrao para valores desconhecidos. */
 export function obterModo(id: string): DefinicaoModo {

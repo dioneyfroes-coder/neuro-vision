@@ -1,15 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DetectorTransformers, descreverDeteccoes, traduzir } from "../public/detector";
-import { chamadas, controle } from "../src/transformers.stub";
+import { describe, expect, it } from "vitest";
+import { descreverDeteccoes, traduzir } from "../public/detector";
 
-beforeEach(() => {
-  controle.reset();
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
+/**
+ * Helpers de rotulo/resumo da deteccao. O motor em si agora e o YOLO em ONNX
+ * (`public/yolo-onnx.ts`, coberto por `tests/yolo-onnx.test.ts` e pela
+ * verificacao empirica em `scripts/verificar-yolo-onnx.mjs`); aqui ficam a
+ * traducao COCO -> portugues e a montagem do log.
+ */
 describe("traduzir", () => {
   it("traduz rotulos COCO conhecidos", () => {
     expect(traduzir("person")).toBe("pessoa");
@@ -41,102 +38,5 @@ describe("descreverDeteccoes", () => {
   it("usa 'nada reconhecido' quando nao ha deteccoes", () => {
     expect(descreverDeteccoes([]).resumo).toBe("nada reconhecido");
     expect(descreverDeteccoes([]).objetos).toEqual([]);
-  });
-});
-
-describe("DetectorTransformers", () => {
-  it("carrega, executa e reutiliza o modelo em cache", async () => {
-    controle.deteccoes = [
-      { label: "car", score: 0.9, box: { xmin: 0, ymin: 0, xmax: 1, ymax: 1 } },
-    ];
-    const detector = new DetectorTransformers();
-    const status: string[] = [];
-
-    await detector.carregar("modelo-a", (m) => status.push(m));
-    await detector.carregar("modelo-a", (m) => status.push(m));
-
-    expect(chamadas).toHaveLength(1);
-    expect(detector.modelo).toBe("modelo-a");
-    expect(status[0]).toBe("Carregando modelo modelo-a...");
-
-    const deteccoes = await detector.executar("data:image/png;base64,AAAA", {
-      threshold: 0.5,
-      percentage: false,
-    });
-    expect(deteccoes).toHaveLength(1);
-  });
-
-  it("faz fallback para wasm quando a primeira tentativa falha", async () => {
-    vi.stubGlobal("navigator", { gpu: {} });
-    controle.falharPrimeira = true;
-    const detector = new DetectorTransformers();
-    const status: string[] = [];
-
-    await detector.carregar("modelo-b", (m) => status.push(m));
-
-    expect(chamadas.map((c) => c.device)).toEqual(["webgpu", "wasm"]);
-    expect(status.some((s) => s.startsWith("WebGPU indisponivel"))).toBe(true);
-  });
-
-  it("lanca ao executar sem modelo carregado", async () => {
-    const detector = new DetectorTransformers();
-    await expect(
-      detector.executar("x", { threshold: 0.5, percentage: false })
-    ).rejects.toThrow("Detector nao carregado");
-  });
-
-  it("recarrega em wasm quando a inferencia do WebGPU falha", async () => {
-    vi.stubGlobal("navigator", { gpu: {} });
-    controle.deteccoes = [
-      { label: "person", score: 0.9, box: { xmin: 0, ymin: 0, xmax: 1, ymax: 1 } },
-    ];
-    controle.falharExecucao = 1;
-    const detector = new DetectorTransformers();
-    const status: string[] = [];
-    detector.aoStatus = (mensagem) => status.push(mensagem);
-
-    await detector.carregar("modelo-c", () => {});
-    expect(detector.dispositivo).toBe("webgpu");
-
-    const deteccoes = await detector.executar("data:image/png;base64,AAAA", {
-      threshold: 0.5,
-      percentage: false,
-    });
-
-    expect(deteccoes).toHaveLength(1);
-    expect(chamadas.map((c) => c.device)).toEqual(["webgpu", "wasm"]);
-    expect(detector.dispositivo).toBe("wasm");
-    expect(status.some((s) => s.includes("recarregando na CPU"))).toBe(true);
-  });
-
-  it("nao usa fallback para erros que nao sao de dispositivo", async () => {
-    vi.stubGlobal("navigator", { gpu: {} });
-    controle.falharExecucao = 1;
-    controle.erroExecucao = "imagem invalida";
-    const detector = new DetectorTransformers();
-
-    await detector.carregar("modelo-d", () => {});
-    await expect(
-      detector.executar("x", { threshold: 0.5, percentage: false })
-    ).rejects.toThrow("imagem invalida");
-
-    // Nao recarregou: segue em webgpu e sem segunda chamada ao pipeline.
-    expect(chamadas).toHaveLength(1);
-    expect(detector.dispositivo).toBe("webgpu");
-  });
-
-  it("propaga o erro quando WebGPU e WASM falham", async () => {
-    vi.stubGlobal("navigator", { gpu: {} });
-    controle.falharExecucao = 5;
-    const detector = new DetectorTransformers();
-
-    await detector.carregar("modelo-e", () => {});
-    await expect(
-      detector.executar("x", { threshold: 0.5, percentage: false })
-    ).rejects.toThrow("device lost");
-
-    // Tentou WebGPU, recarregou em WASM e desistiu (sem terceira carga).
-    expect(chamadas.map((c) => c.device)).toEqual(["webgpu", "wasm"]);
-    expect(detector.dispositivo).toBe("wasm");
   });
 });

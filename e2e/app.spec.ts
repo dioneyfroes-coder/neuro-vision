@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const CDN_TRANSFORMERS = /cdn\.jsdelivr\.net\/npm\/@huggingface\/transformers/;
+const CDN_ORT = /cdn\.jsdelivr\.net\/npm\/onnxruntime-web/;
 
 const STUB_TRANSFORMERS = `
 export const env = {};
@@ -9,40 +10,82 @@ export async function pipeline() {
 }
 `;
 
-const FALHA_TRANSFORMERS = `
-export const env = {};
-export async function pipeline() {
-  throw new Error("modelo indisponivel");
-}
-`;
-
-// Simula WebGPU indisponivel: a carga em WebGPU falha e o detector cai para
-// WASM (CPU). O aviso persistente de fallback deve aparecer.
-const FALHA_WEBGPU_TRANSFORMERS = `
-export const env = {};
-export async function pipeline(_tarefa, _modelo, opcoes) {
-  if (opcoes && opcoes.device === "webgpu") {
-    throw new Error("WebGPU indisponivel");
+/**
+ * Runtime ONNX do detector (`public/yolo-onnx.ts`): sessao falsa com a mesma
+ * superficie usada em producao (env, Tensor, InferenceSession.create/run). A
+ * saida toda-zero [1, 300, 6] vira nenhuma deteccao, como o stub anterior do
+ * transformers devolvia `[]`.
+ */
+const STUB_ORT = `
+export const env = { wasm: { wasmPaths: "" } };
+export class Tensor {
+  constructor(type, data, dims) {
+    this.type = type;
+    this.data = data;
+    this.dims = dims;
   }
-  return async () => [];
 }
+export const InferenceSession = {
+  async create() {
+    return {
+      inputNames: ["images"],
+      outputNames: ["output0"],
+      async run() {
+        const w = window;
+        w.__deteccoes = (w.__deteccoes || 0) + 1;
+        return { output0: new Tensor("float32", new Float32Array(300 * 6), [1, 300, 6]) };
+      },
+    };
+  },
+};
 `;
 
-const DETECTOR_LENTO = `
-export const env = {};
-export async function pipeline() {
-  return async () => {
-    const w = window;
-    w.__deteccoes = (w.__deteccoes || 0) + 1;
-    if (w.__emExecucao) w.__sobreposicoes = (w.__sobreposicoes || 0) + 1;
-    w.__emExecucao = true;
-    w.__inicios = w.__inicios || [];
-    w.__inicios.push(Date.now());
-    await new Promise((resolve) => setTimeout(resolve, 2500));
-    w.__emExecucao = false;
-    return [];
-  };
+/** Reproduz a queda do CDN de inferencia: a sessao do YOLO nao carrega. */
+const FALHA_ORT = `
+export const env = { wasm: { wasmPaths: "" } };
+export class Tensor {
+  constructor(type, data, dims) {
+    this.type = type;
+    this.data = data;
+    this.dims = dims;
+  }
 }
+export const InferenceSession = {
+  async create() {
+    throw new Error("ORT indisponivel (offline)");
+  },
+};
+`;
+
+/** Inferencia lenta (2,5 s) com a instrumentacao dos testes de concorrencia. */
+const ORT_LENTO = `
+export const env = { wasm: { wasmPaths: "" } };
+export class Tensor {
+  constructor(type, data, dims) {
+    this.type = type;
+    this.data = data;
+    this.dims = dims;
+  }
+}
+export const InferenceSession = {
+  async create() {
+    return {
+      inputNames: ["images"],
+      outputNames: ["output0"],
+      async run() {
+        const w = window;
+        w.__deteccoes = (w.__deteccoes || 0) + 1;
+        if (w.__emExecucao) w.__sobreposicoes = (w.__sobreposicoes || 0) + 1;
+        w.__emExecucao = true;
+        w.__inicios = w.__inicios || [];
+        w.__inicios.push(Date.now());
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+        w.__emExecucao = false;
+        return { output0: new Tensor("float32", new Float32Array(300 * 6), [1, 300, 6]) };
+      },
+    };
+  },
+};
 `;
 
 const ENTRADAS = [
@@ -55,7 +98,7 @@ const ENTRADAS = [
   },
   {
     timestamp: "2026-10-10T12:00:00.000Z",
-    modelo: "Xenova/yolos-tiny",
+    modelo: "onnx-community/yolov10n",
     objetos: [
       { nome: "pessoa", rotulo: "person", score: 0.9, caixa: { xmin: 0, ymin: 0, xmax: 1, ymax: 1 } },
     ],
@@ -64,9 +107,19 @@ const ENTRADAS = [
   },
 ];
 
-async function prepararPagina(page: Page, transformersBody = STUB_TRANSFORMERS): Promise<void> {
+async function prepararPagina(
+  page: Page,
+  opcoes: { transformers?: string; ort?: string } = {}
+): Promise<void> {
   await page.route(CDN_TRANSFORMERS, (rota) =>
-    rota.fulfill({ status: 200, contentType: "text/javascript", body: transformersBody })
+    rota.fulfill({
+      status: 200,
+      contentType: "text/javascript",
+      body: opcoes.transformers ?? STUB_TRANSFORMERS,
+    })
+  );
+  await page.route(CDN_ORT, (rota) =>
+    rota.fulfill({ status: 200, contentType: "text/javascript", body: opcoes.ort ?? STUB_ORT })
   );
   await page.route("**/api/health", (rota) =>
     rota.fulfill({
@@ -122,8 +175,8 @@ test("filtra as entradas do historico", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#log li")).toHaveCount(2);
 
-  await page.locator("#filter").fill("yolos");
-  await expect(page.locator("#log li", { hasText: "yolos-tiny" })).toBeVisible();
+  await page.locator("#filter").fill("yolov10");
+  await expect(page.locator("#log li", { hasText: "yolov10n" })).toBeVisible();
   await expect(page.locator("#log li", { hasText: "qwen2.5-vl" })).toBeHidden();
 });
 
@@ -178,7 +231,7 @@ test("reabilita o Iniciar quando o acesso a webcam falha", async ({ page }) => {
 });
 
 test("libera a webcam quando o modelo de deteccao falha ao carregar", async ({ page }) => {
-  await prepararPagina(page, FALHA_TRANSFORMERS);
+  await prepararPagina(page, { ort: FALHA_ORT });
   await instalarCameraFalsa(page);
   await page.goto("/");
   await page.locator("#motor").selectOption("deteccao");
@@ -221,7 +274,7 @@ test("libera a webcam quando a preparacao da visao falha", async ({ page }) => {
 });
 
 test("bloqueia trocar motor/modelo durante a execucao e libera ao parar", async ({ page }) => {
-  await prepararPagina(page, DETECTOR_LENTO);
+  await prepararPagina(page, { ort: ORT_LENTO });
   await instalarCameraFalsa(page);
   await page.goto("/");
   await page.locator("#motor").selectOption("deteccao");
@@ -316,7 +369,7 @@ test("escolhe o modelo de visao na interface e o envia ao servidor", async ({ pa
 });
 
 test("parar durante a inferencia libera a webcam e permite iniciar de novo", async ({ page }) => {
-  await prepararPagina(page, DETECTOR_LENTO);
+  await prepararPagina(page, { ort: ORT_LENTO });
   await instalarCameraFalsa(page);
   await page.goto("/");
   await page.locator("#motor").selectOption("deteccao");
@@ -349,7 +402,7 @@ test("parar durante a inferencia libera a webcam e permite iniciar de novo", asy
 });
 
 test("inferencia lenta nao sobrepoe analises mesmo com intervalo curto", async ({ page }) => {
-  await prepararPagina(page, DETECTOR_LENTO);
+  await prepararPagina(page, { ort: ORT_LENTO });
   await instalarCameraFalsa(page);
   await page.goto("/");
   await page.locator("#motor").selectOption("deteccao");
@@ -461,9 +514,9 @@ test("rede offline nao quebra a pagina e a deteccao falha com mensagem clara", a
   page,
 }) => {
   await prepararPagina(page);
-  // CDN inacessivel (sem rede): a dependencia do Transformers.js agora e sob
-  // demanda, entao apenas os modos de deteccao/eventos sao afetados.
-  await page.route(CDN_TRANSFORMERS, (rota) => rota.abort("failed"));
+  // CDN de inferencia (onnxruntime-web) inacessivel: a dependencia e carregada
+  // sob demanda, entao a pagina abre normalmente e so a deteccao falha.
+  await page.route(CDN_ORT, (rota) => rota.abort("failed"));
   await instalarCameraFalsa(page);
   await page.goto("/");
 
@@ -485,7 +538,7 @@ test("rede offline nao quebra a pagina e a deteccao falha com mensagem clara", a
 });
 
 test("mostra no diagnostico o motor, o modelo e o backend carregado", async ({ page }) => {
-  await prepararPagina(page, DETECTOR_LENTO);
+  await prepararPagina(page, { ort: ORT_LENTO });
   // Sobrescreve o health padrao (offline) para exercitar a linha de diagnostico.
   await page.route("**/api/health", (rota) =>
     rota.fulfill({
@@ -513,23 +566,9 @@ test("mostra no diagnostico o motor, o modelo e o backend carregado", async ({ p
   // No motor de deteccao o modelo solicitado passa a ser o do navegador e a
   // inferencia medida entra no diagnostico (separada da carga e da persistencia).
   await page.locator("#motor").selectOption("deteccao");
-  await expect(diag).toContainText("Xenova/yolos-tiny");
+  await expect(diag).toContainText("onnx-community/yolov10n");
   await page.locator("#start").click();
   await expect(diag).toContainText("motor deteccao");
   await expect(diag).toContainText("inferencia", { timeout: 15_000 });
-  await page.locator("#stop").click();
-});
-
-test("avisa quando a deteccao cai para CPU ao falhar o WebGPU", async ({ page }) => {
-  await prepararPagina(page, FALHA_WEBGPU_TRANSFORMERS);
-  await instalarCameraFalsa(page);
-  await page.goto("/");
-
-  await expect(page.locator("#gpuWarning")).toBeHidden();
-  await page.locator("#motor").selectOption("deteccao");
-  await page.locator("#start").click();
-
-  await expect(page.locator("#gpuWarning")).toBeVisible();
-  await expect(page.locator("#gpuWarning")).toContainText("CPU");
   await page.locator("#stop").click();
 });

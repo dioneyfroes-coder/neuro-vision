@@ -1,11 +1,12 @@
-import { DetectorTransformers, descreverDeteccoes } from "../../detector";
+import { descreverDeteccoes } from "../../detector";
+import { DetectorYoloOnnx, type MotorDeteccao } from "../../yolo-onnx";
 import type { MetricasAdaptador, DetectorObjetos, EntradaAdaptador, OpcoesDeteccao } from "../contracts";
 import { amostrarMemoriaBytes, medirTempoInferencia } from "../contracts";
 import type { ResultadoDeteccaoLocal } from "../../../src/domain/perception";
 
 /**
- * Adaptador do detector de objetos instalado (Transformers.js) para a porta
- * `DetectorObjetos` (Etapa 3 do roteiro).
+ * Adaptador do detector de objetos (YOLO em ONNX, `onnxruntime-web`) para a
+ * porta `DetectorObjetos` (Etapa 3 do roteiro).
  *
  * Converte a saida crua do SDK em `ResultadoDeteccaoLocal`: rotulos traduzidos,
  * caixas em pixels da imagem analisada, confianca em [0, 1] e dimensoes do
@@ -13,17 +14,24 @@ import type { ResultadoDeteccaoLocal } from "../../../src/domain/perception";
  */
 export class AdaptadorDetectorObjetos implements DetectorObjetos {
   readonly id = "objetos";
-  private readonly interno = new DetectorTransformers();
+  private readonly interno: MotorDeteccao;
   private readonly metricasValor: MetricasAdaptador = {};
   private aoStatusValor?: (mensagem: string) => void;
+
+  /**
+   * Aceita um motor falsificado nos testes; em producao usa o YOLO ONNX.
+   */
+  constructor(interno: MotorDeteccao = new DetectorYoloOnnx()) {
+    this.interno = interno;
+  }
 
   get modelo(): string | null {
     return this.interno.modelo;
   }
 
   /**
-   * Dispositivo realmente usado na ultima carga (`webgpu` ou fallback `wasm`).
-   * Especifico do Transformers.js — a aplicacao le isto apenas no diagnostico.
+   * Dispositivo realmente usado na inferencia (sempre `wasm`: o
+   * `onnxruntime-web` roda em WASM por decisao de compatibilidade).
    */
   get dispositivo(): "webgpu" | "wasm" | null {
     return this.interno.dispositivo;

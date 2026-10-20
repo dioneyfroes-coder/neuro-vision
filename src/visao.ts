@@ -29,13 +29,6 @@ export interface OpcoesGerarDescricao {
   apiKey?: string;
 }
 
-export interface ResultadoDescricao {
-  texto: string;
-  modelo: string;
-  tokens: number;
-  duracaoMs: number;
-}
-
 /**
  * Observacao independente: cada foto e descrita do zero, sem enviar a descricao
  * anterior. Alimentar o texto antigo faz um modelo pequeno "colar" a descricao
@@ -102,7 +95,6 @@ export const PREFERENCIA_MODELOS = [
   "bakllava",
 ];
 
-export const MODELO_TRADUCAO_PADRAO = "";
 export const TRADUZIR_HABILITADO_PADRAO = false;
 
 export class ErroVisao extends Error {
@@ -437,41 +429,6 @@ function lancarSeVazioSemResposta(
     `o modelo ${modelo} nao retornou nenhum token de texto. ` +
       "Verifique se o modelo carregado no LM Studio aceita imagens (e o `max_tokens`)."
   );
-}
-
-export async function gerarDescricao(
-  imagem: string | string[],
-  opcoes: OpcoesGerarDescricao = {}
-): Promise<ResultadoDescricao> {
-  const timeoutMs = opcoes.timeoutMs ?? 90_000;
-  const { modelo, requisicao } = montarCorpo(imagem, opcoes, false);
-
-  const inicio = performance.now();
-  const resposta = await fetch(requisicao.url, {
-    method: "POST",
-    headers: requisicao.headers,
-    body: requisicao.body,
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-
-  if (!resposta.ok) {
-    const texto = await resposta.text().catch(() => "");
-    throw new ErroVisao(`resposta HTTP ${resposta.status}: ${texto.slice(0, 300)}`);
-  }
-
-  const dados = await resposta.json();
-  const evt = interpretarChat(dados);
-  if (evt.erro) throw new ErroVisao(evt.erro);
-  const texto = evt.texto ?? "";
-  if (!texto) lancarSeVazioSemResposta(Boolean(evt.pensou), modelo, evt.motivoFim);
-  const duracaoMs = evt.duracaoMs ?? Math.round(performance.now() - inicio);
-
-  return {
-    texto,
-    modelo: evt.modelo ?? modelo,
-    tokens: evt.tokens ?? 0,
-    duracaoMs,
-  };
 }
 
 export interface ResumoDescricao {

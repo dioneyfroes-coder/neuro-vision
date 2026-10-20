@@ -27,9 +27,7 @@ import type { Ponto2D } from "./suavizador";
  * Indices dos pontos-chave na ordem COCO (17 pontos) usada pelo estimador de
  * pose padrao (YOLOv8-pose).
  */
-export const INDICE_NARIZ = 0;
 export const INDICES_PUNHOS = [9, 10] as const;
-export const INDICESOMBROS = [5, 6] as const;
 
 /**
  * Motor temporal (Etapa 6 do roteiro de modularizacao).

@@ -1,17 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   criarCycleId,
-  criarEventoId,
   criarFrameId,
   criarSessionId,
   estaIndisponivel,
-  deteccaoDeLegado,
-  deteccaoParaLegado,
-  eventoTemporalParaLegado,
   indisponivel,
   uuid,
 } from "../src/domain";
-import type { EventoTemporal, ObservacaoFrame, PacoteCiclo } from "../src/domain";
+import type { ObservacaoFrame, PacoteCiclo } from "../src/domain";
 
 describe("ids de dominio", () => {
   it("gera session/cycle/frame ids com hierarquia rastreavel", () => {
@@ -21,12 +17,6 @@ describe("ids de dominio", () => {
     const frame = criarFrameId(ciclo, 0);
     expect(ciclo).toBe(`${sessao}-c1`);
     expect(frame).toBe(`${sessao}-c1-f0`);
-  });
-
-  it("sessoes distintas produzem ids de evento distintos", () => {
-    const a = criarEventoId("aaaa1111", "evt", 1);
-    const b = criarEventoId("bbbb2222", "evt", 1);
-    expect(a).not.toBe(b);
   });
 
   it("uuid e unico entre chamadas", () => {
@@ -41,44 +31,6 @@ describe("indisponibilidade", () => {
     expect(estaIndisponivel({ pessoas: [] })).toBe(false);
     expect(estaIndisponivel(null)).toBe(false);
     expect(falha.motivo).toContain("timeout");
-  });
-});
-
-describe("adaptadores legados", () => {
-  it("deteccao ida e volta preserva caixa e confianca", () => {
-    const d = deteccaoDeLegado(
-      deteccaoParaLegado({
-        nome: "pessoa",
-        rotulo: "person",
-        score: 0.87,
-        caixa: { xmin: 1, ymin: 2, xmax: 3, ymax: 4 },
-      })
-    );
-    expect(d).toEqual({
-      nome: "pessoa",
-      rotulo: "person",
-      score: 0.87,
-      caixa: { xmin: 1, ymin: 2, xmax: 3, ymax: 4 },
-    });
-  });
-
-  it("evento temporal vira evento legado com tipo e evidencia", () => {
-    const evt: EventoTemporal = {
-      eventoId: "evt-sess-1",
-      sessionId: "sess",
-      tipo: "aparicao",
-      inicioEm: "2026-10-16T10:00:00.000Z",
-      descricao: "apareceu pessoa",
-      confianca: 0.8,
-      origens: ["objetos"],
-      frameIds: ["sess-c1-f0"],
-      estado: "confirmado",
-    };
-    const legado = eventoTemporalParaLegado(evt);
-    expect(legado.tipo).toBe("aparicao");
-    expect(legado.id).toBe("evt-sess-1");
-    expect(legado.frameId).toBe("sess-c1-f0");
-    expect(legado.sessaoId).toBe("sess");
   });
 });
 

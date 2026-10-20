@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { MODOS, obterModo } from "../public/modos";
+import { MODOS, MODO_PADRAO, obterModo } from "../public/modos";
 import { MotorDeteccao, MotorVisao } from "../public/motores";
 import * as api from "../public/api";
 import type { DetectorObjetos } from "../public/perception/contracts";
@@ -10,14 +11,14 @@ vi.mock("../public/api", () => ({
 }));
 
 const detector = {
-  modelo: "Xenova/yolos-tiny",
+  modelo: "onnx-community/yolov10n",
   carregar: vi.fn(),
   detectar: vi.fn(),
 } as unknown as DetectorObjetos;
 
 const deps = {
   detector,
-  modelo: "Xenova/yolos-tiny",
+  modelo: "onnx-community/yolov10n",
   obterThreshold: () => 0.4,
 };
 
@@ -122,7 +123,20 @@ describe("MODOS", () => {
     expect(obterModo("roteiro").falhaPrefixo).toBe("Falha ao preparar o modelo de visao");
   });
 
-  it("modo desconhecido cai no padrao", () => {
-    expect(obterModo("inexistente")).toBe(MODOS.deteccao);
+  it("modo desconhecido cai no padrao (pipeline multi-frame)", () => {
+    expect(obterModo("inexistente")).toBe(MODOS.percepcao);
+    expect(MODO_PADRAO).toBe("percepcao");
+  });
+
+  it("o seletor da interface expoe apenas percepcao; B/C sao de benchmark", () => {
+    // Requisito da UI: as categorias de benchmark (B/C/D) nao sao escolhas de
+    // usuario. So `percepcao` (a arquitetura-alvo) aparece no menu.
+    const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+    const seletor = html.match(/<select id="motor">([\s\S]*?)<\/select>/)?.[1] ?? "";
+    const valores = [...seletor.matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
+    expect(valores).toEqual(["percepcao", "roteiro", "deteccao", "visao", "eventos"]);
+    // Continuam no registro MODOS para o harness de benchmark (Etapa 9) e o E2E.
+    expect(obterModo("percepcao-fundida").variante?.id).toBe("fundida");
+    expect(obterModo("percepcao-sequencia").variante?.id).toBe("sequencia");
   });
 });

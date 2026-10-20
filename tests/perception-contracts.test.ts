@@ -1,14 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdaptadorDetectorObjetos } from "../public/perception/adapters/object-detector.adapter";
 import type { EstimadorPose, ReconhecedorGestos, MetricasAdaptador } from "../public/perception/contracts";
 import { amostrarMemoriaBytes, medirTempoInferencia } from "../public/perception/contracts";
 import { estaIndisponivel, indisponivel } from "../src/domain";
 import type { ResultadoMaos, ResultadoOuIndisponivel, ResultadoPose } from "../src/domain";
-import { chamadas, controle } from "../src/transformers.stub";
-
-beforeEach(() => {
-  controle.reset();
-});
+import { chamadas } from "../src/transformers.stub";
+import type { DeteccaoYOLO, MotorDeteccao } from "../public/yolo-onnx";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -20,12 +17,30 @@ afterEach(() => {
  * que falha vira `ResultadoIndisponivel`, nunca lista vazia (principio 8).
  */
 describe("AdaptadorDetectorObjetos", () => {
-  it("normaliza a saida do SDK em ResultadoDeteccaoLocal", async () => {
-    controle.deteccoes = [
+  /** Motor de deteccao falso: devolve as deteccoes crus sem tocar em rede. */
+  function motorFalso(deteccoes: DeteccaoYOLO[]): MotorDeteccao {
+    let modelo: string | null = null;
+    return {
+      get modelo() {
+        return modelo;
+      },
+      dispositivo: "wasm",
+      tempoCargaMs: 7,
+      async carregar(chave: string | null) {
+        modelo = chave;
+      },
+      async executar() {
+        return deteccoes;
+      },
+    };
+  }
+
+  it("normaliza a saida do motor em ResultadoDeteccaoLocal", async () => {
+    const cru: DeteccaoYOLO[] = [
       { label: "person", score: 0.9876, box: { xmin: 1, ymin: 2, xmax: 30, ymax: 40 } },
       { label: "dog", score: 0.4, box: { xmin: 5, ymin: 6, xmax: 35, ymax: 46 } },
     ];
-    const adaptador = new AdaptadorDetectorObjetos();
+    const adaptador = new AdaptadorDetectorObjetos(motorFalso(cru));
     await adaptador.carregar("modelo-a");
 
     const resultado = await adaptador.detectar(
@@ -50,10 +65,10 @@ describe("AdaptadorDetectorObjetos", () => {
   });
 
   it("mede carga, inferencia e memoria por adaptador", async () => {
-    controle.deteccoes = [
+    const cru: DeteccaoYOLO[] = [
       { label: "car", score: 0.9, box: { xmin: 0, ymin: 0, xmax: 1, ymax: 1 } },
     ];
-    const adaptador = new AdaptadorDetectorObjetos();
+    const adaptador = new AdaptadorDetectorObjetos(motorFalso(cru));
     await adaptador.carregar("modelo-b");
     await adaptador.detectar({ imagem: "x" });
 
@@ -61,13 +76,12 @@ describe("AdaptadorDetectorObjetos", () => {
     expect(adaptador.metricas.tempoInferenciaMs).toBeTypeOf("number");
   });
 
-  it("preserva o fallback de dispositivo do SDK", async () => {
-    vi.stubGlobal("navigator", { gpu: {} });
-    controle.falharPrimeira = true;
-    const adaptador = new AdaptadorDetectorObjetos();
-    await adaptador.carregar("modelo-c");
-    expect(chamadas.map((c) => c.device)).toEqual(["webgpu", "wasm"]);
+  it("roda em WASM por decisao de compatibilidade (sem WebGPU)", async () => {
+    const adaptador = new AdaptadorDetectorObjetos(motorFalso([]));
+    await adaptador.carregar("onnx-community/yolov10n");
     expect(adaptador.dispositivo).toBe("wasm");
+    // A deteccao nao passa mais pelo transformers.js: o stub fica vazio.
+    expect(chamadas).toEqual([]);
   });
 });
 

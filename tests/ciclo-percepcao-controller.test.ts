@@ -17,7 +17,8 @@ import { CONFIG_CAPTURA_PADRAO } from "../public/capture/webcam-capture";
 import type { TarefaPersistencia } from "../public/persistencia";
 import type { RegistroCiclo } from "../src/domain/cycle";
 import type { ResultadoInterpretacao } from "../src/domain/interpretation";
-import type { EntradaLog } from "../src/types";
+import type { EntradaLog, EventoVisual } from "../src/types";
+import type { EventoTemporal } from "../src/domain/temporal-event";
 
 const MODO: DefinicaoModo = {
   id: "percepcao",
@@ -135,6 +136,7 @@ interface Contexto {
   eventos: EventoUi[];
   ciclos: RegistroCiclo[];
   entradas: EntradaLog[];
+  eventosVisuais: EventoVisual[];
   operacionais: Array<{ nivel?: string; origem?: string; mensagem: string }>;
   tarefas: TarefaPersistencia[];
   motorTemporal: MotorTemporal;
@@ -152,11 +154,14 @@ function montar(
     modelos?: ModelosPercepcao;
     semFrame?: boolean;
     modo?: DefinicaoModo;
+    /** Eventos que o motor temporal falso devolve a cada ciclo. */
+    eventosTemporais?: EventoTemporal[];
   } = {}
 ): Contexto {
   const eventos: EventoUi[] = [];
   const ciclos: RegistroCiclo[] = [];
   const entradas: EntradaLog[] = [];
+  const eventosVisuais: EventoVisual[] = [];
   const operacionais: Array<{ nivel?: string; origem?: string; mensagem: string }> = [];
   const tarefas: TarefaPersistencia[] = [];
   let naoGravados = 0;
@@ -174,6 +179,9 @@ function montar(
     gravarEntrada: async (entrada) => {
       entradas.push(entrada);
     },
+    gravarEvento: async (evento) => {
+      eventosVisuais.push(evento);
+    },
     gravarOperacional: async (registro) => {
       operacionais.push(registro);
     },
@@ -187,7 +195,10 @@ function montar(
 
   const resetes = vi.fn();
   const motorTemporal: MotorTemporal = {
-    processar: () => ({ eventos: [], entidadesAtivas: 0 }),
+    processar: () => ({
+      eventos: (opcoes.eventosTemporais ?? []).map((e) => ({ ...e })),
+      entidadesAtivas: 0,
+    }),
     resetar: resetes,
   };
   const modosTemporais: string[] = [];
@@ -210,7 +221,7 @@ function montar(
     fila,
     obterModo: () => opcoes.modo ?? MODO,
     criarPercepcao: () => percepcao,
-    obterModelosPercepcao: () => opcoes.modelos ?? { objetos: "Xenova/yolos-tiny" },
+    obterModelosPercepcao: () => opcoes.modelos ?? { objetos: "onnx-community/yolov10n" },
     criarMotorTemporal: (modo) => {
       modosTemporais.push(modo);
       return motorTemporal;
@@ -226,6 +237,7 @@ function montar(
     eventos,
     ciclos,
     entradas,
+    eventosVisuais,
     operacionais,
     tarefas,
     motorTemporal,
@@ -366,10 +378,10 @@ describe("CicloPercepcaoController", () => {
   });
 
   it("carrega os modelos escolhidos na interface ao iniciar a sessao", async () => {
-    const ctx = montar({ modelos: { objetos: "Xenova/detr-resnet-50" } });
+    const ctx = montar({ modelos: { objetos: "onnx-community/yolov10s" } });
     await ctx.controle.iniciar();
 
-    expect(ctx.modelosVistos).toEqual([{ objetos: "Xenova/detr-resnet-50" }]);
+    expect(ctx.modelosVistos).toEqual([{ objetos: "onnx-community/yolov10s" }]);
     ctx.controle.parar();
   });
 
@@ -387,6 +399,56 @@ describe("CicloPercepcaoController", () => {
     expect(primeiro(ctx.eventos, "exibir_entrada")).toBeUndefined();
     expect(ctx.ciclos).toHaveLength(0);
     expect(ctx.entradas).toHaveLength(0);
+    ctx.controle.parar();
+  });
+
+  it("persiste eventos temporais confirmados uma unica vez como EventoVisual", async () => {
+    const confirmado: EventoTemporal = {
+      eventoId: "evt-1",
+      sessionId: "s",
+      tipo: "desaparecimento",
+      inicioEm: "2026-10-19T02:00:19.500Z",
+      descricao: "pessoa sai do quadro",
+      confianca: 0.8,
+      origens: ["objetos"],
+      frameIds: [],
+      estado: "confirmado",
+    };
+    const candidato: EventoTemporal = {
+      ...confirmado,
+      eventoId: "evt-2",
+      tipo: "gesto_detectado",
+      estado: "candidato",
+    };
+    const gestoConfirmado: EventoTemporal = {
+      ...confirmado,
+      eventoId: "evt-3",
+      tipo: "gesto_detectado",
+      estado: "confirmado",
+    };
+    const ctx = montar({ eventosTemporais: [confirmado, candidato, gestoConfirmado] });
+    await ctx.controle.iniciar();
+
+    // So o evento de tipo mapeavel e confirmado vai para a fila (1 por ciclo).
+    const agendados = ctx.tarefas.filter((t) => t.descricao.startsWith("evento:multiframe:"));
+    expect(agendados).toHaveLength(1);
+    await Promise.all(ctx.tarefas.map((t) => t.executar()));
+    expect(ctx.eventosVisuais).toHaveLength(1);
+    // timestamp = inicioEm (instante real), frameId = evidencia do ciclo,
+    // id = identidade temporal (rastreavel de volta ao RegistroCiclo).
+    expect(ctx.eventosVisuais[0]).toMatchObject({
+      id: "evt-1",
+      timestamp: "2026-10-19T02:00:19.500Z",
+      tipo: "desaparecimento",
+      origem: "rastreador",
+      sessaoId: ctx.ciclos[0].sessionId,
+      frameId: ctx.ciclos[0].frameIds[1],
+    });
+    expect(ctx.eventosVisuais[0].idempotencyKey).toBeTruthy();
+
+    // A identidade que reaparece no proximo ciclo nao duplica no arquivo.
+    await ctx.controle.executarCiclo();
+    expect(ctx.tarefas.filter((t) => t.descricao.startsWith("evento:multiframe:"))).toHaveLength(1);
     ctx.controle.parar();
   });
 });

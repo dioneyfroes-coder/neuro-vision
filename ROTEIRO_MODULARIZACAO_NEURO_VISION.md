@@ -487,7 +487,7 @@ Cada etapa deve terminar com testes passando e o app podendo ser executado. Evit
 6. Registrar os relatórios sem substituir o baseline anterior.
 7. Só depois decidir se mantém os três componentes sempre ativos, executa algum sob demanda ou reduz a frequência.
 
-**Aceite:** [PENDENTE] a decisão se baseia em precisão/recall, falsos positivos, latência e consumo medidos, e não apenas em exemplos que funcionaram.
+**Aceite:** [CONCLUÍDO] a decisão se baseia em precisão/recall, falsos positivos, latência e consumo medidos (`bench/DECISAO_ARQUITETURAL_2026-10-19.md`, com números de `logs/ciclos.jsonl`, do comparativo A–D e do smoke E2E multiframe — não apenas em exemplos que funcionaram).
 
 ### Etapa 10 — Limpeza final
 

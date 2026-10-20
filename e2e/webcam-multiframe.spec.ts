@@ -13,7 +13,8 @@ import { env } from "../src/env";
  * interpretacao pelo modelo de visao local (LM Studio) e persistencia.
  *
  * Para cada modo (B `percepcao-sequencia`, C `percepcao-fundida`,
- * D `percepcao`) captura e salva:
+ * D `percepcao`) captura e salva: a interface so expoe `percepcao`; as
+ * variantes B/C sao de benchmark e a opcao e injetada pelo proprio teste.
  *   - eventos  (POST /api/eventos)  -> logs/e2e-multiframe-<modo>.jsonl
  *   - entradas (POST /api/log, com o campo `modelo` da IA local)
  *                                 -> logs/e2e-multiframe-<modo>.log.jsonl
@@ -154,7 +155,23 @@ for (const { id, letra } of MODOS) {
     });
 
     await page.goto("/");
+    // B/C sao categorias de benchmark e ficaram FORA do `<select id="motor">`
+    // (nao sao escolhas de usuario; so `percepcao` aparece). O E2E injeta a
+    // opcao de volta para medir cada variante sobre o mesmo clipe.
+    await page.evaluate((id) => {
+      const sel = document.querySelector("#motor") as HTMLSelectElement | null;
+      if (sel && ![...sel.options].some((o) => o.value === id)) {
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = `benchmark ${id}`;
+        sel.appendChild(opt);
+      }
+    }, id);
     await page.locator("#motor").selectOption(id);
+    // O seletor de modelo de visao fica em "Padrão do servidor": todas as
+    // variantes usam o MESMA versão (o modelo efetivo do backend), que o
+    // `app.ts` registra no campo `modelo` via `infoVisao.modelo` — é o que a
+    // verificação de `--modelo-visao` confere em logs/visao.jsonl.
     // 1 frame por segundo de video: 4 frames -> um ciclo multiframe a cada ~4s.
     await page.locator("#interval").evaluate((el) => {
       const input = el as HTMLInputElement;
@@ -179,18 +196,22 @@ for (const { id, letra } of MODOS) {
       return Number.isFinite(d) && d && d > 0 ? Math.ceil(d * 1000) : 30_000;
     });
 
-    // 3) Espera o clipe inteiro passar + o ciclo em voo terminar (sem novos
-    //    ciclos por 15s), com teto de 180s alem da duracao do clipe.
+    // 3) Espera o clipe inteiro passar e os ciclos lentos terminarem. No
+    //    hardware de referencia um ciclo leva ~37 s (B) e ~95-140 s (C/D com
+    //    deteccao em CPU), e a janela antiga (15 s / teto 180 s) parava o teste
+    //    com o ciclo em voo — `stop` cancelava e a variante nao concluia nada
+    //    pos-clipe (ver bench/RELATORIO_SMOKE_MULTIFRAME_2026-10-19.md).
+    //    Agora: estabilidade de 180 s sem novos ciclos e teto de 300 s.
     await page.waitForTimeout(duracaoMs + 2000);
     let estavelDesde = Date.now();
     let vista = ciclos.length;
-    const limite = Date.now() + 180_000;
+    const limite = Date.now() + 300_000;
     while (Date.now() < limite) {
       await page.waitForTimeout(2000);
       if (ciclos.length > vista) {
         vista = ciclos.length;
         estavelDesde = Date.now();
-      } else if (Date.now() - estavelDesde >= 15_000) {
+      } else if (Date.now() - estavelDesde >= 180_000) {
         break;
       }
     }

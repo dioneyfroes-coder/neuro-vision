@@ -30,11 +30,3 @@ export function criarCycleId(sessionId: string, sequencia: number): string {
 export function criarFrameId(cycleId: string, indice: number): string {
   return `${cycleId}-f${indice}`;
 }
-
-/**
- * Identificador globalmente unico de evento, para persistencia e referencias.
- * Uso pelo produtor com seu proprio contador: `criarEventoId(sessao, "evt", 1)`.
- */
-export function criarEventoId(sessionId: string, prefixo: string, sequencia: number): string {
-  return `${prefixo}-${sessionId}-${sequencia}`;
-}

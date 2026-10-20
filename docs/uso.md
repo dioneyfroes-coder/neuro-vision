@@ -66,6 +66,10 @@ Variáveis de ambiente lidas pelo servidor:
 | `VISAO_BODY_MAX_BYTES` | `12000000` | Limite do corpo JSON de `POST /api/visao`. |
 | `NEURO_ALLOW_REMOTE` | (vazio) | `1` permite escutar em host não-loopback (assumindo o risco). |
 | `NEURO_ALLOWED_ORIGINS` | (vazio) | CSV de origens extras permitidas além da própria (ex.: `http://host:3000`). |
+| `E2E_WEBCAM_CLIP` | (vazio) | Caminho do clipe que substitui a webcam nos testes E2E opt-in (`e2e/webcam.spec.ts` e `e2e/webcam-multiframe.spec.ts`). |
+| `E2E_WEBCAM_CHANNEL` | (vazio) | Canal do Playwright: `chrome` usa o Chrome instalado; por padrão, roda no Chromium do Playwright. |
+| `E2E_WEBCAM_DEBUG` | `false` | `1` mantém a página visível durante o replay do clipe. |
+| `E2E_WEBCAM_EVENTOS` | (vazio) | Prefixo dos JSONL gravados pelo E2E (ex.: `logs/e2e-multiframe` grava `logs/e2e-multiframe-<modo>{.jsonl,.log.jsonl,.ciclos.jsonl}`). |
 
 Exemplo (LM Studio com o Qwen2.5-VL 3B Instruct — leve e rápido):
 
@@ -97,26 +101,27 @@ LMSTUDIO_URL=http://127.0.0.1:1234 NEURO_MODEL=qwen2.5-vl-3b-instruct npm run in
 
 ## Funcionamento offline
 
-**O que roda localmente:** o servidor Node (API + arquivos estáticos), a inferência do backend de visão local e a detecção de objetos no navegador (WebGPU ou CPU via Transformers.js). A imagem da webcam nunca sai da máquina: os modos de detecção rodam no navegador e os de descrição/roteiro conversam apenas com o backend de visão local.
+**O que roda localmente:** o servidor Node (API + arquivos estáticos), a inferência do backend de visão local e a detecção de objetos no navegador (YOLOv10 em ONNX, WASM via `onnxruntime-web`). A imagem da webcam nunca sai da máquina: os modos de detecção rodam no navegador e os de descrição/roteiro conversam apenas com o backend de visão local.
 
 **O que é baixado na primeira execução:**
 
 | Recurso | De onde | Quando | Fica em cache? |
 | --- | --- | --- | --- |
 | Bibliotecas de desenvolvimento (`esbuild`, `tsx`, `vitest`, `playwright`) | npm | `npm install` | `node_modules/` |
-| Transformers.js **3.8.1** (fixado) | CDN (`cdn.jsdelivr.net`) | ao usar um modo de detecção/eventos (import sob demanda) | cache HTTP do navegador |
-| Pesos do modelo de detecção (ex.: `Xenova/yolos-tiny`) | Hugging Face Hub | na primeira carga do modelo | cache do navegador (`useBrowserCache`) |
+| Transformers.js **3.8.1** (fixado) | CDN (`cdn.jsdelivr.net`) | ao usar um modo com pose (`percepcao*`; import sob demanda) | cache HTTP do navegador |
+| `onnxruntime-web` **1.21.0** (fixado) + WASM | CDN (`cdn.jsdelivr.net`) | na primeira carga do detector YOLO (import sob demanda) | cache HTTP do navegador |
+| Pesos do modelo de detecção (`onnx-community/yolov10n`) | Hugging Face Hub | na primeira carga do modelo | cache HTTP do navegador |
 | Modelo de visão (ex.: `qwen2.5-vl-3b-instruct`) | LM Studio / llama.cpp (download na própria interface ou arquivo do modelo) | antes de usar | pasta de modelos do LM Studio / llama.cpp |
 
 **Como preparar antes de ficar offline:**
 
 1. Baixe o modelo de visão uma vez, com internet: baixe/carregue `qwen2.5-vl-3b-instruct` no LM Studio (ou use um modelo multimodal local com o llama.cpp).
-2. Subir o app, escolher o motor **Detecção** (ou **Eventos**) e clicar **Iniciar** até o modelo carregar — isso popula o cache do navegador com a biblioteca e os pesos. Repita no mesmo navegador/perfil que será usado offline.
+2. Subir o app, escolher o motor **Detecção** (ou **Eventos**) e clicar **Iniciar** até o modelo carregar — isso popula o cache do navegador com o runtime ONNX e os pesos. Repita no mesmo navegador/perfil que será usado offline.
 
 **Comportamento com a rede desconectada (após a preparação):**
 
 - **Roteiro** e **Descrição** funcionam offline — dependem apenas do backend de visão local já instalado.
-- **Detecção** e **Eventos** funcionam offline se a biblioteca e os pesos ainda estiverem no cache do navegador.
+- **Detecção** e **Eventos** funcionam offline se o runtime (`onnxruntime-web`) e os pesos ainda estiverem no cache HTTP do navegador.
 - Se o CDN estiver inacessível e **não** houver cache, a **página continua carregando normalmente** (a dependência é carregada sob demanda, não no carregamento da página) e apenas a detecção falha, com mensagem clara (`Falha ao carregar modelo: ...`) e a webcam liberada. Os modos de visão seguem utilizáveis.
 
 A versão do Transformers.js é **fixa** (`3.8.1`), em vez do tag flutuante `@3`, para que o comportamento não mude sem aviso.
@@ -133,7 +138,7 @@ Ela separa três tempos para localizar a lentidão:
 - **inferência** — `duracaoMs` do resultado da análise;
 - **persistência** — quanto levou para gravar a entrada no servidor.
 
-Quando a detecção de objetos **não consegue usar WebGPU** e roda em CPU (WASM), aparece um **aviso persistente** (que só sai ao recarregar a página), com texto específico conforme o navegador ofereça ou não WebGPU.
+A detecção de objetos roda em **WASM por decisão de compatibilidade** — a mesma rota em qualquer navegador, sem depender de WebGPU. Não há aviso de fallback (o comportamento é o esperado); a linha de diagnóstico mostra `dispositivo wasm`.
 
 ## Scripts
 

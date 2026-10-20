@@ -1,17 +1,20 @@
 # Modos, motores e modelos — Neuro Vision
 
-Como os 4 modos funcionam e como o modelo é escolhido (detecção no navegador + descrição em um backend de visão local compatível com a API de chat completions — LM Studio, llama.cpp ou vLLM).
+Como os modos funcionam (4 de frame único + 3 multiframe do benchmark das Etapas 9–10) e como o modelo é escolhido (detecção no navegador + descrição em um backend de visão local compatível com a API de chat completions — LM Studio, llama.cpp ou vLLM).
 
 ## Modos
 
 | Motor | Onde roda | O que faz |
 | --- | --- | --- |
-| **Detecção** (transformers.js) | Navegador (WebGPU/CPU) | Detecta objetos (pessoa, carro, celular, ...) com caixas e confiança, usando YOLOS ou DETR (COCO). |
-| **Roteiro** (modelo de visão) | Servidor (backend de visão) | Faz **uma análise profunda da cena** (base) e, a cada novo frame, registra **apenas o que mudou** em relação ao que já aconteceu — montando um roteiro cronológico. É o motor padrão da interface. |
+| **Detecção** (YOLO em ONNX) | Navegador (WASM) | Detecta objetos (pessoa, carro, celular, ...) com caixas e confiança, usando YOLOv10 (COCO) via `onnxruntime-web`. |
+| **Roteiro** (modelo de visão) | Servidor (backend de visão) | Faz **uma análise profunda da cena** (base) e, a cada novo frame, registra **apenas o que mudou** em relação ao que já aconteceu — montando um roteiro cronológico. |
 | **Descrição** (modelo de visão) | Servidor (backend de visão) | Descreve cada frame em português, do zero (sem reenviar a descrição anterior). |
 | **Eventos** (leve + modelo de visão sob demanda) | Navegador + servidor | Roda a detecção a cada tick e só chama o modelo de visão quando a **política de eventos** decide: mudança de cena, nova entidade, desaparecimento, movimento, baixa confiança, resumo periódico ou pedido manual — com cooldown e teto de chamadas por minuto. Detalhes em [`eventos.md`](./eventos.md). |
+| **Percepção sequência** (`percepcao-sequencia`) | Navegador + servidor | Variante **B**: captura 4 frames (1 por segundo) e envia só a sequência de imagens ao modelo de visão — sem percepção local nem temporal. Mede o valor do contexto entre imagens. |
+| **Percepção fundida** (`percepcao-fundida`) | Navegador + servidor | Variante **C**: os mesmos 4 frames com dados locais estruturados (YOLO + pose + mãos) e leitura temporal **básica** (objetos/cena, sem gestos). |
+| **Percepção** (`percepcao`, padrão) | Navegador + servidor | Variante **D** (arquitetura-alvo): 4 frames + todos os dados locais (YOLO, pose, mãos) + motor temporal **ampliado** (gestos, pose, máquina de estados). |
 
-A troca de motor é centralizada em `public/modos.ts` (registro `MODOS`): cada modo descreve se usa detecção/modelo de visão, o prefixo da mensagem de falha e a fábrica de motor — o resto da aplicação não tem `if (modo === "...")` espalhado. O `<select id="motor">` abre em **Roteiro** (primeira opção) e `MODO_PADRAO = "deteccao"` é apenas o fallback para valores desconhecidos. O seletor `#model` é o do **modelo de detecção do navegador** (abaixo); o `#modeloVisao` é o do **backend de visão** (seção seguinte).
+A troca de motor é centralizada em `public/modos.ts` (registro `MODOS`): cada modo descreve se usa detecção/modelo de visão, o prefixo da mensagem de falha e a fábrica de motor — o resto da aplicação não tem `if (modo === "...")` espalhado. O `<select id="motor">` abre em **Percepção** (primeira opção) e `MODO_PADRAO = "percepcao"` é o padrão — as variantes B/C continuam registradas em `MODOS` só para o harness de benchmark/E2E. O seletor `#model` é o do **modelo de detecção do navegador** (abaixo); o `#modeloVisao` é o do **backend de visão** (seção seguinte).
 
 ## Backend de visão
 
@@ -51,10 +54,12 @@ A linha de diagnóstico mostra o **backend em uso** (`LM Studio`), o **modelo em
 
 ## Modelos de detecção (navegador)
 
-O seletor `#model` da interface oferece modelos COCO via Transformers.js:
+O seletor `#model` da interface oferece modelos COCO em ONNX (YOLOv10, saída NMS-free), carregados do Hugging Face e executados no navegador com `onnxruntime-web` (WASM):
 
-- `Xenova/yolos-tiny` — rápido (default).
-- `Xenova/detr-resnet-50` — mais preciso, mais pesado.
+- `onnx-community/yolov10n` — nano, rápido (default).
+- `onnx-community/yolov10s` — small, mais preciso, mais pesado.
+
+O runtime e baixado sob demanda do CDN (versão fixada em `1.21.0`); a verificação empírica do caminho completo (pré-processamento, inferência e coordenadas) vive em `scripts/verificar-yolo-onnx.mjs`.
 
 ## Repetição na descrição
 

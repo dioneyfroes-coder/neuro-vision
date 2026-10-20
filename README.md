@@ -1,16 +1,17 @@
 # Neuro Vision
 
-Visão computacional 100% local: a webcam enxerga e registra o que vê. A imagem capturada nunca sai do seu computador — a detecção roda no navegador (transformers.js) e a descrição roda em um backend local compatível com a API de chat completions (LM Studio, llama.cpp/`llama-server` ou vLLM).
+Visão computacional 100% local: a webcam enxerga e registra o que vê. A imagem capturada nunca sai do seu computador — a detecção roda no navegador (YOLOv10 em ONNX, `onnxruntime-web`) e a descrição roda em um backend local compatível com a API de chat completions (LM Studio, llama.cpp/`llama-server` ou vLLM).
 
 
 ## Modos
 
 | Motor | Onde roda | O que faz |
 | --- | --- | --- |
-| **Detecção** (transformers.js) | Navegador (WebGPU/CPU) | Detecta objetos (pessoa, carro, celular, ...) com caixas e confiança, usando YOLOS ou DETR (COCO). |
+| **Detecção** (YOLO em ONNX) | Navegador (WASM) | Detecta objetos (pessoa, carro, celular, ...) com caixas e confiança, usando YOLOv10 (COCO). |
 | **Roteiro** (modelo de visão) | Servidor | Uma análise profunda da cena (base) e, depois, **apenas o que mudou** — um roteiro cronológico. |
 | **Descrição** (modelo de visão) | Servidor | Descreve cada frame em português, do zero (cada foto é analisada sem reenviar a descrição anterior). |
 | **Eventos** (leve + modelo de visão sob demanda) | Navegador + servidor | Detecção a cada tick; o modelo de visão só roda quando a política decide (novidade, mudança, baixa confiança, resumo periódico...). |
+| **Percepção multi-frame** (`percepcao` / `percepcao-fundida` / `percepcao-sequencia`) | Navegador + servidor | Captura **4 frames** por ciclo (1/s) e envia ao modelo de visão — com dados locais + temporal (D), só dados locais (C) ou só a sequência de imagens (B). São as variantes do benchmark arquitetural (ver [`docs/qualidade.md`](docs/qualidade.md)). |
 
 ## Início rápido
 
