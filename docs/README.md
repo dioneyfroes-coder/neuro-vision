@@ -20,4 +20,4 @@ Documentação correlata fora de `docs/`:
 - [`bench/videos/README.md`](../bench/videos/README.md) — anotação de clipes, fluxo de captura e regras de casamento da avaliação de eventos.
 - [`bench/clipes/MATRIZ_COBERTURA.md`](../bench/clipes/MATRIZ_COBERTURA.md) — separação dos clipes em `tuning/` e `eval/` com a cobertura mínima de cenários.
 - [`bench/DECISAO_ARQUITETURAL_2026-10-19.md`](../bench/DECISAO_ARQUITETURAL_2026-10-19.md) — decisão da Etapa 9 (sempre ativos × sob demanda × frequência) com as métricas medidas.
-- [`PLANO_DE_EVOLUCAO_NEURO_VISION.md`](../PLANO_DE_EVOLUCAO_NEURO_VISION.md) — roadmap do projeto (fases cumpridas e decisões registradas).
+- [`bench/COMPARATIVO_FINAL_20261020.md`](../bench/COMPARATIVO_FINAL_20261020.md) — estado final das Etapas 8–10: verificação, subsistemas e números que sustentam a decisão.

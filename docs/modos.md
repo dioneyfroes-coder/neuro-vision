@@ -35,9 +35,9 @@ O app usa **um modelo de visão por vez**. A escolha pode vir de dois lugares:
 - **Fallback automático:** se o modelo configurado **não estiver disponível**, o app escolhe o melhor encontrado (`melhorModeloDisponivel`), na ordem de `PREFERENCIA_MODELOS` — modelos de visão capazes primeiro (`qwen2.5-vl`, `qwen2.5vl`, `qwen3-vl`, `qwen2-vl`, `llama-3.2-vision`, `minicpm-v`, `gemma-4`, `llava`, ...). Sem backend acessível, mantém o configurado.
 - **Requisito:** modelo **multimodal (visão)**. Modelos de **raciocínio** ("thinking") também funcionam: o app ignora `reasoning_content` e usa apenas o `content` final. O seletor da interface esconde modelos claramente de **embedding** (nome com `embed`), que não respondem a imagens.
 
-> **Nota sobre modelos "thinking":** modelos como o `qwen3-vl` ou o
-> `gemma-4-e2b-uncensored-hauhaucs-aggressive` primeiro geram ~200–300 tokens de
-> raciocínio e só depois escrevem a resposta. O teto de geração
+> **Nota sobre modelos "thinking":** modelos como o `qwen3-vl` ou o `gemma-4`
+> primeiro geram ~200–300 tokens de raciocínio e só depois escrevem a resposta.
+> O teto de geração
 > (`NUM_PREDICT_PADRAO = 768` em `src/visao.ts`) é dimensionado para caber
 > raciocínio **e** resposta; é um *teto*, não uma meta — modelos que terminam
 > antes param no fim de frase e não pagam nada por ele. O custo real do

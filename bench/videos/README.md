@@ -12,7 +12,7 @@ clipe. Assim qualquer pessoa com o mesmo clipe consegue reproduzir a medição.
 A anotação `webcam-mudanca.json` acompanha um clipe real gravado com
 `scripts/gravar-webcam.mjs` e serve de modelo. A medição da camada de
 política/rastreamento, que não depende de vídeo, roda de forma reproduzível em
-`src/qualidade-eventos.test.ts`.
+`tests/qualidade-eventos.test.ts`.
 
 ## Como montar uma medição
 

@@ -15,10 +15,13 @@ hardware; ao trocar de máquina, recapture os números e revise os alvos.
 | Sistema | Windows 10 (build 10.0.26200), x64 |
 | Node | v24.19.0 |
 
-A detecção no navegador usa **WebGPU quando disponível** e cai para **WASM
-(CPU)** caso contrário; o cabeçalho da aplicação mostra um aviso persistente
-quando o fallback de CPU está em uso. Meça sempre com o mesmo caminho de
-execução para que os números sejam comparáveis.
+Ao tempo desta linha de base (Fase 7), a detecção no navegador tentava **WebGPU
+quando disponível** e caía para **WASM (CPU)** caso contrário, com aviso na
+aplicação. Hoje a detecção roda **em WASM por decisão de compatibilidade**, sem
+fallback de WebGPU (ver [`docs/limites.md`](../docs/limites.md)); os números
+abaixo continuam válidos como registro do hardware, mas o caminho de execução é
+sempre WASM. Meça sempre com o mesmo caminho de execução para que os números
+sejam comparáveis.
 
 ## Como capturar a linha de base
 
@@ -47,7 +50,8 @@ execução para que os números sejam comparáveis.
 
 Fluxo em `bench/videos/README.md`. Clipe `webcam-mudanca.webm` (640×480, ~30 s; a
 pessoa sai do quadro por volta de 19,5 s). O spec `e2e/webcam.spec.ts` reproduz o
-clipe como câmera e roda o modelo real (`Xenova/yolos-tiny`).
+clipe como câmera e roda o modelo real — à época desta medição, `Xenova/yolos-tiny`;
+hoje, YOLOv10n em ONNX (`onnx-community/yolov10n`).
 
 Custo por inferência (medido nesta máquina):
 
@@ -94,17 +98,19 @@ medidos, sem piorar o que já é aceitável:
 - **Recall de mudanças relevantes:** alto, com tolerância compatível com a
   cadência de amostragem (a `mudanca_de_cena`/`desaparecimento` pode chegar
   segundos depois do instante real).
-- **Detecção no navegador:** preferir WebGPU (~5–6 s/quadro); em CPU/WASM cai
-  para ~24 s/quadro e a qualidade de eventos piora muito. Registrar o caminho.
+- **Detecção no navegador:** rodar sempre em WASM (YOLOv10 em ONNX; ~0,7–1,5 s/quadro
+  nesta máquina) e registrar o caminho — a linha de diagnóstico mostra `dispositivo wasm`.
 
 ## Limitações da linha de base
 
-- Esta máquina **não tem CUDA**; o ganho de WebGPU é medido no próprio navegador.
+- Esta máquina **não tem CUDA**; à época, o ganho de WebGPU era medido no próprio
+  navegador (caminho hoje não usado: a detecção roda em WASM).
 - Os números do backend de visão dependem do modelo carregado e do estado do servidor;
   um servidor instável contamina a medição.
-- A cadência de análise é o principal limitador da qualidade de eventos: com
-  ~5 s/quadro em WebGPU (ou ~24 s em CPU), a tolerância precisa acomodar essa
-  janela e a detecção de uma mudança tende a atrasar alguns segundos.
-- O detector (YOLOS-tiny) troca de rótulo com frequência em webcam 640×480 —
-  daí os falsos positivos de `gravata`/`forno`; a variância entre execuções é
-  alta.
+- A cadência de análise é o principal limitador da qualidade de eventos: com a
+  cadência da época (~5 s/quadro em WebGPU ou ~24 s em CPU no `yolos-tiny`), a
+  tolerância precisa acomodar essa janela e a detecção de uma mudança tende a
+  atrasar alguns segundos.
+- O detector usado nas medições (`YOLOS-tiny`) troca de rótulo com frequência em
+  webcam 640×480 — daí os falsos positivos de `gravata`/`forno`; a variância
+  entre execuções é alta.

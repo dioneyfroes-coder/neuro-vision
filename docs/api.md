@@ -15,11 +15,15 @@ Referência completa da API HTTP, formato das entradas, retenção de snapshots 
 | `GET` | `/api/eventos?limit=100` | Lista os eventos mais recentes (mais novo primeiro, limite máx. 500). Consultas por `tipo` (CSV, ex. `?tipo=aparicao,movimento`), `objetoId` e janela temporal (`desde`/`ate`, epoch ms ou ISO) respondem **o que mudou**, **quando** e as **evidências** (cada evento traz `confianca` e `snapshot`). Os filtros incidem sobre os eventos mais recentes dentro de `limit`. |
 | `DELETE` | `/api/eventos` | Limpa os eventos estruturados e remove os snapshots que ficaram órfãos. |
 | `POST` | `/api/operacional` | Grava um registro operacional (falha/métrica) que **não** é acontecimento visual. |
+| `POST` | `/api/ciclos` | Grava o diagnóstico de um ciclo (`RegistroCiclo`): métricas por etapa, erros, subsistemas indisponíveis e IDs de sessão/ciclo/frames. Um ciclo incompleto também é registrável. |
+| `GET` | `/api/ciclos?limit=100` | Lista os diagnósticos de ciclo mais recentes (limite máx. 500). |
+| `DELETE` | `/api/ciclos` | Limpa os diagnósticos de ciclo persistidos. |
 | `GET` | `/api/contexto` | Reidrata um contexto curto do estado recente (`{ resumo, roteiro, ultimaDescricao, entradas, eventos }`) com janela por `maxEntradas`/`maxEventos`/`maxCaracteres`. |
 | `GET` | `/api/health` | Status do backend de visão (`{ visao: { online, solicitado, modelo, modelos, carregados, erro } }`). `modelo` é o efetivo (o solicitado ou o melhor disponível quando o solicitado não está instalado). |
 | `GET` | `/snapshots/<arquivo>` | Serve os snapshots (thumbnails) gravados. |
+| `GET` | `/yolonsfw/<arquivo>` | Serve pesos/catálogo NSFW locais (`.onnx`/`.json`) de `yolonsfw/`; demais arquivos são recusados. |
 
-As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jsonl` e os registros operacionais em `logs/operacional.jsonl` (uma linha JSON por registro, própria política de rotação); os snapshots ficam em `logs/snapshots/`.
+As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jsonl`, os registros operacionais em `logs/operacional.jsonl` e os diagnósticos de ciclo em `logs/ciclos.jsonl` (uma linha JSON por registro, própria política de rotação); os snapshots ficam em `logs/snapshots/`.
 
 ## Falhas de gravação e fila do cliente
 

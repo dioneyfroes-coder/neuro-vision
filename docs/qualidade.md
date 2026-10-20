@@ -29,8 +29,8 @@ As especificações da **máquina de referência** e as metas realistas por hard
 Compara os **eventos que o app gravou** (`logs/eventos.jsonl`) com a **anotação de um clipe** e calcula **precisão**, **recall**, **proporção de mudanças perdidas** e **falsos positivos por minuto**:
 
 ```bash
-npm run qualidade -- --anotacao bench/videos/sala-com-pessoa.json
-npm run qualidade -- --anotacao bench/videos/sala-com-pessoa.json --json > qualidade.json
+npm run qualidade -- --anotacao bench/videos/webcam-mudanca.json
+npm run qualidade -- --anotacao bench/videos/webcam-mudanca.json --json > qualidade.json
 ```
 
 O formato da anotação, o fluxo de captura e as regras de casamento estão em [`bench/videos/README.md`](../bench/videos/README.md). Os vídeos ficam **locais** (não versionados); a anotação `.json` é versionada para a medição ser reproduzível em qualquer máquina que tenha o mesmo clipe. A camada de política/rastreamento, que não depende de vídeo, também é medida em `tests/qualidade-eventos.test.ts`.

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Harness de benchmark por variante (Etapa 9 — item [1] do todo.txt).
+ * Harness de benchmark por variante (Etapa 9).
  *
  * Compara as quatro variantes arquiteturais sobre o MESMO conjunto de clipes e,
  * quando informado, registrando a MESMA versao do modelo multimodal:

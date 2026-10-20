@@ -4,7 +4,7 @@ import path from "node:path";
 import { env } from "../src/env";
 
 /**
- * Smoke E2E dos modos multiframe (Etapa 9 — item [2] do todo.txt).
+ * Smoke E2E dos modos multiframe (Etapa 9).
  *
  * Igual ao `webcam.spec.ts`, usa o pipeline REAL: o clipe (.webm/.mp4 de
  * bench/videos/) roda no lugar da webcam (video oculto -> canvas ->

@@ -79,5 +79,5 @@ variante B (sem percepção local). Em C/D a detecção e a pose passaram a roda
 
 - Reexecutar com Chrome/WebGPU e clipe mais longo (`worker-zone-detection.mp4`,
   76 s) para ver múltiplos ciclos consecutivos e alimentar o comparativo A–D
-  com desempenho real (item [4] do `todo.txt`).
+  com desempenho real.
 - Corrigir a semântica de `concluidoEm`/métricas em ciclos cancelados.
