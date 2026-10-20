@@ -14,6 +14,10 @@ Como os modos funcionam (4 de frame único + 3 multiframe do benchmark das Etapa
 | **Percepção fundida** (`percepcao-fundida`) | Navegador + servidor | Variante **C**: os mesmos 4 frames com dados locais estruturados (YOLO + pose + mãos) e leitura temporal **básica** (objetos/cena, sem gestos). |
 | **Percepção** (`percepcao`, padrão) | Navegador + servidor | Variante **D** (arquitetura-alvo): 4 frames + todos os dados locais (YOLO, pose, mãos) + motor temporal **ampliado** (gestos, pose, máquina de estados). |
 
+Nos modos multiframe (B/C/D), a chamada multimodal acontece **a cada ciclo concluído** — eles **não** passam pela política de eventos (cooldown/teto). O agendador mede o intervalo entre **inícios** e garante apenas `MARGEM_RESERVA_MS` (500 ms) depois que o ciclo anterior termina; enquanto a chamada está em voo, nenhum ciclo novo avança. O intervalo do seletor não encurta um ciclo já em andamento.
+
+A percepção local dos modos C/D tenta **YOLO, pose e mãos** por padrão (`MODELOS_PERCEPCAO_PADRAO`). As mãos não têm toggle próprio: se o MediaPipe não carregar, o ciclo continua e o subsistema aparece em `subsistemasIndisponiveis`. A configuração explícita para desligar componentes isolados ainda não existe (Fase 2 do roteiro de correções).
+
 A troca de motor é centralizada em `public/modos.ts` (registro `MODOS`): cada modo descreve se usa detecção/modelo de visão, o prefixo da mensagem de falha e a fábrica de motor — o resto da aplicação não tem `if (modo === "...")` espalhado. O `<select id="motor">` abre em **Percepção** (primeira opção) e `MODO_PADRAO = "percepcao"` é o padrão — as variantes B/C continuam registradas em `MODOS` só para o harness de benchmark/E2E. O seletor `#model` é o do **modelo de detecção do navegador** (abaixo); o `#modeloVisao` é o do **backend de visão** (seção seguinte).
 
 ## Backend de visão

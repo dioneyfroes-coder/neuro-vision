@@ -131,7 +131,7 @@ Os modos `percepcao`, `percepcao-fundida` e `percepcao-sequencia` (opções **Pe
 | **C** | `percepcao-fundida` | sim | sim | básico (objetos + cena) |
 | **D** | `percepcao` | sim | sim | ampliado (pose/mãos + máquinas de estado) |
 
-A variante **A** (referência) é o fluxo de frame único dos modos existentes (`deteccao`/`eventos`/`visao`) e não usa este ciclo. Comparação e decisão em `bench/COMPARATIVO_A_B_C_D_*.md` e `bench/DECISAO_ARQUITETURAL_2026-10-19.md`; execução reproduzível em [`qualidade.md`](./qualidade.md).
+A variante **A** (referência) é o fluxo de frame único dos modos existentes (`deteccao`/`eventos`/`visao`) e não usa este ciclo. Comparação e decisão em `bench/COMPARATIVO_A_B_C_D_*.md` e `bench/DECISAO_ARQUITETURAL_2026-10-19.md`; execução reproduzível em [`qualidade.md`](./qualidade.md). O artefato de **2026-10-18** é histórico e **inválido como comparativo** (zero ciclos e eventos compartilhados); use o harness atual, que recusa concluir sem dados comparáveis.
 
 1. A cada ciclo o `WebcamCapture` coleta 4 snapshots identificados (~1 s) **sem inferência** e os guarda no `SnapshotStore`.
 2. O `PercepcaoLocal` processa os snapshots em sequência: detecção (porta `DetectorObjetos`, reaproveitando o modelo já carregado), pose (YOLO Pose), mãos/gestos (MediaPipe) e, com o seletor NSFW ligado, o classificador NSFW experimental (YOLO11 ONNX) — nos modos C/D; a variante B pula esta etapa. Cada subsistema é isolado: uma falha vira `ResultadoIndisponivel` para aquele frame e não apaga os demais. Se **nenhum** subsistema carregar, a sessão não inicia.

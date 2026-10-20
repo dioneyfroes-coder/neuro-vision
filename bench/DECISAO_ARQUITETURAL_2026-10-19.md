@@ -6,7 +6,17 @@ precisão/recall, falsos positivos, latência e consumo **medidos**.
 
 Não altera `bench/BASELINE.md`. Relatórios de apoio:
 `bench/RELATORIO_SMOKE_MULTIFRAME_2026-10-19.md`,
-`bench/COMPARATIVO_A_B_C_D_20261018.md`, `bench/RELATORIO_VARIANTE_*_20261018.md`.
+`bench/COMPARATIVO_A_B_C_D_20261018.md` (**histórico inválido como comparativo:
+zero ciclos e eventos compartilhados**), `bench/RELATORIO_VARIANTE_*_20261018.md`.
+
+> **Nota de implementação (2026-10-20, Fase 0):** este documento registra a
+> decisão de 2026-10-19. O código da época (e o atual) **tenta** mãos por
+> padrão nos modos C/D e **não** tem configuração para desligá-las
+> isoladamente. Além disso, nos modos multiframe o multimodal é chamado a cada
+> ciclo concluído, e não pela política de análise do modo Eventos. A decisão de
+> mãos sob demanda e a política de rate limit no multiframe seguem pendentes
+> (Fases 2 e 4 do roteiro de correções). O histórico de medição deste
+> documento é preservado.
 
 ## 1. O que foi medido
 
@@ -72,14 +82,17 @@ de captura permanece em 1 frame/s.** Detalhe:
    ciclo de B) — o benefício de evidência estruturada não tem contra-indicação
    econômica medida.
 
-3. **Mãos (MediaPipe Hands): permanece SOB DEMANDA / opcional.**
+3. **Mãos (MediaPipe Hands): decisão = SOB DEMANDA / opcional.**
    *Medido:* não executou em nenhum run (sempre `subsistemasIndisponiveis:
-   ["maos"]`), custo/benefício **não medido**. Manter desligado por
-   configuração até que haja pipeline revalidado; é o único componente que
-   pode ser ligado/desligado sem impacto observado.
+   ["maos"]`), custo/benefício **não medido**. A implementação atual ainda as
+   **tenta por padrão** nos modos C/D e não oferece configuração para desligar
+   só as mãos; alinhar o default e expor o toggle é a **Fase 2** do roteiro de
+   correções.
 
-4. **Multimodal: NÃO aumentar a frequência neste hardware.** Continua sob a
-   política de análise (rate limit) já existente. Medição: domina ~92% do
+4. **Multimodal: NÃO aumentar a frequência neste hardware.** No modo **Eventos**
+   continua sob a política de análise (rate limit). Nos modos **C/D** a
+   implementação atual chama **a cada ciclo concluído**, sem cooldown/teto; o
+   próximo ciclo só começa após o anterior (+500 ms). Medição: domina ~92% do
    ciclo completo (33,7 s / 36,8 s na variante B) e é a razão de nenhum ciclo
    C/D ter concluído num clipe de 30 s. Captura mais rápida só encheria fila.
 

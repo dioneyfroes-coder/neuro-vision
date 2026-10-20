@@ -16,16 +16,22 @@
  *      e agrega metricas por etapa (mediana e P95 de capturaMs, deteccaoMs,
  *      poseMs, maosMs, temporalMs, multimodalMs, persistenciaMs e totalMs,
  *      alem de observacoes, eventosTemporais, erros por etapa e cancelamentos);
- *   2. VERIFICA a versao do modelo multimodal usada por cada variante
- *      (`logs/visao.jsonl` pelo frameId dos ciclos + campo `modelo` dos
- *      arquivos de eventos) e alerta se as variantes divergirem — o
- *      `--modelo-visao` apenas REGISTRA a intencao, a verificacao prova;
+ *   2. VERIFICA a versao do modelo multimodal usada por cada variante em
+ *      `logs/visao.jsonl` (campo `modelo` das entradas, ligadas aos ciclos pelo
+ *      frameId). O campo `modelo` de `eventos.jsonl` e o detector local, NAO o
+ *      multimodal, e por isso nao entra nessa verificacao — o `--modelo-visao`
+ *      apenas REGISTRA a intencao, a verificacao prova;
  *   3. roda a QUALIDADE por clipe, invocando o mesmo script de
  *      `npm run qualidade` (`scripts/avaliar-qualidade.mjs`) com `--json`,
  *      obtendo precisao, recall, F1, FP/min, eventos nao detectados e a
  *      distancia media de casamento (proxy de consistencia temporal);
  *   4. grava `bench/RELATORIO_VARIANTE_<A|B|C|D>_YYYYMMDD.md`;
- *   5. grava o consolidado `bench/COMPARATIVO_A_B_C_D_YYYYMMDD.md`.
+ *   5. grava o consolidado `bench/COMPARATIVO_A_B_C_D_YYYYMMDD.md` APENAS se
+ *      houver dados comparaveis. Sem ciclos concluidos suficientes, sem modelo
+ *      multimodal verificado ou com o mesmo arquivo de eventos aplicado a mais
+ *      de uma variante, o script nao grava o comparativo e termina com codigo
+ *      nao zero (use `--permitir-inconclusivo` para gravar um diagnostico
+ *      marcado como INCONCLUSIVO).
  *
  * NUNCA sobrescreve `bench/BASELINE.md`: a gravacao passa por
  * `gravarRelatorioSeguro`, que recusa qualquer caminho fora do padrao
@@ -44,6 +50,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -121,7 +128,8 @@ Uso: node scripts/benchmark-variantes.mjs [opcoes]
 
 Compara as variantes A/B/C/D sobre o MESMO conjunto de clipes e registra a
 versao do modelo multimodal usada por cada uma (verificada em logs/visao.jsonl
-pelo frameId dos ciclos e no campo "modelo" dos arquivos de eventos).
+pelo frameId dos ciclos). O campo "modelo" dos eventos e o detector local e nao
+conta como modelo multimodal.
 
 Opcoes:
   --clipes-dir <dir>       Diretorio dos clipes de video (padrao: bench/videos)
@@ -137,14 +145,18 @@ Opcoes:
                            (padrao: logs/visao.jsonl)
   --modelo <nome>          Versao do modelo multimodal usada em todas as
                            variantes (alias: --modelo-visao; tambem le
-                           NEURO_MODELO_VISAO). Validada contra os logs.
+                           NEURO_MODELO_VISAO). Obrigatoria para concluir.
+  --min-ciclos <n>         Minimo de ciclos CONCLUIDOS por variante (padrao: 1)
   --tolerancia <ms>        Tolerancia de casamento do qualidade (padrao: 3000)
   --offset <ms>            Offset de base do qualidade (padrao: 0)
   --ignorados <tipos>      Tipos ignorados no qualidade (padrao: resumo)
   --data <YYYYMMDD>        Data nos nomes dos relatorios (padrao: hoje)
   --saida <dir>            Diretorio dos relatorios (padrao: bench)
-  --sem-qualidade          Nao roda npm run qualidade
+  --sem-qualidade          Pula a qualidade; a conclusao fica restrita ao
+                           desempenho (sem comparar F1/FP/min)
   --sem-relatorio          Nao grava RELATORIO_*/COMPARATIVO_*
+  --permitir-inconclusivo  Grava o COMPARATIVO mesmo sem dados comparaveis,
+                           com veredito INCONCLUSIVO e os problemas listados
   --json                   Imprime o resultado consolidado em JSON
   --help, -h               Esta ajuda
 
@@ -170,12 +182,14 @@ function lerArgs() {
     offset: 0,
     ignorados: "resumo",
     saida: "bench",
+    minCiclos: 1,
     ciclosPorVariante: {},
     eventosPorVariante: {},
     sessoesPorVariante: {},
     modeloPorVariante: {},
     semQualidade: false,
     semRelatorio: false,
+    permitirInconclusivo: false,
     json: false,
   };
   const lista = process.argv.slice(2);
@@ -213,10 +227,12 @@ function lerArgs() {
     else if (a === "--offset") mapa.offset = Number(proximo()) || 0;
     else if (a === "--ignorados") mapa.ignorados = proximo();
     else if (a === "--modelo" || a === "--modelo-visao") mapa.modeloVisao = proximo();
+    else if (a === "--min-ciclos") mapa.minCiclos = Math.max(1, Number(proximo()) || 1);
     else if (a === "--data") mapa.data = proximo().replace(/[^0-9]/g, "");
     else if (a === "--saida") mapa.saida = proximo();
     else if (a === "--sem-qualidade") mapa.semQualidade = true;
     else if (a === "--sem-relatorio") mapa.semRelatorio = true;
+    else if (a === "--permitir-inconclusivo") mapa.permitirInconclusivo = true;
     else if (a === "--json") mapa.json = true;
   }
   return mapa;
@@ -263,6 +279,20 @@ async function existe(caminho) {
 const EXTENSOES_VIDEO = /\.(mp4|webm|mkv|avi|mov)$/i;
 
 /**
+ * Identidade do clipe: tamanho e SHA-256. Serve para provar que as variantes
+ * rodaram sobre os MESMOS bytes, nao apenas sobre nomes de arquivo iguais.
+ */
+export async function resumoDoClipe(caminho) {
+  const abs = path.resolve(ROOT, caminho);
+  const dados = await readFile(abs).catch(() => null);
+  if (dados === null) return { tamanhoBytes: null, sha256: null };
+  return {
+    tamanhoBytes: dados.length,
+    sha256: createHash("sha256").update(dados).digest("hex"),
+  };
+}
+
+/**
  * Descobre os clipes e suas anotacoes em um diretorio. A anotacao e procurada,
  * por precedencia, em `anotacoesDir/<base>.json` (quando `--anotacoes-dir` e
  * informado — permite conjuntos tuning/eval com os videos em outro lugar) e
@@ -286,6 +316,7 @@ export async function descobrirClipes(dir, explicitos = [], anotacoesDir = null)
       base,
       caminho: path.relative(ROOT, abs),
       anotacao: await acharAnotacao(abs, base),
+      ...(await resumoDoClipe(abs)),
     };
   };
 
@@ -352,6 +383,21 @@ const ETAPAS_MS = [
   "totalMs",
 ];
 
+/**
+ * Ciclo que chegou ao fim COM interpretacao e registro: nao cancelado, com
+ * frames e com `concluidoEm`. Um diagnostico parcial/cancelado nao conta como
+ * amostra valida para comparar variantes.
+ */
+export function ehCicloConcluido(registro) {
+  return (
+    registro?.cancelado !== true &&
+    Array.isArray(registro?.frameIds) &&
+    registro.frameIds.length > 0 &&
+    typeof registro?.concluidoEm === "string" &&
+    registro.concluidoEm.length > 0
+  );
+}
+
 /** Agrega metricas de desempenho de uma lista de `RegistroCiclo`. */
 export function agregarMetricasCiclos(registros) {
   const metricas = {};
@@ -387,6 +433,8 @@ export function agregarMetricasCiclos(registros) {
   const soma = (fn) => registros.reduce((acc, r) => acc + (fn(r) ?? 0), 0);
   return {
     ciclos: registros.length,
+    /** Amostras validas para comparar: concluidos, nao cancelados. */
+    ciclosConcluidos: registros.filter(ehCicloConcluido).length,
     framesPorCiclo: arredondar(mediana(registros.map((r) => r.frameIds?.length ?? r.observacoes ?? 0).filter(Number.isFinite)), 1),
     observacoes: soma((r) => r.observacoes),
     eventosTemporais: soma((r) => r.eventosTemporais),
@@ -479,14 +527,14 @@ export async function modelosDosFrames(caminhoVisao, frameIds) {
 
 /**
  * Confere se todas as variantes rodaram com a MESMA versao do modelo
- * multimodal. Cruza o `modeloGlobal` (--modelo-visao) com os conjuntos
- * observados por variante (visao.jsonl por frameId + campo `modelo` dos
- * arquivos de eventos). `consistente` e falso se houver qualquer aviso.
+ * multimodal, usando SOMENTE `logs/visao.jsonl` (entradas do multimodal ligadas
+ * aos ciclos pelo frameId). O campo `modelo` dos eventos e o detector local e
+ * nao serve para essa prova. `consistente` e falso se houver qualquer aviso.
  */
 export function verificarMesmoModelo(resultados, modeloGlobal) {
   const porVariante = resultados.map(({ variante, modelos }) => ({
     letra: variante.letra,
-    modelos: [...new Set([...(modelos?.visao ?? []), ...(modelos?.eventos ?? [])])].sort(),
+    modelos: [...new Set(modelos?.visao ?? [])].sort(),
   }));
   const todos = [...new Set(porVariante.flatMap((p) => p.modelos))].sort();
   const avisos = [];
@@ -515,10 +563,129 @@ export function verificarMesmoModelo(resultados, modeloGlobal) {
   }
   if (!todos.length) {
     avisos.push(
-      "nao foi possivel verificar a versao do modelo multimodal (sem campo `modelo` em visao.jsonl/eventos); confirme manualmente que todas as variantes usaram o mesmo modelo"
+      "nao foi possivel verificar a versao do modelo multimodal (sem campo `modelo` em visao.jsonl para os frames dos ciclos); confirme manualmente que todas as variantes usaram o mesmo modelo"
     );
   }
   return { consistente: avisos.length === 0, modelos: todos, porVariante, avisos };
+}
+
+/**
+ * Decide se os resultados permitem uma CONCLUSAO comparativa. O criterio e
+ * deliberadamente conservador: sem ciclos concluidos, sem modelo multimodal
+ * verificado e sem qualidade propria por variante, o harness nao escolhe
+ * vencedores.
+ *
+ * `resultados`: `{ variante, desempenho, qualidade, arquivoEventos,
+ * arquivoCiclos, registros, sessaoExplicita, modelos }`.
+ */
+export function avaliarComparabilidade(resultados, opcoes = {}) {
+  const {
+    modeloGlobal = "",
+    minCiclosValidos = 1,
+    exigirQualidade = true,
+    exigirMultiplasVariantes = true,
+  } = opcoes;
+  const problemas = [];
+  const porVariante = [];
+
+  if (exigirMultiplasVariantes && resultados.length < 2) {
+    problemas.push("menos de duas variantes selecionadas: nao ha comparacao a fazer");
+  }
+  if (!String(modeloGlobal).trim()) {
+    problemas.push("modelo multimodal nao registrado: use --modelo/--modelo-visao");
+  }
+
+  // O mesmo arquivo de eventos aplicado a varias variantes repete as mesmas
+  // metricas de qualidade (foi o defeito do comparativo de 2026-10-18). So
+  // importa quando a qualidade entra na conclusao.
+  const donoDoEvento = new Map();
+  if (exigirQualidade) {
+    for (const r of resultados) {
+      if (!r.arquivoEventos) continue;
+      const abs = path.resolve(ROOT, r.arquivoEventos);
+      const donos = donoDoEvento.get(abs) ?? [];
+      donos.push(r.variante.letra);
+      donoDoEvento.set(abs, donos);
+    }
+  }
+  for (const [arquivo, donos] of donoDoEvento) {
+    if (donos.length > 1) {
+      problemas.push(
+        `arquivo de eventos compartilhado por ${donos.join(", ")}: ${path.relative(ROOT, arquivo)} — a qualidade seria identica entre variantes; grave um arquivo por variante`
+      );
+    }
+  }
+
+  // Sessoes nao podem ser reaproveitadas entre variantes.
+  const donoDaSessao = new Map();
+  for (const r of resultados) {
+    for (const reg of r.registros ?? []) {
+      const chave = `${reg.sessionId ?? "?"}/${reg.cycleId ?? "?"}`;
+      const dono = donoDaSessao.get(chave);
+      if (dono && dono !== r.variante.letra) {
+        problemas.push(`ciclo ${chave} aparece nas variantes ${dono} e ${r.variante.letra}`);
+      } else {
+        donoDaSessao.set(chave, r.variante.letra);
+      }
+    }
+  }
+
+  for (const r of resultados) {
+    const letra = r.variante.letra;
+    const concluidos = r.desempenho?.ciclosConcluidos ?? 0;
+    const modelos = [...new Set(r.modelos?.visao ?? [])];
+    const problemasDaVariante = [];
+
+    if (concluidos < minCiclosValidos) {
+      problemasDaVariante.push(
+        `${concluidos} ciclo(s) concluido(s), abaixo do minimo ${minCiclosValidos}`
+      );
+    }
+    if (!r.arquivoEventos) {
+      if (exigirQualidade) problemasDaVariante.push("sem arquivo de eventos");
+    }
+    if (!modelos.length) {
+      problemasDaVariante.push("modelo multimodal nao observado em visao.jsonl (frameIds dos ciclos)");
+    } else if (modelos.length > 1) {
+      problemasDaVariante.push(`mais de um modelo multimodal observado: [${modelos.join(", ")}]`);
+    }
+    if (r.sessaoExplicita === false) {
+      for (const reg of r.registros ?? []) {
+        if (identificarVarianteDoRegistro(reg) !== letra) {
+          problemasDaVariante.push(
+            `ciclo ${reg.sessionId ?? "?"}/${reg.cycleId ?? "?"} nao corresponde a variante ${letra}`
+          );
+          break;
+        }
+      }
+    }
+    if (exigirQualidade && !r.qualidade?.consolidado) {
+      problemasDaVariante.push("sem qualidade consolidada (anotacoes/eventos ausentes ou ilegiveis)");
+    }
+
+    if (problemasDaVariante.length) {
+      problemas.push(...problemasDaVariante.map((p) => `${letra}: ${p}`));
+    }
+    porVariante.push({
+      letra,
+      ciclos: r.desempenho?.ciclos ?? 0,
+      ciclosConcluidos: concluidos,
+      cancelados: r.desempenho?.cancelados ?? 0,
+      modelos,
+      qualidade: Boolean(r.qualidade?.consolidado),
+      arquivoEventos: r.arquivoEventos ?? null,
+    });
+  }
+
+  const verificacaoModelo = verificarMesmoModelo(resultados, modeloGlobal);
+  for (const aviso of verificacaoModelo.avisos) problemas.push(`modelo: ${aviso}`);
+
+  return {
+    conclusivo: problemas.length === 0,
+    problemas: [...new Set(problemas)],
+    porVariante,
+    verificacaoModelo,
+  };
 }
 
 /**
@@ -691,7 +858,7 @@ function tabelaDesempenho(desempenho) {
     .join(", ");
   linhas.push(
     `- Ciclos: **${desempenho.ciclos}** (mediana de ${desempenho.framesPorCiclo ?? "—"} frames/ciclo) · ` +
-      `observações: ${desempenho.observacoes} · eventos temporais: ${desempenho.eventosTemporais}`
+      `**concluídos: ${desempenho.ciclosConcluidos}** · observações: ${desempenho.observacoes} · eventos temporais: ${desempenho.eventosTemporais}`
   );
   linhas.push(
     `- Ciclos com erro: **${desempenho.ciclosComErro}**${erros ? ` (${erros})` : ""} · cancelados: **${desempenho.cancelados}**`
@@ -732,11 +899,28 @@ function tabelaQualidade(qualidade) {
   return linhas;
 }
 
+/** Linha de versao do codigo (commit/branch) para os relatorios. */
+function linhaCodigo(ambiente) {
+  const c = ambiente.codigo;
+  if (!c?.commit) return "indisponível (fora de um repositório Git)";
+  return `${c.branch || "?"} @ ${c.commit.slice(0, 12)}${c.alteracoesLocais ? " (alterações locais)" : " (limpo)"}`;
+}
+
+/** Clipes com hash — prova de que todas as variantes usaram os mesmos bytes. */
+function linhaClipes(clipes) {
+  if (!clipes.length) return "(nenhum)";
+  return clipes
+    .map((c) => {
+      const hash = c.sha256 ? `sha256:${c.sha256.slice(0, 12)}…` : "sem hash";
+      const bytes = Number.isFinite(c.tamanhoBytes) ? `${c.tamanhoBytes} bytes` : "tamanho ?";
+      return `${c.nome} (${hash}, ${bytes}, anotação: ${c.anotacao ?? "ausente"})`;
+    })
+    .join("; ");
+}
+
 function gerarRelatorioVariante({ variante, clipes, desempenho, qualidade, arquivoEventos, arquivoCiclos, modelos, modelo, ambiente, avisos, data }) {
-  const observados = [
-    modelos?.visao?.length ? `visao.jsonl [${modelos.visao.join(", ")}]` : null,
-    modelos?.eventos?.length ? `eventos [${modelos.eventos.join(", ")}]` : null,
-  ].filter(Boolean);
+  const observados = modelos?.visao?.length ? `visao.jsonl [${modelos.visao.join(", ")}]` : null;
+  const deteccao = modelos?.deteccao?.length ? modelos.deteccao.join(", ") : null;
   const L = [
     `# Relatório da variante ${variante.letra} — ${data}`,
     "",
@@ -744,9 +928,14 @@ function gerarRelatorioVariante({ variante, clipes, desempenho, qualidade, arqui
     `- **Modo no app:** \`${variante.modo}\``,
     `- **Configuração:** ${linhaConfiguracao(variante)}`,
     `- **Objetivo:** ${variante.objetivo}`,
-    `- **Clipes (mesmos para todas as variantes):** ${clipes.map((c) => c.nome).join(", ") || "(nenhum)"}`,
+    `- **Código:** ${linhaCodigo(ambiente)}`,
+    `- **Backend multimodal:** ${ambiente.backend ?? "(não informado)"}`,
+    `- **Janela da execução:** ${ambiente.inicioEm ?? "?"} → ${ambiente.fimEm ?? "?"}` +
+      `${Number.isFinite(ambiente.duracaoMs) ? ` (${(ambiente.duracaoMs / 1000).toFixed(1)} s)` : ""}`,
+    `- **Clipes (mesmos para todas as variantes):** ${linhaClipes(clipes)}`,
     `- **Modelo multimodal (registrado):** ${modelo || "(não informado — use --modelo-visao para registrar a versão usada)"}`,
-    `- **Modelo multimodal (observado nos logs):** ${observados.join(" · ") || "(sem campo `modelo` nos logs — verifique manualmente)"}`,
+    `- **Modelo multimodal (observado em visao.jsonl):** ${observados || "(sem campo `modelo` para os frames dos ciclos — não verificável)"}`,
+    `- **Detector local (observado nos eventos):** ${deteccao || "(sem campo `modelo` nos eventos)"} — não é o modelo multimodal`,
     `- **Ciclos:** \`${arquivoCiclos}\` · **Eventos:** \`${arquivoEventos ?? "(nenhum arquivo)"}\``,
     `- **Tolerância de casamento:** ${argsTolerancia} ms`,
     `- **Ambiente:** ${ambiente.cpu} · ${ambiente.nucleosLogicos} núcleos · ${arredondar(ambiente.memoriaTotalBytes / 1024 ** 3, 1)} GB RAM · ${ambiente.plataforma} · Node ${ambiente.node}`,
@@ -768,21 +957,36 @@ function gerarRelatorioVariante({ variante, clipes, desempenho, qualidade, arqui
 
 let argsTolerancia = 3000; // preenchido em main() para os relatorios
 
-function gerarComparativo({ variantes, resultados, clipes, modelo, verificacaoModelo, ambiente, data, avisos }) {
+function gerarComparativo({ variantes, resultados, clipes, modelo, verificacaoModelo, comparabilidade, ambiente, data, avisos }) {
   const nomeConjunto = LETRAS.filter((l) => variantes.some((v) => v.letra === l)).join("_");
   const L = [
     `# Comparativo arquitetural ${nomeConjunto.split("_").join(" × ")} — ${data}`,
     "",
-    `- **Clipes (idênticos em todas as variantes):** ${clipes.map((c) => c.nome).join(", ") || "(nenhum)"}`,
-    `- **Modelo multimodal:** ${modelo || "(não informado)"}`,
+    `- **Veredito:** ${comparabilidade.conclusivo ? "✅ **conclusivo** — dados comparáveis" : "⚠️ **INCONCLUSIVO** — não use os números para decidir entre variantes"}`,
+    `- **Clipes (idênticos em todas as variantes):** ${linhaClipes(clipes)}`,
+    `- **Modelo multimodal (registrado):** ${modelo || "(não informado)"}`,
+    `- **Código:** ${linhaCodigo(ambiente)}`,
+    `- **Backend multimodal:** ${ambiente.backend ?? "(não informado)"}`,
+    `- **Janela da execução:** ${ambiente.inicioEm ?? "?"} → ${ambiente.fimEm ?? "?"}` +
+      `${Number.isFinite(ambiente.duracaoMs) ? ` (${(ambiente.duracaoMs / 1000).toFixed(1)} s)` : ""}`,
+    `- **Critério de conclusão:** ao menos ${ambiente.minCiclosValidos ?? 1} ciclo(s) concluído(s) por variante, modelo multimodal verificado em \`logs/visao.jsonl\` e um arquivo de eventos próprio por variante.`,
     `- **Ambiente:** ${ambiente.cpu} · ${ambiente.nucleosLogicos} núcleos · ${arredondar(ambiente.memoriaTotalBytes / 1024 ** 3, 1)} GB RAM · ${ambiente.plataforma} · Node ${ambiente.node}`,
     `- Gerado em ${ambiente.dataHora}. O \`bench/BASELINE.md\` permanece intocado.`,
     "",
+  ];
+
+  if (!comparabilidade.conclusivo) {
+    L.push("## Por que este comparativo é inconclusivo", "");
+    for (const p of comparabilidade.problemas) L.push(`- ⚠️ ${p}`);
+    L.push("");
+  }
+
+  L.push(
     "## Matriz de configuração",
     "",
     "| Variante | Modo | Imagens | Percepção local | Dados locais | Temporal | Objetivo |",
-    "|----------|------|--------:|:---------------:|:------------:|----------|----------|",
-  ];
+    "|----------|------|--------:|:---------------:|:------------:|----------|----------|"
+  );
   for (const v of variantes) {
     L.push(
       `| ${v.letra} | \`${celula(v.modo)}\` | ${v.imagens} | ${v.percepcaoLocal ? "sim" : "não"} | ${v.dadosLocais ? "sim" : "não"} | ${v.temporal} | ${v.objetivo} |`
@@ -792,13 +996,13 @@ function gerarComparativo({ variantes, resultados, clipes, modelo, verificacaoMo
 
   L.push("## Desempenho (mediana / P95 por variante)", "");
   L.push(
-    "| Variante | Ciclos | Total med (ms) | Total P95 (ms) | Multimodal med (ms) | Temporal med (ms) | Deteccão med (ms) | Erros | Cancelados |",
-    "|----------|-------:|---------------:|---------------:|--------------------:|------------------:|------------------:|------:|-----------:|"
+    "| Variante | Ciclos | Concluídos | Total med (ms) | Total P95 (ms) | Multimodal med (ms) | Temporal med (ms) | Deteccão med (ms) | Erros | Cancelados |",
+    "|----------|-------:|-----------:|---------------:|---------------:|--------------------:|------------------:|------------------:|------:|-----------:|"
   );
   for (const { variante, desempenho } of resultados) {
     const m = desempenho?.metricas ?? {};
     L.push(
-      `| ${variante.letra} | ${desempenho?.ciclos ?? 0} | ${m.totalMs?.medianaMs ?? "—"} | ${m.totalMs?.p95Ms ?? "—"} | ${m.multimodalMs?.medianaMs ?? "—"} | ${m.temporalMs?.medianaMs ?? "—"} | ${m.deteccaoMs?.medianaMs ?? "—"} | ${desempenho?.ciclosComErro ?? 0} | ${desempenho?.cancelados ?? 0} |`
+      `| ${variante.letra} | ${desempenho?.ciclos ?? 0} | ${desempenho?.ciclosConcluidos ?? 0} | ${m.totalMs?.medianaMs ?? "—"} | ${m.totalMs?.p95Ms ?? "—"} | ${m.multimodalMs?.medianaMs ?? "—"} | ${m.temporalMs?.medianaMs ?? "—"} | ${m.deteccaoMs?.medianaMs ?? "—"} | ${desempenho?.ciclosComErro ?? 0} | ${desempenho?.cancelados ?? 0} |`
     );
   }
   L.push("");
@@ -820,61 +1024,71 @@ function gerarComparativo({ variantes, resultados, clipes, modelo, verificacaoMo
   }
   L.push("");
 
-  // Lideres por criterio (entre variantes com dados).
-  const comQualidade = resultados.filter((r) => r.qualidade?.consolidado);
-  const comDesempenho = resultados.filter((r) => (r.desempenho?.ciclos ?? 0) > 0);
-  const melhor = (lista, fn) => lista.reduce((best, r) => (best === null || fn(r) > fn(best) ? r : best), null);
-  const pior = (lista, fn) => lista.reduce((worst, r) => (worst === null || fn(r) < fn(worst) ? r : worst), null);
-
-  L.push("## Líderes por critério (entre variantes com dados)", "");
-  if (comQualidade.length) {
-    const bF1 = melhor(comQualidade, (r) => r.qualidade.consolidado.f1);
-    const bRecall = melhor(comQualidade, (r) => r.qualidade.consolidado.recall);
-    const bPrec = melhor(comQualidade, (r) => r.qualidade.consolidado.precisao);
-    const bFp = pior(comQualidade, (r) => r.qualidade.consolidado.falsosPositivosPorMinuto);
-    const bLat = pior(comQualidade, (r) => r.qualidade.consolidado.distanciaMediaMs ?? Infinity);
-    L.push(`- **Maior F1:** ${bF1.variante.letra} (${pct(bF1.qualidade.consolidado.f1)})`);
-    L.push(`- **Maior recall:** ${bRecall.variante.letra} (${pct(bRecall.qualidade.consolidado.recall)})`);
-    L.push(`- **Maior precisão:** ${bPrec.variante.letra} (${pct(bPrec.qualidade.consolidado.precisao)})`);
-    L.push(`- **Menos FP/min:** ${bFp.variante.letra} (${num(bFp.qualidade.consolidado.falsosPositivosPorMinuto)})`);
-    L.push(
-      `- **Casamento mais próximo do instante real:** ${bLat.variante.letra} (${bLat.qualidade.consolidado.distanciaMediaMs ?? "—"} ms)`
-    );
+  // Lideres por criterio: SOMENTE quando o veredito e conclusivo. Em rodada
+  // invalida, listar "vencedores" seria repetir o defeito do comparativo de
+  // 2026-10-18 (metricas iguais copiadas entre variantes).
+  if (!comparabilidade.conclusivo) {
+    L.push("## Líderes por critério", "");
+    L.push("_Não há líderes: a rodada não atende ao critério de conclusão (ver problemas acima)._");
+    L.push("");
   } else {
-    L.push("_Sem dados de qualidade para comparar._");
-  }
-  if (comDesempenho.length) {
-    const bTotal = pior(comDesempenho, (r) => r.desempenho.metricas.totalMs.medianaMs ?? Infinity);
-    const bMulti = pior(comDesempenho, (r) => r.desempenho.metricas.multimodalMs.medianaMs ?? Infinity);
-    const bErros = pior(comDesempenho, (r) => r.desempenho.ciclosComErro + r.desempenho.cancelados);
-    L.push(`- **Menor latência total do ciclo (mediana):** ${bTotal.variante.letra} (${bTotal.desempenho.metricas.totalMs.medianaMs ?? "—"} ms)`);
-    L.push(`- **Menor latência multimodal (mediana):** ${bMulti.variante.letra} (${bMulti.desempenho.metricas.multimodalMs.medianaMs ?? "—"} ms)`);
-    L.push(`- **Mais robusta (erros + cancelamentos):** ${bErros.variante.letra} (${bErros.desempenho.ciclosComErro + bErros.desempenho.cancelados})`);
-  } else {
-    L.push("_Sem dados de desempenho para comparar._");
-  }
-  L.push("");
+    const comQualidade = resultados.filter((r) => r.qualidade?.consolidado);
+    const comDesempenho = resultados.filter((r) => (r.desempenho?.ciclosConcluidos ?? 0) > 0);
+    const melhor = (lista, fn) => lista.reduce((best, r) => (best === null || fn(r) > fn(best) ? r : best), null);
+    const pior = (lista, fn) => lista.reduce((worst, r) => (worst === null || fn(r) < fn(worst) ? r : worst), null);
 
-  // Garantia de mesmo modelo multimodal (visao.jsonl por frameId + eventos).
+    L.push("## Líderes por critério (entre variantes com dados)", "");
+    if (comQualidade.length) {
+      const bF1 = melhor(comQualidade, (r) => r.qualidade.consolidado.f1);
+      const bRecall = melhor(comQualidade, (r) => r.qualidade.consolidado.recall);
+      const bPrec = melhor(comQualidade, (r) => r.qualidade.consolidado.precisao);
+      const bFp = pior(comQualidade, (r) => r.qualidade.consolidado.falsosPositivosPorMinuto);
+      const bLat = pior(comQualidade, (r) => r.qualidade.consolidado.distanciaMediaMs ?? Infinity);
+      L.push(`- **Maior F1:** ${bF1.variante.letra} (${pct(bF1.qualidade.consolidado.f1)})`);
+      L.push(`- **Maior recall:** ${bRecall.variante.letra} (${pct(bRecall.qualidade.consolidado.recall)})`);
+      L.push(`- **Maior precisão:** ${bPrec.variante.letra} (${pct(bPrec.qualidade.consolidado.precisao)})`);
+      L.push(`- **Menos FP/min:** ${bFp.variante.letra} (${num(bFp.qualidade.consolidado.falsosPositivosPorMinuto)})`);
+      L.push(
+        `- **Casamento mais próximo do instante real:** ${bLat.variante.letra} (${bLat.qualidade.consolidado.distanciaMediaMs ?? "—"} ms)`
+      );
+    } else {
+      L.push("_Sem dados de qualidade para comparar._");
+    }
+    if (comDesempenho.length) {
+      const bTotal = pior(comDesempenho, (r) => r.desempenho.metricas.totalMs.medianaMs ?? Infinity);
+      const bMulti = pior(comDesempenho, (r) => r.desempenho.metricas.multimodalMs.medianaMs ?? Infinity);
+      const bErros = pior(comDesempenho, (r) => r.desempenho.ciclosComErro + r.desempenho.cancelados);
+      L.push(`- **Menor latência total do ciclo (mediana):** ${bTotal.variante.letra} (${bTotal.desempenho.metricas.totalMs.medianaMs ?? "—"} ms)`);
+      L.push(`- **Menor latência multimodal (mediana):** ${bMulti.variante.letra} (${bMulti.desempenho.metricas.multimodalMs.medianaMs ?? "—"} ms)`);
+      L.push(`- **Mais robusta (erros + cancelamentos):** ${bErros.variante.letra} (${bErros.desempenho.ciclosComErro + bErros.desempenho.cancelados})`);
+    } else {
+      L.push("_Sem dados de desempenho para comparar._");
+    }
+    L.push("");
+  }
+
+  // Garantia de mesmo modelo multimodal: SOMENTE visao.jsonl (frameId dos
+  // ciclos). O `modelo` dos eventos e o detector local e nao prova nada sobre
+  // o multimodal — por isso aparece em coluna separada, apenas informativa.
   L.push("## Modelo multimodal verificado", "");
   if (verificacaoModelo?.modelos?.length) {
     L.push(`Modelos distintos observados em todas as variantes: \`${verificacaoModelo.modelos.join("`, `")}\``);
     L.push("");
   }
   L.push(
-    "| Variante | Modelo(s) observado(s) em visao.jsonl | Modelo(s) no arquivo de eventos |",
-    "|----------|--------------------------------------|--------------------------------|"
+    "| Variante | Modelo(s) multimodal em visao.jsonl | Detector local nos eventos (não é o multimodal) |",
+    "|----------|--------------------------------------|--------------------------------------------------|"
   );
   for (const { variante, modelos } of resultados) {
     const vis = (modelos?.visao ?? []).join(", ") || "—";
-    const ev = (modelos?.eventos ?? []).join(", ") || "—";
-    L.push(`| ${variante.letra} | ${vis} | ${ev} |`);
+    const det = (modelos?.deteccao ?? []).join(", ") || "—";
+    L.push(`| ${variante.letra} | ${vis} | ${det} |`);
   }
   L.push("");
   if (verificacaoModelo?.consistente && verificacaoModelo?.modelos?.length) {
     L.push("✅ **Mesmo modelo multimodal confirmado para todas as variantes com dados.**");
   } else {
-    L.push("⚠️ **Mesmo modelo multimodal NÃO confirmado** — ver avisos em \"Cuidados de comparação\".");
+    L.push("⚠️ **Mesmo modelo multimodal NÃO confirmado** — ver problemas/avisos.");
   }
   L.push("");
 
@@ -898,6 +1112,19 @@ function gerarComparativo({ variantes, resultados, clipes, modelo, verificacaoMo
 // Main
 // ---------------------------------------------------------------------------
 
+/** URL do backend sem credenciais, para relatorios versionaveis. */
+function backendSeguro(valor) {
+  if (!valor) return "http://localhost:1234 (padrao do servidor)";
+  try {
+    const url = new URL(valor);
+    url.username = "";
+    url.password = "";
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return String(valor);
+  }
+}
+
 async function main() {
   const args = lerArgs();
   if (args.help) {
@@ -908,6 +1135,14 @@ async function main() {
   const data = args.data || dataHoraCurta();
   const ambiente = montarAmbiente();
   const avisos = [];
+  const inicioEm = new Date().toISOString();
+  const inicioMs = Date.now();
+  const backend = backendSeguro(process.env.NEURO_BASE_URL);
+  Object.assign(ambiente, {
+    inicioEm,
+    backend,
+    minCiclosValidos: args.minCiclos,
+  });
 
   const variantes = VARIANTES_BENCHMARK.filter((v) => args.variantes.includes(v.letra));
   const modeloGlobal = args.modeloVisao ?? process.env.NEURO_MODELO_VISAO ?? "";
@@ -948,22 +1183,23 @@ async function main() {
     } else {
       desempenho = agregarMetricasCiclos(daVariante);
       console.log(
-        `  ciclos: ${desempenho.ciclos} registros | total mediana ${desempenho.metricas.totalMs.medianaMs ?? "-"} ms | erros ${desempenho.ciclosComErro} | cancelados ${desempenho.cancelados}`
+        `  ciclos: ${desempenho.ciclos} registros (${desempenho.ciclosConcluidos} concluidos) | total mediana ${desempenho.metricas.totalMs.medianaMs ?? "-"} ms | erros ${desempenho.ciclosComErro} | cancelados ${desempenho.cancelados}`
       );
     }
 
-    // 2. Versao do modelo observada NESTA variante (garantia de mesmo modelo).
-    //    `--modelo-visao` apenas registra a intencao; os campos `modelo` de
-    //    visao.jsonl (por frameId do ciclo) e dos eventos provam o que rodou.
+    // 2. Versao do modelo observada NESTA variante. `--modelo-visao` apenas
+    //    registra a intencao; o campo `modelo` de visao.jsonl (por frameId do
+    //    ciclo) prova o que rodou. O `modelo` dos eventos e o detector local.
     const arquivoEventos = await resolverArquivoEventos(variante, args);
     const frameIds = daVariante.flatMap((r) => (Array.isArray(r.frameIds) ? r.frameIds : []));
     const modelos = {
       visao: await modelosDosFrames(args.visao, frameIds),
-      eventos: arquivoEventos ? await extrairModelosDoJsonl(arquivoEventos) : [],
+      // Modelo do detector local: informativo, NAO entra na prova do multimodal.
+      deteccao: arquivoEventos ? await extrairModelosDoJsonl(arquivoEventos) : [],
     };
     const resumoModelos = [
       modelos.visao.length ? `visao.jsonl [${modelos.visao.join(", ")}]` : null,
-      modelos.eventos.length ? `eventos [${modelos.eventos.join(", ")}]` : null,
+      modelos.deteccao.length ? `detector local [${modelos.deteccao.join(", ")}]` : null,
     ]
       .filter(Boolean)
       .join(" · ");
@@ -994,19 +1230,47 @@ async function main() {
       }
     }
 
-    resultados.push({ variante, desempenho, qualidade, arquivoEventos, arquivoCiclos, modelos });
+    resultados.push({
+      variante,
+      desempenho,
+      qualidade,
+      arquivoEventos,
+      arquivoCiclos,
+      modelos,
+      registros: daVariante,
+      sessaoExplicita: Boolean(args.sessoesPorVariante[variante.letra]),
+    });
     console.log("");
   }
 
   // Garantia de mesmo modelo multimodal em todas as variantes (item [1]).
+  // Os avisos entram no veredito de comparabilidade abaixo (evita duplicacao).
   const verificacaoModelo = verificarMesmoModelo(resultados, modeloGlobal);
-  for (const a of verificacaoModelo.avisos) avisos.push(`modelo: ${a}`);
+
+  // 3. Veredito de comparabilidade ANTES de gravar: uma rodada sem ciclos
+  // concluidos, sem modelo verificado ou com eventos compartilhados nao pode
+  // produzir conclusao.
+  const comparabilidade = avaliarComparabilidade(resultados, {
+    modeloGlobal,
+    minCiclosValidos: args.minCiclos,
+    exigirQualidade: !args.semQualidade,
+  });
+  for (const p of comparabilidade.problemas) avisos.push(`comparabilidade: ${p}`);
+
+  const fimEm = new Date().toISOString();
+  const duracaoMs = Date.now() - inicioMs;
+  Object.assign(ambiente, { fimEm, duracaoMs });
 
   // 4. Relatorios por variante + consolidado.
   const gravados = [];
   if (!args.semRelatorio) {
     for (const { variante, desempenho, qualidade, arquivoEventos, arquivoCiclos, modelos } of resultados) {
-      const avisosDaVariante = avisos.filter((a) => a.startsWith(`${variante.letra}:`));
+      const avisosDaVariante = [
+        ...new Set([
+          ...avisos.filter((a) => a.startsWith(`${variante.letra}:`)),
+          ...comparabilidade.problemas.filter((p) => p.startsWith(`${variante.letra}:`)),
+        ]),
+      ];
       const conteudo = gerarRelatorioVariante({
         variante,
         clipes,
@@ -1025,19 +1289,27 @@ async function main() {
       console.log(`Relatorio gravado: ${path.relative(ROOT, alvo)}`);
     }
 
-    const cmp = gerarComparativo({
-      variantes,
-      resultados,
-      clipes,
-      modelo: modeloGlobal,
-      verificacaoModelo,
-      ambiente,
-      data,
-      avisos,
-    });
-    const alvoCmp = await gravarRelatorioSeguro(args.saida, cmp.nome, cmp.conteudo);
-    gravados.push(alvoCmp);
-    console.log(`Comparativo gravado: ${path.relative(ROOT, alvoCmp)}\n`);
+    if (comparabilidade.conclusivo || args.permitirInconclusivo) {
+      const cmp = gerarComparativo({
+        variantes,
+        resultados,
+        clipes,
+        modelo: modeloGlobal,
+        verificacaoModelo,
+        comparabilidade,
+        ambiente,
+        data,
+        avisos,
+      });
+      const alvoCmp = await gravarRelatorioSeguro(args.saida, cmp.nome, cmp.conteudo);
+      gravados.push(alvoCmp);
+      console.log(`Comparativo gravado: ${path.relative(ROOT, alvoCmp)}\n`);
+    } else {
+      console.log(
+        "Comparativo NAO gravado: a rodada nao atende ao criterio de comparabilidade " +
+          "(use --permitir-inconclusivo para gravar um diagnostico marcado como INCONCLUSIVO).\n"
+      );
+    }
   }
 
   // Resumo no console (compativel com qualquer shell).
@@ -1048,8 +1320,10 @@ async function main() {
       return {
         variante: variante.letra,
         modo: variante.modo,
-        modelo: [...new Set([...(modelos?.visao ?? []), ...(modelos?.eventos ?? [])])].join(", ") || "-",
+        modelo: (modelos?.visao ?? []).join(", ") || "-",
+        "detector local": (modelos?.deteccao ?? []).join(", ") || "-",
         ciclos: desempenho?.ciclos ?? 0,
+        concluidos: desempenho?.ciclosConcluidos ?? 0,
         "total med (ms)": m.totalMs?.medianaMs ?? "-",
         "total P95 (ms)": m.totalMs?.p95Ms ?? "-",
         "multimodal med (ms)": m.multimodalMs?.medianaMs ?? "-",
@@ -1069,37 +1343,67 @@ async function main() {
     for (const a of avisos) console.log(`  - ${a}`);
   }
 
+  console.log(
+    comparabilidade.conclusivo
+      ? "\nVeredito: CONCLUSAO VALIDA — dados comparaveis."
+      : "\nVeredito: INCONCLUSIVO — corrija os problemas acima antes de decidir entre variantes."
+  );
+
   if (args.json) {
     console.log(
       JSON.stringify(
         {
           ambiente,
+          execucao: {
+            inicioEm,
+            fimEm,
+            duracaoMs,
+            backend,
+            codigo: ambiente.codigo,
+            minCiclosValidos: args.minCiclos,
+            semQualidade: args.semQualidade,
+          },
           data,
-          clipes: clipes.map((c) => ({ nome: c.nome, anotacao: c.anotacao })),
+          clipes: clipes.map((c) => ({
+            nome: c.nome,
+            caminho: c.caminho,
+            anotacao: c.anotacao,
+            tamanhoBytes: c.tamanhoBytes,
+            sha256: c.sha256,
+          })),
           modelo: modeloGlobal || undefined,
+          conclusivo: comparabilidade.conclusivo,
+          comparabilidade,
           gravados: gravados.map((g) => path.relative(ROOT, g)),
           avisos,
-          resultados: resultados.map(({ variante, desempenho, qualidade, arquivoEventos, arquivoCiclos, modelos }) => ({
-            variante: variante.letra,
-            modo: variante.modo,
-            configuracao: {
-              imagens: variante.imagens,
-              percepcaoLocal: variante.percepcaoLocal,
-              dadosLocais: variante.dadosLocais,
-              temporal: variante.temporal,
-            },
-            arquivoCiclos,
-            arquivoEventos,
-            modelos,
-            desempenho,
-            qualidade,
-          })),
+          resultados: resultados.map(
+            ({ variante, desempenho, qualidade, arquivoEventos, arquivoCiclos, modelos, sessaoExplicita }) => ({
+              variante: variante.letra,
+              modo: variante.modo,
+              configuracao: {
+                imagens: variante.imagens,
+                percepcaoLocal: variante.percepcaoLocal,
+                dadosLocais: variante.dadosLocais,
+                temporal: variante.temporal,
+              },
+              sessaoExplicita,
+              arquivoCiclos,
+              arquivoEventos,
+              modelos,
+              desempenho,
+              qualidade,
+            })
+          ),
           verificacaoModelo,
         },
         null,
         2
       )
     );
+  }
+
+  if (!comparabilidade.conclusivo && !args.permitirInconclusivo) {
+    process.exitCode = 1;
   }
 }
 

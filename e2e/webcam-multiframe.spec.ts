@@ -61,6 +61,7 @@ type PayloadCiclo = {
   eventosTemporais?: number;
   erros?: Array<{ etapa?: string }>;
   metricas?: Record<string, number | undefined>;
+  interpretacao?: string;
   cancelado?: boolean;
 };
 
@@ -224,6 +225,51 @@ for (const { id, letra } of MODOS) {
       "nenhum ciclo foi persistido (POST /api/ciclos nao chegou — o modo multiframe nao rodou?)"
     ).toBeGreaterThan(0);
 
+    // Fase 0 do roteiro de correcoes: "existe POST" nao prova que o ciclo
+    // terminou. So conta ciclo nao cancelado, com os 4 frames, interpretacao
+    // multimodal nao vazia e as metricas do ciclo preenchidas. Assim o E2E
+    // falha quando o stop cancela o unico ciclo em voo (o defeito do smoke de
+    // 2026-10-19) em vez de passar com zero ciclos concluidos.
+    const concluidos = ciclos.filter((c) => c.cancelado !== true);
+    const completos = concluidos.filter(
+      (c) =>
+        (c.frameIds?.length ?? 0) === 4 &&
+        (c.observacoes ?? 0) === 4 &&
+        Number.isFinite(c.metricas?.totalMs) &&
+        Number.isFinite(c.metricas?.multimodalMs) &&
+        typeof c.interpretacao === "string" &&
+        c.interpretacao.trim().length > 0 &&
+        typeof c.concluidoEm === "string" &&
+        c.concluidoEm.length > 0 &&
+        (letra === "B" ||
+          (Number.isFinite(c.metricas?.deteccaoMs) &&
+            Number.isFinite(c.metricas?.poseMs) &&
+            Number.isFinite(c.metricas?.maosMs) &&
+            Number.isFinite(c.metricas?.temporalMs)))
+    );
+    const resumo = ciclos
+      .map(
+        (c) =>
+          `${c.cycleId ?? "?"}: cancelado=${c.cancelado === true} obs=${c.observacoes ?? 0} ` +
+          `frames=${c.frameIds?.length ?? 0} interpretacao=${c.interpretacao ? "sim" : "nao"} ` +
+          `totalMs=${c.metricas?.totalMs ?? "-"} multimodalMs=${c.metricas?.multimodalMs ?? "-"}`
+      )
+      .join(" | ");
+    expect(
+      concluidos.length,
+      `nenhum ciclo CONCLUIDO (todos cancelados ou incompletos). Ciclos: ${resumo}`
+    ).toBeGreaterThan(0);
+    expect(
+      completos.length,
+      `nenhum ciclo concluido com 4 observacoes, interpretacao multimodal e metricas. Ciclos: ${resumo}`
+    ).toBeGreaterThan(0);
+    if (letra !== "B") {
+      expect(
+        completos.some((c) => Number(c.metricas?.deteccaoMs) > 0),
+        `variante ${letra} sem deteccao local medida. Ciclos: ${resumo}`
+      ).toBe(true);
+    }
+
     // Grava eventos, entradas e ciclos em JSONL (prefixo configuravel).
     const destino = path.resolve(PREFIXO);
     const dir = path.dirname(destino);
@@ -240,7 +286,9 @@ for (const { id, letra } of MODOS) {
     const em = (ts?: string): number => (ts ? Math.round(Date.parse(ts) - base) : -1);
     const modelos = [...new Set(entradas.map((e) => e.modelo).filter(Boolean))];
     console.log(`modo ${id} (variante ${letra}) — inicio: ${inicio}`);
-    console.log(`Ciclos persistidos: ${ciclos.length}`);
+    console.log(
+      `Ciclos persistidos: ${ciclos.length} | concluidos: ${concluidos.length} | completos: ${completos.length}`
+    );
     for (const c of ciclos) {
       const total = c.metricas?.totalMs;
       console.log(

@@ -16,7 +16,7 @@ npm run bench -- --images-dir minhas-cenas               # diretório próprio d
 
 O benchmark roda sobre o **conjunto fixo de imagens** em [`bench/imagens/`](../bench/imagens) (gerado por `node scripts/gerar-fixtures-bench.mjs`) para ser reproduzível sem depender dos seus snapshots; veja [`bench/README.md`](../bench/README.md) para trocar por cenas reais. Por padrão ele mede cada modelo no conjunto inteiro e reporta a **mediana entre as imagens**.
 
-Cada execução registra o **ambiente** (CPU, núcleos, RAM, plataforma, versão do Node), o host, o modelo e as configurações (`max_tokens`, iterações) junto aos números — no modo `--json` sai um objeto `ambiente` + `resultados` pronto para versionar. O `uso de RAM/VRAM` vem de `/api/v0/models` (introspecção do LM Studio), quando o backend a expõe; caso contrário sai como `-`.
+Cada execução registra o **ambiente** (CPU, núcleos, RAM, plataforma, versão do Node e commit/branch do código), o host, o modelo e as configurações (`max_tokens`, iterações) junto aos números — no modo `--json` sai um objeto `ambiente` + `resultados` pronto para versionar. O `uso de RAM/VRAM` vem de `/api/v0/models` (introspecção do LM Studio), quando o backend a expõe; caso contrário sai como `-`.
 
 O cliente **ajusta sozinho** o ritmo: cada análise espera `max(intervalo, duração da análise anterior + 500ms)`, então nunca pede mais rápido que o modelo consegue responder. O status e cada entrada de descrição mostram os **tok/s** medidos.
 
@@ -88,11 +88,13 @@ npx playwright test e2e/webcam-multiframe.spec.ts --workers=1
 npm run qualidade -- --anotacao bench/clipes/eval/webcam-mudanca.json --eventos logs/e2e-multiframe-percepcao.jsonl --tolerancia 8000
 ```
 
+O E2E só passa se houver **ciclo concluído** (não cancelado) com os 4 frames, `interpretacao` multimodal não vazia e `totalMs`/`multimodalMs`; nos modos C/D exige também as métricas de detecção/pose/mãos/temporal. Um `stop` que cancela o único ciclo em voo agora **falha** o teste, em vez de passar com zero ciclos concluídos.
+
 O resultado de referência (ciclos, latências por etapa, texto da IA) está em [`bench/RELATORIO_SMOKE_MULTIFRAME_2026-10-19.md`](../bench/RELATORIO_SMOKE_MULTIFRAME_2026-10-19.md). Em CPU/WASM um ciclo multiframe leva dezenas de segundos (ver limites em [`limites.md`](./limites.md)), então o teste espera janelas longas antes de encerrar.
 
 ## Benchmark de variantes (A–D) — Etapa 9
 
-`scripts/benchmark-variantes.mjs` compara as quatro variantes sobre o **mesmo conjunto de clipes** e **verifica a versão do modelo multimodal** usada por todas (`logs/visao.jsonl` pelo `frameId` dos ciclos + campo `modelo` dos arquivos de eventos, confrontados com `--modelo-visao`; divergências viram avisos no relatório):
+`scripts/benchmark-variantes.mjs` compara as quatro variantes sobre o **mesmo conjunto de clipes** e **verifica a versão do modelo multimodal** usada por todas **somente em `logs/visao.jsonl`** (campo `modelo` das entradas ligadas aos ciclos pelo `frameId`). O campo `modelo` dos arquivos de eventos é o **detector local** (ex.: `Xenova/yolos-tiny`), não o multimodal, e por isso não entra nessa prova. O `--modelo-visao` apenas registra a intenção; divergências e ausência de dados viram impedimento de conclusão (não apenas aviso).
 
 ```bash
 node scripts/benchmark-variantes.mjs --help
@@ -103,7 +105,9 @@ node scripts/benchmark-variantes.mjs --anotacoes-dir bench/clipes/eval `
 ```
 
 - **Conjuntos:** `bench/clipes/tuning/` (ajuste de limiares) e `bench/clipes/eval/` (avaliação final); mapeamento e cobertura mínima em [`bench/clipes/MATRIZ_COBERTURA.md`](../bench/clipes/MATRIZ_COBERTURA.md).
-- **Saídas:** `bench/RELATORIO_VARIANTE_{A,B,C,D}_<data>.md` e `bench/COMPARATIVO_A_B_C_D_<data>.md`. O script **se recusa a escrever em `bench/BASELINE.md`** (proteção coberta por teste).
+- **Critério de conclusão:** no mínimo `--min-ciclos <n>` (padrão 1) ciclo(s) **concluído(s)** por variante — não cancelado, com frames, `concluidoEm` e interpretação —, modelo multimodal verificado em `logs/visao.jsonl` e um arquivo de eventos **próprio** por variante (o mesmo arquivo aplicado a duas variantes repetiria a qualidade). Sem isso, o harness **não grava o comparativo** e termina com código não zero; `--permitir-inconclusivo` grava o diagnóstico com veredito **INCONCLUSIVO**. Com `--sem-qualidade`, a qualidade não entra na conclusão: o comparativo fica restrito ao desempenho e não exige arquivo de eventos.
+- **Saídas:** `bench/RELATORIO_VARIANTE_{A,B,C,D}_<data>.md` e `bench/COMPARATIVO_A_B_C_D_<data>.md`. Cada relatório registra commit/branch, backend, janela da execução, clipes com tamanho e SHA-256, modelo multimodal observado, detector local e a contagem de ciclos concluídos. O script **se recusa a escrever em `bench/BASELINE.md`** (proteção coberta por teste).
+- **Histórico:** o comparativo de 2026-10-18 (`bench/COMPARATIVO_A_B_C_D_20261018.md`) é um artefato **inválido como comparação** (zero ciclos e o mesmo arquivo de eventos para A/B/C/D); ele é preservado apenas como registro histórico. Não o misture com o conjunto de avaliação atual.
 - **Decisão arquitetural** (sempre ativos × sob demanda × reduzir frequência) com as métricas que a sustentam: [`bench/DECISAO_ARQUITETURAL_2026-10-19.md`](../bench/DECISAO_ARQUITETURAL_2026-10-19.md).
 
 ## Carregamento do modelo

@@ -1,5 +1,10 @@
 # Relatório da variante B — 20261018
 
+> **Artefato histórico inválido como comparativo (2026-10-20).** Zero ciclos
+> válidos nesta rodada e o mesmo `logs/webcam-eventos.jsonl` foi aplicado a
+> A/B/C/D. O modelo `Xenova/yolos-tiny` nos eventos é o detector local, não o
+> multimodal. Ver `bench/COMPARATIVO_A_B_C_D_20261018.md`.
+
 - **Variante:** B · Sequência (4 imagens, sem dados locais)
 - **Modo no app:** `percepcao-sequencia`
 - **Configuração:** imagens: 4 | percepção local: não | dados locais no multimodal: não | temporal: ausente

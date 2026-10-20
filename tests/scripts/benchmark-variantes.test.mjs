@@ -5,11 +5,14 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import {
   agregarMetricasCiclos,
+  avaliarComparabilidade,
+  ehCicloConcluido,
   extrairModelosDoJsonl,
   filtrarCiclosDaVariante,
   gravarRelatorioSeguro,
   identificarVarianteDoRegistro,
   modelosDosFrames,
+  resumoDoClipe,
   verificarMesmoModelo,
   VARIANTES_BENCHMARK,
 } from "../../scripts/benchmark-variantes.mjs";
@@ -55,11 +58,22 @@ const registro = (extra = {}) => ({
   erros: [],
   metricas: { totalMs: 100, multimodalMs: 60 },
   cancelado: false,
+  concluidoEm: "2026-10-20T12:00:00.000Z",
   ...extra,
 });
 
+describe("ehCicloConcluido", () => {
+  it("exige ciclo nao cancelado, com frames e concluidoEm", () => {
+    expect(ehCicloConcluido(registro())).toBe(true);
+    expect(ehCicloConcluido(registro({ cancelado: true }))).toBe(false);
+    expect(ehCicloConcluido(registro({ frameIds: [] }))).toBe(false);
+    expect(ehCicloConcluido(registro({ concluidoEm: undefined }))).toBe(false);
+    expect(ehCicloConcluido(null)).toBe(false);
+  });
+});
+
 describe("agregarMetricasCiclos", () => {
-  it("calcula mediana e P95 das etapas e conta erros/cancelados", () => {
+  it("calcula mediana e P95 das etapas e conta erros/cancelados/concluidos", () => {
     const registros = [
       registro({ metricas: { totalMs: 100, multimodalMs: 60 } }),
       registro({ cycleId: "c2", metricas: { totalMs: 200, multimodalMs: 80 } }),
@@ -73,6 +87,7 @@ describe("agregarMetricasCiclos", () => {
     ];
     const m = agregarMetricasCiclos(registros);
     expect(m.ciclos).toBe(3);
+    expect(m.ciclosConcluidos).toBe(2);
     expect(m.metricas.totalMs.medianaMs).toBe(200);
     expect(m.metricas.totalMs.p95Ms).toBeCloseTo(290, 5);
     expect(m.metricas.totalMs.amostras).toBe(3);
@@ -147,9 +162,9 @@ describe("extrairModelosDoJsonl / modelosDosFrames", () => {
 });
 
 describe("verificarMesmoModelo", () => {
-  const resultado = (letra, visao, eventos = []) => ({
+  const resultado = (letra, visao, deteccao = []) => ({
     variante: { letra },
-    modelos: { visao, eventos },
+    modelos: { visao, deteccao },
   });
 
   it("confirma quando todas as variantes usaram o mesmo modelo", () => {
@@ -160,6 +175,18 @@ describe("verificarMesmoModelo", () => {
     expect(r.consistente).toBe(true);
     expect(r.modelos).toEqual(["qwen2.5-vl-3b-instruct"]);
     expect(r.avisos).toEqual([]);
+  });
+
+  it("ignora o modelo do detector local nos eventos", () => {
+    const r = verificarMesmoModelo(
+      [
+        resultado("B", ["qwen2.5-vl-3b-instruct"], ["Xenova/yolos-tiny"]),
+        resultado("D", ["qwen2.5-vl-3b-instruct"], ["outro-detector"]),
+      ],
+      "qwen2.5-vl-3b-instruct"
+    );
+    expect(r.consistente).toBe(true);
+    expect(r.modelos).toEqual(["qwen2.5-vl-3b-instruct"]);
   });
 
   it("alerta quando as variantes divergem", () => {
@@ -184,6 +211,145 @@ describe("verificarMesmoModelo", () => {
     const r = verificarMesmoModelo([resultado("A", [], [])], "");
     expect(r.consistente).toBe(false);
     expect(r.avisos.some((a) => a.includes("nao foi possivel verificar"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Identidade dos clipes (mesmos bytes entre variantes)
+// ---------------------------------------------------------------------------
+
+describe("resumoDoClipe", () => {
+  let dir;
+  afterAll(() => dir && rm(dir, { recursive: true, force: true }));
+
+  it("registra tamanho e SHA-256 estavel do clipe", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "neuro-bench-"));
+    const arquivo = path.join(dir, "clipe.webm");
+    await writeFile(arquivo, "conteudo-do-clipe", "utf8");
+    const a = await resumoDoClipe(arquivo);
+    const b = await resumoDoClipe(arquivo);
+    expect(a.tamanhoBytes).toBe(17);
+    expect(a.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(b.sha256).toBe(a.sha256);
+  });
+
+  it("devolve nulls quando o arquivo nao existe", async () => {
+    const r = await resumoDoClipe(path.join(tmpdir(), "neuro-bench-nao-existe.webm"));
+    expect(r).toEqual({ tamanhoBytes: null, sha256: null });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Criterio de comparabilidade (o harness nao conclui com dados invalidos)
+// ---------------------------------------------------------------------------
+
+describe("avaliarComparabilidade", () => {
+  const resultadoComparavel = (letra, extra = {}) => {
+    const L = letra.toLowerCase();
+    return {
+      variante: { letra },
+      desempenho: { ciclos: 2, ciclosConcluidos: 2, cancelados: 0 },
+      qualidade: { consolidado: { f1: 0.8, precisao: 0.8, recall: 0.8, falsosPositivosPorMinuto: 0 } },
+      arquivoEventos: `logs/eventos-${letra}.jsonl`,
+      arquivoCiclos: "logs/ciclos.jsonl",
+      registros: [{ sessionId: `sessao-variante-${L}`, cycleId: `c-${L}` }],
+      sessaoExplicita: false,
+      modelos: { visao: ["qwen2.5-vl-3b-instruct"], deteccao: ["Xenova/yolos-tiny"] },
+      ...extra,
+    };
+  };
+  const quatro = () => ["A", "B", "C", "D"].map((l) => resultadoComparavel(l));
+  const modelo = "qwen2.5-vl-3b-instruct";
+
+  it("e conclusivo com ciclos concluidos, modelo verificado e qualidade propria", () => {
+    const r = avaliarComparabilidade(quatro(), { modeloGlobal: modelo });
+    expect(r.conclusivo).toBe(true);
+    expect(r.problemas).toEqual([]);
+    expect(r.porVariante).toHaveLength(4);
+    expect(r.porVariante[1]).toMatchObject({ letra: "B", ciclosConcluidos: 2, qualidade: true });
+  });
+
+  it("recusa quando uma variante nao tem ciclo concluido", () => {
+    const resultados = quatro();
+    resultados[1] = resultadoComparavel("B", {
+      desempenho: { ciclos: 2, ciclosConcluidos: 0, cancelados: 2 },
+    });
+    const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo });
+    expect(r.conclusivo).toBe(false);
+    expect(r.problemas.some((p) => p.startsWith("B: 0 ciclo(s) concluido(s)"))).toBe(true);
+  });
+
+  it("recusa quando o modelo multimodal nao foi observado", () => {
+    const resultados = quatro();
+    resultados[2] = resultadoComparavel("C", { modelos: { visao: [], deteccao: ["Xenova/yolos-tiny"] } });
+    const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo });
+    expect(r.conclusivo).toBe(false);
+    expect(r.problemas.some((p) => p.includes("C: modelo multimodal nao observado"))).toBe(true);
+  });
+
+  it("recusa quando o mesmo arquivo de eventos serve a mais de uma variante", () => {
+    const resultados = quatro();
+    resultados[1] = resultadoComparavel("B", { arquivoEventos: "logs/eventos-comum.jsonl" });
+    resultados[2] = resultadoComparavel("C", { arquivoEventos: "logs/eventos-comum.jsonl" });
+    const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo });
+    expect(r.conclusivo).toBe(false);
+    expect(r.problemas.some((p) => p.includes("arquivo de eventos compartilhado"))).toBe(true);
+  });
+
+  it("recusa quando o mesmo ciclo aparece em duas variantes", () => {
+    const resultados = quatro();
+    resultados[2] = resultadoComparavel("C", {
+      registros: [{ sessionId: "sessao-variante-b", cycleId: "c-b" }],
+    });
+    const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo });
+    expect(r.conclusivo).toBe(false);
+    expect(r.problemas.some((p) => p.includes("aparece nas variantes"))).toBe(true);
+  });
+
+  it("exige o minimo de ciclos concluidos informado", () => {
+    const resultados = ["B", "D"].map((l) =>
+      resultadoComparavel(l, { desempenho: { ciclos: 1, ciclosConcluidos: 1, cancelados: 0 } })
+    );
+    const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo, minCiclosValidos: 2 });
+    expect(r.conclusivo).toBe(false);
+    expect(r.problemas.filter((p) => p.includes("abaixo do minimo 2"))).toHaveLength(2);
+  });
+
+  it("recusa sem modelo multimodal registrado", () => {
+    const r = avaliarComparabilidade(quatro(), { modeloGlobal: "" });
+    expect(r.conclusivo).toBe(false);
+    expect(r.problemas.some((p) => p.includes("modelo multimodal nao registrado"))).toBe(true);
+  });
+
+  it("recusa sem qualidade consolidada", () => {
+    const resultados = quatro();
+    resultados[3] = resultadoComparavel("D", { qualidade: { consolidado: null } });
+    const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo });
+    expect(r.conclusivo).toBe(false);
+    expect(r.problemas.some((p) => p.includes("D: sem qualidade consolidada"))).toBe(true);
+  });
+
+  it("com --sem-qualidade conclui apenas pelo desempenho (sem eventos/qualidade)", () => {
+    const resultados = quatro().map((r) => ({ ...r, arquivoEventos: null, qualidade: null }));
+    const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo, exigirQualidade: false });
+    expect(r.conclusivo).toBe(true);
+    expect(r.problemas).toEqual([]);
+  });
+
+  it("aceita sessao explicita mesmo quando o sessionId nao casa com a heuristica", () => {
+    const resultados = quatro();
+    resultados[1] = resultadoComparavel("B", {
+      sessaoExplicita: true,
+      registros: [{ sessionId: "sessao-custom", cycleId: "c-b" }],
+    });
+    const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo });
+    expect(r.conclusivo).toBe(true);
+  });
+
+  it("recusa comparar uma unica variante", () => {
+    const r = avaliarComparabilidade([resultadoComparavel("D")], { modeloGlobal: modelo });
+    expect(r.conclusivo).toBe(false);
+    expect(r.problemas.some((p) => p.includes("menos de duas variantes"))).toBe(true);
   });
 });
 

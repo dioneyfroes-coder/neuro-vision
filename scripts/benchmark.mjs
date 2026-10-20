@@ -15,11 +15,12 @@
  *
  * Exemplos:
  *   node scripts/benchmark.mjs \
- *     --model qwen2.5-vl-3b-instruct --model gemma-4-2b-uncensored-hauhaucs-aggressive
+ *     --model qwen2.5-vl-3b-instruct --model gemma-4
  *   node scripts/benchmark.mjs --base-url http://127.0.0.1:1235 --images-dir bench/imagens
  *   node scripts/benchmark.mjs --json > bench/resultado.json
  */
 
+import { execFileSync } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -81,8 +82,26 @@ export function inferenciasPorMinuto(totalMs, intervaloMinSeg) {
 }
 
 /**
+ * Versao do codigo em execucao: commit, branch e se havia alteracoes locais.
+ * Best-effort — fora de um repositorio Git (ou sem `git` no PATH) devolve null.
+ */
+export function versaoDoCodigo() {
+  const git = (...args) =>
+    execFileSync("git", args, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  try {
+    return {
+      commit: git("rev-parse", "HEAD"),
+      branch: git("rev-parse", "--abbrev-ref", "HEAD"),
+      alteracoesLocais: git("status", "--porcelain").length > 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Metadados de ambiente gravados junto a cada benchmark, para que os numeros
- * sejam comparaveis (mesmo hardware, modelo e configuracoes).
+ * sejam comparaveis (mesmo hardware, codigo, modelo e configuracoes).
  */
 export function montarAmbiente() {
   const cpus = os.cpus();
@@ -94,6 +113,7 @@ export function montarAmbiente() {
     cpu: (cpus[0]?.model ?? "desconhecido").trim(),
     nucleosLogicos: cpus.length,
     memoriaTotalBytes: os.totalmem(),
+    codigo: versaoDoCodigo(),
   };
 }
 

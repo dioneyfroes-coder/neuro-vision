@@ -10,6 +10,13 @@ Não altera `bench/BASELINE.md`. Relatórios de apoio:
 `bench/COMPARATIVO_A_B_C_D_20261018.md`, `bench/RELATORIO_VARIANTE_*_20261018.md`,
 `bench/RELATORIO_SMOKE_MULTIFRAME_2026-10-19.md`.
 
+> **Nota de correção (Fase 0, 2026-10-20):** a tabela da seção 3 e o resumo da
+> seção 5 foram corrigidos para refletir o **código real**: as mãos são
+> tentadas por padrão nos modos C/D (sem opção de desligar só elas) e o
+> multimodal é chamado **a cada ciclo concluído** nesses modos, não pela
+> política de eventos. Onde a decisão registrada difere da implementação, o
+> texto indica o estado pendente.
+
 ## 1. O que mudou desde o comparativo A–D (2026-10-18)
 
 | Frente | Antes | Depois |
@@ -36,11 +43,11 @@ existentes sobre o código final:
 
 | Subsistema | Status | Como desligar |
 | --- | --- | --- |
-| Deteccão (YOLOv10 ONNX) | ativa nos modos C/D, pré-aquecimento fora do ciclo | modo `percepcao-sequencia` (variante B) pula percepção local |
+| Deteccão (YOLOv10 ONNX) | ativa nos modos C/D; modelos carregados no `configurar()` da sessão, mas **sem warm-up de inferência** (1ª inferência ainda paga a compilação) | modo `percepcao-sequencia` (variante B) pula percepção local |
 | Pose (YOLO Pose) | ativa nos modos C/D | ver `docs/limites.md` |
-| Mãos/gestos (MediaPipe) | **sob demanda** (não executou nos runs medidos) | default indisponível; ligar por configuração |
+| Mãos/gestos (MediaPipe) | **tentada por padrão nos modos C/D** (sem toggle próprio; não executou nos runs medidos) | desligar a percepção local inteira (B/`Visão`/`Roteiro`); opção só para as mãos ainda **não existe** |
 | NSFW (YOLO11 ONNX) | **experimental, opt-in, off por padrão** | toggle `#nsfw` desmarcado (padrão) |
-| Multimodal (LM Studio) | sob demanda (política de análise) | política de análise — não aumentar frequência neste hardware |
+| Multimodal (LM Studio) | **a cada ciclo concluído nos modos C/D**; sob demanda (política) no modo Eventos | não aumentar a frequência; no multiframe o próximo ciclo só começa após o anterior (+500 ms) |
 
 ## 4. Números que sustentam a decisão (do hardware de referência)
 
@@ -56,11 +63,16 @@ Consolidados de `bench/DECISAO_ARQUITETURAL_2026-10-19.md` (medidos em
   recall 33%, FP/min 1,5 — comparabilidade 1:1 com o baseline antigo NÃO vale
   (conjuntos de anotação diferentes).
 
-## 5. Decisão vigente (resumo — detalhe no documento de decisão)
+## 5. Decisão vigente e estado da implementação (resumo — detalhe no documento de decisão)
 
-1. Deteccão e pose **sempre ativas** nos modos C/D (com pré-aquecimento).
-2. Mãos **sob demanda** até haver pipeline revalidado.
-3. Multimodal **sob demanda**; não aumentar a frequência neste hardware.
+1. Deteccão e pose **sempre ativas** nos modos C/D; os modelos são carregados na inicialização da sessão, mas o **warm-up de inferência** ainda não existe (condição pendente da decisão).
+2. **Mãos:** a decisão registrada é **sob demanda**, mas a implementação atual
+   ainda as **tenta por padrão** nos modos C/D, sem opção de desligar só as
+   mãos. Alinhar o default e expor a configuração é a **Fase 2** das correções.
+3. **Multimodal:** no modo Eventos vale a política de análise (cooldown/teto);
+   nos modos C/D é **uma chamada por ciclo concluído**, sem essa política. Não
+   aumentar a frequência neste hardware; o próximo ciclo só começa após o
+   anterior (`MARGEM_RESERVA_MS` = 500 ms).
 4. Captura **1 frame/s, 4 frames/ciclo** mantida.
 5. NSFW é **experimental e opt-in** — fora da decisão de defaults, por ser
    sensível a conteúdo e ter custo adicional (~0,8 s/frame WASM no modelo nano).

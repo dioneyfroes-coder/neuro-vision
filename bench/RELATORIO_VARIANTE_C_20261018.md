@@ -1,5 +1,10 @@
 # Relatório da variante C — 20261018
 
+> **Artefato histórico inválido como comparativo (2026-10-20).** Zero ciclos
+> válidos nesta rodada e o mesmo `logs/webcam-eventos.jsonl` foi aplicado a
+> A/B/C/D. O modelo `Xenova/yolos-tiny` nos eventos é o detector local, não o
+> multimodal. Ver `bench/COMPARATIVO_A_B_C_D_20261018.md`.
+
 - **Variante:** C · Percepção fundida (dados locais, temporal básico)
 - **Modo no app:** `percepcao-fundida`
 - **Configuração:** imagens: 4 | percepção local: sim | dados locais no multimodal: sim | temporal: basico
