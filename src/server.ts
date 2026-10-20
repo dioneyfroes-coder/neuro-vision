@@ -69,6 +69,12 @@ import type {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const PUBLIC_DIR = path.join(ROOT, "public");
+/**
+ * Pesos NSFW experimentais (gitignored, nunca commitados): exportados de
+ * `yolonsfw/*.pt` para ONNX por `scripts/exportar-yolo-nsfw.mjs` e servidos
+ * sob `/yolonsfw/` quando existem.
+ */
+export const NSFW_DIR = path.join(ROOT, "yolonsfw");
 export const LOG_DIR = path.join(ROOT, "logs");
 export const LOG_FILE = path.join(LOG_DIR, "visao.jsonl");
 export const EVENTOS_FILE = path.join(LOG_DIR, "eventos.jsonl");
@@ -194,6 +200,7 @@ const MIME: Record<string, string> = {
   ".png": "image/png",
   ".wasm": "application/wasm",
   ".ico": "image/x-icon",
+  ".onnx": "application/octet-stream",
 };
 
 export function sendJson(res: ServerResponse, status: number, data: unknown): void {
@@ -389,7 +396,7 @@ export async function limparCiclosPersistidos(filePath: string = CICLOS_FILE): P
 }
 
 type SubsistemaIndisponivel = RegistroCiclo["subsistemasIndisponiveis"][number];
-const SUBSISTEMAS_VALIDOS: SubsistemaIndisponivel[] = ["deteccao", "pose", "maos"];
+const SUBSISTEMAS_VALIDOS: SubsistemaIndisponivel[] = ["deteccao", "pose", "maos", "nsfw"];
 
 /**
  * Normaliza o corpo de `POST /api/ciclos` em um `RegistroCiclo`. O registro
@@ -1421,6 +1428,46 @@ function serveSnapshot(
   });
 }
 
+/**
+ * Serve os pesos NSFW experimentais de `yolonsfw/` (`.onnx` + sidecar `.json`
+ * de rotulos). A pasta e gitignored: sem export, responde 404 — e o cliente
+ * traduz isso em "rode scripts/exportar-yolo-nsfw.mjs".
+ */
+function serveModeloNsfw(req: IncomingMessage, res: ServerResponse, nsfwDir: string): void {
+  const pathname = pathnameDecodificado(req.url);
+  if (pathname === null) {
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Requisicao invalida");
+    return;
+  }
+  const rel = pathname.replace(/^\/yolonsfw\/?/, "");
+  // Somente os artefatos do export: modelo ONNX e sidecar de classes.
+  if (!/^[\w.-]+\.onnx(\.json)?$/.test(rel)) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Acesso negado");
+    return;
+  }
+  const filePath = resolverCaminhoDentroDaBase(nsfwDir, rel);
+  if (!filePath) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Acesso negado");
+    return;
+  }
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Nao encontrado");
+      return;
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    res.writeHead(200, {
+      "Content-Type": MIME[ext] || "application/octet-stream",
+      "Cache-Control": "public, max-age=31536000, immutable",
+    });
+    res.end(data);
+  });
+}
+
 export interface ServerConfig {
   logFile?: string;
   snapDir?: string;
@@ -1435,6 +1482,8 @@ export interface ServerConfig {
   operacionalFile?: string;
   /** Arquivo de diagnosticos de ciclo. Padrao: `ciclos.jsonl` ao lado do log. */
   ciclosFile?: string;
+  /** Diretorio dos pesos NSFW experimentais. Padrao: `yolonsfw/` na raiz. */
+  nsfwDir?: string;
 }
 
 export function createServer(config: ServerConfig = {}): http.Server {
@@ -1514,6 +1563,10 @@ export function createServer(config: ServerConfig = {}): http.Server {
     }
     if (req.method === "GET" && pathname.startsWith("/snapshots/")) {
       serveSnapshot(req, res, snapDir);
+      return;
+    }
+    if (req.method === "GET" && pathname.startsWith("/yolonsfw/")) {
+      serveModeloNsfw(req, res, config.nsfwDir ?? NSFW_DIR);
       return;
     }
     if (req.method === "GET") {

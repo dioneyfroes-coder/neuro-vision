@@ -3,12 +3,14 @@ import { indisponivel } from "../../src/domain/perception";
 import type {
   ResultadoDeteccaoLocal,
   ResultadoMaos,
+  ResultadoNsfw,
   ResultadoOuIndisponivel,
   ResultadoPose,
 } from "../../src/domain/perception";
 import type { SnapshotCapturado } from "../capture/snapshot-store";
 import type { ProcessamentoFrame } from "../cycle/ciclo-multiframe";
 import type {
+  ClassificadorNsfw,
   DetectorObjetos,
   EntradaAdaptador,
   EstimadorPose,
@@ -35,7 +37,7 @@ import type {
  */
 
 /** Subsistemas de percepcao local, na ordem sequencial do pipeline. */
-export type SubsistemaPercepcao = "deteccao" | "pose" | "maos";
+export type SubsistemaPercepcao = "deteccao" | "pose" | "maos" | "nsfw";
 
 export interface DependenciasPipelineLocal {
   /** Detector de objetos. Omitido: o subsistema fica indisponivel (desativado). */
@@ -44,6 +46,13 @@ export interface DependenciasPipelineLocal {
   pose?: EstimadorPose;
   /** Reconhecedor de maos/gestos. Omitido: fica indisponivel (desativado). */
   maos?: ReconhecedorGestos;
+  /**
+   * Classificador **NSFW experimental**. O subsistema so roda quando o adaptador
+   * esta presente **e** carregado (`modelo !== null`): sem toggle da interface
+   * nenhum modelo e carregado e o campo `nsfw` simplesmente fica ausente no
+   * frame — "nao rodou" permanece distinguivel de "rodou e nao marcou nada".
+   */
+  nsfw?: ClassificadorNsfw;
   /** Limiar de deteccao lido a cada frame (reflete ajustes da interface). */
   obterThreshold?: () => number;
   /** Avisos do pipeline (ex.: subsistema que falhou). */
@@ -103,14 +112,30 @@ export class PipelineLocal {
         : Promise.resolve(indisponivel("maos", "reconhecedor de maos desativado"))
     );
 
+    // NSFW experimental: roda somente quando habilitado (toggle da interface)
+    // **e** carregado. Nesses casos, falha vira `indisponivel` como nos demais;
+    // caso contrario o campo `nsfw` fica ausente no frame.
+    let nsfw: ProcessamentoFrame["nsfw"];
+    let duracaoNsfwMs: number | undefined;
+    if (this.deps.nsfw?.modelo) {
+      const classificador = this.deps.nsfw;
+      const execucao = await this.executar("nsfw", sinal, () =>
+        classificador.avaliar(entrada, { threshold, percentage: false })
+      );
+      nsfw = execucao.resultado as ResultadoOuIndisponivel<ResultadoNsfw>;
+      duracaoNsfwMs = execucao.duracaoMs;
+    }
+
     return {
       deteccoes: deteccao.resultado as ResultadoOuIndisponivel<ResultadoDeteccaoLocal>,
       pose: pose.resultado as ResultadoOuIndisponivel<ResultadoPose>,
       maos: maos.resultado as ResultadoOuIndisponivel<ResultadoMaos>,
+      nsfw,
       metricas: {
         duracaoDeteccaoMs: deteccao.duracaoMs,
         duracaoPoseMs: pose.duracaoMs,
         duracaoMaosMs: maos.duracaoMs,
+        duracaoNsfwMs,
       },
     };
   }
@@ -120,6 +145,7 @@ export class PipelineLocal {
     this.deps.detector?.encerrar();
     this.deps.pose?.encerrar();
     this.deps.maos?.encerrar();
+    this.deps.nsfw?.encerrar();
   }
 
   /**
@@ -170,11 +196,12 @@ export function criarProcessadorInativo(): ProcessarFrameLocal {
     });
 }
 
-/** Ids de modelo por subsistema (todos opcionais). */
+/** Ids de modelo por subsistema (todos opcionais; `nsfw` so carrega com toggle). */
 export interface ModelosPercepcao {
   objetos?: string;
   pose?: string;
   maos?: string;
+  nsfw?: string;
 }
 
 /** Resultado da configuracao dos subsistemas: quem carregou e quem falhou. */
@@ -202,6 +229,9 @@ export async function configurarSubsistemas(
     { subsistema: "deteccao", porta: deps.detector, modelo: modelos.objetos },
     { subsistema: "pose", porta: deps.pose, modelo: modelos.pose },
     { subsistema: "maos", porta: deps.maos, modelo: modelos.maos },
+    // NSFW experimental: `modelos.nsfw` ausente = toggle desligado = nada e
+    // carregado (e o pipeline omite o subsistema dos frames).
+    { subsistema: "nsfw", porta: deps.nsfw, modelo: modelos.nsfw },
   ];
 
   const carregados: SubsistemaPercepcao[] = [];

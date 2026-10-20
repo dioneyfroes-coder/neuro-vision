@@ -1,6 +1,7 @@
 import type {
   ResultadoDeteccaoLocal,
   ResultadoMaos,
+  ResultadoNsfw,
   ResultadoOuIndisponivel,
   ResultadoPose,
 } from "./perception";
@@ -28,11 +29,18 @@ export interface ObservacaoFrame {
   deteccoes: ResultadoOuIndisponivel<ResultadoDeteccaoLocal>;
   pose: ResultadoOuIndisponivel<ResultadoPose>;
   maos: ResultadoOuIndisponivel<ResultadoMaos>;
+  /**
+   * Marcacoes NSFW (experimental). **Ausente** quando o subsistema esta
+   * desligado (padrao) — o `undefined` distingue "nao rodou" de "rodou e nao
+   * marcou nada", preservando a regra "falha != ausencia".
+   */
+  nsfw?: ResultadoOuIndisponivel<ResultadoNsfw>;
   /** Instante ISO em que a inferencia local terminou. */
   inferidoEm?: string;
   metricas: {
     duracaoDeteccaoMs?: number;
     duracaoPoseMs?: number;
     duracaoMaosMs?: number;
+    duracaoNsfwMs?: number;
   };
 }

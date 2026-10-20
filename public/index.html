@@ -60,6 +60,12 @@
           <input id="threshold" type="range" min="0.1" max="0.9" step="0.05" value="0.5" />
           <span id="thresholdValue">0.50</span>
         </label>
+        <label
+          title="Experimental: marca regioes sensiveis (NSFW) em cada frame. Exige pesos ONNX exportados em yolonsfw/ (scripts/exportar-yolo-nsfw.mjs). As marcacoes entram no contexto do modelo de visao somente com o toggle ligado."
+        >
+          <input id="nsfw" type="checkbox" />
+          NSFW (experimental)
+        </label>
       </div>
       <div id="status" class="status">Pronto.</div>
     </section>

@@ -5,6 +5,7 @@ import type {
   PontoCorporal,
   ResultadoDeteccaoLocal,
   ResultadoMaos,
+  ResultadoNsfw,
   ResultadoOuIndisponivel,
   ResultadoPose,
 } from "../../src/domain";
@@ -58,6 +59,12 @@ export interface ResumoFrame {
   deteccoes: string;
   pose: string;
   maos: string;
+  /**
+   * Marcacoes NSFW (experimental). **Opcional**: presente apenas quando o
+   * subsistema rodou neste frame (toggle ligado) — com o toggle desligado o
+   * campo e omitido do payload, como se o subsistema nao existisse.
+   */
+  nsfw?: string;
   pontos: PontoRelevante[];
 }
 
@@ -133,6 +140,12 @@ export function montarContextoCiclo(
     deteccoes: incluirDadosLocais ? resumirDeteccoes(obs.deteccoes, cfg.decimais) : "",
     pose: incluirDadosLocais ? resumirPose(obs.pose) : "",
     maos: incluirDadosLocais ? resumirMaos(obs.maos, cfg.decimais) : "",
+    // NSFW experimental: so entra no contexto (e portanto ao gemma) quando o
+    // subsistema RODOU neste frame (toggle ligado) e os dados locais vao ao
+    // multimodal. Toggle desligado = campo omitido por completo.
+    ...(incluirDadosLocais && obs.nsfw !== undefined
+      ? { nsfw: resumirNsfw(obs.nsfw, cfg.decimais) }
+      : {}),
     pontos: incluirDadosLocais ? pontosRelevantes(obs.pose, cfg.maxPontosPorFrame, cfg.decimais) : [],
   }));
 
@@ -232,6 +245,15 @@ function resumirMaos(
     .join("; ");
 }
 
+/** Resumo das marcacoes NSFW (rotulos vem do proprio modelo, em ingles). */
+function resumirNsfw(resultado: ResultadoOuIndisponivel<ResultadoNsfw>, decimais: number): string {
+  if (estaIndisponivel(resultado)) return `indisponivel (${resultado.motivo})`;
+  if (resultado.marcacoes.length === 0) return "nenhuma marcacao";
+  return resultado.marcacoes
+    .map((m) => `${m.rotulo} (${arredondar(m.score, decimais)})`)
+    .join(", ");
+}
+
 function pontosRelevantes(
   resultado: ResultadoOuIndisponivel<ResultadoPose>,
   max: number,
@@ -253,10 +275,12 @@ function pontosRelevantes(
 function coletarIndisponibilidades(observacoes: ObservacaoFrame[]): string[] {
   const vistos = new Set<string>();
   observacoes.forEach((obs, i) => {
-    const pares: Array<[string, ResultadoOuIndisponivel<unknown>]> = [
+    const pares: Array<[string, ResultadoOuIndisponivel<unknown> | undefined]> = [
       ["deteccao", obs.deteccoes],
       ["pose", obs.pose],
       ["maos", obs.maos],
+      // `nsfw` undefined = subsistema desligado: nao e indisponibilidade.
+      ["nsfw", obs.nsfw],
     ];
     for (const [nome, res] of pares) {
       if (estaIndisponivel(res)) {
@@ -294,6 +318,7 @@ function limitarPorBytes(contexto: ContextoCicloSerializavel, maxBytes: number):
     frame.deteccoes = truncar(frame.deteccoes, 120);
     frame.pose = truncar(frame.pose, 120);
     frame.maos = truncar(frame.maos, 120);
+    if (frame.nsfw !== undefined) frame.nsfw = truncar(frame.nsfw, 120);
   }
 }
 

@@ -3,6 +3,7 @@ import { indisponivel } from "../../src/domain/perception";
 import type {
   ResultadoDeteccaoLocal,
   ResultadoMaos,
+  ResultadoNsfw,
   ResultadoOuIndisponivel,
   ResultadoPose,
 } from "../../src/domain/perception";
@@ -37,10 +38,16 @@ export interface ProcessamentoFrame {
   deteccoes: ResultadoOuIndisponivel<ResultadoDeteccaoLocal>;
   pose: ResultadoOuIndisponivel<ResultadoPose>;
   maos: ResultadoOuIndisponivel<ResultadoMaos>;
+  /**
+   * Marcacoes NSFW (experimental). Ausente quando o subsistema nao roda
+   * (toggle desligado) — distinto de `indisponivel` (tentou e falhou).
+   */
+  nsfw?: ResultadoOuIndisponivel<ResultadoNsfw>;
   metricas: {
     duracaoDeteccaoMs?: number;
     duracaoPoseMs?: number;
     duracaoMaosMs?: number;
+    duracaoNsfwMs?: number;
   };
 }
 
@@ -160,6 +167,7 @@ export async function executarCicloMultiframe(
     let deteccaoMs = 0;
     let poseMs = 0;
     let maosMs = 0;
+    let nsfwMs = 0;
 
     for (const snapshot of quadros) {
       if (sinal?.aborted) throw cancelado();
@@ -174,12 +182,15 @@ export async function executarCicloMultiframe(
           deteccoes: indisponivel("deteccao", mensagem),
           pose: indisponivel("pose", mensagem),
           maos: indisponivel("maos", mensagem),
+          // NSFW omitido no fallback: sem processamento nao ha como saber se o
+          // subsistema rodaria (toggle) — "indeterminado" != "indisponivel".
           metricas: {},
         };
       }
       deteccaoMs += processamento.metricas.duracaoDeteccaoMs ?? 0;
       poseMs += processamento.metricas.duracaoPoseMs ?? 0;
       maosMs += processamento.metricas.duracaoMaosMs ?? 0;
+      nsfwMs += processamento.metricas.duracaoNsfwMs ?? 0;
 
       observacoes.push(
         Object.freeze({
@@ -194,6 +205,7 @@ export async function executarCicloMultiframe(
           deteccoes: processamento.deteccoes,
           pose: processamento.pose,
           maos: processamento.maos,
+          nsfw: processamento.nsfw,
           inferidoEm: agoraIso(),
           metricas: processamento.metricas,
         })
@@ -228,6 +240,7 @@ export async function executarCicloMultiframe(
         deteccaoMs,
         poseMs,
         maosMs,
+        ...(nsfwMs > 0 ? { nsfwMs } : {}),
         temporalMs,
         totalMs: Math.round(agora() - inicioMs),
       },

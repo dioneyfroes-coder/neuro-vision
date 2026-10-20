@@ -21,6 +21,8 @@ export interface MetricasCiclo {
   deteccaoMs?: number;
   poseMs?: number;
   maosMs?: number;
+  /** Classificador NSFW (experimental; presente apenas quando habilitado). */
+  nsfwMs?: number;
   temporalMs?: number;
   multimodalMs?: number;
   persistenciaMs?: number;
@@ -97,7 +99,7 @@ export function criarRegistroCiclo(
   const { pacote } = resultado;
   const indisponiveis = new Set<ResultadoIndisponivel["subsistema"]>();
   for (const observacao of pacote.observacoes) {
-    for (const subsistema of [observacao.deteccoes, observacao.pose, observacao.maos]) {
+    for (const subsistema of [observacao.deteccoes, observacao.pose, observacao.maos, observacao.nsfw]) {
       if (estaIndisponivel(subsistema)) indisponiveis.add(subsistema.subsistema);
     }
   }

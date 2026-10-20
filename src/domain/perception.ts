@@ -25,7 +25,7 @@ export interface Caixa {
 export interface ResultadoIndisponivel {
   indisponivel: true;
   /** Subsistema que falhou/faltou. */
-  subsistema: "deteccao" | "pose" | "maos";
+  subsistema: "deteccao" | "pose" | "maos" | "nsfw";
   /** Motivo legivel (erro, timeout, desativado por config). */
   motivo: string;
 }
@@ -125,6 +125,31 @@ export interface MaoDetectada {
 export interface ResultadoMaos {
   maos: MaoDetectada[];
   modelo?: string;
+}
+
+/**
+ * Marcacao de conteudo sensivel (**NSFW experimental**) em um frame.
+ *
+ * O subsistema e experimental e desligado por padrao: so roda quando o usuario
+ * habilita o toggle da interface e os pesos ONNX existem em `yolonsfw/`
+ * (ver `scripts/exportar-yolo-nsfw.mjs`). Rotulos vem do proprio modelo
+ * (ex.: `neutral`, `hentai`, `porn`, `sexy`), sem traducao fixa.
+ */
+export interface MarcacaoNsfw {
+  /** Rotulo devolvido pelo modelo (em ingles, como o modelo classifica). */
+  rotulo: string;
+  /** Confianca em [0, 1]. */
+  score: number;
+  caixa: Caixa;
+}
+
+/** Resultado do classificador NSFW para um frame. */
+export interface ResultadoNsfw {
+  marcacoes: MarcacaoNsfw[];
+  /** Modelo que produziu o resultado (quando conhecido). */
+  modelo?: string;
+  /** Resumo legivel (ex.: `porn 0.87, sexy 0.42`). */
+  resumo?: string;
 }
 
 /** Qualquer subsistema pode falhar sem apagar os demais. */

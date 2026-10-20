@@ -12,6 +12,7 @@ import { CicloPercepcaoController } from "./cycle/ciclo-percepcao-controller";
 import { criarPercepcaoLocal } from "./perception/percepcao-local";
 import { obterVariante } from "./perception/variantes";
 import type { VariantePercepcao } from "./perception/variantes";
+import { MODELO_NSFW_PADRAO } from "./nsfw-onnx";
 import { MotorTemporalImpl } from "./temporal/motor-temporal";
 import { InterpretadorCiclo } from "./interpretation/interpretador-ciclo";
 import { criarTransporteServidor } from "./interpretation/transporte-servidor";
@@ -51,6 +52,7 @@ const intervalInput = el<HTMLInputElement>("interval");
 const intervalValue = el<HTMLSpanElement>("intervalValue");
 const thresholdInput = el<HTMLInputElement>("threshold");
 const thresholdValue = el<HTMLSpanElement>("thresholdValue");
+const nsfwToggle = el<HTMLInputElement>("nsfw");
 
 const detectorCoco = new AdaptadorDetectorObjetos();
 let running = false;
@@ -176,7 +178,12 @@ const controladorPercepcao = new CicloPercepcaoController({
       obterThreshold: () => Number(thresholdInput.value),
       aoStatus: (mensagem) => setStatus(mensagem),
     }),
-  obterModelosPercepcao: () => ({ objetos: modelSelect.value }),
+  obterModelosPercepcao: () => ({
+    objetos: modelSelect.value,
+    // NSFW experimental: so carrega quando o toggle esta ligado no inicio da
+    // sessao (o toggle fica bloqueado durante a captura, como os seletores).
+    nsfw: nsfwToggle.checked ? MODELO_NSFW_PADRAO : undefined,
+  }),
   criarMotorTemporal: (modo) => new MotorTemporalImpl({ modo }),
   criarInterpretador: () =>
     new InterpretadorCiclo({
@@ -334,6 +341,9 @@ function habilitarSeletoresDeMotor(habilitado: boolean): void {
   motorSelect.disabled = !habilitado;
   modelSelect.disabled = !habilitado;
   modeloVisaoSelect.disabled = !habilitado;
+  // O NSFW e carregado na configuracao da sessao: trocar no meio da captura
+  // nao teria efeito, entao o toggle tambem bloqueia junto dos seletores.
+  nsfwToggle.disabled = !habilitado;
 }
 
 function drawBoxes(objetos: ReadonlyArray<{ nome: string; score: number; caixa: Caixa }>): void {
@@ -639,6 +649,14 @@ modeloVisaoSelect.addEventListener("change", () => {
     escolhido
       ? `Modelo de visao: ${escolhido}. Ele sera carregado ao iniciar a analise.`
       : "Modelo de visao: padrao do servidor."
+  );
+});
+
+nsfwToggle.addEventListener("change", () => {
+  setStatus(
+    nsfwToggle.checked
+      ? "NSFW experimental: ligado. As marcacoes entram no contexto do modelo de visao ao iniciar a analise."
+      : "NSFW experimental: desligado."
   );
 });
 

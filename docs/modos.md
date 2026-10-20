@@ -61,6 +61,20 @@ O seletor `#model` da interface oferece modelos COCO em ONNX (YOLOv10, saída NM
 
 O runtime e baixado sob demanda do CDN (versão fixada em `1.21.0`); a verificação empírica do caminho completo (pré-processamento, inferência e coordenadas) vive em `scripts/verificar-yolo-onnx.mjs`.
 
+## NSFW experimental (toggle da interface)
+
+O checkbox **NSFW (experimental)** (`#nsfw`) liga um quarto subsistema do pipeline local: um classificador YOLO treinado para conteúdo sensível (mesmo runtime `onnxruntime-web`/WASM e mesma sessão compartilhada do detector COCO). Com o toggle ligado **na inicialização da sessão**, cada frame ganha marcações (`rotulo`, `score`, `caixa`) que:
+
+- entram no **contexto estruturado enviado ao modelo de visão** (`nsfw=...` por frame no prompt) — somente quando o toggle está ligado e os dados locais vão ao multimodal (variantes C/D); com o toggle desligado o campo é omitido por completo;
+- aparecem no diagnóstico por ciclo (`observacoes[].nsfw`, métrica `nsfwMs`, `subsistemasIndisponiveis`).
+
+Detalhes:
+
+- **Pesos locais, nunca commitados.** Os `.pt` vivem em `yolonsfw/` (gitignored) e são exportados para ONNX por `node scripts/exportar-yolo-nsfw.mjs` (requer `ultralytics` — venv sugerida em `yolonsfw/.venv`). O servidor expõe os arquivos em `/yolonsfw/` (`src/server.ts`); sem export, a carga falha com instrução de como gerar.
+- **Rótulos do próprio modelo.** O export grava o sidecar `<modelo>.onnx.json` com as classes (no erax: `anus`, `make_love`, `nipple`, `penis`, `vagina`); o cliente lê o sidecar em vez de duplicar a tabela.
+- **Desligado por padrão e experimental.** Sem toggle, nada é carregado e o `nsfw` fica ausente nas observações (a distinção "não rodou" × "rodou e não marcou" é preservada). O toggle fica bloqueado durante a captura (como os seletores de motor): ele vale para a próxima inicialização de sessão.
+- **Verificação empírica:** `node scripts/verificar-yolo-nsfw.mjs [modelo] [frame] [limiar]` — roda o caminho real em WASM no Chromium sobre frames de `bench/videos/frames/` (~0,8 s por inferência com o nano, saída `1×300×6`, NMS embutido no export).
+
 ## Repetição na descrição
 
 O motor de descrição costumava repetir/fundir frases. As causas eram do próprio modelo, agravadas por reinjetar a descrição anterior inteira. Mitigações atuais: cada frame é descrito **do zero** (a descrição anterior não é reenviada), amostragem com `temperature: 0.2`, `top_p: 0.9`, `max_tokens` reduzido no delta do roteiro (`NUM_PREDICT_DELTA`) e pós-processamento (`colapsarRepeticoes` + `cortarFraseIncompleta`) no servidor.

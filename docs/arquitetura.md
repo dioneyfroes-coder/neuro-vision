@@ -10,8 +10,8 @@ Estrutura de arquivos e como as partes conversam.
 - **Controlador do ciclo** (`public/cycle/cycle-controller.ts`) — regra de negócio do ciclo de frame único (captura, inferência, rastreamento, persistência e progresso) com dependências injetadas; emite `EventoUi` em vez de tocar o DOM.
 - **Ciclo multiframe** (`public/cycle/ciclo-multiframe.ts`) — captura 4 snapshots identificados (~1 s), guarda-os sem inferência, processa-os em sequência, roda a leitura temporal e envia o `PacoteCiclo` à interpretação multimodal. As imagens que chegam ao interpretador são as mesmas capturadas (sem recaptura). Sem frame disponível o ciclo retorna vazio, sem interpretar nem persistir (não é falha).
 - **Controlador multiframe** (`public/cycle/ciclo-percepcao-controller.ts`) — liga o pipeline completo (captura + percepção local + motor temporal + interpretação) à interface, como `ControladorCiclo` do modo `percepcao`; emite `EventoUi`, persiste o diagnóstico do ciclo (best-effort) e grava os **eventos temporais confirmados** em `eventos.jsonl` (uma gravação por identidade, `timestamp` = início real — ver [`eventos.md`](./eventos.md)).
-- **Pipeline local de percepcao** (`public/perception/local-perception-pipeline.ts`) — executa detector, pose (YOLO Pose) e maos/gestos (MediaPipe) por snapshot em sequencia, com isolamento de falhas: um subsistema quebrado vira `ResultadoIndisponivel` e nao apaga os demais. Usa portas em `public/perception/contracts.ts`.
-- **Adaptadores de percepção** (`public/perception/`) — portas `DetectorObjetos`, `EstimadorPose` e `ReconhecedorGestos` independentes do SDK; o núcleo conhece apenas essas interfaces, e cada SDK entra por um adaptador em `public/perception/adapters/` (`object-detector.adapter.ts`, `pose-estimator.adapter.ts`, `hand-gesture.adapter.ts`). Motores SDK concretos: `public/detector.ts` (Transformers.js), `public/pose.ts` (YOLO Pose via Transformers.js) e `public/gestos.ts` (MediaPipe Gesture Recognizer).
+- **Pipeline local de percepcao** (`public/perception/local-perception-pipeline.ts`) — executa detector, pose (YOLO Pose), maos/gestos (MediaPipe) e, quando habilitado, o classificador NSFW (experimental, opt-in) por snapshot em sequencia, com isolamento de falhas: um subsistema quebrado vira `ResultadoIndisponivel` e nao apaga os demais. Usa portas em `public/perception/contracts.ts`.
+- **Adaptadores de percepção** (`public/perception/`) — portas `DetectorObjetos`, `EstimadorPose`, `ReconhecedorGestos` e `ClassificadorNsfw` independentes do SDK; o núcleo conhece apenas essas interfaces, e cada SDK entra por um adaptador em `public/perception/adapters/` (`object-detector.adapter.ts`, `pose-estimator.adapter.ts`, `hand-gesture.adapter.ts`, `nsfw-classifier.adapter.ts`). Motores SDK concretos: `public/detector.ts` (Transformers.js), `public/pose.ts` (YOLO Pose via Transformers.js), `public/gestos.ts` (MediaPipe Gesture Recognizer) e `public/nsfw-onnx.ts` (YOLO11 NSFW via ONNX Runtime, experimental).
 - **Composicao da percepcao** (`public/perception/percepcao-local.ts`) — cria os adaptadores concretos (reaproveitando o detector já carregado), coordena o carregamento isolado (`configurarSubsistemas`, com override de modelos por sessão) e expõe `processarFrame` pronto para o ciclo multiframe.
 - **Motor temporal** (`public/temporal/`) — encapsula o rastreamento de objetos (`rastreamento.ts`) e a mudança de cena (`cena.ts`) **sem reescrever os algoritmos** e adiciona rastreadores de pose (pessoas) e mãos com IDs estáveis na sessão, suavização e métricas de movimento em coordenadas normalizadas, além de máquinas de estado de gestos e de braço levantado com confirmação/encerramento temporais. Emite `EventoTemporal` (identidade única, duração, confiança, timestamps e IDs dos frames de evidência) e trata frames ausentes, inferências falhas, mudanças de resolução (coordenadas normalizadas) e períodos cegos. O estado é reutilizado entre ciclos; `resetar()` só é chamado em evento explícito de sessão.
 - **Variantes do benchmark** (`public/perception/variantes.ts`) — a matriz A–D da Etapa 9 num único registro (`percepcaoLocal` × `dadosLocais` × `temporal`): B = só sequência de imagens, C = dados locais + temporal básico, D = arquitetura-alvo completa; A é o fluxo de frame único dos modos existentes. O modo (seletor `#motor`) declara a variante, em vez de condições espalhadas pelo código. A decisão arquitetural que usa essa matriz está em `bench/DECISAO_ARQUITETURAL_2026-10-19.md`.
@@ -59,7 +59,7 @@ public/
     webcam-capture.ts    coleta snapshots identificados em intervalo (sem inferência; cancelável)
     snapshot-store.ts    buffer de snapshots com retenção limitada e limpeza
   perception/
-    contracts.ts       portas `DetectorObjetos`, `EstimadorPose` e `ReconhecedorGestos` (sem SDK de modelo)
+    contracts.ts       portas `DetectorObjetos`, `EstimadorPose`, `ReconhecedorGestos` e `ClassificadorNsfw` (sem SDK de modelo)
     local-perception-pipeline.ts  pipeline sequencial por snapshot com isolamento de falhas
     percepcao-local.ts  composicao concreta (adaptadores + motor SDK + configuracao isolada)
     variantes.ts       matriz de variantes do benchmark A–D (Etapa 9)
@@ -67,6 +67,7 @@ public/
       object-detector.adapter.ts  adaptador do detector instalado (Transformers.js) para a porta
       pose-estimator.adapter.ts   adaptador do estimador de pose (YOLO Pose) para a porta
       hand-gesture.adapter.ts    adaptador do reconhecedor de maos/gestos (MediaPipe) para a porta
+      nsfw-classifier.adapter.ts adaptador do classificador NSFW (YOLO11 ONNX) para a porta
   interpretation/
     contracts.ts       porta `InterpretadorMultimodal` (recebe o pacote; nunca captura a câmera)
     interpretador-ciclo.ts  interpretador do ciclo multiframe (monta a mensagem do `PacoteCiclo`)
@@ -83,6 +84,7 @@ public/
   api.ts               cliente HTTP (histórico, eventos, contexto, backend de visão)
   detector.ts          helpers da detecção (COCO → português, resumo do log; sem SDK)
   yolo-onnx.ts         detector de objetos YOLOv10 em ONNX (`onnxruntime-web`, WASM; catálogo COCO + inferência)
+  nsfw-onnx.ts         detector NSFW experimental em ONNX (YOLO11; rótulos do sidecar `<modelo>.onnx.json`; opt-in)
   pose.ts              motor SDK para YOLO Pose (Transformers.js) usado pelo adaptador
   gestos.ts            motor SDK para MediaPipe Gesture Recognizer (Tasks Vision) usado pelo adaptador
   camera.ts            controle da webcam e assinatura de cena
@@ -115,6 +117,8 @@ scripts/
   avaliar-qualidade.mjs     compara eventos gravados com a anotação (precisão/recall/FP por minuto)
   gravar-webcam.mjs         grava alguns segundos da webcam em .webm (clipe de avaliação)
   extrair-frames.mjs        extrai quadros de um clipe para anotação
+  exportar-yolo-nsfw.mjs    exporta o modelo NSFW (.pt → .onnx + sidecar de rótulos) via venv Python local
+  verificar-yolo-nsfw.mjs   verificação empírica do .onnx exportado (dims, labels, inferência real)
 ```
 
 ## Modos multiframe (variantes B/C/D)
@@ -130,7 +134,7 @@ Os modos `percepcao`, `percepcao-fundida` e `percepcao-sequencia` (opções **Pe
 A variante **A** (referência) é o fluxo de frame único dos modos existentes (`deteccao`/`eventos`/`visao`) e não usa este ciclo. Comparação e decisão em `bench/COMPARATIVO_A_B_C_D_*.md` e `bench/DECISAO_ARQUITETURAL_2026-10-19.md`; execução reproduzível em [`qualidade.md`](./qualidade.md).
 
 1. A cada ciclo o `WebcamCapture` coleta 4 snapshots identificados (~1 s) **sem inferência** e os guarda no `SnapshotStore`.
-2. O `PercepcaoLocal` processa os snapshots em sequência: detecção (porta `DetectorObjetos`, reaproveitando o modelo já carregado), pose (YOLO Pose) e mãos/gestos (MediaPipe) — nos modos C/D; a variante B pula esta etapa. Cada subsistema é isolado: uma falha vira `ResultadoIndisponivel` para aquele frame e não apaga os demais. Se **nenhum** subsistema carregar, a sessão não inicia.
+2. O `PercepcaoLocal` processa os snapshots em sequência: detecção (porta `DetectorObjetos`, reaproveitando o modelo já carregado), pose (YOLO Pose), mãos/gestos (MediaPipe) e, com o seletor NSFW ligado, o classificador NSFW experimental (YOLO11 ONNX) — nos modos C/D; a variante B pula esta etapa. Cada subsistema é isolado: uma falha vira `ResultadoIndisponivel` para aquele frame e não apaga os demais. Se **nenhum** subsistema carregar, a sessão não inicia.
 3. O `MotorTemporalImpl` consome as observações e devolve um `ResumoTemporal` (eventos com identidade e continuidade entre ciclos) que entra no `PacoteCiclo`. No fim do ciclo, eventos `confirmado`/`encerrado` de tipo `aparicao`/`desaparecimento`/`mudanca_de_cena` são gravados **uma única vez por `eventoId`** em `eventos.jsonl` (`origem: "rastreador"`, `timestamp` = início real — ver [`eventos.md`](./eventos.md)).
 4. O `InterpretadorCiclo` interpreta o pacote pelo transporte do servidor (`POST /api/visao` via `transporte-servidor.ts`) e devolve a narrativa. O campo `modelo` vem de um getter dinâmico: a seleção atual do seletor, ou o modelo efetivo do backend (`/api/health`) — nunca um placeholder.
 5. O diagnóstico do ciclo é gravado em `POST /api/ciclos`; a entrada do histórico entra na `FilaPersistencia` como nos demais modos. A troca de modo/início de sessão reseta o estado temporal (`MotorTemporal.resetar()`) e o dedupe de eventos da sessão.
@@ -159,7 +163,7 @@ A persistência é separada do servidor HTTP (`src/persistence/`), com uma primi
 | Operacionais (`RegistroOperacional`) | `operacional.jsonl` | `repositorio-operacional.ts` | `POST /api/operacional` | `DELETE /api/logs` |
 | Ciclos (`RegistroCiclo`) | `ciclos.jsonl` | `repositorio-ciclos.ts` | `POST /api/ciclos`, `GET /api/ciclos` | `DELETE /api/ciclos` |
 
-- **Diagnóstico por ciclo.** `RegistroCiclo` (derivado de `ResultadoCiclo` por `criarRegistroCiclo`, em `src/domain/cycle.ts`) reúne métricas por etapa (`capturaMs`, `deteccaoMs`, `poseMs`, `maosMs`, `temporalMs`, `multimodalMs`, `persistenciaMs`, `totalMs`), os `erros` por etapa, os `subsistemasIndisponiveis` e a **relação** entre sessão, ciclo e imagens (`sessionId`, `cycleId`, `frameIds`). As imagens não são copiadas: vivem nos snapshots, referenciados por `frameId`.
+- **Diagnóstico por ciclo.** `RegistroCiclo` (derivado de `ResultadoCiclo` por `criarRegistroCiclo`, em `src/domain/cycle.ts`) reúne métricas por etapa (`capturaMs`, `deteccaoMs`, `poseMs`, `maosMs`, `nsfwMs`, `temporalMs`, `multimodalMs`, `persistenciaMs`, `totalMs`), os `erros` por etapa, os `subsistemasIndisponiveis` e a **relação** entre sessão, ciclo e imagens (`sessionId`, `cycleId`, `frameIds`). As imagens não são copiadas: vivem nos snapshots, referenciados por `frameId`.
 - **Ciclos incompletos continuam diagnosticáveis.** O `executarCicloMultiframe` aceita um `persistirCiclo` opcional. Ao final do ciclo envia o registro; em falha/cancelamento, registra um **registro parcial** (frames já observados, erros e a flag `cancelado`) antes de propagar o erro. A falha de **gravação** nunca derruba o ciclo: vira um `ErroEtapa` de etapa `persistencia` e o resultado da inferência segue válido (falha de logging ≠ falha de inferência).
 - **IDs únicos.** `sessionId`, `cycleId` e `frameId` são gerados em `src/domain/ids.ts` com um componente aleatório/sequencial de sessão, o que evita colisão com o histórico de execuções anteriores.
 - **Idempotência.** Os eventos guardam uma `idempotencyKey` por arquivo (`repositorio-eventos.ts`), de modo que o reenvio da fila de persistência do cliente após uma falha transitória não duplica o evento. Limpar o arquivo invalida as chaves antigas.

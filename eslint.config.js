@@ -3,7 +3,15 @@ import tseslint from "typescript-eslint";
 import globals from "globals";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "public/app.js", "node_modules/**"] },
+  {
+    ignores: [
+      "dist/**",
+      "public/app.js",
+      "node_modules/**",
+      // Pesos NSFW experimentais + venv de export (gitignored; nunca lintar).
+      "yolonsfw/**",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

@@ -1,6 +1,7 @@
 import { AdaptadorDetectorObjetos } from "./adapters/object-detector.adapter";
 import { AdaptadorPose } from "./adapters/pose-estimator.adapter";
 import { AdaptadorMaos } from "./adapters/hand-gesture.adapter";
+import { AdaptadorClassificadorNsfw } from "./adapters/nsfw-classifier.adapter";
 import { criarMotorPoseTransformers, MODELO_POSE_PADRAO } from "../pose";
 import { criarMotorGestosMediaPipe, MODELO_MAOS_PADRAO } from "../gestos";
 import { MODELO_YOLO_PADRAO } from "../yolo-onnx";
@@ -44,6 +45,8 @@ export interface PercepcaoLocal {
   pose: AdaptadorPose;
   /** Adaptador do reconhecedor de maos/gestos (MediaPipe). */
   maos: AdaptadorMaos;
+  /** Adaptador do classificador NSFW experimental (carrega so com toggle). */
+  nsfw: AdaptadorClassificadorNsfw;
   /** Porta injetada no pipeline (somente para uso interno/diagnostico). */
   dependencias: DependenciasPipelineLocal;
   /** Processador de frame pronto para o ciclo multiframe. */
@@ -53,12 +56,16 @@ export interface PercepcaoLocal {
     aoStatus?: (mensagem: string) => void,
     modelos?: ModelosPercepcao
   ): Promise<ConfiguracaoParcial>;
-  /** Encerra os tres subsistemas. */
+  /** Encerra os subsistemas. */
   encerrar(): void;
 }
 
-/** Modelos padrao para a primeira configuracao de referencia (Etapa 5). */
-export const MODELOS_PERCEPCAO_PADRAO: Required<ModelosPercepcao> = {
+/**
+ * Modelos padrao da configuracao de referencia (Etapa 5). O NSFW experimental
+ * **nao** tem modelo padrao: carrega apenas quando o toggle da interface
+ * coloca um valor em `modelos.nsfw`.
+ */
+export const MODELOS_PERCEPCAO_PADRAO: ModelosPercepcao = {
   objetos: MODELO_YOLO_PADRAO,
   pose: MODELO_POSE_PADRAO,
   maos: MODELO_MAOS_PADRAO,
@@ -68,11 +75,13 @@ export function criarPercepcaoLocal(opcoes: OpcoesPercepcaoLocal = {}): Percepca
   const detector = opcoes.detector ?? new AdaptadorDetectorObjetos();
   const pose = new AdaptadorPose(criarMotorPoseTransformers);
   const maos = new AdaptadorMaos(criarMotorGestosMediaPipe);
+  const nsfw = new AdaptadorClassificadorNsfw();
 
   const dependencias: DependenciasPipelineLocal = {
     detector,
     pose,
     maos,
+    nsfw,
     obterThreshold: opcoes.obterThreshold,
     aoStatus: opcoes.aoStatus,
   };
@@ -84,6 +93,7 @@ export function criarPercepcaoLocal(opcoes: OpcoesPercepcaoLocal = {}): Percepca
     detector,
     pose,
     maos,
+    nsfw,
     dependencias,
     processarFrame: criarProcessadorFrameLocal(dependencias),
     configurar: (aoStatus?: (mensagem: string) => void, override?: ModelosPercepcao) =>

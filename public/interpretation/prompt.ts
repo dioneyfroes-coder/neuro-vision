@@ -17,6 +17,8 @@ export function montarPromptInterpretacao(contexto: ContextoCicloSerializavel): 
         f.deteccoes ? `det=${f.deteccoes}` : "",
         f.pose ? `pose=${f.pose}` : "",
         f.maos ? `maos=${f.maos}` : "",
+        // NSFW experimental: presente somente quando o subsistema rodou.
+        f.nsfw ? `nsfw=${f.nsfw}` : "",
       ]
         .filter(Boolean)
         .join("; ");

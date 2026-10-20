@@ -13,12 +13,14 @@
 - **Deteccão fria dentro do ciclo:** nos modos C/D a primeira inferência do YOLO paga compilação do WASM + carga do modelo **dentro do ciclo** (~95 s medidos). O pré-aquecimento na inicialização é a condição 1 da decisão arquitetural (link acima) para o primeiro ciclo não consumir a janela toda.
 - **Mãos/gestos:** o reconhecedor de mãos não carregou em nenhum run medido (sempre em `subsistemasIndisponiveis`) — custo/benefício não medido; é o único componente que pode ficar desligado sem impacto observado.
 - **Ciclos cancelados:** o registro de um ciclo cancelado em voo pode gravar `metricas: {}` e `concluidoEm` inconsistente com `totalMs` (diagnóstico em melhoria); eventos temporais de um ciclo cancelado só chegam ao `eventos.jsonl` se a mesma identidade reaparecer num ciclo concluído.
+- **NSFW experimental:** o classificador (`erax_nsfw_yolo11n.onnx`, 5 classes anatômicas) é experimental e **desligado por padrão**. Dependente de pesos locais exportados (`yolonsfw/`, gitignored — `scripts/exportar-yolo-nsfw.mjs`); sem export o toggle falha com instrução. Rótulos são do próprio modelo (inglês, anatômicos) — não há tradução nem agrupamento em "NSFW/safe", e modelos maiores (`s`/`m`) dobram/triplicam a latência WASM (~0,8 s do nano por frame).
 
 ## Como desligar cada componente
 
 | Componente | Como desligar / limitar | Onde se documenta |
 | --- | --- | --- |
 | Percepção local (YOLO + pose + mãos) | Seletor **Motor** → `percepcao-sequencia` (variante B), ou os modos `Visão`/`Roteiro`, que não carregam o detector | [`modos.md`](./modos.md) |
+| Classificador NSFW experimental | Checkbox **NSFW (experimental)** desligado (padrão); sem pesos exportados em `yolonsfw/` ele também não carrega | [`modos.md`](./modos.md) |
 | Leitura temporal | Variante B (temporal ausente); C = básica, D = ampliada — pela mesma escolha de modo | [`arquitetura.md`](./arquitetura.md) |
 | Modelo de detecção no navegador | Modos `Visão`/`Roteiro` (sem detecção); nos modos `Eventos`/`Detecção`, troque o modelo no seletor de detecção | [`modos.md`](./modos.md) |
 | Chamadas multimodais | Modo `Detecção` não usa backend; nos demais, a política de análise limita a frequência (cooldown 10 s, teto 4/min, resumo a cada 60 s) | [`eventos.md`](./eventos.md) |

@@ -1,6 +1,7 @@
 import type {
   ResultadoDeteccaoLocal,
   ResultadoMaos,
+  ResultadoNsfw,
   ResultadoOuIndisponivel,
   ResultadoPose,
 } from "../../src/domain/perception";
@@ -91,6 +92,24 @@ export interface ReconhecedorGestos {
   carregar(modelo: string, aoStatus?: (mensagem: string) => void): Promise<void>;
   /** Reconhece maos/gestos num frame; falha vira `ResultadoIndisponivel`. */
   reconhecer(entrada: EntradaAdaptador): Promise<ResultadoOuIndisponivel<ResultadoMaos>>;
+  encerrar(): void;
+}
+
+/**
+ * Porta do classificador **NSFW experimental** (desligado por padrao).
+ *
+ * `modelo` e `null` ate um `carregar` bem-sucedido: e o sinal que o pipeline
+ * usa para saber se o subsistema esta ativo neste sessao (o toggle da
+ * interface decide se o modelo e carregado na configuracao).
+ */
+export interface ClassificadorNsfw {
+  readonly id: string;
+  readonly modelo: string | null;
+  readonly metricas: MetricasAdaptador;
+  aoStatus?: (mensagem: string) => void;
+  carregar(modelo: string, aoStatus?: (mensagem: string) => void): Promise<void>;
+  /** Classifica regioes sensiveis num frame; falha vira `ResultadoIndisponivel`. */
+  avaliar(entrada: EntradaAdaptador, opcoes?: OpcoesDeteccao): Promise<ResultadoNsfw>;
   encerrar(): void;
 }
 

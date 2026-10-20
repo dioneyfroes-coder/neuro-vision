@@ -152,18 +152,18 @@ export const MODELOS_COCO_YOLO: Record<string, ModeloCocoYolo> = {
 export const MODELO_YOLO_PADRAO = "onnx-community/yolov10n";
 
 /** Tipos minimos do onnxruntime-web (o pacote vem do CDN, fora do bundle). */
-interface TensorORT {
+export interface TensorORT {
   data: Float32Array;
   dims: number[];
 }
 
-interface SessaoORT {
+export interface SessaoORT {
   inputNames: string[];
   outputNames: string[];
   run(feeds: Record<string, TensorORT>): Promise<Record<string, TensorORT>>;
 }
 
-interface RuntimeORT {
+export interface RuntimeORT {
   InferenceSession: {
     create(url: string, opcoes?: Record<string, unknown>): Promise<SessaoORT>;
   };
@@ -237,9 +237,11 @@ export function rgbaParaTensorNCHW(
 }
 
 /**
- * Interpreta a saida do YOLOv10 (`[1, 300, 6]`, NMS-free) e devolve caixas na
- * resolucao original. Aceita tambem a forma transposta `[1, 6, 300]`, caso o
- * export do modelo mude.
+ * Interpreta a saida do YOLOv10/v11 (`[1, 300, 6]`, NMS-free) e devolve caixas
+ * na resolucao original. Aceita tambem a forma transposta `[1, 6, 300]`, caso
+ * o export do modelo mude. `rotulos` permite reaproveitar o mesmo interpretador
+ * para modelos fora do COCO (ex.: o detector NSFW experimental); a ordem
+ * corresponde aos ids de classe do modelo exportado.
  */
 export function interpretarSaidaYolo(
   cru: Float32Array,
@@ -247,7 +249,8 @@ export function interpretarSaidaYolo(
   limiar: number,
   larguraOriginal: number,
   alturaOriginal: number,
-  lado: number = LADO_ENTRADA_YOLO
+  lado: number = LADO_ENTRADA_YOLO,
+  rotulos: readonly string[] = COCO_INGLES
 ): DeteccaoYOLO[] {
   if (dims.length < 2) {
     throw new ErroPercepcao("detector", `Saida inesperada do YOLO: dims=${dims.join("x")}.`);
@@ -274,7 +277,7 @@ export function interpretarSaidaYolo(
     const ymax = Math.max(0, Math.min(alturaOriginal, cru[indice(i, 3)] * ey));
     if (xmax <= xmin || ymax <= ymin) continue;
     deteccoes.push({
-      label: COCO_INGLES[classe] ?? `classe ${classe}`,
+      label: rotulos[classe] ?? `classe ${classe}`,
       score,
       box: { xmin, ymin, xmax, ymax },
     });
@@ -283,7 +286,7 @@ export function interpretarSaidaYolo(
 }
 
 /** Decodifica uma imagem em data URL/base64 num bitmap do navegador. */
-async function decodificarImagem(dataUrl: string): Promise<ImageBitmap> {
+export async function decodificarImagem(dataUrl: string): Promise<ImageBitmap> {
   try {
     const resposta = await fetch(dataUrl);
     return await createImageBitmap(await resposta.blob());
@@ -295,7 +298,7 @@ async function decodificarImagem(dataUrl: string): Promise<ImageBitmap> {
 }
 
 /** Redimensiona (stretch) o bitmap para o lado de entrada e extrai os pixels. */
-function rasterizar(bitmap: ImageBitmap, lado: number): Uint8ClampedArray {
+export function rasterizar(bitmap: ImageBitmap, lado: number): Uint8ClampedArray {
   const canvas =
     typeof OffscreenCanvas !== "undefined"
       ? new OffscreenCanvas(lado, lado)
