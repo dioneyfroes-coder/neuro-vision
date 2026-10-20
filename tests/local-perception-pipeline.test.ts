@@ -303,6 +303,12 @@ describe("criarProcessadorInativo (variante B, sem percepcao local)", () => {
     expect(estaIndisponivel(resultado.deteccoes)).toBe(true);
     expect(estaIndisponivel(resultado.pose)).toBe(true);
     expect(estaIndisponivel(resultado.maos)).toBe(true);
-    expect(resultado.metricas).toEqual({});
+    // Telemetria explicita: cada subsistema desativado aparece como
+    // `indisponivel` com motivo, distinguivel de "rodou e nao encontrou nada".
+    expect(resultado.metricas.subsistemas).toMatchObject({
+      deteccao: { status: "indisponivel" },
+      pose: { status: "indisponivel" },
+      maos: { status: "indisponivel" },
+    });
   });
 });

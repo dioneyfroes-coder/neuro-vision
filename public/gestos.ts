@@ -25,8 +25,22 @@ export const MODELO_MAOS_PADRAO =
 
 const URL_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm";
 
+/** Versao do runtime MediaPipe carregado do CDN (telemetria). */
+const VERSAO_MEDIAPIPE = "0.10.22";
+
 /** Maior numero de maos detectadas por frame (a aplicacao observa gestos). */
 const MAX_MAOS = 2;
+
+/**
+ * Tempo maximo (ms) para o `GestureRecognizer` iniciar com um delegate. A
+ * inicializacao GPU pode travar em ambientes sem WebGL/WebGPU; sem limite, o
+ * carregamento ficaria pendurado e o ciclo nunca comecaria.
+ */
+export const TIMEOUT_CARGA_MAOS_MS = 15_000;
+
+/** Delegates tentados, na ordem: GPU primeiro, CPU como fallback documentado. */
+const DELEGATES_MAOS = ["GPU", "CPU"] as const;
+type DelegateMaos = (typeof DELEGATES_MAOS)[number];
 
 interface ImagemCarregavel {
   src: string;
@@ -43,6 +57,26 @@ function carregarImagem(imagem: string): Promise<unknown> {
   return img.decode().then(() => img);
 }
 
+/** Rejeita se `promessa` nao resolver dentro de `timeoutMs`. */
+function comTimeout<T>(promessa: Promise<T>, timeoutMs: number, contexto: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${contexto} excedeu ${timeoutMs} ms`)),
+      timeoutMs
+    );
+    promessa.then(
+      (valor) => {
+        clearTimeout(timer);
+        resolve(valor);
+      },
+      (erro) => {
+        clearTimeout(timer);
+        reject(erro);
+      }
+    );
+  });
+}
+
 /** Converte a saida do `recognize` do MediaPipe em `SaidaMaosCru`. */
 function extrairMaos(resultado: ResultadoGestos): MaoCru[] {
   const rotulosLateralidade: CategoriaVision[][] = resultado.handedness ?? [];
@@ -57,7 +91,51 @@ function extrairMaos(resultado: ResultadoGestos): MaoCru[] {
   }));
 }
 
-/** Cria o motor de maos/gestos do MediaPipe para o modelo `.task` informado. */
+/**
+ * Inicia o reconhecedor tentando os delegates em ordem (GPU, depois CPU).
+ *
+ * Funcao pura de orquestracao: recebe a fabrica (`criar`), que encapsula a
+ * chamada real ao SDK, e devolve o reconhecedor junto do delegate efetivo. Assim
+ * o fallback e testavel sem carregar o MediaPipe. Propaga o ultimo erro quando
+ * todos os delegates falham.
+ */
+export async function iniciarReconhecedorComFallback(
+  criar: (delegate: DelegateMaos) => Promise<ReconhecedorVision>,
+  aoStatus?: (mensagem: string) => void,
+  timeoutMs: number = TIMEOUT_CARGA_MAOS_MS
+): Promise<{ reconhecedor: ReconhecedorVision; delegate: DelegateMaos }> {
+  let ultimoErro: unknown = null;
+  for (const tentativa of DELEGATES_MAOS) {
+    try {
+      const reconhecedor = await comTimeout(
+        criar(tentativa),
+        timeoutMs,
+        `inicializacao do Gesture Recognizer em ${tentativa}`
+      );
+      if (tentativa === "CPU" && ultimoErro) {
+        aoStatus?.(`MediaPipe GPU indisponivel (${mensagemDe(ultimoErro)}); usando CPU.`);
+      }
+      return { reconhecedor, delegate: tentativa };
+    } catch (err) {
+      ultimoErro = err;
+    }
+  }
+  throw new ErroPercepcao(
+    "detector",
+    `falha ao iniciar o Gesture Recognizer (GPU e CPU): ${mensagemDe(ultimoErro)}`,
+    { cause: ultimoErro }
+  );
+}
+
+/**
+ * Cria o motor de maos/gestos do MediaPipe para o modelo `.task` informado.
+ *
+ * **Fallback GPU -> CPU (Fase 2, item 3):** tenta iniciar o reconhecedor com
+ * `delegate: "GPU"`; se a inicializacao falhar ou estourar o timeout, repete com
+ * `delegate: "CPU"` e avisa pelo `aoStatus`. O dispositivo efetivamente usado
+ * fica exposto em `dispositivo` para a telemetria do adaptador. Sem WebGL/WebGPU
+ * disponivel, o caminho CPU garante que as maos ainda sejam reconhecidas.
+ */
 export const criarMotorGestosMediaPipe: CriadorMotorMaos = async (modelo, aoStatus) => {
   const caminhoModelo = modelo || MODELO_MAOS_PADRAO;
   aoStatus?.("Carregando reconhecedor de maos/gestos (MediaPipe)...");
@@ -78,26 +156,27 @@ export const criarMotorGestosMediaPipe: CriadorMotorMaos = async (modelo, aoStat
     });
   }
 
-  try {
-    const vision = await modulo.FilesetResolver.forVisionTasks(URL_WASM);
-    const reconhecedor = await modulo.GestureRecognizer.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: caminhoModelo, delegate: "GPU" },
-      runningMode: "IMAGE",
-      numHands: MAX_MAOS,
-    });
+  const vision = await modulo.FilesetResolver.forVisionTasks(URL_WASM);
+  const { reconhecedor: motor, delegate } = await iniciarReconhecedorComFallback(
+    (tentativa) =>
+      modulo.GestureRecognizer.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: caminhoModelo, delegate: tentativa },
+        runningMode: "IMAGE",
+        numHands: MAX_MAOS,
+      }),
+    aoStatus
+  );
 
-    return {
-      async executar(imagem) {
-        const img = await carregarImagem(imagem);
-        const resultado = reconhecedor.recognize(img);
-        return { maos: extrairMaos(resultado) };
-      },
-    };
-  } catch (err) {
-    throw new ErroPercepcao(
-      "detector",
-      `falha ao iniciar o Gesture Recognizer: ${mensagemDe(err)}`,
-      { cause: err }
-    );
-  }
+  return {
+    dispositivo: delegate,
+    versao: VERSAO_MEDIAPIPE,
+    async executar(imagem) {
+      const img = await carregarImagem(imagem);
+      const resultado = motor.recognize(img);
+      return { maos: extrairMaos(resultado) };
+    },
+    encerrar() {
+      motor.close?.();
+    },
+  };
 };

@@ -197,20 +197,35 @@ export async function carregarRuntimeYolo(): Promise<RuntimeORT> {
 }
 
 const cacheSessoes: Record<string, Promise<SessaoORT>> = {};
+/**
+ * Contagem de referencias por URL: a sessao e compartilhada entre detectores
+ * (COCO e NSFW) e so deve ser descartada quando o ultimo deles a libera. Sem
+ * isso, encerrar um detector quebraria o outro que usa o mesmo modelo.
+ */
+const referenciasSessoes: Record<string, number> = {};
 
 /**
  * Sessao de inferencia por URL (compartilhada por todos os detectores que
  * rodam no runtime — COCO e NSFW — para nao baixar/instanciar duas vezes).
+ *
+ * Cada chamada incrementa a contagem de referencias; o chamador deve parear
+ * com `liberarSessaoYolo(url)` em `encerrar()`. `carregarRuntime` e injetavel
+ * apenas para testes (default: o runtime real do CDN).
  */
-export function obterSessaoYolo(url: string): Promise<SessaoORT> {
+export function obterSessaoYolo(
+  url: string,
+  carregarRuntime: () => Promise<RuntimeORT> = carregarRuntimeYolo
+): Promise<SessaoORT> {
+  referenciasSessoes[url] = (referenciasSessoes[url] ?? 0) + 1;
   if (!(url in cacheSessoes)) {
     cacheSessoes[url] = (async () => {
-      const ort = await carregarRuntimeYolo();
+      const ort = await carregarRuntime();
       // `graphsOptimizationLevel: "all"` e o padrao; WebGPU nao e usado de
       // proposito: o WASM roda em qualquer navegador (inclusive no E2E).
       return ort.InferenceSession.create(url, { executionProviders: ["wasm"] });
     })().catch((erro: unknown) => {
       delete cacheSessoes[url];
+      delete referenciasSessoes[url];
       throw new ErroPercepcao(
         "detector",
         `Falha ao carregar o modelo YOLO ONNX (${String(erro)}).`,
@@ -219,6 +234,33 @@ export function obterSessaoYolo(url: string): Promise<SessaoORT> {
     });
   }
   return cacheSessoes[url];
+}
+
+/**
+ * Libera uma referencia de sessao (pareamento com `obterSessaoYolo`). Quando o
+ * ultimo detector que usa a URL a libera, a sessao e descartada de verdade
+ * (`dispose`, quando o runtime suporta) e removida do cache — uma proxima
+ * `carregar` baixa/instancia de novo, como esperado num encerramento real.
+ */
+export function liberarSessaoYolo(url: string): void {
+  const atual = referenciasSessoes[url];
+  if (atual === undefined) return;
+  const restantes = atual - 1;
+  if (restantes > 0) {
+    referenciasSessoes[url] = restantes;
+    return;
+  }
+  delete referenciasSessoes[url];
+  const pendente = cacheSessoes[url];
+  delete cacheSessoes[url];
+  void pendente
+    ?.then((sessao) => {
+      const descartavel = sessao as SessaoORT & { dispose?: () => Promise<void> | void };
+      void descartavel.dispose?.();
+    })
+    .catch(() => {
+      // Sessao nunca carregou: nada a liberar.
+    });
 }
 
 /** RGBA (canvas 640x640) -> tensor float32 NCHW [1, 3, lado, lado] em [0, 1]. */
@@ -321,6 +363,8 @@ export interface MotorDeteccao {
   aoStatus?: (mensagem: string) => void;
   carregar(modelo: string | null, aoStatus?: (mensagem: string) => void): Promise<void>;
   executar(imagem: string, opcoes?: OpcoesInferenciaYolo): Promise<DeteccaoYOLO[]>;
+  /** Libera a sessao/recursos do runtime. Opcional: nem todo motor mantem recursos. */
+  encerrar?(): void;
 }
 
 /** Detector COCO via YOLO ONNX (mesmo contrato interno do antigo detector). */
@@ -412,5 +456,18 @@ export class DetectorYoloOnnx implements MotorDeteccao {
     } finally {
       bitmap.close();
     }
+  }
+
+  /**
+   * Libera a referencia desta instancia a sessao compartilhada. A sessao so e
+   * descartada de fato quando nenhum outro detector (COCO/NSFW) usa a mesma URL
+   * (contagem de referencias em `obterSessaoYolo`/`liberarSessaoYolo`).
+   */
+  encerrar(): void {
+    if (this.urlModelo) liberarSessaoYolo(this.urlModelo);
+    this.sessao = null;
+    this.runtime = null;
+    this.urlModelo = null;
+    this.modelo = null;
   }
 }

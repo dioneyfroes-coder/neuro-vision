@@ -4,6 +4,7 @@ import {
   carregarRuntimeYolo,
   decodificarImagem,
   interpretarSaidaYolo,
+  liberarSessaoYolo,
   obterSessaoYolo,
   rasterizar,
   rgbaParaTensorNCHW,
@@ -140,5 +141,18 @@ export class DetectorNsfwOnnx implements MotorDeteccao {
     } finally {
       bitmap.close();
     }
+  }
+
+  /**
+   * Libera a referencia desta instancia a sessao compartilhada. A sessao so e
+   * descartada quando nenhum outro detector usa a mesma URL (ver `yolo-onnx.ts`).
+   */
+  encerrar(): void {
+    if (this.urlModelo) liberarSessaoYolo(this.urlModelo);
+    this.sessao = null;
+    this.runtime = null;
+    this.urlModelo = null;
+    this.rotulos = null;
+    this.modelo = null;
   }
 }

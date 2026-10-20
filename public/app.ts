@@ -12,6 +12,7 @@ import { CicloPercepcaoController } from "./cycle/ciclo-percepcao-controller";
 import { criarPercepcaoLocal } from "./perception/percepcao-local";
 import { obterVariante } from "./perception/variantes";
 import type { VariantePercepcao } from "./perception/variantes";
+import type { HabilitacaoSubsistemas } from "./perception/local-perception-pipeline";
 import { MODELO_NSFW_PADRAO } from "./nsfw-onnx";
 import { MotorTemporalImpl } from "./temporal/motor-temporal";
 import { InterpretadorCiclo } from "./interpretation/interpretador-ciclo";
@@ -175,6 +176,7 @@ const controladorPercepcao = new CicloPercepcaoController({
   criarPercepcao: () =>
     criarPercepcaoLocal({
       detector: detectorCoco,
+      habilitacao: montarHabilitacao(),
       obterThreshold: () => Number(thresholdInput.value),
       aoStatus: (mensagem) => setStatus(mensagem),
     }),
@@ -202,6 +204,26 @@ const controladorPercepcao = new CicloPercepcaoController({
 /** Variante do benchmark declarada pelo modo ativo (B/C/D); padrao: alvo (D). */
 function varianteDoModoAtual(): VariantePercepcao {
   return obterVariante(obterModo(motorSelect.value).variante);
+}
+
+/**
+ * Habilitacao explicita dos subsistemas de percepcao local (Fase 2, item 1).
+ *
+ * A variante B (Sequência) nao roda percepcao local; as demais ligam
+ * deteccao/pose/maos. O NSFW experimental segue o toggle da interface (ligado
+ * apenas quando marcado no inicio da sessao).
+ */
+function montarHabilitacao(): HabilitacaoSubsistemas {
+  const variante = varianteDoModoAtual();
+  if (!variante.percepcaoLocal) {
+    return { deteccao: false, pose: false, maos: false, nsfw: false };
+  }
+  return {
+    deteccao: true,
+    pose: true,
+    maos: true,
+    nsfw: nsfwToggle.checked,
+  };
 }
 
 /** Controlador do modo ativo: o multiframe tem um fluxo proprio, sem `MotorPercepcao`. */

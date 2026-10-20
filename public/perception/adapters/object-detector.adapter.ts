@@ -55,25 +55,40 @@ export class AdaptadorDetectorObjetos implements DetectorObjetos {
     await this.interno.carregar(modelo, aoStatus ?? (() => {}));
     this.metricasValor.tempoCargaMs = Math.round(performance.now() - inicio);
     this.metricasValor.memoriaBytes = amostrarMemoriaBytes() ?? this.metricasValor.memoriaBytes;
+    this.metricasValor.modelo = this.interno.modelo ?? undefined;
+    this.metricasValor.dispositivo = this.interno.dispositivo ?? undefined;
+    this.metricasValor.status = "ok";
+    this.metricasValor.motivoFalha = undefined;
   }
 
   detectar(entrada: EntradaAdaptador, opcoes?: OpcoesDeteccao): Promise<ResultadoDeteccaoLocal> {
     return medirTempoInferencia(this.metricasValor, async () => {
-      const cru = await this.interno.executar(entrada.imagem, {
-        threshold: opcoes?.threshold ?? 0.5,
-        percentage: opcoes?.percentage ?? false,
-      });
-      const { objetos, resumo } = descreverDeteccoes(cru);
-      return {
-        deteccoes: objetos,
-        dimensoes: entrada.dimensoes,
-        modelo: this.interno.modelo ?? undefined,
-        resumo,
-      };
+      try {
+        const cru = await this.interno.executar(entrada.imagem, {
+          threshold: opcoes?.threshold ?? 0.5,
+          percentage: opcoes?.percentage ?? false,
+        });
+        const { objetos, resumo } = descreverDeteccoes(cru);
+        this.metricasValor.status = objetos.length > 0 ? "ok" : "sem_resultado";
+        this.metricasValor.motivoFalha = undefined;
+        return {
+          deteccoes: objetos,
+          dimensoes: entrada.dimensoes,
+          modelo: this.interno.modelo ?? undefined,
+          resumo,
+        };
+      } catch (err) {
+        const motivo = err instanceof Error ? err.message : String(err);
+        this.metricasValor.status = "indisponivel";
+        this.metricasValor.motivoFalha = motivo;
+        throw err;
+      }
     });
   }
 
+  /** Libera a sessao do runtime, quando o motor concretor mantiver recursos. */
   encerrar(): void {
-    // O detector permanece em cache para reutilizacao entre sessoes.
+    this.interno.encerrar?.();
+    this.metricasValor.status = "nao_carregado";
   }
 }

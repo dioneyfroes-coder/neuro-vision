@@ -5,8 +5,11 @@ import {
   MODELOS_COCO_YOLO,
   DetectorYoloOnnx,
   interpretarSaidaYolo,
+  liberarSessaoYolo,
+  obterSessaoYolo,
   rgbaParaTensorNCHW,
 } from "../public/yolo-onnx";
+import type { RuntimeORT, SessaoORT } from "../public/yolo-onnx";
 
 describe("rgbaParaTensorNCHW", () => {
   it("monta RGB em NCHW e normaliza para [0,1]", () => {
@@ -83,8 +86,7 @@ describe("interpretarSaidaYolo", () => {
   });
 });
 
-describe("catalogo YOLO", () => {
-  it("expoe nano e small com URLs onnx", () => {
+describe("catalogo YOLO", () => {  it("expoe nano e small com URLs onnx", () => {
     const chaves = Object.keys(MODELOS_COCO_YOLO);
     expect(chaves).toEqual(["onnx-community/yolov10n", "onnx-community/yolov10s"]);
     for (const { url } of Object.values(MODELOS_COCO_YOLO)) {
@@ -107,5 +109,68 @@ describe("catalogo YOLO", () => {
     expect(COCO_INGLES[0]).toBe("person");
     expect(COCO_INGLES[16]).toBe("dog");
     expect(COCO_INGLES[79]).toBe("toothbrush");
+  });
+});
+
+describe("sessao YOLO compartilhada com contagem de referencias", () => {
+  function runtimeFalso(dispose: () => void) {
+    let criacoes = 0;
+    const sessao: SessaoORT & { dispose: () => void } = {
+      inputNames: ["images"],
+      outputNames: ["output0"],
+      run: async () => ({}),
+      dispose,
+    };
+    const runtime: RuntimeORT = {
+      InferenceSession: {
+        create: async () => {
+          criacoes += 1;
+          return sessao;
+        },
+      },
+      Tensor: class {
+        constructor(
+          public type: string,
+          public data: Float32Array,
+          public dims: number[]
+        ) {}
+      } as unknown as RuntimeORT["Tensor"],
+      env: { wasm: { wasmPaths: "" } },
+    };
+    return { runtime, get criacoes() { return criacoes; } };
+  }
+
+  it("compartilha a mesma sessao entre duas requisicoes da mesma URL", async () => {
+    const falso = runtimeFalso(() => {});
+    const url = "https://teste/model.onnx";
+    const [a, b] = await Promise.all([
+      obterSessaoYolo(url, async () => falso.runtime),
+      obterSessaoYolo(url, async () => falso.runtime),
+    ]);
+    expect(a).toBe(b);
+    expect(falso.criacoes).toBe(1);
+    liberarSessaoYolo(url);
+    liberarSessaoYolo(url);
+  });
+
+  it("so descarta a sessao quando a ultima referencia e liberada", async () => {
+    let descartada = false;
+    const { runtime } = runtimeFalso(() => {
+      descartada = true;
+    });
+    const url = "https://teste/refcount.onnx";    await obterSessaoYolo(url, async () => runtime);
+    await obterSessaoYolo(url, async () => runtime);
+
+    liberarSessaoYolo(url);
+    expect(descartada).toBe(false);
+    liberarSessaoYolo(url);
+    // `dispose` roda no proximo tick (a liberacao encadeia na promessa).
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(descartada).toBe(true);
+  });
+
+  it("liberar URL sem referencia e no-op", () => {
+    expect(() => liberarSessaoYolo("https://teste/nunca.onnx")).not.toThrow();
   });
 });

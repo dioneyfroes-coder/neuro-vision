@@ -93,6 +93,8 @@ export const criarMotorPoseTransformers: CriadorMotorPose = async (modelo, aoSta
     ]);
 
     return {
+      dispositivo: "wasm",
+      versao: "3.8.1",
       async executar(imagem) {
         const crua = await modulo.RawImage.read(imagem);
         const { pixel_values } = await processor(crua);

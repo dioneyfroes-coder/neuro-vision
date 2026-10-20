@@ -5,11 +5,12 @@ import { AdaptadorClassificadorNsfw } from "./adapters/nsfw-classifier.adapter";
 import { criarMotorPoseTransformers, MODELO_POSE_PADRAO } from "../pose";
 import { criarMotorGestosMediaPipe, MODELO_MAOS_PADRAO } from "../gestos";
 import { MODELO_YOLO_PADRAO } from "../yolo-onnx";
-import { PipelineLocal, configurarSubsistemas, criarProcessadorFrameLocal } from "./local-perception-pipeline";
+import { PipelineLocal, configurarSubsistemas, criarProcessadorFrameLocal, HABILITACAO_PADRAO } from "./local-perception-pipeline";
 import type { DetectorObjetos } from "./contracts";
 import type {
   ConfiguracaoParcial,
   DependenciasPipelineLocal,
+  HabilitacaoSubsistemas,
   ModelosPercepcao,
   ProcessarFrameLocal,
 } from "./local-perception-pipeline";
@@ -32,6 +33,8 @@ export interface OpcoesPercepcaoLocal {
   detector?: DetectorObjetos;
   /** Ids de modelo a carregar; utiliza MODELOS_PERCEPCAO_PADRAO quando ausente. */
   modelos?: ModelosPercepcao;
+  /** Habilitacao explicita por subsistema; default `HABILITACAO_PADRAO`. */
+  habilitacao?: HabilitacaoSubsistemas;
   /** Limiar de deteccao lido a cada frame. */
   obterThreshold?: () => number;
   /** Status/avisos (ex.: progresso de carregamento e falhas). */
@@ -49,9 +52,14 @@ export interface PercepcaoLocal {
   nsfw: AdaptadorClassificadorNsfw;
   /** Porta injetada no pipeline (somente para uso interno/diagnostico). */
   dependencias: DependenciasPipelineLocal;
+  /** Habilitacao efetiva por subsistema nesta sessao. */
+  habilitacao: Required<HabilitacaoSubsistemas>;
   /** Processador de frame pronto para o ciclo multiframe. */
   processarFrame: ProcessarFrameLocal;
-  /** Carrega os modelos de forma isolada; aceita override de modelos. */
+  /**
+   * Carrega os modelos de forma isolada; aceita override de modelos. A
+   * habilitacao efetiva (do construtor) sempre prevalece sobre modelos presentes.
+   */
   configurar(
     aoStatus?: (mensagem: string) => void,
     modelos?: ModelosPercepcao
@@ -77,11 +85,17 @@ export function criarPercepcaoLocal(opcoes: OpcoesPercepcaoLocal = {}): Percepca
   const maos = new AdaptadorMaos(criarMotorGestosMediaPipe);
   const nsfw = new AdaptadorClassificadorNsfw();
 
+  const habilitacao: Required<HabilitacaoSubsistemas> = {
+    ...HABILITACAO_PADRAO,
+    ...opcoes.habilitacao,
+  };
+
   const dependencias: DependenciasPipelineLocal = {
     detector,
     pose,
     maos,
     nsfw,
+    habilitacao,
     obterThreshold: opcoes.obterThreshold,
     aoStatus: opcoes.aoStatus,
   };
@@ -95,9 +109,10 @@ export function criarPercepcaoLocal(opcoes: OpcoesPercepcaoLocal = {}): Percepca
     maos,
     nsfw,
     dependencias,
+    habilitacao,
     processarFrame: criarProcessadorFrameLocal(dependencias),
     configurar: (aoStatus?: (mensagem: string) => void, override?: ModelosPercepcao) =>
-      configurarSubsistemas(dependencias, { ...modelos, ...override }, aoStatus),
+      configurarSubsistemas(dependencias, { ...modelos, ...override }, aoStatus, habilitacao),
     encerrar: () => pipeline.encerrar(),
   };
 }

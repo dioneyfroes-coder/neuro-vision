@@ -50,6 +50,12 @@ export interface SaidaMaosCru {
 export interface MotorMaos {
   /** Roda a inferencia sobre a imagem (data URL/base64) e devolve a saida crua. */
   executar(imagem: string): Promise<SaidaMaosCru>;
+  /** Versao do runtime/modelo, quando o SDK a expoe. */
+  versao?: string;
+  /** Dispositivo usado na inferencia (ex.: `gpu`, `cpu`). */
+  dispositivo?: string;
+  /** Libera recursos do motor. Opcional. */
+  encerrar?(): void;
 }
 
 /** Fabrica do motor de maos; recebe o caminho/id do modelo. */
@@ -124,7 +130,7 @@ export function normalizarMaos(saida: SaidaMaosCru): ResultadoMaos {
 
 export class AdaptadorMaos implements ReconhecedorGestos {
   readonly id = "maos";
-  readonly metricas: MetricasAdaptador = {};
+  readonly metricas: MetricasAdaptador = { status: "nao_carregado" };
   aoStatus?: (mensagem: string) => void;
 
   private motor: MotorMaos | null = null;
@@ -136,12 +142,26 @@ export class AdaptadorMaos implements ReconhecedorGestos {
     return this.modeloAtual;
   }
 
+  get dispositivo(): string | undefined {
+    return this.metricas.dispositivo;
+  }
+
+  /**
+   * Carrega o motor de forma **idempotente**: repetir a chamada com o mesmo
+   * modelo nao recria o motor (evita retencao de recursos GPU/WASM ao reiniciar
+   * sessoes). Um modelo diferente substitui o anterior, encerrando-o antes.
+   */
   async carregar(modelo: string, aoStatus?: (mensagem: string) => void): Promise<void> {
+    const alvo = modelo.trim();
+    if (this.motor && this.modeloAtual === alvo) return;
     const inicio = performance.now();
-    this.motor = await this.criarMotor(modelo, aoStatus ?? this.aoStatus);
-    this.modeloAtual = modelo;
+    const novoMotor = await this.criarMotor(alvo, aoStatus ?? this.aoStatus);
+    this.trocarMotor(novoMotor, alvo);
     this.metricas.tempoCargaMs = Math.round(performance.now() - inicio);
     this.metricas.memoriaBytes = amostrarMemoriaBytes() ?? this.metricas.memoriaBytes;
+    this.metricas.modelo = alvo;
+    this.metricas.status = "ok";
+    this.metricas.motivoFalha = undefined;
   }
 
   reconhecer(entrada: EntradaAdaptador): Promise<ResultadoOuIndisponivel<ResultadoMaos>> {
@@ -152,15 +172,33 @@ export class AdaptadorMaos implements ReconhecedorGestos {
     return medirTempoInferencia(this.metricas, async () => {
       try {
         const saida = await motor.executar(entrada.imagem);
-        return normalizarMaos(saida);
+        const resultado = normalizarMaos(saida);
+        this.metricas.status = resultado.maos.length > 0 ? "ok" : "sem_resultado";
+        this.metricas.motivoFalha = undefined;
+        return resultado;
       } catch (err) {
         if (ehCancelamento(err)) throw err;
-        return indisponivel("maos", err instanceof Error ? err.message : String(err));
+        const motivo = err instanceof Error ? err.message : String(err);
+        this.metricas.status = "indisponivel";
+        this.metricas.motivoFalha = motivo;
+        return indisponivel("maos", motivo);
       }
     });
   }
 
+  /** Libera o motor e volta ao estado "nao carregado". */
   encerrar(): void {
-    // O modelo permanece em cache para reutilizacao entre sessoes.
+    this.motor?.encerrar?.();
+    this.motor = null;
+    this.modeloAtual = null;
+    this.metricas.status = "nao_carregado";
+  }
+
+  private trocarMotor(novo: MotorMaos, modelo: string): void {
+    if (this.motor && this.motor !== novo) this.motor.encerrar?.();
+    this.motor = novo;
+    this.modeloAtual = modelo;
+    this.metricas.dispositivo = novo.dispositivo;
+    this.metricas.versao = novo.versao;
   }
 }

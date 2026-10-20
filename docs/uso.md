@@ -140,6 +140,8 @@ Ela separa três tempos para localizar a lentidão:
 
 A detecção de objetos roda em **WASM por decisão de compatibilidade** — a mesma rota em qualquer navegador, sem depender de WebGPU. Não há aviso de fallback (o comportamento é o esperado); a linha de diagnóstico mostra `dispositivo wasm`.
 
+Nos modos multiframe (C/D), cada frame carrega **telemetria por subsistema** em `metricas.subsistemas`: `status` (`ok`/`sem_resultado`/`indisponivel`/`nao_carregado`), `modelo`, `dispositivo`, `versao` e `motivoFalha`. Ela distingue "rodou e não encontrou nada" (`sem_resultado`) de "não rodou" (`indisponivel`/`nao_carregado`) — princípio 8, falha ≠ ausência. Para as mãos/gestos, `dispositivo` mostra se o MediaPipe caiu do **GPU para o CPU** (fallback automático).
+
 ## Scripts
 
 | Script | Descrição |

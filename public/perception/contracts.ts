@@ -21,8 +21,25 @@ import type {
  * - falha vira `ResultadoIndisponivel`, nunca lista vazia (principio 8).
  */
 
-/** Metricas de custo de um adaptador, medidas individualmente (Etapa 3.5). */
+/**
+ * Metricas de custo e telemetria de um adaptador, medidas individualmente
+ * (Etapa 3.5; telemetria consolidada na Fase 2).
+ *
+ * `modelo`, `dispositivo`, `versao` e `status` descrevem **o que** esta rodando;
+ * `tempoCargaMs`/`tempoInferenciaMs`/`memoriaBytes` descrevem **o custo**;
+ * `motivoFalha` explica a indisponibilidade quando `status === "indisponivel"`.
+ */
 export interface MetricasAdaptador {
+  /** Identificador do modelo atualmente carregado (ex.: `Xenova/yolov8n-pose`). */
+  modelo?: string;
+  /** Dispositivo de inferencia efetivamente usado (ex.: `wasm`, `webgpu`, `gpu`, `cpu`). */
+  dispositivo?: string;
+  /** Versao do runtime/modelo, quando exposta pelo SDK. */
+  versao?: string;
+  /** Estado do subsistema na ultima operacao. */
+  status?: EstadoSubsistema;
+  /** Motivo legivel quando `status === "indisponivel"`. */
+  motivoFalha?: string;
   /** Tempo da ultima carga do modelo (ms). */
   tempoCargaMs?: number;
   /** Tempo da ultima inferencia (ms). */
@@ -30,6 +47,16 @@ export interface MetricasAdaptador {
   /** Memoria usada pelo subsistema (bytes), quando o ambiente a expoe. */
   memoriaBytes?: number;
 }
+
+/**
+ * Estado de um subsistema de percepcao, distinguindo **falha** de **ausencia**
+ * (principio 8):
+ * - `ok`: rodou e devolveu resultado (inclusive lista vazia valida);
+ * - `sem_resultado`: rodou corretamente e nao encontrou nada;
+ * - `indisponivel`: nao rodou (desativado, falha de carga ou inferencia);
+ * - `nao_carregado`: nunca foi carregado nesta sessao.
+ */
+export type EstadoSubsistema = "ok" | "sem_resultado" | "indisponivel" | "nao_carregado";
 
 /** Dimensoes, em pixels, da imagem analisada. */
 export interface Dimensoes {

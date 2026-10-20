@@ -19,6 +19,8 @@ import type {
 } from "../../src/domain/cycle";
 import type { WebcamCapture } from "../capture/webcam-capture";
 import type { SnapshotCapturado, SnapshotStore } from "../capture/snapshot-store";
+import type { EstadoSubsistema } from "../perception/contracts";
+import type { SubsistemaPercepcao } from "../perception/local-perception-pipeline";
 import type { InterpretadorMultimodal } from "../interpretation/contracts";
 import type { MotorTemporal } from "../temporal/contracts";
 
@@ -48,7 +50,27 @@ export interface ProcessamentoFrame {
     duracaoPoseMs?: number;
     duracaoMaosMs?: number;
     duracaoNsfwMs?: number;
+    /**
+     * Telemetria por subsistema no frame (Fase 2, item 5): estado, modelo,
+     * dispositivo e versao efetivamente usados. Ausente quando o processador nao
+     * a fornece (ex.: variante sem percepcao local).
+     */
+    subsistemas?: Partial<Record<SubsistemaPercepcao, TelemetriaSubsistema>>;
   };
+}
+
+/** Telemetria de um subsistema num frame (Fase 2, item 5). */
+export interface TelemetriaSubsistema {
+  /** Estado do subsistema no frame. */
+  status: EstadoSubsistema;
+  /** Modelo em uso, quando aplicavel. */
+  modelo?: string;
+  /** Dispositivo de inferencia (ex.: `wasm`, `gpu`, `cpu`). */
+  dispositivo?: string;
+  /** Versao do runtime/modelo, quando exposta. */
+  versao?: string;
+  /** Motivo legivel quando `status === "indisponivel"`. */
+  motivoFalha?: string;
 }
 
 export interface DependenciasCicloMultiframe {

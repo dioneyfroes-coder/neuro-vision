@@ -16,7 +16,7 @@ Como os modos funcionam (4 de frame único + 3 multiframe do benchmark das Etapa
 
 Nos modos multiframe (B/C/D), a chamada multimodal acontece **a cada ciclo concluído** — eles **não** passam pela política de eventos (cooldown/teto). O agendador mede o intervalo entre **inícios** e garante apenas `MARGEM_RESERVA_MS` (500 ms) depois que o ciclo anterior termina; enquanto a chamada está em voo, nenhum ciclo novo avança. O intervalo do seletor não encurta um ciclo já em andamento.
 
-A percepção local dos modos C/D tenta **YOLO, pose e mãos** por padrão (`MODELOS_PERCEPCAO_PADRAO`). As mãos não têm toggle próprio: se o MediaPipe não carregar, o ciclo continua e o subsistema aparece em `subsistemasIndisponiveis`. A configuração explícita para desligar componentes isolados ainda não existe (Fase 2 do roteiro de correções).
+A percepção local dos modos C/D tenta **YOLO, pose e mãos** por padrão (`HABILITACAO_PADRAO`, com `MODELOS_PERCEPCAO_PADRAO`). A habilitação é **explícita** por subsistema (`HabilitacaoSubsistemas`: `deteccao`, `pose`, `maos`, `nsfw`): um subsistema desligado não toca o SDK e responde `indisponivel` ("desativado") em cada frame. A variante B desliga todos. Se um subsistema habilitado não carregar, o ciclo continua e ele aparece em `subsistemasIndisponiveis`. O carregamento é idempotente, o encerramento libera recursos de verdade (trocar de modelo encerra o anterior) e cada subsistema publica telemetria (`modelo`, `dispositivo`, `versao`, `status`, `motivoFalha`, tempos), replicada por frame. As mãos/gestos incluem **fallback GPU→CPU** (`delegate` GPU com timeout e retomada em CPU).
 
 A troca de motor é centralizada em `public/modos.ts` (registro `MODOS`): cada modo descreve se usa detecção/modelo de visão, o prefixo da mensagem de falha e a fábrica de motor — o resto da aplicação não tem `if (modo === "...")` espalhado. O `<select id="motor">` abre em **Percepção** (primeira opção) e `MODO_PADRAO = "percepcao"` é o padrão — as variantes B/C continuam registradas em `MODOS` só para o harness de benchmark/E2E. O seletor `#model` é o do **modelo de detecção do navegador** (abaixo); o `#modeloVisao` é o do **backend de visão** (seção seguinte).
 
@@ -64,6 +64,23 @@ O seletor `#model` da interface oferece modelos COCO em ONNX (YOLOv10, saída NM
 - `onnx-community/yolov10s` — small, mais preciso, mais pesado.
 
 O runtime e baixado sob demanda do CDN (versão fixada em `1.21.0`); a verificação empírica do caminho completo (pré-processamento, inferência e coordenadas) vive em `scripts/verificar-yolo-onnx.mjs`.
+
+### Validação visual de caixas e keypoints (browser-only)
+
+Os contratos de geometria são cobertos por testes determinísticos em CI
+(`tests/yolo-onnx.test.ts` para caixas do YOLO; `tests/percepcao-contratos.test.ts`
+para keypoints de pose — bordas, valores fora do frame, dimensões degeneradas).
+A validação **visual** com imagens fixas roda só num navegador com rede (não em
+CI) e serve para conferir o alinhamento sobre a imagem real:
+
+1. Separe um conjunto fixo de frames (ex.: `bench/videos/frames/frame-*.jpg`, gerados por `node scripts/extrair-frames.mjs`).
+2. **YOLO:** `node scripts/verificar-yolo-onnx.mjs <frame.jpg> [limiar]` — roda o caminho real em WASM no Chromium e falha se alguma caixa sair dos limites do frame ou se a pessoa anotada não for encontrada.
+3. **Pose:** abra um modo multiframe (C/D) no navegador com o frame fixo, deixe a sessão rodar e confira no diagnóstico a telemetria por subsistema (`metricas.subsistemas.pose`: `status`, `modelo`, `dispositivo`); sobreponha mentalmente os keypoints ao frame para checar o alinhamento (nariz, ombros, punhos).
+4. **Mãos:** com o mesmo frame, confirme a telemetria `metricas.subsistemas.maos` (o campo `dispositivo` mostra se o fallback caiu para `cpu`).
+
+O passo é conferência manual: o resultado esperado é caixas dentro do frame e
+keypoints coerentes com a pose; divergência indica regressão de
+pré/pós-processamento, coberta pelos testes determinísticos.
 
 ## NSFW experimental (toggle da interface)
 

@@ -26,6 +26,8 @@ declare module "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22" {
 
   export interface ReconhecedorVision {
     recognize(imagem: unknown): ResultadoGestos;
+    /** Libera os recursos nativos do reconhecedor (GPU/WASM). */
+    close?(): void;
   }
 
   export const FilesetResolver: {
