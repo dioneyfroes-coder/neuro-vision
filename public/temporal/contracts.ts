@@ -65,6 +65,18 @@ export interface ConfigMotorTemporal {
   /** y (normalizado, topo = 0) a partir do qual um punho conta como erguido. */
   limiarAlturaBraco: number;
   /**
+   * Histerese (normalizada) do braco: com o sinal ja ativo, o punho continua
+   * contando como erguido enquanto `y <= limiarAlturaBraco + histereseBraco`,
+   * evitando cintilacao quando o punho fica na regiao do limiar.
+   */
+  histereseBraco: number;
+  /**
+   * Confianca minima dos pontos articulares (ombro, cotovelo e punho) para que
+   * a relacao articular do braco erguido seja avaliada. Pontos pouco confiaveis
+   * nao sustentam a conclusao de "braco levantado".
+   */
+  confiancaMinimaPontoBraco: number;
+  /**
    * Gap (ms) entre o fim do ciclo anterior e o inicio do atual que sinaliza um
    * periodo cego (janela sem observacao).
    */
@@ -77,6 +89,8 @@ export const CONFIG_MOTOR_TEMPORAL_PADRAO: ConfigMotorTemporal = {
   gestos: CONFIG_MAQUINA_PADRAO,
   braco: CONFIG_MAQUINA_PADRAO,
   limiarAlturaBraco: 0.4,
+  histereseBraco: 0.1,
+  confiancaMinimaPontoBraco: 0.5,
   limiarPeriodoCegoMs: 1200,
 };
 

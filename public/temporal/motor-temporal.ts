@@ -25,7 +25,8 @@ import type { Ponto2D } from "./suavizador";
 
 /**
  * Indices dos pontos-chave na ordem COCO (17 pontos) usada pelo estimador de
- * pose padrao (YOLOv8-pose).
+ * pose padrao (YOLOv8-pose): punhos esquerdo/direito. Ver `ARTICULACOES_BRACO`
+ * para a relacao articular completa (ombro/cotovelo/punho).
  */
 export const INDICES_PUNHOS = [9, 10] as const;
 
@@ -84,6 +85,7 @@ export class MotorTemporalImpl implements MotorTemporal {
     const sessionId = observacoes[0].sessionId;
     const eventos: EventoTemporal[] = [];
     let houvePeriodoCego = false;
+    let gapMs: number | undefined;
 
     const primeiroMs = observacoes[0].capturadoEmMs;
     if (
@@ -91,6 +93,27 @@ export class MotorTemporalImpl implements MotorTemporal {
       primeiroMs - this.ultimoTempoMs > this.config.limiarPeriodoCegoMs
     ) {
       houvePeriodoCego = true;
+      gapMs = primeiroMs - this.ultimoTempoMs;
+    }
+
+    // Periodo cego entre ciclos: nao presuma continuidade. Interrompe os sinais
+    // ativos na ultima evidencia positiva e descarta candidatos, antes de
+    // processar os novos frames. O fim observado e explicito (`incerto`).
+    if (houvePeriodoCego) {
+      for (const sinal of this.gestos.interromperPorPeriodoCego(gapMs)) {
+        eventos.push(
+          this.sinalParaEvento(sinal, "gesto_detectado", "maos", sessionId, (s) =>
+            `Gesto "${s.rotulo}" interrompido por periodo cego`
+          )
+        );
+      }
+      for (const sinal of this.braco.interromperPorPeriodoCego(gapMs)) {
+        eventos.push(
+          this.sinalParaEvento(sinal, "braco_levantado", "pose", sessionId, () =>
+            "Braco levantado interrompido por periodo cego"
+          )
+        );
+      }
     }
 
     for (const obs of observacoes) {
@@ -133,6 +156,7 @@ export class MotorTemporalImpl implements MotorTemporal {
       if (this.config.modo === "basico") continue;
 
       // 3. Rastreamento de pose (pessoas) em coordenadas normalizadas.
+      const poseDisponivel = !estaIndisponivel(obs.pose);
       let poses: PessoaPose[] = [];
       if (!estaIndisponivel(obs.pose)) {
         poses = obs.pose.pessoas;
@@ -154,6 +178,7 @@ export class MotorTemporalImpl implements MotorTemporal {
       }
 
       // 4. Rastreamento de maos em coordenadas normalizadas.
+      const maosDisponivel = !estaIndisponivel(obs.maos);
       let maosVistas: MaoDetectada[] = [];
       if (!estaIndisponivel(obs.maos)) {
         maosVistas = obs.maos.maos;
@@ -176,7 +201,7 @@ export class MotorTemporalImpl implements MotorTemporal {
 
       // 5. Maquina de braco levantado (a partir da pose).
       const leiturasBraco = this.montarLeiturasBraco(poses, obs.capturadoEm, frameId, obs.cycleId);
-      for (const sinal of this.braco.processar(leiturasBraco)) {
+      for (const sinal of this.braco.processar(leiturasBraco, { indisponivel: !poseDisponivel })) {
         eventos.push(
           this.sinalParaEvento(sinal, "braco_levantado", "pose", sessionId, (s) =>
             s.estado === "confirmado"
@@ -188,7 +213,7 @@ export class MotorTemporalImpl implements MotorTemporal {
 
       // 6. Maquina de gestos (a partir das maos).
       const leiturasGesto = this.montarLeiturasGesto(maosVistas, obs.capturadoEm, frameId, obs.cycleId);
-      for (const sinal of this.gestos.processar(leiturasGesto)) {
+      for (const sinal of this.gestos.processar(leiturasGesto, { indisponivel: !maosDisponivel })) {
         eventos.push(
           this.sinalParaEvento(sinal, "gesto_detectado", "maos", sessionId, (s) =>
             s.estado === "confirmado"
@@ -208,6 +233,7 @@ export class MotorTemporalImpl implements MotorTemporal {
       eventos,
       entidadesAtivas,
       houveIntervaloSemObservacao: houvePeriodoCego || undefined,
+      intervaloSemObservacaoMs: gapMs,
     };
   }
 
@@ -242,7 +268,14 @@ export class MotorTemporalImpl implements MotorTemporal {
       const visto = entidade.framesAusente === 0;
       const indice = typeof entidade.meta.indice === "number" ? entidade.meta.indice : -1;
       const pose = visto ? poses[indice] : undefined;
-      const confianca = pose ? punhoErguido(pose, this.config.limiarAlturaBraco) : null;
+      // Histerese: se o sinal ja esta ativo para a entidade, o punho continua
+      // contando como erguido com um limiar mais folgado (`limiar + histerese`).
+      const jaAtivo = this.braco.estaAtivo(entidade.entidadeId);
+      const limiar =
+        this.config.limiarAlturaBraco + (jaAtivo ? this.config.histereseBraco : 0);
+      const confianca = pose
+        ? punhoErguido(pose, limiar, this.config.confiancaMinimaPontoBraco)
+        : null;
       return {
         entidadeId: entidade.entidadeId,
         rotulo: confianca ? "levantado" : null,
@@ -283,6 +316,10 @@ export class MotorTemporalImpl implements MotorTemporal {
     sessionId: string,
     descricao: (s: EventoSinal) => string
   ): EventoTemporal {
+    // Um encerramento por periodo cego nao afirma que o sinal terminou: o fim e
+    // apenas a ultima evidencia positiva e o estado fica `incerto` (nao vira
+    // fato persistido). A duracao da lacuna vai no proprio evento.
+    const interrompidoPorLacuna = sinal.motivoEncerramento === "periodo_cego";
     return {
       eventoId: sinal.eventoId,
       sessionId,
@@ -295,7 +332,8 @@ export class MotorTemporalImpl implements MotorTemporal {
       confianca: sinal.confianca,
       origens: [origem],
       frameIds: sinal.frameIds,
-      estado: sinal.estado,
+      estado: interrompidoPorLacuna ? "incerto" : sinal.estado,
+      intervaloSemObservacaoMs: sinal.intervaloSemObservacaoMs,
     };
   }
 
@@ -349,25 +387,53 @@ function centroide(pontos: PontoCorporal[]): Ponto2D | null {
 }
 
 /**
- * Detecta se ha um punho erguido (y <= limiar, topo = 0) com confianca valida.
- * Retorna a confianca do punho mais alto, ou `null` se nenhum esta erguido.
+ * Indices COCO (17 pontos) usados na relacao articular do braco erguido.
+ * Cada lado combina ombro, cotovelo e punho.
+ */
+export const ARTICULACOES_BRACO = [
+  { ombro: 5, cotovelo: 7, punho: 9 }, // lado esquerdo
+  { ombro: 6, cotovelo: 8, punho: 10 }, // lado direito
+] as const;
+
+/**
+ * Detecta se ha um **braco erguido** usando a relacao articular: o punho precisa
+ * estar acima do limiar, acima do ombro do mesmo lado e acima do cotovelo do
+ * mesmo lado, com os tres pontos confiaveis.
+ *
+ * A relacao evita falsos positivos de um punho alto por ruido (sem ombro/
+ * cotovelo coerentes) e mantem o teste deterministico. Retorna a confianca do
+ * punho mais alto, ou `null` se nenhum lado satisfaz a relacao.
  */
 function punhoErguido(
   pose: PessoaPose,
   limiar: number,
-  confiancaMinima = 0.05
+  confiancaMinima: number
 ): { confianca: number } | null {
   let melhorY: number | null = null;
   let confianca = 0;
-  for (const idx of INDICES_PUNHOS) {
-    const p: PontoCorporal | undefined = pose.pontos[idx];
-    if (!p) continue;
-    const c = p.confianca ?? 1;
-    if (c < confiancaMinima) continue;
-    if (p.y <= limiar && (melhorY === null || p.y < melhorY)) {
-      melhorY = p.y;
-      confianca = c;
+  for (const { ombro, cotovelo, punho } of ARTICULACOES_BRACO) {
+    const pOmbro = pontoConfiavel(pose.pontos[ombro], confiancaMinima);
+    const pCotovelo = pontoConfiavel(pose.pontos[cotovelo], confiancaMinima);
+    const pPunho = pontoConfiavel(pose.pontos[punho], confiancaMinima);
+    if (!pOmbro || !pCotovelo || !pPunho) continue;
+    // Punho acima do limiar (topo = 0), acima do ombro e acima do cotovelo.
+    if (pPunho.y > limiar) continue;
+    if (pPunho.y >= pOmbro.y) continue;
+    if (pPunho.y >= pCotovelo.y) continue;
+    if (melhorY === null || pPunho.y < melhorY) {
+      melhorY = pPunho.y;
+      confianca = pPunho.confianca ?? 1;
     }
   }
   return melhorY === null ? null : { confianca };
+}
+
+/** Ponto com confianca suficiente (ou sem confianca declarada, tratado como valido). */
+function pontoConfiavel(
+  ponto: PontoCorporal | undefined,
+  confiancaMinima: number
+): PontoCorporal | null {
+  if (!ponto || typeof ponto.x !== "number" || typeof ponto.y !== "number") return null;
+  if (ponto.confianca !== undefined && ponto.confianca < confiancaMinima) return null;
+  return ponto;
 }

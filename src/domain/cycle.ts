@@ -13,6 +13,12 @@ export interface ResumoTemporal {
   descricao?: string;
   /** Sinal de que faltaram observacoes (janela cega anterior ao ciclo). */
   houveIntervaloSemObservacao?: boolean;
+  /**
+   * Duracao (ms) do periodo cego anterior a este ciclo, quando detectado.
+   * Explicita a lacuna: eventos em curso foram interrompidos no ultimo instante
+   * de evidencia, sem presuncao de continuidade.
+   */
+  intervaloSemObservacaoMs?: number;
 }
 
 /** Metricas por etapa de um ciclo (roteiro 5.7/7). */

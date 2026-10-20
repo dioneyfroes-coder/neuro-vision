@@ -46,7 +46,10 @@ export function montarPromptInterpretacao(contexto: ContextoCicloSerializavel): 
     "Nunca inferencie acoes, intencoes ou objetos nao visiveis.",
     "",
     `Sessao: ${contexto.sessionId}, ciclo: ${contexto.cycleId}, iniciado ${contexto.iniciadoEm}, janela ${contexto.janelaMs}ms.`,
-    `Entidades ativas: ${contexto.resumoTemporal.entidadesAtivas}, intervalo cego: ${contexto.resumoTemporal.houveIntervaloSemObservacao}`,
+    `Entidades ativas: ${contexto.resumoTemporal.entidadesAtivas}, intervalo cego: ${contexto.resumoTemporal.houveIntervaloSemObservacao}` +
+      (contexto.resumoTemporal.intervaloSemObservacaoMs !== undefined
+        ? ` (${contexto.resumoTemporal.intervaloSemObservacaoMs}ms sem observacao)`
+        : ""),
     `Indisponibilidades: ${contexto.indisponibilidades.length ? contexto.indisponibilidades.join("; ") : "nenhuma"}`,
     "",
     "Frames (em ordem cronologica, cada um corresponde a uma imagem):",

@@ -153,6 +153,128 @@ describe("MaquinaSinais", () => {
     expect(encerrados[0].eventoId).toBe(eventoId); // identidade estavel
     expect(encerrados[0].fimEm).toBeDefined();
   });
+
+  it("fimEm e a ultima evidencia positiva, nunca o inicio nem o frame de ausencia", () => {
+    const m = new MaquinaSinais({ framesParaConfirmar: 2, framesParaEncerrar: 2 });
+    const leitura = (rotulo: string | null, frame: number) => ({
+      entidadeId: "e1",
+      rotulo,
+      confianca: 0.9,
+      frameId: `f${frame}`,
+      timestamp: new Date(1700000000000 + frame * 100).toISOString(),
+      cycleId: "c1",
+    });
+
+    m.processar([leitura("gesto_a", 1)]);
+    m.processar([leitura("gesto_a", 2)]);
+    // Duas evidencias positivas adicionais (frames 3 e 4).
+    m.processar([leitura("gesto_a", 3)]);
+    m.processar([leitura("gesto_a", 4)]);
+    // Ausencia: a referencia de tempo do encerramento deve continuar no frame 4.
+    m.processar([leitura(null, 5)]);
+    const encerrados = m.processar([leitura(null, 6)]);
+    expect(encerrados).toHaveLength(1);
+    const evento = encerrados[0];
+    const inicio = Date.parse(evento.inicioEm);
+    const fim = Date.parse(evento.fimEm!);
+    expect(fim).toBeGreaterThan(inicio); // nao colapsa para o inicio
+    expect(evento.fimEm).toBe(leitura("gesto_a", 4).timestamp);
+    expect(evento.motivoEncerramento).toBe("sem_sinal");
+  });
+
+  it("evento nunca termina antes de comecar (duracao nao negativa)", () => {
+    const m = new MaquinaSinais({ framesParaConfirmar: 1, framesParaEncerrar: 1 });
+    const leitura = (rotulo: string | null, frame: number) => ({
+      entidadeId: "e1",
+      rotulo,
+      confianca: 0.9,
+      frameId: `f${frame}`,
+      timestamp: frame === 1 ? "2024-01-01T00:00:01.000Z" : "2024-01-01T00:00:00.000Z",
+      cycleId: "c1",
+    });
+    const confirmados = m.processar([leitura("gesto_a", 1)]);
+    expect(confirmados[0].estado).toBe("confirmado");
+    // Frame seguinte com timestamp ANTERIOR (relogio fora de ordem).
+    const encerrados = m.processar([leitura(null, 2)]);
+    expect(encerrados).toHaveLength(1);
+    expect(Date.parse(encerrados[0].fimEm!)).toBeGreaterThanOrEqual(
+      Date.parse(encerrados[0].inicioEm)
+    );
+  });
+
+  it("entidade desaparece do frame: fim usa a ultima evidencia, nao o inicio", () => {
+    const m = new MaquinaSinais({ framesParaConfirmar: 2, framesParaEncerrar: 1 });
+    const leitura = (frame: number) => ({
+      entidadeId: "e1",
+      rotulo: "gesto_a",
+      confianca: 0.9,
+      frameId: `f${frame}`,
+      timestamp: new Date(1700000000000 + frame * 100).toISOString(),
+      cycleId: "c1",
+    });
+    m.processar([leitura(1)]);
+    m.processar([leitura(2)]);
+    m.processar([leitura(3)]);
+    // Proximo frame: sem leitura alguma para a entidade (sumiu do frame).
+    const encerrados = m.processar([]);
+    expect(encerrados).toHaveLength(1);
+    expect(encerrados[0].fimEm).toBe(leitura(3).timestamp);
+    expect(Date.parse(encerrados[0].fimEm!)).toBeGreaterThan(Date.parse(encerrados[0].inicioEm));
+  });
+
+  it("inferencia indisponivel preserva ativo e reinicia candidatos", () => {
+    const m = new MaquinaSinais({ framesParaConfirmar: 2, framesParaEncerrar: 2 });
+    const leitura = (rotulo: string | null, frame: number) => ({
+      entidadeId: "e1",
+      rotulo,
+      confianca: 0.9,
+      frameId: `f${frame}`,
+      timestamp: `t${frame}`,
+      cycleId: "c1",
+    });
+
+    // Candidato de 1 frame, depois falha de inferencia: candidato reinicia.
+    m.processar([leitura("gesto_a", 1)]);
+    expect(m.processar([], { indisponivel: true })).toHaveLength(0);
+    // Um unico frame valido nao confirma (candidato foi descartado).
+    expect(m.processar([leitura("gesto_a", 2)])).toHaveLength(0);
+    const confirmados = m.processar([leitura("gesto_a", 3)]);
+    expect(confirmados).toHaveLength(1);
+    expect(confirmados[0].estado).toBe("confirmado");
+
+    // Com o evento ativo, uma falha de inferencia NAO encerra.
+    expect(m.processar([], { indisponivel: true })).toHaveLength(0);
+    expect(m.estaAtivo("e1")).toBe(true);
+    // Recuperacao: sinal volta a ser observado, evento continua o mesmo.
+    expect(m.processar([leitura("gesto_a", 4)])).toHaveLength(0);
+    expect(m.estaAtivo("e1")).toBe(true);
+  });
+
+  it("interromperPorPeriodoCego encerra na ultima evidencia com motivo e lacuna", () => {
+    const m = new MaquinaSinais({ framesParaConfirmar: 2, framesParaEncerrar: 2 });
+    const leitura = (frame: number) => ({
+      entidadeId: "e1",
+      rotulo: "gesto_a",
+      confianca: 0.9,
+      frameId: `f${frame}`,
+      timestamp: new Date(1700000000000 + frame * 100).toISOString(),
+      cycleId: "c1",
+    });
+    // Entidade desconhecida nao esta ativa.
+    expect(m.estaAtivo("inexistente")).toBe(false);
+
+    m.processar([leitura(1)]);
+    m.processar([leitura(2)]);
+    m.processar([leitura(3)]);
+
+    const interrompidos = m.interromperPorPeriodoCego(4000);
+    expect(interrompidos).toHaveLength(1);
+    expect(interrompidos[0].estado).toBe("encerrado");
+    expect(interrompidos[0].motivoEncerramento).toBe("periodo_cego");
+    expect(interrompidos[0].intervaloSemObservacaoMs).toBe(4000);
+    expect(interrompidos[0].fimEm).toBe(leitura(3).timestamp);
+    expect(m.estaAtivo("e1")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -189,6 +311,71 @@ describe("MotorTemporalImpl — braço", () => {
     expect(encerrado).toBeDefined();
     expect(encerrado?.fimEm).toBeDefined();
     expect(encerrado?.eventoId).toBe(confirmado?.eventoId);
+  });
+
+  it("punho alto sem relacao articular (abaixo do ombro) nao confirma", () => {
+    reiniciarContador();
+    // Configura ombros e cotovelos acima do punho erguido (punho abaixo deles):
+    // apenas um ponto alto nao basta; a relacao ombro/cotovelo/punho e exigida.
+    const motor = criarMotor();
+    const eventos = [];
+    const alturas = [0.2, 0.2, 0.2, 0.2];
+    for (let i = 0; i < alturas.length; i += 1) {
+      const basePose = posePessoa(alturas[i], 0.9);
+      // ombros (5/6), cotovelos (7/8) e restante acima (y menor) que o punho.
+      if (!("indisponivel" in (basePose as object))) {
+        const pontos = (basePose as { pessoas: PessoaPose[] }).pessoas[0].pontos;
+        for (const idx of [5, 6, 7, 8]) pontos[idx] = { x: 0.5, y: 0.15, confianca: 0.9 };
+      }
+      const r = motor.processar([obs({ ms: i * 100, pose: basePose })]);
+      eventos.push(...r.eventos.filter((e) => e.tipo === "braco_levantado"));
+    }
+    // Punho (0.2) esta abaixo do ombro/cotovelo (0.15): nao ha braco erguido.
+    expect(eventos.filter((e) => e.estado === "confirmado")).toHaveLength(0);
+  });
+
+  it("posicao do punho na faixa de histerese mantem o braco ativo", () => {
+    reiniciarContador();
+    const motor = new MotorTemporalImpl({
+      rastreador: { distanciaMaxima: 0.3, maxFramesAusente: 3, alphaSuavizacao: 0.5 },
+      braco: { framesParaConfirmar: 2, framesParaEncerrar: 2, confiancaMinima: 0.5 },
+      limiarAlturaBraco: 0.4,
+      histereseBraco: 0.15,
+    });
+    const eventos = [];
+    // 0.3 confirma (<= 0.4). Depois 0.5 fica na faixa de histerese (<= 0.55),
+    // mantendo o sinal mesmo acima do limiar de entrada.
+    const alturas = [0.3, 0.3, 0.5, 0.5];
+    for (let i = 0; i < alturas.length; i += 1) {
+      const r = motor.processar([obs({ ms: i * 100, pose: posePessoa(alturas[i], 0.9) })]);
+      eventos.push(...r.eventos.filter((e) => e.tipo === "braco_levantado"));
+    }
+    expect(eventos.filter((e) => e.estado === "confirmado")).toHaveLength(1);
+    // O braco nao encerrou na faixa de histerese.
+    expect(eventos.filter((e) => e.estado === "encerrado")).toHaveLength(0);
+  });
+
+  it("falha de pose nao encerra o braco ativo; recuperacao continua o evento", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    const eventos = [];
+    motor.processar([obs({ ms: 0, pose: posePessoa(0.3, 0.9) })]);
+    const r2 = motor.processar([obs({ ms: 100, pose: posePessoa(0.3, 0.9) })]);
+    eventos.push(...r2.eventos.filter((e) => e.tipo === "braco_levantado"));
+    const confirmado = eventos.find((e) => e.estado === "confirmado");
+    expect(confirmado).toBeDefined();
+
+    // Pose indisponivel por varios frames: o braco ativo NAO encerra.
+    for (let i = 0; i < 4; i += 1) {
+      const r = motor.processar([obs({ ms: 200 + i * 100, pose: indisponivel("pose", "timeout") })]);
+      eventos.push(...r.eventos.filter((e) => e.tipo === "braco_levantado"));
+    }
+    expect(eventos.filter((e) => e.estado === "encerrado")).toHaveLength(0);
+
+    // Recuperacao: ainda erguido -> o evento continua (nada novo e emitido).
+    const r3 = motor.processar([obs({ ms: 700, pose: posePessoa(0.3, 0.9) })]);
+    eventos.push(...r3.eventos.filter((e) => e.tipo === "braco_levantado"));
+    expect(eventos.filter((e) => e.estado === "encerrado")).toHaveLength(0);
   });
 });
 
@@ -268,6 +455,33 @@ describe("MotorTemporalImpl — estado entre ciclos", () => {
     // Gap grande entre ciclos -> periodo cego.
     const r3 = motor.processar([obs({ ms: 5000, maos: maoComGesto("mao_aberta"), cycleId: "c2" })]);
     expect(r3.houveIntervaloSemObservacao).toBe(true);
+    expect(r3.intervaloSemObservacaoMs).toBe(5000 - 100);
+  });
+
+  it("periodo cego interrompe evento ativo como incerto, sem presumir continuidade", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    motor.processar([obs({ ms: 0, maos: maoComGesto("mao_aberta"), cycleId: "c1" })]);
+    const r2 = motor.processar([obs({ ms: 100, maos: maoComGesto("mao_aberta"), cycleId: "c1" })]);
+    const confirmado = r2.eventos.find(
+      (e) => e.tipo === "gesto_detectado" && e.estado === "confirmado"
+    );
+    expect(confirmado).toBeDefined();
+
+    // Gap grande -> o gesto ativo e interrompido (nao presume continuidade).
+    const r3 = motor.processar([obs({ ms: 6000, maos: maoComGesto("mao_aberta"), cycleId: "c2" })]);
+    const interrompido = r3.eventos.find(
+      (e) => e.tipo === "gesto_detectado" && e.estado === "incerto"
+    );
+    expect(interrompido).toBeDefined();
+    expect(interrompido?.eventoId).toBe(confirmado?.eventoId);
+    expect(interrompido?.intervaloSemObservacaoMs).toBe(6000 - 100);
+    // Fim registrado como a ultima evidencia positiva (ms=100), nao o inicio
+    // (ms=0) nem o instante da lacuna (ms=6000).
+    const fim = Date.parse(interrompido!.fimEm!);
+    const inicio = Date.parse(interrompido!.inicioEm);
+    expect(fim).toBe(Date.parse(new Date(1700000000000 + 100).toISOString()));
+    expect(fim).toBeGreaterThan(inicio);
   });
 
   it("resetar limpa o estado entre sessoes", () => {
@@ -294,6 +508,33 @@ describe("MotorTemporalImpl — estado entre ciclos", () => {
     expect(motor.pessoasVivas).toHaveLength(0);
     expect(motor.maosVivas).toHaveLength(1);
     expect(r.entidadesAtivas).toBeGreaterThanOrEqual(1);
+  });
+
+  it("falha de maos nao encerra gesto ativo", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    motor.processar([obs({ ms: 0, maos: maoComGesto("mao_aberta") })]);
+    const r2 = motor.processar([obs({ ms: 100, maos: maoComGesto("mao_aberta") })]);
+    const confirmado = r2.eventos.find(
+      (e) => e.tipo === "gesto_detectado" && e.estado === "confirmado"
+    );
+    expect(confirmado).toBeDefined();
+
+    // Maos indisponiveis por varios frames: nao encerra o gesto.
+    const eventos = [];
+    for (let i = 0; i < 4; i += 1) {
+      const r = motor.processar([obs({ ms: 200 + i * 100, maos: indisponivel("maos", "erro") })]);
+      eventos.push(...r.eventos);
+    }
+    expect(
+      eventos.filter((e) => e.tipo === "gesto_detectado" && e.estado === "encerrado")
+    ).toHaveLength(0);
+
+    // Recuperacao: gesto continua o mesmo evento.
+    const rRec = motor.processar([obs({ ms: 700, maos: maoComGesto("mao_aberta") })]);
+    expect(
+      rRec.eventos.filter((e) => e.tipo === "gesto_detectado" && e.estado === "encerrado")
+    ).toHaveLength(0);
   });
 });
 

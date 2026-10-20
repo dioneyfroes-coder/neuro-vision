@@ -43,4 +43,11 @@ export interface EventoTemporal {
   /** Frames de evidencia, em ordem cronologica. */
   frameIds: string[];
   estado: EstadoEventoTemporal;
+  /**
+   * Duracao (ms) do periodo cego que interrompeu o evento, quando houver. Um
+   * evento com este campo foi encerrado **nao** por ausencia observada, mas por
+   * uma lacuna de observacao: o fim coincide com a ultima evidencia positiva e
+   * o estado fica `incerto` (nunca `encerrado`).
+   */
+  intervaloSemObservacaoMs?: number;
 }

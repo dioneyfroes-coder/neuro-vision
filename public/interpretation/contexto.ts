@@ -88,6 +88,8 @@ export interface ContextoCicloSerializavel {
   resumoTemporal: {
     entidadesAtivas: number;
     houveIntervaloSemObservacao: boolean;
+    /** Duracao (ms) do periodo cego anterior ao ciclo, quando houver. */
+    intervaloSemObservacaoMs?: number;
   };
   /** Sinalizacao clara de subsistemas indisponiveis (falha != ausencia). */
   indisponibilidades: string[];
@@ -179,6 +181,9 @@ export function montarContextoCiclo(
       houveIntervaloSemObservacao: incluirDadosLocais
         ? Boolean(pacote.resumoTemporal.houveIntervaloSemObservacao)
         : false,
+      intervaloSemObservacaoMs: incluirDadosLocais
+        ? pacote.resumoTemporal.intervaloSemObservacaoMs
+        : undefined,
     },
     indisponibilidades,
   };

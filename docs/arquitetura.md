@@ -152,6 +152,15 @@ A ausência de frames (câmera sem imagem) não é tratada como falha: o ciclo r
 7. Entradas e eventos entram na fila de persistência (`public/persistencia.ts`): gravação serial em ordem, com retentativas e `idempotencyKey` (o servidor deduplica reenvios). Falhas persistentes aparecem no aviso/diagnóstico e podem ser exportadas pelo botão **Pendentes**.
 8. Em vez de tocar o DOM, o controlador emite `EventoUi` (status, spinner, entrada, caixas, canvas, pronto, falha, parado); `app.ts` traduz cada evento na renderização da interface.
 
+## Semântica temporal
+
+O motor temporal (`public/temporal/`) mantém estado entre ciclos e trata a **semântica do tempo** de forma explícita, para não confundir acontecimentos com limites de observação:
+
+- **`fimEm` = última evidência positiva.** Ao encerrar um evento, o fim é o instante do último frame em que o sinal foi de fato observado (`ultimoSinalEm`), nunca o início do evento nem o frame em que a ausência foi percebida. Um evento jamais termina antes de começar (se não houver evidência posterior ao início, `fimEm === inicioEm`).
+- **Falha ≠ ausência.** Um subsistema indisponível (erro, timeout, modelo não carregado) é informado por frame via `MaquinaSinais.processar(leituras, { indisponivel: true })`: a máquina **preserva os eventos ativos**, não conta ausência (`framesSemSinal`) e **reinicia candidatos** — uma inferência que falhou não pode encerrar um gesto nem confirmar um sinal. Só uma observação válida sem resultado (`rotulo: null`) conta como ausência.
+- **Intervalos cegos não presumem continuidade.** Um gap entre ciclos maior que `limiarPeriodoCegoMs` dispara `interromperPorPeriodoCego(gapMs)`: os sinais ativos são encerrados na última evidência e os candidatos descartados. Esses eventos saem com `estado: "incerto"` e `intervaloSemObservacaoMs` (a duração da lacuna), e ficam apenas no diagnóstico/contexto — `incerto` nunca é persistido como fato em `eventos.jsonl`. O `ResumoTemporal` expõe `houveIntervaloSemObservacao` e `intervaloSemObservacaoMs`.
+- **Braço levantado por relação articular.** `braco_levantado` não é apenas "punho acima do limiar": exige que o punho esteja acima do **ombro** e do **cotovelo** do mesmo lado (índices COCO 5/7/9 e 6/8/10), com os três pontos confiáveis. Uma **histerese** (`histereseBraco`) mantém o sinal ativo na faixa próxima ao limiar, evitando cintilação.
+
 ## Persistência, diagnóstico e recuperação
 
 A persistência é separada do servidor HTTP (`src/persistence/`), com uma primitiva JSONL e um repositório por tipo de registro. Cada arquivo tem rotação por tamanho (`LOG_MAX_BYTES`):

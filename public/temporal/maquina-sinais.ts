@@ -7,8 +7,10 @@ import { uuid } from "../../src/domain/ids";
  *
  * `rotulo` e o sinal observado (ex.: nome do gesto, ou `"levantado"` para o
  * braco). `null` indica que **nao ha sinal valido** neste frame para a entidade
- * (mão oculta, gesto abaixo do limiar, inferencia falha, etc.) — distinto de
- * ausencia da propria entidade.
+ * (mão oculta, gesto abaixo do limiar) — distinto de ausencia da propria
+ * entidade e de **falha de inferencia** (tratada em nivel de frame, via
+ * `processar(..., { indisponivel: true })`): uma inferencia que falhou nao
+ * afirma que o sinal deixou de existir.
  */
 export interface LeituraSinal {
   entidadeId: string;
@@ -19,9 +21,16 @@ export interface LeituraSinal {
   cycleId: string;
 }
 
+/** Por que um evento foi encerrado (preservado no diagnostico). */
+export type MotivoEncerramento = "sem_sinal" | "troca_sinal" | "periodo_cego";
+
 /**
  * Evento de sinal emitido pela maquina, com identidade estavel por todo o
  * ciclo de vida (confirmacao e encerramento compartilham o mesmo `eventoId`).
+ *
+ * `fimEm` e sempre o instante da **ultima evidencia positiva** — nunca o frame
+ * em que a ausencia foi percebida nem o inicio do evento. Assim a duracao
+ * reflete o que foi de fato observado e nunca fica negativa.
  */
 export interface EventoSinal {
   eventoId: string;
@@ -35,6 +44,9 @@ export interface EventoSinal {
   cycleIdInicio: string;
   /** Frames em que o sinal foi observado (evidencia). */
   framesSinal: number;
+  motivoEncerramento?: MotivoEncerramento;
+  /** Duracao (ms) do periodo cego que interrompeu o evento, quando houver. */
+  intervaloSemObservacaoMs?: number;
 }
 
 interface Ativo {
@@ -46,6 +58,10 @@ interface Ativo {
   frameIds: string[];
   confianca: number;
   framesSinal: number;
+  /** Instante ISO da ultima leitura valida que sustentou o sinal. */
+  ultimoSinalEm: string;
+  /** Ultimo frame com evidencia positiva do sinal. */
+  ultimoFrameId: string;
 }
 
 interface EstadoEntidade {
@@ -58,15 +74,28 @@ interface EstadoEntidade {
   ativo: Ativo | null;
 }
 
+/** Opcoes de `processar` para distinguir "sem sinal" de "nao foi possivel ver". */
+export interface OpcoesProcessarSinais {
+  /**
+   * `true` quando o subsistema de origem estava **indisponivel** neste frame
+   * (falha, timeout, modelo nao carregado). A maquina preserva os eventos
+   * ativos, nao conta ausencia e reinicia candidatos: uma inferencia que falhou
+   * nao pode encerrar gesto nem confirmar sinal.
+   */
+  indisponivel?: boolean;
+}
+
 /**
  * Maquina de estados de sinal com confirmacao e encerramento temporais.
  *
- * - Um sinal precisa persistir por `framesParaConfirmar` frames para ser
- *   confirmado (filtra gestos instaveis de um unico frame).
- * - Um evento confirmado so encerra apos `framesParaEncerrar` frames sem o
- *   sinal (filtra ocultacoes breves).
- * - O evento confirmado inclui todos os frames de evidencia (candidato e
- *   permanencia) e dura de `inicioEm` a `fimEm`.
+ * - Um sinal precisa persistir por `framesParaConfirmar` frames **validos** para
+ *   ser confirmado (filtra gestos instaveis de um unico frame).
+ * - Um evento confirmado so encerra apos `framesParaEncerrar` frames validos
+ *   sem o sinal (filtra ocultacoes breves).
+ * - `fimEm` e sempre a ultima evidencia positiva; a identidade (`eventoId`) e
+ *   estavel.
+ * - Uma inferencia indisponivel nao conta como ausencia: o evento ativo e
+ *   preservado e o candidato reinicia.
  * - O estado e reutilizado entre ciclos; `limpar()` reseta tudo.
  */
 export class MaquinaSinais {
@@ -81,8 +110,17 @@ export class MaquinaSinais {
    * Processa as leituras de um frame e retorna os eventos emitidos neste
    * passo (confirmacoes e encerramentos).
    */
-  processar(leituras: LeituraSinal[]): EventoSinal[] {
+  processar(leituras: LeituraSinal[], opcoes: OpcoesProcessarSinais = {}): EventoSinal[] {
     const emitidos: EventoSinal[] = [];
+
+    // Inferencia indisponivel: nao observamos nada. Preserva ativos (nao
+    // afirma encerramento), reinicia candidatos (confirmacao exige frames
+    // validos contiguos) e nao incrementa `framesSemSinal`.
+    if (opcoes.indisponivel) {
+      for (const estado of this.estados.values()) this.resetarCandidato(estado);
+      return emitidos;
+    }
+
     const vistas = new Set<string>();
 
     for (const leitura of leituras) {
@@ -107,8 +145,7 @@ export class MaquinaSinais {
 
         // Troca de sinal encerra o ativo anterior antes de avaliar o novo.
         if (estado.ativo) {
-          emitidos.push(this.eventoDe(estado.ativo, "encerrado", leitura.timestamp));
-          estado.ativo = null;
+          emitidos.push(this.encerrar(estado, "troca_sinal"));
         }
 
         if (estado.rotuloCandidato === leitura.rotulo) {
@@ -127,12 +164,11 @@ export class MaquinaSinais {
           emitidos.push(this.eventoDe(estado.ativo, "confirmado"));
         }
       } else {
-        // Sem sinal valido neste frame.
+        // Sem sinal valido neste frame (observacao valida, sem resultado).
         estado.framesSemSinal += 1;
         this.resetarCandidato(estado);
         if (estado.ativo && estado.framesSemSinal >= this.config.framesParaEncerrar) {
-          emitidos.push(this.eventoDe(estado.ativo, "encerrado", leitura.timestamp));
-          estado.ativo = null;
+          emitidos.push(this.encerrar(estado, "sem_sinal"));
         }
       }
     }
@@ -142,9 +178,7 @@ export class MaquinaSinais {
       if (vistas.has(entidadeId)) continue;
       estado.framesSemSinal += 1;
       if (estado.ativo && estado.framesSemSinal >= this.config.framesParaEncerrar) {
-        const referencia = this.ultimaReferenciaDeTempo(estado.ativo);
-        emitidos.push(this.eventoDe(estado.ativo, "encerrado", referencia.timestamp));
-        estado.ativo = null;
+        emitidos.push(this.encerrar(estado, "sem_sinal"));
       }
       // Retencao: sem evento ativo e sem sinal ha tempo, descarta o estado.
       if (!estado.ativo && estado.framesSemSinal > this.config.framesParaEncerrar) {
@@ -155,6 +189,31 @@ export class MaquinaSinais {
     return emitidos;
   }
 
+  /**
+   * Interrompe os eventos ativos por um periodo cego (lacuna entre ciclos) sem
+   * presumir continuidade. Cada evento ativo e encerrado na **ultima evidencia
+   * positiva**, com `motivoEncerramento: "periodo_cego"` e a duracao da lacuna.
+   * Candidatos sao descartados: a confirmacao recomeca apos o intervalo.
+   */
+  interromperPorPeriodoCego(gapMs?: number): EventoSinal[] {
+    const emitidos: EventoSinal[] = [];
+    for (const estado of this.estados.values()) {
+      if (estado.ativo) {
+        const referencia = this.ultimaReferenciaDeTempo(estado.ativo);
+        emitidos.push(
+          this.eventoDe(estado.ativo, "encerrado", referencia.timestamp, {
+            motivoEncerramento: "periodo_cego",
+            intervaloSemObservacaoMs: gapMs,
+          })
+        );
+        estado.ativo = null;
+      }
+      this.resetarCandidato(estado);
+      estado.framesSemSinal = 0;
+    }
+    return emitidos;
+  }
+
   /** Eventos ativos (confirmados e ainda em curso). */
   ativos(): Ativo[] {
     const lista: Ativo[] = [];
@@ -162,6 +221,11 @@ export class MaquinaSinais {
       if (estado.ativo) lista.push(estado.ativo);
     }
     return lista;
+  }
+
+  /** Indica se a entidade tem um sinal confirmado em curso. */
+  estaAtivo(entidadeId: string): boolean {
+    return this.estados.get(entidadeId)?.ativo != null;
   }
 
   limpar(): void {
@@ -198,6 +262,8 @@ export class MaquinaSinais {
       frameIds: [...estado.frameIdsCandidato],
       confianca: leitura.confianca,
       framesSinal: estado.frameIdsCandidato.length,
+      ultimoSinalEm: leitura.timestamp,
+      ultimoFrameId: leitura.frameId,
     };
   }
 
@@ -205,6 +271,18 @@ export class MaquinaSinais {
     this.adicionarFrame(ativo.frameIds, leitura.frameId);
     ativo.confianca = Math.max(ativo.confianca, leitura.confianca);
     ativo.framesSinal += 1;
+    ativo.ultimoSinalEm = leitura.timestamp;
+    ativo.ultimoFrameId = leitura.frameId;
+  }
+
+  /** Encerra o ativo do estado na ultima evidencia positiva. */
+  private encerrar(estado: EstadoEntidade, motivo: MotivoEncerramento): EventoSinal {
+    const ativo = estado.ativo as Ativo;
+    const referencia = this.ultimaReferenciaDeTempo(ativo);
+    estado.ativo = null;
+    return this.eventoDe(ativo, "encerrado", referencia.timestamp, {
+      motivoEncerramento: motivo,
+    });
   }
 
   private adicionarFrame(frameIds: string[], frameId: string): void {
@@ -214,7 +292,8 @@ export class MaquinaSinais {
   private eventoDe(
     ativo: Ativo,
     estado: "confirmado" | "encerrado",
-    fimEm?: string
+    fimEm?: string,
+    extras: Pick<EventoSinal, "motivoEncerramento" | "intervaloSemObservacaoMs"> = {}
   ): EventoSinal {
     return {
       eventoId: ativo.eventoId,
@@ -222,20 +301,27 @@ export class MaquinaSinais {
       rotulo: ativo.rotulo,
       estado,
       inicioEm: ativo.inicioEm,
-      fimEm: estado === "encerrado" ? fimEm : undefined,
+      // Um evento nunca termina antes de comecar: se nao houver evidencia
+      // posterior, o fim coincide com o inicio.
+      fimEm: estado === "encerrado" ? this.garantirFimNaoAnterior(ativo, fimEm) : undefined,
       frameIds: [...ativo.frameIds],
       confianca: ativo.confianca,
       cycleIdInicio: ativo.cycleIdInicio,
       framesSinal: ativo.framesSinal,
+      ...extras,
     };
   }
 
+  private garantirFimNaoAnterior(ativo: Ativo, fimEm?: string): string {
+    const fim = fimEm ?? ativo.ultimoSinalEm;
+    return Date.parse(fim) < Date.parse(ativo.inicioEm) ? ativo.inicioEm : fim;
+  }
+
   /**
-   * Referencia de tempo/frame para encerrar uma entidade que desapareceu do
-   * frame: usa o ultimo frame de evidencia registrado.
+   * Referencia de tempo/frame para encerrar um sinal: a **ultima evidencia
+   * positiva** (`ultimoSinalEm`/`ultimoFrameId`), nunca o inicio do evento.
    */
   private ultimaReferenciaDeTempo(ativo: Ativo): { timestamp: string; frameId: string } {
-    const frameId = ativo.frameIds[ativo.frameIds.length - 1] ?? "";
-    return { timestamp: ativo.inicioEm, frameId };
+    return { timestamp: ativo.ultimoSinalEm, frameId: ativo.ultimoFrameId };
   }
 }
