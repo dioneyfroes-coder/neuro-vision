@@ -29,8 +29,18 @@ export const VERSOES = {
 
 /** ID do repositório de pose no Hugging Face por chave da interface. */
 export const REPOS_POSE = {
-  "Xenova/yolov8n-pose": ["config.json", "preprocessor_config.json", "onnx/model.onnx"],
-  "Xenova/yolov8s-pose": ["config.json", "preprocessor_config.json", "onnx/model.onnx"],
+  "Xenova/yolov8n-pose": [
+    "config.json",
+    "preprocessor_config.json",
+    "onnx/model.onnx",
+    "onnx/model_quantized.onnx",
+  ],
+  "Xenova/yolov8s-pose": [
+    "config.json",
+    "preprocessor_config.json",
+    "onnx/model.onnx",
+    "onnx/model_quantized.onnx",
+  ],
 };
 
 const CDN = (pacote, versao) => `https://cdn.jsdelivr.net/npm/${pacote}@${versao}`;

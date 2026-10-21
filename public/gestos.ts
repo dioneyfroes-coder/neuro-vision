@@ -143,11 +143,10 @@ export async function iniciarReconhecedorComFallback(
  */
 export const criarMotorGestosMediaPipe: CriadorMotorMaos = async (modelo, aoStatus) => {
   const usarLocal = await modelosDisponivel();
-  const caminhoModelo = modelo
-    ? modelo
-    : usarLocal
-      ? `${baseModelosLocal()}/${MODELO_MAOS_LOCAL}`
-      : MODELO_MAOS_PADRAO;
+  let caminhoModelo = modelo || MODELO_MAOS_PADRAO;
+  if (usarLocal && (modelo === undefined || modelo === null || modelo === MODELO_MAOS_PADRAO)) {
+    caminhoModelo = `${baseModelosLocal()}/${MODELO_MAOS_LOCAL}`;
+  }
   aoStatus?.("Carregando reconhecedor de maos/gestos (MediaPipe)...");
 
   const caminhos = await caminhosMediaPipe();
