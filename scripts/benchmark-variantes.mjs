@@ -33,6 +33,24 @@
  *      nao zero (use `--permitir-inconclusivo` para gravar um diagnostico
  *      marcado como INCONCLUSIVO).
  *
+ * Fase 5 (benchmark reproduzivel e decisao por dados):
+ *   - `--warmups <n>` separa WARM-UP de execucao aquecida: os `n` primeiros
+ *     ciclos CONCLUIDOS de cada variante sao tratados como aquecimento
+ *     (compilacao/carga de modelo) e ficam FORA das medianas/P95; o cold start
+ *     e reportado a parte, em ensaio proprio. Sem a flag (padrao 0) nada e
+ *     excluido, preservando o comportamento anterior.
+ *   - `--etapas-isoladas` acrescenta a secao "Etapas isoladas x ciclo
+ *     completo": cada etapa local (captura/deteccao/pose/maos/temporal) medida
+ *     por si so e depois somada no ciclo, a partir das MESMAS metricas reais de
+ *     `logs/ciclos.jsonl` (nao inventa numeros). Exige amostras por etapa.
+ *   - `--conjunto <nome>` registra QUAL conjunto reservado foi usado
+ *     (ex.: `eval`) e entra no relatorio para provar que todas as variantes
+ *     rodaram sobre o mesmo conjunto reservado.
+ *   - `--min-f1`, `--max-fp-min`, `--ganho-minimo-f1`, `--custo-maximo-latencia`
+ *     codificam o gate de qualidade x latencia: C/D so ficam "promoviveis a
+ *     padrao" se baterem os criterios de qualidade E o ganho compensar o custo
+ *     de latencia; caso contrario o veredito e "manter experimental".
+ *
  * NUNCA sobrescreve `bench/BASELINE.md`: a gravacao passa por
  * `gravarRelatorioSeguro`, que recusa qualquer caminho fora do padrao
  * RELATORIO_VARIANTE_<letra>_* / COMPARATIVO_* e recusa explicitamente o
@@ -147,6 +165,19 @@ Opcoes:
                            variantes (alias: --modelo-visao; tambem le
                            NEURO_MODELO_VISAO). Obrigatoria para concluir.
   --min-ciclos <n>         Minimo de ciclos CONCLUIDOS por variante (padrao: 1)
+  --warmups <n>            Primeiros n ciclos concluidos de cada variante sao
+                           WARM-UP: ficam fora das medianas/P95 (padrao: 0).
+                           O cold start e reportado a parte.
+  --etapas-isoladas        Acrescenta a secao "Etapas isoladas x ciclo
+                           completo" (cada etapa local medida por si so).
+  --conjunto <nome>        Registra o conjunto reservado usado (ex.: eval);
+                           entra no relatorio e no comparativo.
+  --min-f1 <0..1>          Gate de qualidade: F1 minimo (padrao: 0.5).
+  --max-fp-min <n>         Gate de qualidade: FP/min maximo (padrao: 2).
+  --ganho-minimo-f1 <0..1> Ganho minimo de F1 de C/D sobre A/B para justificar
+                           o custo de latencia (padrao: 0.1).
+  --custo-maximo-latencia <x> Aumento maximo da mediana de totalMs de C/D sobre
+                           A/B que ainda compensa o ganho de F1 (padrao: 1.5).
   --tolerancia <ms>        Tolerancia de casamento do qualidade (padrao: 3000)
   --offset <ms>            Offset de base do qualidade (padrao: 0)
   --ignorados <tipos>      Tipos ignorados no qualidade (padrao: resumo)
@@ -167,6 +198,7 @@ Exemplos (PowerShell):
   node scripts/benchmark-variantes.mjs --clipes-dir bench/videos --anotacoes-dir bench/clipes/eval
   node scripts/benchmark-variantes.mjs --clipes bench/videos/webcam-mudanca.webm --variantes B,C,D
   node scripts/benchmark-variantes.mjs --eventos-D logs/webcam-eventos.jsonl --modelo-visao qwen2.5-vl-3b-instruct
+  node scripts/benchmark-variantes.mjs --conjunto eval --anotacoes-dir bench/clipes/eval --warmups 1 --etapas-isoladas
 `.trim();
 
 function lerArgs() {
@@ -183,6 +215,15 @@ function lerArgs() {
     ignorados: "resumo",
     saida: "bench",
     minCiclos: 1,
+    warmups: 0,
+    etapasIsoladas: false,
+    conjunto: null,
+    criteriosQualidade: {
+      minF1: 0.5,
+      maxFpMin: 2,
+      ganhoMinimoF1: 0.1,
+      custoMaximoLatencia: 1.5,
+    },
     ciclosPorVariante: {},
     eventosPorVariante: {},
     sessoesPorVariante: {},
@@ -228,6 +269,14 @@ function lerArgs() {
     else if (a === "--ignorados") mapa.ignorados = proximo();
     else if (a === "--modelo" || a === "--modelo-visao") mapa.modeloVisao = proximo();
     else if (a === "--min-ciclos") mapa.minCiclos = Math.max(1, Number(proximo()) || 1);
+    else if (a === "--warmups") mapa.warmups = Math.max(0, Number(proximo()) || 0);
+    else if (a === "--etapas-isoladas") mapa.etapasIsoladas = true;
+    else if (a === "--conjunto") mapa.conjunto = proximo().trim() || null;
+    else if (a === "--min-f1") mapa.criteriosQualidade.minF1 = clamp01(proximo());
+    else if (a === "--max-fp-min") mapa.criteriosQualidade.maxFpMin = Math.max(0, Number(proximo()) || 0);
+    else if (a === "--ganho-minimo-f1") mapa.criteriosQualidade.ganhoMinimoF1 = clamp01(proximo());
+    else if (a === "--custo-maximo-latencia")
+      mapa.criteriosQualidade.custoMaximoLatencia = Math.max(1, Number(proximo()) || 1);
     else if (a === "--data") mapa.data = proximo().replace(/[^0-9]/g, "");
     else if (a === "--saida") mapa.saida = proximo();
     else if (a === "--sem-qualidade") mapa.semQualidade = true;
@@ -260,6 +309,18 @@ function percentil(valores, p) {
   const resto = pos - base;
   const proximo = ordenado[base + 1];
   return proximo === undefined ? ordenado[base] : ordenado[base] + resto * (proximo - ordenado[base]);
+}
+
+/** Converte um valor de CLI para o intervalo [0, 1] (NaN vira 0). */
+function clamp01(valor) {
+  const n = Number(valor);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(1, Math.max(0, n));
+}
+
+/** Soma com valores ausentes tratados como 0 (nunca NaN). */
+function somaSegura(valores) {
+  return valores.reduce((acc, n) => acc + (Number.isFinite(n) ? n : 0), 0);
 }
 
 const f1 = (precisao, recall) => (precisao + recall > 0 ? (2 * precisao * recall) / (precisao + recall) : 0);
@@ -384,6 +445,13 @@ const ETAPAS_MS = [
 ];
 
 /**
+ * Etapas LOCAIS (nao incluem o multimodal remoto nem o total do ciclo). Serve
+ * para a secao "etapas isoladas": cada uma deve caber sozinha no orcamento
+ * antes de somar o ciclo inteiro. A ordem e a ordem real do pipeline.
+ */
+const ETAPAS_LOCAIS = ["capturaMs", "deteccaoMs", "poseMs", "maosMs", "temporalMs"];
+
+/**
  * Ciclo que chegou ao fim COM interpretacao e registro: nao cancelado, com
  * frames e com `concluidoEm`. Um diagnostico parcial/cancelado nao conta como
  * amostra valida para comparar variantes.
@@ -444,6 +512,195 @@ export function agregarMetricasCiclos(registros) {
     subsistemasIndisponiveis: subsistemas,
     metricas,
   };
+}
+
+/**
+ * Separa os primeiros `warmups` ciclos CONCLUIDOS de cada variante (aquecimento
+ * de modelo/compilacao) do regime aquecido. O warm-up nao entra nas medianas do
+ * comparativo; o cold start e reportado a parte, em ensaio proprio (Fase 5, item
+ * 2). `warmups = 0` devolve tudo em `aquecido`, preservando o comportamento
+ * anterior ao benchmark.
+ *
+ * A separacao e feita sobre os ciclos CONCLUIDOS e na ordem de `concluidoEm`
+ * (ou da lista, se ausente) — um ciclo cancelado no inicio nao conta como
+ * amostra de aquecimento.
+ */
+export function separarWarmupCiclos(registros, warmups = 0) {
+  const n = Math.max(0, Math.floor(warmups));
+  if (!n) return { warmup: [], aquecido: [...registros] };
+
+  const comIndice = registros.map((r, i) => ({ r, i }));
+  const concluidos = comIndice
+    .filter(({ r }) => ehCicloConcluido(r))
+    .sort((a, b) => {
+      const ta = Date.parse(a.r?.concluidoEm ?? "");
+      const tb = Date.parse(b.r?.concluidoEm ?? "");
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      return a.i - b.i;
+    });
+
+  const indicesWarmup = new Set(concluidos.slice(0, n).map(({ i }) => i));
+  const warmup = registros.filter((_, i) => indicesWarmup.has(i));
+  const aquecido = registros.filter((_, i) => !indicesWarmup.has(i));
+  return { warmup, aquecido };
+}
+
+/**
+ * Mede cada etapa local ISOLADAMENTE (item 3 da Fase 5) a partir das metricas
+ * reais de `logs/ciclos.jsonl`. Por etapa devolve mediana/P95/maximo/amostras e
+ * quanto ela representa do `totalMs` mediano observado. Tambem compara a SOMA
+ * das etapas locais com o total do ciclo, para expor o que fica de fora
+ * (ex.: multimodal, persistencia) — sem inventar nenhum numero.
+ *
+ * `cobertura`: fracao dos ciclos que registraram a etapa. Etapa ausente (ex.:
+ * maos quando o subsistema esta indisponivel) vem com `amostras: 0` e fica
+ * marcada em `ausentes`, em vez de virar zero silencioso.
+ */
+export function agregarEtapasIsoladas(registros) {
+  const ciclos = registros.length;
+  const etapas = ETAPAS_LOCAIS.map((etapa) => {
+    const valores = registros
+      .map((r) => Number(r?.metricas?.[etapa]))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    return {
+      etapa,
+      amostras: valores.length,
+      medianaMs: arredondar(mediana(valores)),
+      p95Ms: arredondar(percentil(valores, 0.95)),
+      maximoMs: valores.length ? arredondar(Math.max(...valores)) : null,
+      cobertura: ciclos ? arredondar(valores.length / ciclos, 3) : null,
+    };
+  });
+
+  const ausentes = etapas.filter((e) => e.amostras === 0).map((e) => e.etapa);
+
+  // Totais por ciclo: soma das etapas locais presentes x totalMs real.
+  const totais = registros
+    .map((r) => {
+      const locais = ETAPAS_LOCAIS.map((etapa) => Number(r?.metricas?.[etapa])).filter(
+        (n) => Number.isFinite(n) && n > 0
+      );
+      const total = Number(r?.metricas?.totalMs);
+      if (!locais.length || !Number.isFinite(total) || total <= 0) return null;
+      return { locais: somaSegura(locais), total, multimodal: Number(r?.metricas?.multimodalMs) };
+    })
+    .filter(Boolean);
+
+  return {
+    ciclos,
+    etapas,
+    ausentes,
+    /** Mediana da soma das etapas locais por ciclo (o "ciclo local"). */
+    somaLocalMedianaMs: arredondar(mediana(totais.map((t) => t.locais))),
+    /** Mediana do totalMs real do ciclo (o ciclo completo). */
+    totalMedianaMs: arredondar(mediana(totais.map((t) => t.total))),
+    /** Mediana do multimodal (o que sobra entre o ciclo local e o completo). */
+    multimodalMedianaMs: arredondar(
+      mediana(totais.map((t) => t.multimodal).filter((n) => Number.isFinite(n) && n > 0))
+    ),
+    amostras: totais.length,
+  };
+}
+
+/**
+ * Gate de qualidade x latencia (itens 5 e 6 da Fase 5). Diz, por variante, se
+ * ela ATINGE os criterios de qualidade definidos previamente e se o ganho de F1
+ * sobre a referencia compensa o custo de latencia. C/D so ficam "promoviveis a
+ * padrao" quando:
+ *   1. F1 >= minF1 e FP/min <= maxFpMin (criterio de qualidade);
+ *   2. o ganho de F1 sobre a melhor referencia (A/B) >= ganhoMinimoF1;
+ *   3. o total mediano nao passa de `custoMaximoLatencia` vezes o da referencia.
+ * Caso contrario a recomendacao e "manter experimental". Sem qualidade
+ * consolidada ou sem dados de latencia, a variante fica "sem dados" — nunca
+ * promovida.
+ */
+export function avaliarGateQualidade(resultados, criterios = {}) {
+  const {
+    minF1 = 0.5,
+    maxFpMin = 2,
+    ganhoMinimoF1 = 0.1,
+    custoMaximoLatencia = 1.5,
+  } = criterios;
+
+  const dados = resultados.map((r) => {
+    const c = r.qualidade?.consolidado ?? null;
+    const m = r.desempenho?.metricas ?? {};
+    return {
+      letra: r.variante.letra,
+      f1: c?.f1 ?? null,
+      precisao: c?.precisao ?? null,
+      recall: c?.recall ?? null,
+      falsosPositivosPorMinuto: c?.falsosPositivosPorMinuto ?? null,
+      totalMedianaMs: m.totalMs?.medianaMs ?? null,
+      ciclosConcluidos: r.desempenho?.ciclosConcluidos ?? 0,
+    };
+  });
+
+  // Referencia de latencia/qualidade: a MELHOR variante de referencia (A ou B)
+  // com qualidade. Se nenhuma referencia tiver dados, usa a media das demais.
+  const referencias = dados.filter(
+    (d) => (d.letra === "A" || d.letra === "B") && d.f1 !== null && d.totalMedianaMs !== null
+  );
+  const refF1 = referencias.length ? Math.max(...referencias.map((d) => d.f1)) : null;
+  const refTotal = referencias.length
+    ? Math.min(...referencias.map((d) => d.totalMedianaMs))
+    : null;
+
+  const porVariante = dados.map((d) => {
+    const motivos = [];
+    const temDados = d.f1 !== null && d.totalMedianaMs !== null;
+    if (!temDados) {
+      if (d.f1 === null) motivos.push("sem qualidade consolidada");
+      if (d.totalMedianaMs === null) motivos.push("sem latencia total medida");
+      return { ...d, atende: false, promovivel: false, motivo: motivos.join("; ") };
+    }
+    const atendeF1 = d.f1 >= minF1;
+    const atendeFp = d.falsosPositivosPorMinuto === null || d.falsosPositivosPorMinuto <= maxFpMin;
+    if (!atendeF1) motivos.push(`F1 ${pctCurto(d.f1)} abaixo do minimo ${pctCurto(minF1)}`);
+    if (!atendeFp)
+      motivos.push(`FP/min ${num(d.falsosPositivosPorMinuto)} acima do maximo ${num(maxFpMin)}`);
+    const atende = atendeF1 && atendeFp;
+
+    // Ganho de qualidade x custo de latencia (so faz sentido para C/D, que
+    // acrescentam dados locais/temporal sobre a referencia).
+    let ganhoF1 = null;
+    let taxaCusto = null;
+    let compensa = true;
+    if (refF1 !== null) {
+      ganhoF1 = arredondar(d.f1 - refF1, 3);
+      if (ganhoF1 < ganhoMinimoF1) {
+        compensa = false;
+        motivos.push(`ganho de F1 (${pctCurto(ganhoF1)}) abaixo do minimo ${pctCurto(ganhoMinimoF1)}`);
+      }
+    }
+    if (refTotal !== null && refTotal > 0) {
+      taxaCusto = arredondar(d.totalMedianaMs / refTotal, 3);
+      if (taxaCusto > custoMaximoLatencia) {
+        compensa = false;
+        motivos.push(
+          `latencia ${num(taxaCusto)}x a referencia, acima do teto ${num(custoMaximoLatencia)}x`
+        );
+      }
+    }
+
+    const promovivel = atende && compensa;
+    if (promovivel && !motivos.length) motivos.push("atende aos criterios de qualidade e compensa o custo");
+    return { ...d, atende, ganhoF1, taxaCusto, compensa, promovivel, motivo: motivos.join("; ") };
+  });
+
+  const experimentais = porVariante.filter((p) => !p.promovivel).map((p) => p.letra);
+  return {
+    criterios: { minF1, maxFpMin, ganhoMinimoF1, custoMaximoLatencia },
+    referencia: { letra: referencias.map((r) => r.letra).join("/") || null, f1: refF1, totalMedianaMs: refTotal },
+    porVariante,
+    /** Variantes que NAO devem ser promovidas a padrao com estes dados. */
+    experimentais,
+  };
+}
+
+/** Percentual curto (0..1) para mensagens de gate, sem arredondar centavos. */
+function pctCurto(n) {
+  return Number.isFinite(n) ? `${(Math.round(n * 1000) / 10).toFixed(1)}%` : "—";
 }
 
 /**
@@ -632,7 +889,10 @@ export function avaliarComparabilidade(resultados, opcoes = {}) {
 
   for (const r of resultados) {
     const letra = r.variante.letra;
-    const concluidos = r.desempenho?.ciclosConcluidos ?? 0;
+    // Com warm-up separado, a contagem valida e a do regime AQUECIDO (o
+    // aquecimento nao serve como amostra para decidir arquitetura).
+    const desempenhoValido = r.desempenhoAquecido ?? r.desempenho;
+    const concluidos = desempenhoValido?.ciclosConcluidos ?? 0;
     const modelos = [...new Set(r.modelos?.visao ?? [])];
     const problemasDaVariante = [];
 
@@ -668,9 +928,10 @@ export function avaliarComparabilidade(resultados, opcoes = {}) {
     }
     porVariante.push({
       letra,
-      ciclos: r.desempenho?.ciclos ?? 0,
+      ciclos: desempenhoValido?.ciclos ?? 0,
       ciclosConcluidos: concluidos,
-      cancelados: r.desempenho?.cancelados ?? 0,
+      warmups: r.warmups ?? 0,
+      cancelados: desempenhoValido?.cancelados ?? 0,
       modelos,
       qualidade: Boolean(r.qualidade?.consolidado),
       arquivoEventos: r.arquivoEventos ?? null,
@@ -918,7 +1179,23 @@ function linhaClipes(clipes) {
     .join("; ");
 }
 
-function gerarRelatorioVariante({ variante, clipes, desempenho, qualidade, arquivoEventos, arquivoCiclos, modelos, modelo, ambiente, avisos, data }) {
+function gerarRelatorioVariante({
+  variante,
+  clipes,
+  desempenho,
+  coldStart,
+  warmups = 0,
+  etapasIsoladas,
+  qualidade,
+  arquivoEventos,
+  arquivoCiclos,
+  modelos,
+  modelo,
+  gate,
+  ambiente,
+  avisos,
+  data,
+}) {
   const observados = modelos?.visao?.length ? `visao.jsonl [${modelos.visao.join(", ")}]` : null;
   const deteccao = modelos?.deteccao?.length ? modelos.deteccao.join(", ") : null;
   const L = [
@@ -932,45 +1209,117 @@ function gerarRelatorioVariante({ variante, clipes, desempenho, qualidade, arqui
     `- **Backend multimodal:** ${ambiente.backend ?? "(não informado)"}`,
     `- **Janela da execução:** ${ambiente.inicioEm ?? "?"} → ${ambiente.fimEm ?? "?"}` +
       `${Number.isFinite(ambiente.duracaoMs) ? ` (${(ambiente.duracaoMs / 1000).toFixed(1)} s)` : ""}`,
+    `- **Conjunto reservado:** ${ambiente.conjunto ?? "(não informado — use --conjunto <nome>)"}`,
     `- **Clipes (mesmos para todas as variantes):** ${linhaClipes(clipes)}`,
     `- **Modelo multimodal (registrado):** ${modelo || "(não informado — use --modelo-visao para registrar a versão usada)"}`,
     `- **Modelo multimodal (observado em visao.jsonl):** ${observados || "(sem campo `modelo` para os frames dos ciclos — não verificável)"}`,
     `- **Detector local (observado nos eventos):** ${deteccao || "(sem campo `modelo` nos eventos)"} — não é o modelo multimodal`,
     `- **Ciclos:** \`${arquivoCiclos}\` · **Eventos:** \`${arquivoEventos ?? "(nenhum arquivo)"}\``,
     `- **Tolerância de casamento:** ${argsTolerancia} ms`,
+    `- **Warm-up:** ${warmups} ciclo(s) concluído(s) excluído(s) das medianas (parâmetro \`--warmups\`)`,
     `- **Ambiente:** ${ambiente.cpu} · ${ambiente.nucleosLogicos} núcleos · ${arredondar(ambiente.memoriaTotalBytes / 1024 ** 3, 1)} GB RAM · ${ambiente.plataforma} · Node ${ambiente.node}`,
     `- Gerado por \`scripts/benchmark-variantes.mjs\` em ${ambiente.dataHora}. Este arquivo não substitui \`bench/BASELINE.md\`.`,
     "",
-    "## 1. Desempenho (logs/ciclos.jsonl)",
+    "## 1. Desempenho (logs/ciclos.jsonl, regime aquecido)",
     "",
     ...tabelaDesempenho(desempenho),
+  ];
+
+  if (coldStart) {
+    L.push("## 1b. Cold start (primeiro(s) ciclo(s), fora das medianas)", "");
+    L.push(
+      `Os **${warmups}** primeiro(s) ciclo(s) concluído(s) foram tratados como aquecimento ` +
+        "(compilação/carga de modelo). Mediana do ciclo completo no cold start: " +
+        `**${coldStart.metricas.totalMs.medianaMs ?? "—"} ms** · detecção ${coldStart.metricas.deteccaoMs.medianaMs ?? "—"} ms · ` +
+        `multimodal ${coldStart.metricas.multimodalMs.medianaMs ?? "—"} ms. ` +
+        "O regime aquecido é o que vale para decidir arquitetura; o cold start mede o custo de partida.",
+      ""
+    );
+  }
+
+  if (etapasIsoladas) {
+    L.push("## 1c. Etapas isoladas × ciclo completo", "");
+    L.push(
+      "| Etapa | Mediana (ms) | P95 (ms) | Máximo (ms) | Cobertura |",
+      "|-------|-------------:|---------:|------------:|----------:|"
+    );
+    const nomesLocais = {
+      capturaMs: "captura",
+      deteccaoMs: "detecção",
+      poseMs: "pose",
+      maosMs: "mãos",
+      temporalMs: "temporal",
+    };
+    for (const e of etapasIsoladas.etapas) {
+      L.push(
+        `| ${nomesLocais[e.etapa] ?? e.etapa} | ${e.medianaMs ?? "—"} | ${e.p95Ms ?? "—"} | ${e.maximoMs ?? "—"} | ${e.cobertura === null ? "—" : pct(e.cobertura)} |`
+      );
+    }
+    L.push("");
+    L.push(
+      `- **Soma local (mediana por ciclo):** ${etapasIsoladas.somaLocalMedianaMs ?? "—"} ms · ` +
+        `**ciclo completo (mediana):** ${etapasIsoladas.totalMedianaMs ?? "—"} ms · ` +
+        `**multimodal (mediana):** ${etapasIsoladas.multimodalMedianaMs ?? "—"} ms`
+    );
+    L.push(
+      `- **Etapas sem amostra (nenhum ciclo registrou):** ${etapasIsoladas.ausentes.join(", ") || "nenhuma"}`
+    );
+    L.push(
+      "- Cada etapa local é medida por si só e depois somada no ciclo; a diferença para o ciclo completo é o multimodal e a persistência."
+    );
+    L.push("");
+  }
+
+  L.push(
     "## 2. Qualidade (npm run qualidade por clipe)",
     "",
-    ...tabelaQualidade(qualidade),
+    ...tabelaQualidade(qualidade)
+  );
+
+  if (gate && !ambiente.semQualidade) {
+    L.push("## 2b. Gate de qualidade × latência", "");
+    L.push(
+      `Critérios: F1 ≥ ${pct(gate.criterios?.minF1 ?? 0.5)} · FP/min ≤ ${num(gate.criterios?.maxFpMin ?? 2)} · ` +
+        `ganho de F1 ≥ ${pct(gate.criterios?.ganhoMinimoF1 ?? 0.1)} sobre a referência · ` +
+        `latência ≤ ${num(gate.criterios?.custoMaximoLatencia ?? 1.5)}× a referência.`
+    );
+    L.push("");
+    L.push(
+      `- **Veredito:** ${gate.promovivel ? "✅ **promovível a padrão**" : "⚠️ **manter experimental**"}`
+    );
+    if (gate.ganhoF1 !== null) L.push(`- Ganho de F1 sobre a referência: ${pctCurto(gate.ganhoF1)}`);
+    if (gate.taxaCusto !== null) L.push(`- Latência total: ${num(gate.taxaCusto)}× a referência`);
+    if (gate.motivo) L.push(`- ${gate.motivo}`);
+    L.push("");
+  }
+
+  L.push(
     "## 3. Observações",
     "",
     ...(avisos.length ? avisos.map((a) => `- ⚠️ ${a}`) : ["- Nenhuma."]),
-    "",
-  ];
+    ""
+  );
   return L.join("\n");
 }
 
 let argsTolerancia = 3000; // preenchido em main() para os relatorios
 
-function gerarComparativo({ variantes, resultados, clipes, modelo, verificacaoModelo, comparabilidade, ambiente, data, avisos }) {
+function gerarComparativo({ variantes, resultados, clipes, modelo, verificacaoModelo, comparabilidade, gateQualidade, ambiente, data, avisos }) {
   const nomeConjunto = LETRAS.filter((l) => variantes.some((v) => v.letra === l)).join("_");
   const L = [
     `# Comparativo arquitetural ${nomeConjunto.split("_").join(" × ")} — ${data}`,
     "",
     `- **Veredito:** ${comparabilidade.conclusivo ? "✅ **conclusivo** — dados comparáveis" : "⚠️ **INCONCLUSIVO** — não use os números para decidir entre variantes"}`,
+    `- **Conjunto reservado:** ${ambiente.conjunto ?? "(não informado — use --conjunto <nome>)"}`,
+    `- **Warm-up excluído das medianas:** ${ambiente.warmups ?? 0} ciclo(s) concluído(s) por variante`,
     `- **Clipes (idênticos em todas as variantes):** ${linhaClipes(clipes)}`,
     `- **Modelo multimodal (registrado):** ${modelo || "(não informado)"}`,
     `- **Código:** ${linhaCodigo(ambiente)}`,
     `- **Backend multimodal:** ${ambiente.backend ?? "(não informado)"}`,
+    `- **Hardware:** ${ambiente.cpu} · ${ambiente.nucleosLogicos} núcleos · ${arredondar(ambiente.memoriaTotalBytes / 1024 ** 3, 1)} GB RAM · ${ambiente.plataforma} · Node ${ambiente.node}`,
     `- **Janela da execução:** ${ambiente.inicioEm ?? "?"} → ${ambiente.fimEm ?? "?"}` +
       `${Number.isFinite(ambiente.duracaoMs) ? ` (${(ambiente.duracaoMs / 1000).toFixed(1)} s)` : ""}`,
-    `- **Critério de conclusão:** ao menos ${ambiente.minCiclosValidos ?? 1} ciclo(s) concluído(s) por variante, modelo multimodal verificado em \`logs/visao.jsonl\` e um arquivo de eventos próprio por variante.`,
-    `- **Ambiente:** ${ambiente.cpu} · ${ambiente.nucleosLogicos} núcleos · ${arredondar(ambiente.memoriaTotalBytes / 1024 ** 3, 1)} GB RAM · ${ambiente.plataforma} · Node ${ambiente.node}`,
+    `- **Critério de conclusão:** ao menos ${ambiente.minCiclosValidos ?? 1} ciclo(s) concluído(s) por variante **no regime aquecido**, modelo multimodal verificado em \`logs/visao.jsonl\` e um arquivo de eventos próprio por variante.`,
     `- Gerado em ${ambiente.dataHora}. O \`bench/BASELINE.md\` permanece intocado.`,
     "",
   ];
@@ -994,18 +1343,35 @@ function gerarComparativo({ variantes, resultados, clipes, modelo, verificacaoMo
   }
   L.push("");
 
-  L.push("## Desempenho (mediana / P95 por variante)", "");
+  L.push("## Desempenho (mediana / P95 por variante, regime aquecido)", "");
   L.push(
-    "| Variante | Ciclos | Concluídos | Total med (ms) | Total P95 (ms) | Multimodal med (ms) | Temporal med (ms) | Deteccão med (ms) | Erros | Cancelados |",
-    "|----------|-------:|-----------:|---------------:|---------------:|--------------------:|------------------:|------------------:|------:|-----------:|"
+    "| Variante | Ciclos | Concluídos | Warm-ups | Cold start total (ms) | Total med (ms) | Total P95 (ms) | Multimodal med (ms) | Temporal med (ms) | Deteccão med (ms) | Erros | Cancelados |",
+    "|----------|-------:|-----------:|---------:|----------------------:|---------------:|---------------:|--------------------:|------------------:|------------------:|------:|-----------:|"
   );
-  for (const { variante, desempenho } of resultados) {
-    const m = desempenho?.metricas ?? {};
+  for (const { variante, desempenho, desempenhoAquecido, coldStart, warmups } of resultados) {
+    const valido = desempenhoAquecido ?? desempenho;
+    const m = valido?.metricas ?? {};
     L.push(
-      `| ${variante.letra} | ${desempenho?.ciclos ?? 0} | ${desempenho?.ciclosConcluidos ?? 0} | ${m.totalMs?.medianaMs ?? "—"} | ${m.totalMs?.p95Ms ?? "—"} | ${m.multimodalMs?.medianaMs ?? "—"} | ${m.temporalMs?.medianaMs ?? "—"} | ${m.deteccaoMs?.medianaMs ?? "—"} | ${desempenho?.ciclosComErro ?? 0} | ${desempenho?.cancelados ?? 0} |`
+      `| ${variante.letra} | ${valido?.ciclos ?? 0} | ${valido?.ciclosConcluidos ?? 0} | ${warmups ?? 0} | ${coldStart?.metricas.totalMs.medianaMs ?? "—"} | ${m.totalMs?.medianaMs ?? "—"} | ${m.totalMs?.p95Ms ?? "—"} | ${m.multimodalMs?.medianaMs ?? "—"} | ${m.temporalMs?.medianaMs ?? "—"} | ${m.deteccaoMs?.medianaMs ?? "—"} | ${valido?.ciclosComErro ?? 0} | ${valido?.cancelados ?? 0} |`
     );
   }
   L.push("");
+
+  // Etapas isoladas x ciclo completo (somente quando solicitado por variante).
+  const comEtapas = resultados.filter((r) => r.etapasIsoladas);
+  if (comEtapas.length) {
+    L.push("## Etapas isoladas × ciclo completo (mediana por ciclo)", "");
+    L.push(
+      "| Variante | Soma local (ms) | Ciclo completo (ms) | Multimodal (ms) | Etapas sem amostra |",
+      "|----------|----------------:|--------------------:|----------------:|--------------------|"
+    );
+    for (const { variante, etapasIsoladas } of comEtapas) {
+      L.push(
+        `| ${variante.letra} | ${etapasIsoladas.somaLocalMedianaMs ?? "—"} | ${etapasIsoladas.totalMedianaMs ?? "—"} | ${etapasIsoladas.multimodalMedianaMs ?? "—"} | ${etapasIsoladas.ausentes.join(", ") || "nenhuma"} |`
+      );
+    }
+    L.push("");
+  }
 
   L.push("## Qualidade (consolidado por variante)", "");
   L.push(
@@ -1024,6 +1390,40 @@ function gerarComparativo({ variantes, resultados, clipes, modelo, verificacaoMo
   }
   L.push("");
 
+  // Gate de qualidade x latencia (Fase 5, itens 5 e 6): decide se C/D podem ser
+  // promovidas a padrao ou devem permanecer experimentais com estes dados.
+  if (gateQualidade && !ambiente.semQualidade) {
+    const c = gateQualidade.criterios;
+    L.push("## Gate de qualidade × latência (decisão de promoção)", "");
+    L.push(
+      `Critérios definidos previamente: **F1 ≥ ${pct(c.minF1)}** · **FP/min ≤ ${num(c.maxFpMin)}** · ` +
+        `**ganho de F1 ≥ ${pct(c.ganhoMinimoF1)}** sobre a referência (${gateQualidade.referencia.letra ?? "n/d"}) · ` +
+        `**latência ≤ ${num(c.custoMaximoLatencia)}×** a referência.`
+    );
+    L.push("");
+    L.push(
+      "| Variante | F1 | FP/min | Ganho F1 vs ref | Latência vs ref | Qualidade | Compensa | Recomendação |",
+      "|----------|----|-------:|----------------:|----------------:|:---------:|:--------:|--------------|"
+    );
+    for (const g of gateQualidade.porVariante) {
+      L.push(
+        `| ${g.letra} | ${g.f1 === null ? "—" : pct(g.f1)} | ${g.falsosPositivosPorMinuto === null ? "—" : num(g.falsosPositivosPorMinuto)} | ` +
+          `${g.ganhoF1 === null ? "—" : pctCurto(g.ganhoF1)} | ${g.taxaCusto === null ? "—" : `${num(g.taxaCusto)}×`} | ` +
+          `${g.atende ? "✅" : "⚠️"} | ${g.compensa ? "✅" : "⚠️"} | ${g.promovivel ? "**promovível a padrão**" : "manter experimental"} |`
+      );
+    }
+    L.push("");
+    if (gateQualidade.experimentais.length) {
+      L.push(
+        `⚠️ **Manter experimentais com estes dados:** ${gateQualidade.experimentais.join(", ")}. ` +
+          "Não promover a padrão sem nova medição que atenda aos critérios acima."
+      );
+    } else {
+      L.push("✅ **Todas as variantes com dados atendem aos critérios.**");
+    }
+    L.push("");
+  }
+
   // Lideres por criterio: SOMENTE quando o veredito e conclusivo. Em rodada
   // invalida, listar "vencedores" seria repetir o defeito do comparativo de
   // 2026-10-18 (metricas iguais copiadas entre variantes).
@@ -1033,7 +1433,10 @@ function gerarComparativo({ variantes, resultados, clipes, modelo, verificacaoMo
     L.push("");
   } else {
     const comQualidade = resultados.filter((r) => r.qualidade?.consolidado);
-    const comDesempenho = resultados.filter((r) => (r.desempenho?.ciclosConcluidos ?? 0) > 0);
+    const comDesempenho = resultados.filter(
+      (r) => ((r.desempenhoAquecido ?? r.desempenho)?.ciclosConcluidos ?? 0) > 0
+    );
+    const desempenhoDe = (r) => r.desempenhoAquecido ?? r.desempenho ?? { metricas: {} };
     const melhor = (lista, fn) => lista.reduce((best, r) => (best === null || fn(r) > fn(best) ? r : best), null);
     const pior = (lista, fn) => lista.reduce((worst, r) => (worst === null || fn(r) < fn(worst) ? r : worst), null);
 
@@ -1055,12 +1458,12 @@ function gerarComparativo({ variantes, resultados, clipes, modelo, verificacaoMo
       L.push("_Sem dados de qualidade para comparar._");
     }
     if (comDesempenho.length) {
-      const bTotal = pior(comDesempenho, (r) => r.desempenho.metricas.totalMs.medianaMs ?? Infinity);
-      const bMulti = pior(comDesempenho, (r) => r.desempenho.metricas.multimodalMs.medianaMs ?? Infinity);
-      const bErros = pior(comDesempenho, (r) => r.desempenho.ciclosComErro + r.desempenho.cancelados);
-      L.push(`- **Menor latência total do ciclo (mediana):** ${bTotal.variante.letra} (${bTotal.desempenho.metricas.totalMs.medianaMs ?? "—"} ms)`);
-      L.push(`- **Menor latência multimodal (mediana):** ${bMulti.variante.letra} (${bMulti.desempenho.metricas.multimodalMs.medianaMs ?? "—"} ms)`);
-      L.push(`- **Mais robusta (erros + cancelamentos):** ${bErros.variante.letra} (${bErros.desempenho.ciclosComErro + bErros.desempenho.cancelados})`);
+      const bTotal = pior(comDesempenho, (r) => desempenhoDe(r).metricas.totalMs.medianaMs ?? Infinity);
+      const bMulti = pior(comDesempenho, (r) => desempenhoDe(r).metricas.multimodalMs.medianaMs ?? Infinity);
+      const bErros = pior(comDesempenho, (r) => desempenhoDe(r).ciclosComErro + desempenhoDe(r).cancelados);
+      L.push(`- **Menor latência total do ciclo (mediana):** ${bTotal.variante.letra} (${desempenhoDe(bTotal).metricas.totalMs.medianaMs ?? "—"} ms)`);
+      L.push(`- **Menor latência multimodal (mediana):** ${bMulti.variante.letra} (${desempenhoDe(bMulti).metricas.multimodalMs.medianaMs ?? "—"} ms)`);
+      L.push(`- **Mais robusta (erros + cancelamentos):** ${bErros.variante.letra} (${desempenhoDe(bErros).ciclosComErro + desempenhoDe(bErros).cancelados})`);
     } else {
       L.push("_Sem dados de desempenho para comparar._");
     }
@@ -1094,6 +1497,12 @@ function gerarComparativo({ variantes, resultados, clipes, modelo, verificacaoMo
 
   L.push("## Cuidados de comparação", "");
   L.push("- Todos os números acima derivam do **mesmo conjunto de clipes**; a variação entre execuções vem do modelo e do hardware, não dos clipes.");
+  L.push(
+    `- **Conjunto reservado:** ${ambiente.conjunto ?? "não informado (use --conjunto <nome>)"} — o conjunto de avaliação final deve ser separado do conjunto de ajuste (tuning).`
+  );
+  L.push(
+    `- **Warm-up:** ${ambiente.warmups ?? 0} ciclo(s) concluído(s) por variante foram excluídos das medianas; compare no campo "Cold start" o custo de partida.`
+  );
   if (modelo) {
     L.push(`- Modelo multimodal registrado: \`${modelo}\`. Confirme no app que **todas** as variantes rodaram com esta versão.`);
   } else {
@@ -1142,6 +1551,11 @@ async function main() {
     inicioEm,
     backend,
     minCiclosValidos: args.minCiclos,
+    warmups: args.warmups,
+    etapasIsoladas: args.etapasIsoladas,
+    conjunto: args.conjunto,
+    criteriosQualidade: args.criteriosQualidade,
+    semQualidade: args.semQualidade,
   });
 
   const variantes = VARIANTES_BENCHMARK.filter((v) => args.variantes.includes(v.letra));
@@ -1184,6 +1598,27 @@ async function main() {
       desempenho = agregarMetricasCiclos(daVariante);
       console.log(
         `  ciclos: ${desempenho.ciclos} registros (${desempenho.ciclosConcluidos} concluidos) | total mediana ${desempenho.metricas.totalMs.medianaMs ?? "-"} ms | erros ${desempenho.ciclosComErro} | cancelados ${desempenho.cancelados}`
+      );
+    }
+
+    // 1b. Warm-up x regime aquecido (Fase 5, item 2). Os primeiros `--warmups`
+    //     ciclos concluidos sao aquecimento (compilacao/carga de modelo) e ficam
+    //     fora das medianas do comparativo; o cold start e medido a parte.
+    const { warmup, aquecido } = separarWarmupCiclos(daVariante, args.warmups);
+    const desempenhoAquecido = warmup.length ? agregarMetricasCiclos(aquecido) : desempenho;
+    const coldStart = warmup.length ? agregarMetricasCiclos(warmup) : null;
+    if (warmup.length) {
+      console.log(
+        `  warm-up: ${warmup.length} ciclo(s) fora das medianas (cold start total ${coldStart.metricas.totalMs.medianaMs ?? "-"} ms) | aquecido ${desempenhoAquecido.ciclosConcluidos} concluido(s)`
+      );
+    }
+
+    // 1c. Etapas isoladas x ciclo completo (Fase 5, item 3). Deriva das MESMAS
+    //     metricas reais; exige `--etapas-isoladas` para entrar no relatorio.
+    const etapasIsoladas = args.etapasIsoladas ? agregarEtapasIsoladas(aquecido) : null;
+    if (etapasIsoladas) {
+      console.log(
+        `  etapas isoladas: soma local mediana ${etapasIsoladas.somaLocalMedianaMs ?? "-"} ms | ciclo completo ${etapasIsoladas.totalMedianaMs ?? "-"} ms | ausentes: ${etapasIsoladas.ausentes.join(", ") || "nenhuma"}`
       );
     }
 
@@ -1233,6 +1668,10 @@ async function main() {
     resultados.push({
       variante,
       desempenho,
+      desempenhoAquecido,
+      coldStart,
+      warmups: warmup.length,
+      etapasIsoladas,
       qualidade,
       arquivoEventos,
       arquivoCiclos,
@@ -1248,14 +1687,27 @@ async function main() {
   const verificacaoModelo = verificarMesmoModelo(resultados, modeloGlobal);
 
   // 3. Veredito de comparabilidade ANTES de gravar: uma rodada sem ciclos
-  // concluidos, sem modelo verificado ou com eventos compartilhados nao pode
-  // produzir conclusao.
+  //    concluidos, sem modelo verificado ou com eventos compartilhados nao pode
+  //    produzir conclusao. Com --warmups, a contagem usa o regime AQUECIDO: o
+  //    aquecimento nao vale como amostra para decidir arquitetura.
   const comparabilidade = avaliarComparabilidade(resultados, {
     modeloGlobal,
     minCiclosValidos: args.minCiclos,
     exigirQualidade: !args.semQualidade,
   });
   for (const p of comparabilidade.problemas) avisos.push(`comparabilidade: ${p}`);
+
+  // 3b. Gate de qualidade x latencia (Fase 5, itens 5 e 6). Independente do
+  //     veredito de comparabilidade: diz se C/D podem ser promovidas a padrao
+  //     ou devem permanecer experimentais com estes dados.
+  const gateQualidade = avaliarGateQualidade(resultados, args.criteriosQualidade);
+  if (!args.semQualidade) {
+    for (const g of gateQualidade.porVariante) {
+      console.log(
+        `  gate ${g.letra}: ${g.promovivel ? "PROMOVIVEL a padrao" : "manter experimental"}${g.motivo ? ` — ${g.motivo}` : ""}`
+      );
+    }
+  }
 
   const fimEm = new Date().toISOString();
   const duracaoMs = Date.now() - inicioMs;
@@ -1264,7 +1716,8 @@ async function main() {
   // 4. Relatorios por variante + consolidado.
   const gravados = [];
   if (!args.semRelatorio) {
-    for (const { variante, desempenho, qualidade, arquivoEventos, arquivoCiclos, modelos } of resultados) {
+    for (const result of resultados) {
+      const { variante, qualidade, arquivoEventos, arquivoCiclos, modelos } = result;
       const avisosDaVariante = [
         ...new Set([
           ...avisos.filter((a) => a.startsWith(`${variante.letra}:`)),
@@ -1274,12 +1727,16 @@ async function main() {
       const conteudo = gerarRelatorioVariante({
         variante,
         clipes,
-        desempenho,
+        desempenho: result.desempenhoAquecido ?? result.desempenho,
+        coldStart: result.coldStart,
+        warmups: result.warmups,
+        etapasIsoladas: result.etapasIsoladas,
         qualidade,
         arquivoEventos,
         arquivoCiclos,
         modelos,
         modelo: args.modeloPorVariante[variante.letra] ?? modeloGlobal,
+        gate: gateQualidade.porVariante.find((g) => g.letra === variante.letra) ?? null,
         ambiente,
         avisos: avisosDaVariante,
         data,
@@ -1297,6 +1754,7 @@ async function main() {
         modelo: modeloGlobal,
         verificacaoModelo,
         comparabilidade,
+        gateQualidade,
         ambiente,
         data,
         avisos,
@@ -1313,17 +1771,21 @@ async function main() {
   }
 
   // Resumo no console (compativel com qualquer shell).
+  const letrasPromoviveis = new Set(gateQualidade.porVariante.filter((g) => g.promovivel).map((g) => g.letra));
   console.table(
-    resultados.map(({ variante, desempenho, qualidade, modelos }) => {
-      const m = desempenho?.metricas ?? {};
+    resultados.map(({ variante, desempenhoAquecido, desempenho, coldStart, warmups, qualidade, modelos }) => {
+      const valido = desempenhoAquecido ?? desempenho;
+      const m = valido?.metricas ?? {};
       const c = qualidade?.consolidado;
       return {
         variante: variante.letra,
         modo: variante.modo,
         modelo: (modelos?.visao ?? []).join(", ") || "-",
         "detector local": (modelos?.deteccao ?? []).join(", ") || "-",
-        ciclos: desempenho?.ciclos ?? 0,
-        concluidos: desempenho?.ciclosConcluidos ?? 0,
+        ciclos: valido?.ciclos ?? 0,
+        concluidos: valido?.ciclosConcluidos ?? 0,
+        warmups: warmups ?? 0,
+        "cold start (ms)": coldStart?.metricas.totalMs.medianaMs ?? "-",
         "total med (ms)": m.totalMs?.medianaMs ?? "-",
         "total P95 (ms)": m.totalMs?.p95Ms ?? "-",
         "multimodal med (ms)": m.multimodalMs?.medianaMs ?? "-",
@@ -1332,8 +1794,9 @@ async function main() {
         recall: c ? pct(c.recall) : "-",
         "FP/min": c ? num(c.falsosPositivosPorMinuto) : "-",
         "nao detectados": c ? c.eventosNaoDetectados : "-",
-        erros: desempenho?.ciclosComErro ?? 0,
-        cancelados: desempenho?.cancelados ?? 0,
+        erros: valido?.ciclosComErro ?? 0,
+        cancelados: valido?.cancelados ?? 0,
+        gate: args.semQualidade ? "-" : letrasPromoviveis.has(variante.letra) ? "promovivel" : "experimental",
       };
     })
   );
@@ -1361,6 +1824,9 @@ async function main() {
             backend,
             codigo: ambiente.codigo,
             minCiclosValidos: args.minCiclos,
+            warmups: args.warmups,
+            etapasIsoladas: args.etapasIsoladas,
+            conjunto: args.conjunto,
             semQualidade: args.semQualidade,
           },
           data,
@@ -1374,10 +1840,23 @@ async function main() {
           modelo: modeloGlobal || undefined,
           conclusivo: comparabilidade.conclusivo,
           comparabilidade,
+          gateQualidade,
           gravados: gravados.map((g) => path.relative(ROOT, g)),
           avisos,
           resultados: resultados.map(
-            ({ variante, desempenho, qualidade, arquivoEventos, arquivoCiclos, modelos, sessaoExplicita }) => ({
+            ({
+              variante,
+              desempenho,
+              desempenhoAquecido,
+              coldStart,
+              warmups,
+              etapasIsoladas,
+              qualidade,
+              arquivoEventos,
+              arquivoCiclos,
+              modelos,
+              sessaoExplicita,
+            }) => ({
               variante: variante.letra,
               modo: variante.modo,
               configuracao: {
@@ -1391,6 +1870,11 @@ async function main() {
               arquivoEventos,
               modelos,
               desempenho,
+              desempenhoAquecido,
+              coldStart,
+              warmups,
+              etapasIsoladas,
+              gate: gateQualidade.porVariante.find((g) => g.letra === variante.letra) ?? null,
               qualidade,
             })
           ),

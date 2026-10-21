@@ -13,13 +13,17 @@ versionado aqui são as **anotações** (`.json`, formato de
 
 ```powershell
 # eval (números finais):
-node scripts/benchmark-variantes.mjs --clipes-dir bench/videos --anotacoes-dir bench/clipes/eval
+node scripts/benchmark-variantes.mjs --clipes-dir bench/videos --anotacoes-dir bench/clipes/eval --conjunto eval
 # tuning (limiares):
 node scripts/benchmark-variantes.mjs --clipes-dir bench/videos --anotacoes-dir bench/clipes/tuning --variantes B,C
+# rodada reproduzível (Fase 5): warm-up separado + etapas isoladas + gate de qualidade
+node scripts/benchmark-variantes.mjs --anotacoes-dir bench/clipes/eval --conjunto eval --warmups 1 --etapas-isoladas
 ```
 
 O `--anotacoes-dir` faz o harness procurar a anotação `<base>.json` primeiro no
-conjunto e depois ao lado do vídeo.
+conjunto e depois ao lado do vídeo. O `--conjunto <nome>` registra qual conjunto
+reservado foi usado nos relatórios (protocolo e gate em
+[`../DECISAO_ARQUITETURAL_2026-10-21.md`](../DECISAO_ARQUITETURAL_2026-10-21.md)).
 
 ## Conjunto EVAL (anotações verificadas — números finais)
 

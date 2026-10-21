@@ -4,8 +4,10 @@ import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
 import {
+  agregarEtapasIsoladas,
   agregarMetricasCiclos,
   avaliarComparabilidade,
+  avaliarGateQualidade,
   ehCicloConcluido,
   extrairModelosDoJsonl,
   filtrarCiclosDaVariante,
@@ -13,6 +15,7 @@ import {
   identificarVarianteDoRegistro,
   modelosDosFrames,
   resumoDoClipe,
+  separarWarmupCiclos,
   verificarMesmoModelo,
   VARIANTES_BENCHMARK,
 } from "../../scripts/benchmark-variantes.mjs";
@@ -110,6 +113,174 @@ describe("agregarMetricasCiclos", () => {
     ]);
     expect(m.metricas.totalMs.amostras).toBe(1);
     expect(m.metricas.deteccaoMs.medianaMs).toBe(10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 5 — warm-up x cold start
+// ---------------------------------------------------------------------------
+
+describe("separarWarmupCiclos", () => {
+  const concluido = (cycleId, em) => ({
+    sessionId: "variante-d",
+    cycleId,
+    frameIds: ["f1"],
+    concluidoEm: em,
+    metricas: { totalMs: 100 },
+  });
+
+  it("sem warm-ups devolve tudo no regime aquecido", () => {
+    const regs = [concluido("c1", "2026-10-20T12:00:00Z"), concluido("c2", "2026-10-20T12:01:00Z")];
+    const { warmup, aquecido } = separarWarmupCiclos(regs, 0);
+    expect(warmup).toEqual([]);
+    expect(aquecido).toHaveLength(2);
+  });
+
+  it("exclui os primeiros ciclos CONCLUIDOS por ordem de concluidoEm", () => {
+    const regs = [
+      concluido("c3", "2026-10-20T12:02:00Z"),
+      concluido("c1", "2026-10-20T12:00:00Z"),
+      concluido("c2", "2026-10-20T12:01:00Z"),
+    ];
+    const { warmup, aquecido } = separarWarmupCiclos(regs, 1);
+    expect(warmup.map((r) => r.cycleId)).toEqual(["c1"]);
+    expect(aquecido.map((r) => r.cycleId).sort()).toEqual(["c2", "c3"]);
+  });
+
+  it("nao conta ciclo cancelado como amostra de aquecimento", () => {
+    const regs = [
+      { sessionId: "variante-d", cycleId: "c0", frameIds: [], cancelado: true, metricas: {} },
+      concluido("c1", "2026-10-20T12:00:00Z"),
+      concluido("c2", "2026-10-20T12:01:00Z"),
+    ];
+    const { warmup, aquecido } = separarWarmupCiclos(regs, 1);
+    expect(warmup.map((r) => r.cycleId)).toEqual(["c1"]);
+    expect(aquecido.map((r) => r.cycleId)).toEqual(["c0", "c2"]);
+  });
+
+  it("pedir mais warm-ups que ciclos concluidos devolve todos como warm-up", () => {
+    const regs = [concluido("c1", "2026-10-20T12:00:00Z")];
+    const { warmup, aquecido } = separarWarmupCiclos(regs, 5);
+    expect(warmup).toHaveLength(1);
+    expect(aquecido).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 5 — etapas isoladas x ciclo completo
+// ---------------------------------------------------------------------------
+
+describe("agregarEtapasIsoladas", () => {
+  const ciclo = (metricas) => ({
+    sessionId: "variante-d",
+    cycleId: "c1",
+    frameIds: ["f1"],
+    concluidoEm: "2026-10-20T12:00:00Z",
+    metricas,
+  });
+
+  it("mede cada etapa local e expoe a soma local x ciclo completo", () => {
+    const regs = [
+      ciclo({ capturaMs: 100, deteccaoMs: 200, poseMs: 50, temporalMs: 5, multimodalMs: 4000, totalMs: 4400 }),
+      ciclo({ capturaMs: 120, deteccaoMs: 240, poseMs: 60, temporalMs: 5, multimodalMs: 4200, totalMs: 4700 }),
+    ];
+    const r = agregarEtapasIsoladas(regs);
+    expect(r.ciclos).toBe(2);
+    const det = r.etapas.find((e) => e.etapa === "deteccaoMs");
+    expect(det.medianaMs).toBe(220);
+    expect(det.amostras).toBe(2);
+    expect(det.cobertura).toBe(1);
+    // maosMs nunca foi registrado -> ausente, nao zero silencioso.
+    expect(r.ausentes).toContain("maosMs");
+    expect(r.etapas.find((e) => e.etapa === "maosMs").medianaMs).toBeNull();
+    // Soma local mediana = 100+200+50+5 = 355 e 120+240+60+5 = 425 -> mediana 390.
+    expect(r.somaLocalMedianaMs).toBe(390);
+    expect(r.totalMedianaMs).toBe(4550);
+    expect(r.multimodalMedianaMs).toBe(4100);
+  });
+
+  it("ignora etapas ausentes/zero em vez de contamina-las", () => {
+    const r = agregarEtapasIsoladas([
+      ciclo({ capturaMs: 100, deteccaoMs: 0, totalMs: 100 }),
+      ciclo({ capturaMs: 100, deteccaoMs: 300, totalMs: 400 }),
+    ]);
+    const det = r.etapas.find((e) => e.etapa === "deteccaoMs");
+    expect(det.amostras).toBe(1);
+    expect(det.medianaMs).toBe(300);
+    expect(det.cobertura).toBe(0.5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 5 — gate de qualidade x latencia
+// ---------------------------------------------------------------------------
+
+describe("avaliarGateQualidade", () => {
+  const resultado = (letra, f1, fpMin, totalMs) => ({
+    variante: { letra },
+    desempenho: { ciclosConcluidos: 3, metricas: { totalMs: { medianaMs: totalMs } } },
+    qualidade: { consolidado: { f1, precisao: f1, recall: f1, falsosPositivosPorMinuto: fpMin } },
+  });
+
+  it("promove uma variante que atende qualidade e compensa a latencia", () => {
+    const g = avaliarGateQualidade(
+      [resultado("A", 0.4, 2, 1000), resultado("D", 0.7, 1, 1400)],
+      { minF1: 0.5, maxFpMin: 2, ganhoMinimoF1: 0.1, custoMaximoLatencia: 1.5 }
+    );
+    const d = g.porVariante.find((p) => p.letra === "D");
+    expect(d.atende).toBe(true);
+    expect(d.promovivel).toBe(true);
+    expect(d.ganhoF1).toBeCloseTo(0.3, 5);
+    expect(d.taxaCusto).toBeCloseTo(1.4, 5);
+  });
+
+  it("mantem experimental quando o F1 fica abaixo do minimo", () => {
+    const g = avaliarGateQualidade([resultado("A", 0.4, 0, 1000), resultado("C", 0.45, 0, 1200)], {
+      minF1: 0.5,
+      ganhoMinimoF1: 0,
+      custoMaximoLatencia: 5,
+    });
+    const c = g.porVariante.find((p) => p.letra === "C");
+    expect(c.atende).toBe(false);
+    expect(c.promovivel).toBe(false);
+    expect(g.experimentais).toContain("C");
+  });
+
+  it("mantem experimental quando o ganho de F1 nao compensa o custo de latencia", () => {
+    const g = avaliarGateQualidade([resultado("A", 0.4, 0, 1000), resultado("D", 0.42, 0, 3000)], {
+      minF1: 0.3,
+      ganhoMinimoF1: 0.1,
+      custoMaximoLatencia: 1.5,
+    });
+    const d = g.porVariante.find((p) => p.letra === "D");
+    expect(d.atende).toBe(true);
+    expect(d.promovivel).toBe(false);
+    expect(d.motivo).toMatch(/ganho de F1|latencia/);
+  });
+
+  it("nao promove variante sem qualidade consolidada", () => {
+    const semQualidade = {
+      variante: { letra: "C" },
+      desempenho: { ciclosConcluidos: 1, metricas: { totalMs: { medianaMs: 1000 } } },
+      qualidade: { consolidado: null },
+    };
+    const g = avaliarGateQualidade([resultado("A", 0.4, 0, 1000), semQualidade], {});
+    const c = g.porVariante.find((p) => p.letra === "C");
+    expect(c.promovivel).toBe(false);
+    expect(c.motivo).toMatch(/sem qualidade/);
+  });
+
+  it("usa A/B como referencia de latencia e qualidade", () => {
+    const g = avaliarGateQualidade(
+      [resultado("A", 0.3, 0, 5000), resultado("B", 0.5, 0, 2000), resultado("D", 0.8, 0, 2000)],
+      { minF1: 0.5, ganhoMinimoF1: 0.1, custoMaximoLatencia: 1.5 }
+    );
+    expect(g.referencia.f1).toBeCloseTo(0.5, 5);
+    expect(g.referencia.totalMedianaMs).toBe(2000);
+    const d = g.porVariante.find((p) => p.letra === "D");
+    expect(d.taxaCusto).toBeCloseTo(1, 5);
+    expect(d.ganhoF1).toBeCloseTo(0.3, 5);
+    expect(d.promovivel).toBe(true);
   });
 });
 
@@ -350,6 +521,20 @@ describe("avaliarComparabilidade", () => {
     const r = avaliarComparabilidade([resultadoComparavel("D")], { modeloGlobal: modelo });
     expect(r.conclusivo).toBe(false);
     expect(r.problemas.some((p) => p.includes("menos de duas variantes"))).toBe(true);
+  });
+
+  it("usa o regime AQUECIDO para a contagem quando ha warm-up separado", () => {
+    const resultados = quatro();
+    // Bruto tem 2 concluidos; aquecido tem 0 (ambos eram warm-up).
+    resultados[1] = resultadoComparavel("B", {
+      desempenho: { ciclos: 2, ciclosConcluidos: 2, cancelados: 0 },
+      desempenhoAquecido: { ciclos: 2, ciclosConcluidos: 0, cancelados: 0 },
+      warmups: 2,
+    });
+    const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo });
+    expect(r.conclusivo).toBe(false);
+    expect(r.problemas.some((p) => p.startsWith("B: 0 ciclo(s) concluido(s)"))).toBe(true);
+    expect(r.porVariante.find((p) => p.letra === "B")).toMatchObject({ ciclosConcluidos: 0, warmups: 2 });
   });
 });
 

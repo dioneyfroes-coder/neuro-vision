@@ -17,6 +17,14 @@ Não altera `bench/BASELINE.md`. Relatórios de apoio:
 > política de eventos. Onde a decisão registrada difere da implementação, o
 > texto indica o estado pendente.
 
+> **Nota da Fase 5 (2026-10-21):** este relatório é o estado **anterior** ao
+> protocolo reproduzível da Fase 5 (warm-up separado do cold start, etapas
+> isoladas e gate de qualidade × latência). O protocolo, os critérios do gate e
+> a decisão com base neles estão em
+> [`DECISAO_ARQUITETURAL_2026-10-21.md`](./DECISAO_ARQUITETURAL_2026-10-21.md).
+> Os números de latência/qualidade deste arquivo continuam válidos como
+> registro histórico.
+
 ## 1. O que mudou desde o comparativo A–D (2026-10-18)
 
 | Frente | Antes | Depois |

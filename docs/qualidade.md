@@ -108,7 +108,32 @@ node scripts/benchmark-variantes.mjs --anotacoes-dir bench/clipes/eval `
 - **Critério de conclusão:** no mínimo `--min-ciclos <n>` (padrão 1) ciclo(s) **concluído(s)** por variante — não cancelado, com frames, `concluidoEm` e interpretação —, modelo multimodal verificado em `logs/visao.jsonl` e um arquivo de eventos **próprio** por variante (o mesmo arquivo aplicado a duas variantes repetiria a qualidade). Sem isso, o harness **não grava o comparativo** e termina com código não zero; `--permitir-inconclusivo` grava o diagnóstico com veredito **INCONCLUSIVO**. Com `--sem-qualidade`, a qualidade não entra na conclusão: o comparativo fica restrito ao desempenho e não exige arquivo de eventos.
 - **Saídas:** `bench/RELATORIO_VARIANTE_{A,B,C,D}_<data>.md` e `bench/COMPARATIVO_A_B_C_D_<data>.md`. Cada relatório registra commit/branch, backend, janela da execução, clipes com tamanho e SHA-256, modelo multimodal observado, detector local e a contagem de ciclos concluídos. O script **se recusa a escrever em `bench/BASELINE.md`** (proteção coberta por teste).
 - **Histórico:** o comparativo de 2026-10-18 (`bench/COMPARATIVO_A_B_C_D_20261018.md`) é um artefato **inválido como comparação** (zero ciclos e o mesmo arquivo de eventos para A/B/C/D); ele é preservado apenas como registro histórico. Não o misture com o conjunto de avaliação atual.
-- **Decisão arquitetural** (sempre ativos × sob demanda × reduzir frequência) com as métricas que a sustentam: [`bench/DECISAO_ARQUITETURAL_2026-10-19.md`](../bench/DECISAO_ARQUITETURAL_2026-10-19.md).
+- **Decisão arquitetural** (sempre ativos × sob demanda × reduzir frequência) com as métricas que a sustentam: [`bench/DECISAO_ARQUITETURAL_2026-10-19.md`](../bench/DECISAO_ARQUITETURAL_2026-10-19.md) (histórico) e [`bench/DECISAO_ARQUITETURAL_2026-10-21.md`](../bench/DECISAO_ARQUITETURAL_2026-10-21.md) (Fase 5: protocolo reproduzível + gate de qualidade × latência).
+
+### Benchmark reproduzível e decisão por dados (Fase 5)
+
+O harness ganhou três capacidades para a repetição do benchmark com dados reproduzíveis:
+
+- **Warm-up × cold start separados** (`--warmups <n>`): os `n` primeiros ciclos **concluídos** de cada variante são aquecimento (compilação/carga de modelo) e ficam **fora** das medianas/P95; o cold start é reportado à parte (seção "1b. Cold start"). Com `--warmups 0` (padrão) nada é excluído. O comparativo usa o **regime aquecido** para decidir arquitetura — o aquecimento não conta como amostra válida.
+- **Etapas isoladas × ciclo completo** (`--etapas-isoladas`): cada etapa local (captura, detecção, pose, mãos, temporal) é medida por si só e depois somada no ciclo, a partir das **mesmas métricas reais** de `logs/ciclos.jsonl` (não inventa números). Etapa sem amostra sai como "sem amostra", não como zero silencioso; expõe o que fica de fora (multimodal, persistência).
+- **Conjunto reservado** (`--conjunto <nome>`): registra qual conjunto de avaliação foi usado (ex.: `eval`), provando que as variantes rodaram sobre o mesmo conjunto reservado, separado do de ajuste (tuning).
+
+**Gate de qualidade × latência** (itens 5 e 6 da Fase 5): o harness compara a **melhoria de qualidade** com o **aumento de latência** e decide se C/D podem ser promovidas a padrão ou devem permanecer **experimentais**. Critérios configuráveis (todos com padrão):
+
+| Opção | Padrão | Significado |
+|-------|-------:|-------------|
+| `--min-f1` | `0.5` | F1 mínimo para considerar a qualidade suficiente |
+| `--max-fp-min` | `2` | Falsos positivos por minuto máximos |
+| `--ganho-minimo-f1` | `0.1` | Ganho de F1 sobre a melhor referência (A/B) que justifica o custo |
+| `--custo-maximo-latencia` | `1.5` | Aumento máximo da mediana de `totalMs` sobre a referência |
+
+```powershell
+node scripts/benchmark-variantes.mjs --conjunto eval --anotacoes-dir bench/clipes/eval `
+  --warmups 1 --etapas-isoladas --min-f1 0.5 --custo-maximo-latencia 1.5 `
+  --modelo-visao qwen2.5-vl-3b-instruct
+```
+
+O veredito sai no console (`gate <letra>: PROMOVIVEL a padrao` ou `manter experimental`), no relatório de cada variante ("2b. Gate de qualidade × latência") e no comparativo ("Gate de qualidade × latência (decisão de promoção)"), sempre acompanhado do motivo. Sem qualidade consolidada, a variante **nunca** é promovida.
 
 ## Carregamento do modelo
 
