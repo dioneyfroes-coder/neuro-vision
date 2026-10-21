@@ -7,6 +7,7 @@ import {
   type LimitesContexto,
   LIMITES_CONTEXTO_PADRAO,
 } from "./contexto";
+import { validarReferencias } from "./esquema";
 import { montarPromptInterpretacao } from "./prompt";
 import { normalizarInterpretacao } from "./normalizar";
 
@@ -101,6 +102,34 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
     );
     const duracaoMs = resposta.duracaoMs ?? Math.round(this.agora() - inicio);
     const resultado = normalizarInterpretacao(resposta.texto, resposta.modelo ?? modelo ?? undefined);
-    return { ...resultado, duracaoMs };
+    const validado = this.validarEvidencias(contexto, resultado);
+    return { ...validado, duracaoMs };
+  }
+
+  /**
+   * Valida os IDs/timestamps citados pelo modelo contra os frames e eventos
+   * reais do contexto (Fase 3, item 6). Referencias inexistentes sao removidas
+   * de `evidencias`/`acoes[].evidencias` e separadas em `evidenciasInvalidas`,
+   * sem nunca fabricar uma evidencia que nao exista.
+   */
+  private validarEvidencias(
+    contexto: ContextoCicloSerializavel,
+    resultado: ResultadoInterpretacao
+  ): ResultadoInterpretacao {
+    const global = validarReferencias(contexto, resultado.evidencias);
+    const acoes = resultado.acoes.map((acao) => {
+      const validada = validarReferencias(contexto, acao.evidencias);
+      return {
+        ...acao,
+        evidencias: validada.validas,
+        ...(validada.invalidas.length > 0 ? { evidenciasInvalidas: validada.invalidas } : {}),
+      };
+    });
+    return {
+      ...resultado,
+      acoes,
+      evidencias: global.validas,
+      ...(global.invalidas.length > 0 ? { evidenciasInvalidas: global.invalidas } : {}),
+    };
   }
 }

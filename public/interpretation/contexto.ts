@@ -2,24 +2,43 @@ import { estaIndisponivel } from "../../src/domain";
 import type {
   ObservacaoFrame,
   PacoteCiclo,
-  PontoCorporal,
-  ResultadoDeteccaoLocal,
-  ResultadoMaos,
-  ResultadoNsfw,
   ResultadoOuIndisponivel,
-  ResultadoPose,
 } from "../../src/domain";
+import {
+  arredondar,
+  calcularMovimento,
+  estadoSubsistema,
+  serializarDeteccoes,
+  serializarMaos,
+  serializarNsfw,
+  serializarPessoas,
+  OPCOES_SERIALIZACAO_PADRAO,
+  VERSAO_ESQUEMA_CONTEXTO,
+  type ContextoCicloSerializavel,
+  type EventoTemporalSerializavel,
+  type ObservacaoLocalSerializavel,
+  type OpcoesSerializacao,
+} from "./esquema";
+
+/** Reexporta o schema versionado para consumidores do contexto. */
+export * from "./esquema";
 
 /**
  * Montagem do contexto estruturado de um ciclo (Etapa 7 do roteiro).
  *
- * Converte o `PacoteCiclo` num resumo **estruturado e limitado** por frame:
- * contagem de deteccoes, pose e maos resumidas, poucos pontos relevantes e os
- * eventos temporais. Substitui "enviar todos os landmarks em texto" por um
- * resumo por frame + pontos relevantes, com teto de tamanho.
+ * Converte o `PacoteCiclo` num conjunto de registros JSON **versionados** (ver
+ * `esquema.ts`): deteccoes com caixas normalizadas e score individual, pessoas
+ * com keypoints nomeados e identidade de track, maos com lateralidade/gesto e
+ * landmarks, movimento entre frames, estado por subsistema e eventos temporais
+ * com status/evidencias/gap. Substitui os resumos textuais anteriores por
+ * evidencia estruturada, respeitando tetos de tamanho e de dados numericos.
  *
  * Cada frame do contexto corresponde a **uma imagem**, na mesma ordem; o campo
  * `indice` (1-based) liga o texto enviado ao modelo a imagem correta.
+ *
+ * A **evidencia observada** (detectores) permanece em `frames`/`eventosTemporais`;
+ * a **inferencia textual** do modelo vai separada em `inferencia` (ver
+ * `InferenciaMultimodalSerializavel`), sem fundir os dois graus de certeza.
  */
 
 export interface LimitesContexto {
@@ -27,7 +46,7 @@ export interface LimitesContexto {
   maxImagens: number;
   /** Maximo de eventos temporais incluidos. */
   maxEventos: number;
-  /** Maximo de pontos corporais relevantes por frame. */
+  /** Maximo de pontos corporais relevantes por frame (legado; ver `opcoes`). */
   maxPontosPorFrame: number;
   /** Casas decimais para coordenadas/confiancas (limita dados numericos). */
   decimais: number;
@@ -43,58 +62,6 @@ export const LIMITES_CONTEXTO_PADRAO: LimitesContexto = {
   maxBytesContexto: 16_000,
 };
 
-export interface PontoRelevante {
-  nome: string;
-  x: number;
-  y: number;
-}
-
-export interface ResumoFrame {
-  frameId: string;
-  /** Indice 1-based da imagem correspondente, na ordem enviada. */
-  indice: number;
-  capturadoEm: string;
-  /** Deslocamento em ms em relacao ao primeiro frame da janela. */
-  offsetMs: number;
-  deteccoes: string;
-  pose: string;
-  maos: string;
-  /**
-   * Marcacoes NSFW (experimental). **Opcional**: presente apenas quando o
-   * subsistema rodou neste frame (toggle ligado) — com o toggle desligado o
-   * campo e omitido do payload, como se o subsistema nao existisse.
-   */
-  nsfw?: string;
-  pontos: PontoRelevante[];
-}
-
-export interface EventoTemporalResumo {
-  tipo: string;
-  descricao: string;
-  inicioEm: string;
-  fimEm?: string;
-  confianca?: number;
-  frameIds: string[];
-}
-
-export interface ContextoCicloSerializavel {
-  sessionId: string;
-  cycleId: string;
-  iniciadoEm: string;
-  /** Duracao total observada da janela (ms). */
-  janelaMs: number;
-  frames: ResumoFrame[];
-  eventosTemporais: EventoTemporalResumo[];
-  resumoTemporal: {
-    entidadesAtivas: number;
-    houveIntervaloSemObservacao: boolean;
-    /** Duracao (ms) do periodo cego anterior ao ciclo, quando houver. */
-    intervaloSemObservacaoMs?: number;
-  };
-  /** Sinalizacao clara de subsistemas indisponiveis (falha != ausencia). */
-  indisponibilidades: string[];
-}
-
 export interface PayloadContexto {
   /** Imagens (data URL) na ordem dos frames do contexto. */
   imagens: string[];
@@ -105,19 +72,17 @@ export interface PayloadContexto {
 export interface OpcoesContexto {
   /**
    * Inclui no contexto os dados derivados da percepcao local (deteccoes, pose,
-   * maos, pontos e eventos temporais). Na variante B (`false`) vao ao multimodal
-   * apenas as imagens e a cronologia (`frameId`, `indice`, `capturadoEm`,
-   * `offsetMs`), para isolar o valor do contexto entre imagens.
+   * maos, movimento e eventos temporais). Na variante B (`false`) vao ao
+   * multimodal apenas as imagens e a cronologia (`frameId`, `indice`,
+   * `capturadoEm`, `offsetMs`), para isolar o valor do contexto entre imagens.
    */
   incluirDadosLocais?: boolean;
+  /**
+   * Serializacao do schema (decimais, keypoints, limites por frame). Default:
+   * `OPCOES_SERIALIZACAO_PADRAO`, com `decimais` herdado de `LimitesContexto`.
+   */
+  serializacao?: Partial<OpcoesSerializacao>;
 }
-
-/** Indices COCO dos pontos corporais relevantes (nariz e punhos). */
-const PONTOS_RELEVANTES: Array<{ indice: number; nome: string }> = [
-  { indice: 0, nome: "nariz" },
-  { indice: 9, nome: "punho_esquerdo" },
-  { indice: 10, nome: "punho_direito" },
-];
 
 /**
  * Monta o contexto estruturado e a lista de imagens do ciclo, na ordem
@@ -129,37 +94,34 @@ export function montarContextoCiclo(
   opcoes: OpcoesContexto = {}
 ): PayloadContexto {
   const cfg: LimitesContexto = { ...LIMITES_CONTEXTO_PADRAO, ...limites };
+  const serializacao: OpcoesSerializacao = {
+    ...OPCOES_SERIALIZACAO_PADRAO,
+    decimais: cfg.decimais,
+    ...opcoes.serializacao,
+  };
   const incluirDadosLocais = opcoes.incluirDadosLocais ?? true;
   const ordenadas = [...pacote.observacoes].sort((a, b) => a.capturadoEmMs - b.capturadoEmMs);
   const selecionadas = amostrar(ordenadas, cfg.maxImagens);
   const baseMs = selecionadas.length > 0 ? selecionadas[0].capturadoEmMs : 0;
 
-  const frames: ResumoFrame[] = selecionadas.map((obs, i) => ({
-    frameId: obs.frameId,
-    indice: i + 1,
-    capturadoEm: obs.capturadoEm,
-    offsetMs: Math.round(obs.capturadoEmMs - baseMs),
-    deteccoes: incluirDadosLocais ? resumirDeteccoes(obs.deteccoes, cfg.decimais) : "",
-    pose: incluirDadosLocais ? resumirPose(obs.pose) : "",
-    maos: incluirDadosLocais ? resumirMaos(obs.maos, cfg.decimais) : "",
-    // NSFW experimental: so entra no contexto (e portanto ao gemma) quando o
-    // subsistema RODOU neste frame (toggle ligado) e os dados locais vao ao
-    // multimodal. Toggle desligado = campo omitido por completo.
-    ...(incluirDadosLocais && obs.nsfw !== undefined
-      ? { nsfw: resumirNsfw(obs.nsfw, cfg.decimais) }
-      : {}),
-    pontos: incluirDadosLocais ? pontosRelevantes(obs.pose, cfg.maxPontosPorFrame, cfg.decimais) : [],
-  }));
+  const frames: ObservacaoLocalSerializavel[] = [];
+  // Posicoes do frame anterior (por `tipo:trackId`) para calcular movimento.
+  let posicoesAnteriores = new Map<string, { x: number; y: number; tMs: number }>();
+
+  selecionadas.forEach((obs, i) => {
+    const montado = montarObservacao(obs, i + 1, Math.round(obs.capturadoEmMs - baseMs), {
+      incluirDadosLocais,
+      serializacao,
+      posicoesAnteriores,
+    });
+    posicoesAnteriores = montado.posicoes;
+    frames.push(montado.observacao);
+  });
 
   const eventosTemporais = incluirDadosLocais
-    ? pacote.eventosTemporais.slice(0, cfg.maxEventos).map((e) => ({
-        tipo: e.tipo,
-        descricao: e.descricao,
-        inicioEm: e.inicioEm,
-        fimEm: e.fimEm,
-        confianca: e.confianca === undefined ? undefined : arredondar(e.confianca, cfg.decimais),
-        frameIds: e.frameIds.slice(0, 8),
-      }))
+    ? pacote.eventosTemporais
+        .slice(0, cfg.maxEventos)
+        .map((e) => serializarEvento(e, serializacao.decimais))
     : [];
 
   const indisponibilidades = incluirDadosLocais ? coletarIndisponibilidades(ordenadas) : [];
@@ -170,6 +132,7 @@ export function montarContextoCiclo(
       : 0;
 
   const contexto: ContextoCicloSerializavel = {
+    versao: VERSAO_ESQUEMA_CONTEXTO,
     sessionId: pacote.sessionId,
     cycleId: pacote.cycleId,
     iniciadoEm: pacote.iniciadoEm,
@@ -193,6 +156,96 @@ export function montarContextoCiclo(
   return { imagens: selecionadas.map((obs) => obs.imagem), contexto };
 }
 
+/** Resultado interno da montagem de um frame, com o mapa de posicoes. */
+interface FrameMontado {
+  observacao: ObservacaoLocalSerializavel;
+  posicoes: Map<string, { x: number; y: number; tMs: number }>;
+}
+
+function montarObservacao(
+  obs: ObservacaoFrame,
+  indice: number,
+  offsetMs: number,
+  ctx: {
+    incluirDadosLocais: boolean;
+    serializacao: OpcoesSerializacao;
+    posicoesAnteriores: Map<string, { x: number; y: number; tMs: number }>;
+  }
+): FrameMontado {
+  const { incluirDadosLocais, serializacao } = ctx;
+  const dimensoes = estaIndisponivel(obs.deteccoes) ? undefined : obs.deteccoes.dimensoes;
+
+  // Variante B: so cronologia, sem dados locais — os subsistemas ficam marcados
+  // como nao executados para nao sugerir "indisponivel" (nao houve tentativa).
+  if (!incluirDadosLocais) {
+    const naoExecutado = { status: "nao_carregado" as const };
+    return {
+      observacao: {
+        versao: VERSAO_ESQUEMA_CONTEXTO,
+        frameId: obs.frameId,
+        indice,
+        capturadoEm: obs.capturadoEm,
+        offsetMs,
+        subsistemas: { deteccao: naoExecutado, pose: naoExecutado, maos: naoExecutado },
+        deteccoes: [],
+        pessoas: [],
+        maos: [],
+        movimento: [],
+      },
+      posicoes: ctx.posicoesAnteriores,
+    };
+  }
+
+  const subsistemas = {
+    deteccao: estadoSubsistema(obs.deteccoes, obs.metricas.subsistemas?.deteccao, (r) => r.deteccoes.length === 0),
+    pose: estadoSubsistema(obs.pose, obs.metricas.subsistemas?.pose, (r) => r.pessoas.length === 0),
+    maos: estadoSubsistema(obs.maos, obs.metricas.subsistemas?.maos, (r) => r.maos.length === 0),
+    ...(obs.nsfw !== undefined
+      ? { nsfw: estadoSubsistema(obs.nsfw, obs.metricas.subsistemas?.nsfw, (r) => r.marcacoes.length === 0) }
+      : {}),
+  };
+
+  const movimento = calcularMovimento(obs, ctx.posicoesAnteriores, serializacao.decimais);
+
+  const observacao: ObservacaoLocalSerializavel = {
+    versao: VERSAO_ESQUEMA_CONTEXTO,
+    frameId: obs.frameId,
+    indice,
+    capturadoEm: obs.capturadoEm,
+    offsetMs,
+    subsistemas,
+    deteccoes: serializarDeteccoes(obs.deteccoes, serializacao),
+    pessoas: serializarPessoas(obs.pose, serializacao),
+    maos: serializarMaos(obs.maos, serializacao),
+    movimento: movimento.movimentos,
+  };
+  if (obs.nsfw !== undefined) {
+    observacao.nsfw = serializarNsfw(obs.nsfw, dimensoes, serializacao);
+  }
+  return { observacao, posicoes: movimento.posicoes };
+}
+
+function serializarEvento(
+  evento: PacoteCiclo["eventosTemporais"][number],
+  decimais: number
+): EventoTemporalSerializavel {
+  const serializado: EventoTemporalSerializavel = {
+    eventoId: evento.eventoId,
+    tipo: evento.tipo,
+    descricao: evento.descricao,
+    inicioEm: evento.inicioEm,
+    status: evento.estado,
+    evidencias: evento.frameIds.slice(0, 8),
+  };
+  if (evento.fimEm !== undefined) serializado.fimEm = evento.fimEm;
+  if (evento.entidadeId !== undefined) serializado.trackId = evento.entidadeId;
+  if (evento.confianca !== undefined) serializado.confianca = arredondar(evento.confianca, decimais);
+  if (evento.intervaloSemObservacaoMs !== undefined) {
+    serializado.gapMs = evento.intervaloSemObservacaoMs;
+  }
+  return serializado;
+}
+
 /** Mantem no maximo `max` frames, preservando o primeiro e o ultimo. */
 function amostrar<T>(itens: T[], max: number): T[] {
   if (itens.length <= max) return itens;
@@ -203,78 +256,6 @@ function amostrar<T>(itens: T[], max: number): T[] {
     resultado.push(itens[Math.round(i * passo)]);
   }
   return resultado;
-}
-
-function resumirDeteccoes(
-  resultado: ResultadoOuIndisponivel<ResultadoDeteccaoLocal>,
-  decimais: number
-): string {
-  if (estaIndisponivel(resultado)) return `indisponivel (${resultado.motivo})`;
-  if (resultado.deteccoes.length === 0) return "nenhuma deteccao";
-  const contagem = new Map<string, number>();
-  let maior = 0;
-  for (const d of resultado.deteccoes) {
-    const nome = d.nome || d.rotulo || "objeto";
-    contagem.set(nome, (contagem.get(nome) ?? 0) + 1);
-    maior = Math.max(maior, d.score);
-  }
-  const partes = [...contagem.entries()].map(([nome, n]) => `${n}x ${nome}`);
-  return `${partes.join(", ")} (conf. max ${arredondar(maior, decimais)})`;
-}
-
-function resumirPose(resultado: ResultadoOuIndisponivel<ResultadoPose>): string {
-  if (estaIndisponivel(resultado)) return `indisponivel (${resultado.motivo})`;
-  if (resultado.pessoas.length === 0) return "nenhuma pessoa";
-  const descricoes = resultado.pessoas.map((p, i) => {
-    const validos = p.pontos.filter(
-      (pt) => pt.confianca === undefined || pt.confianca >= 0.3
-    ).length;
-    return `pessoa ${i + 1} (${validos} pontos)`;
-  });
-  return descricoes.join(", ");
-}
-
-function resumirMaos(
-  resultado: ResultadoOuIndisponivel<ResultadoMaos>,
-  decimais: number
-): string {
-  if (estaIndisponivel(resultado)) return `indisponivel (${resultado.motivo})`;
-  if (resultado.maos.length === 0) return "nenhuma mao";
-  return resultado.maos
-    .map((m) => {
-      const gesto = m.gesto
-        ? `, gesto ${m.gesto.nome} (${arredondar(m.gesto.confianca, decimais)})`
-        : "";
-      return `mao ${m.lateralidade}${gesto}`;
-    })
-    .join("; ");
-}
-
-/** Resumo das marcacoes NSFW (rotulos vem do proprio modelo, em ingles). */
-function resumirNsfw(resultado: ResultadoOuIndisponivel<ResultadoNsfw>, decimais: number): string {
-  if (estaIndisponivel(resultado)) return `indisponivel (${resultado.motivo})`;
-  if (resultado.marcacoes.length === 0) return "nenhuma marcacao";
-  return resultado.marcacoes
-    .map((m) => `${m.rotulo} (${arredondar(m.score, decimais)})`)
-    .join(", ");
-}
-
-function pontosRelevantes(
-  resultado: ResultadoOuIndisponivel<ResultadoPose>,
-  max: number,
-  decimais: number
-): PontoRelevante[] {
-  if (estaIndisponivel(resultado) || resultado.pessoas.length === 0) return [];
-  const pessoa = resultado.pessoas[0];
-  const pontos: PontoRelevante[] = [];
-  for (const { indice, nome } of PONTOS_RELEVANTES) {
-    if (pontos.length >= max) break;
-    const pt: PontoCorporal | undefined = pessoa.pontos[indice];
-    if (!pt) continue;
-    if (pt.confianca !== undefined && pt.confianca < 0.3) continue;
-    pontos.push({ nome, x: arredondar(pt.x, decimais), y: arredondar(pt.y, decimais) });
-  }
-  return pontos;
 }
 
 function coletarIndisponibilidades(observacoes: ObservacaoFrame[]): string[] {
@@ -296,39 +277,50 @@ function coletarIndisponibilidades(observacoes: ObservacaoFrame[]): string[] {
   return [...vistos];
 }
 
-function arredondar(valor: number, decimais: number): number {
-  if (!Number.isFinite(valor)) return 0;
-  const fator = 10 ** decimais;
-  return Math.round(valor * fator) / fator;
-}
-
 /**
  * Reduz o contexto ate caber no teto, sem quebrar a correspondencia entre
- * frame e imagem: primeiro remove pontos, depois eventos, depois descricoes
- * longas ficam truncadas.
+ * frame e imagem. Ordem de descarte (do mais caro/menos critico ao essencial):
+ * 1. landmarks completos de mao; 2. keypoints alem dos essenciais; 3. movimento;
+ * 4. eventos temporais; 5. deteccoes/pessoas restantes. `frameId`, timestamp,
+ * `versao` e o estado do subsistema nunca sao removidos.
  */
 function limitarPorBytes(contexto: ContextoCicloSerializavel, maxBytes: number): void {
   if (tamanhoBytes(contexto) <= maxBytes) return;
+
+  // 1. Landmarks de mao: mantem apenas os pontas/articulacoes compactas.
   for (const frame of contexto.frames) {
-    if (frame.pontos.length > 0) {
-      frame.pontos = [];
-      if (tamanhoBytes(contexto) <= maxBytes) return;
+    for (const mao of frame.maos) {
+      if (mao.landmarks.length > 6) mao.landmarks = mao.landmarks.slice(0, 6);
     }
   }
-  if (contexto.eventosTemporais.length > 0) {
-    contexto.eventosTemporais = [];
-    if (tamanhoBytes(contexto) <= maxBytes) return;
-  }
-  for (const frame of contexto.frames) {
-    frame.deteccoes = truncar(frame.deteccoes, 120);
-    frame.pose = truncar(frame.pose, 120);
-    frame.maos = truncar(frame.maos, 120);
-    if (frame.nsfw !== undefined) frame.nsfw = truncar(frame.nsfw, 120);
-  }
-}
+  if (tamanhoBytes(contexto) <= maxBytes) return;
 
-function truncar(texto: string, max: number): string {
-  return texto.length > max ? `${texto.slice(0, max - 1)}…` : texto;
+  // 2. Keypoints: mantem apenas os mais confiaveis por pessoa.
+  for (const frame of contexto.frames) {
+    for (const pessoa of frame.pessoas) {
+      if (pessoa.keypoints.length > 6) pessoa.keypoints = pessoa.keypoints.slice(0, 6);
+    }
+  }
+  if (tamanhoBytes(contexto) <= maxBytes) return;
+
+  // 3. Movimento (derivavel de posicoes; menos critico que a evidencia bruta).
+  for (const frame of contexto.frames) frame.movimento = [];
+  if (tamanhoBytes(contexto) <= maxBytes) return;
+
+  // 4. Marcacoes NSFW (experimental).
+  for (const frame of contexto.frames) delete frame.nsfw;
+  if (tamanhoBytes(contexto) <= maxBytes) return;
+
+  // 5. Eventos temporais.
+  contexto.eventosTemporais = [];
+  if (tamanhoBytes(contexto) <= maxBytes) return;
+
+  // 6. Deteccoes menos confiaveis primeiro; depois pessoas/maos alem da primeira.
+  for (const frame of contexto.frames) {
+    frame.deteccoes = frame.deteccoes.slice(0, 3);
+    frame.pessoas = frame.pessoas.slice(0, 2);
+    frame.maos = frame.maos.slice(0, 2);
+  }
 }
 
 function tamanhoBytes(valor: unknown): number {

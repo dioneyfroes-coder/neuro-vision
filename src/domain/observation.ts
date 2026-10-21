@@ -4,6 +4,7 @@ import type {
   ResultadoNsfw,
   ResultadoOuIndisponivel,
   ResultadoPose,
+  TelemetriaSubsistema,
 } from "./perception";
 
 /**
@@ -42,5 +43,11 @@ export interface ObservacaoFrame {
     duracaoPoseMs?: number;
     duracaoMaosMs?: number;
     duracaoNsfwMs?: number;
+    /**
+     * Telemetria por subsistema no frame (Fase 2/3): estado, modelo,
+     * dispositivo e versao usados. Alimenta o campo `subsistemas` do contexto
+     * multimodal — "falha != ausencia" chega explicitamente ao modelo.
+     */
+    subsistemas?: Partial<Record<"deteccao" | "pose" | "maos" | "nsfw", TelemetriaSubsistema>>;
   };
 }

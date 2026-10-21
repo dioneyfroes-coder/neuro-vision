@@ -13,6 +13,11 @@ export interface AcaoInterpretada {
   fimEm?: string;
   /** IDs de frames/eventos que sustentam a acao. */
   evidencias: string[];
+  /**
+   * Referencias citadas pelo modelo que **nao** correspondem a nenhum frame ou
+   * evento real do contexto (removidas de `evidencias` na validacao).
+   */
+  evidenciasInvalidas?: string[];
 }
 
 export interface ResultadoInterpretacao {
@@ -22,6 +27,11 @@ export interface ResultadoInterpretacao {
   acoes: AcaoInterpretada[];
   /** IDs de frames/eventos citados como suporte. */
   evidencias: string[];
+  /**
+   * Referencias citadas pelo modelo que nao existem no contexto (rejeitadas ou
+   * normalizadas). Mantidas separadas para diagnostico.
+   */
+  evidenciasInvalidas?: string[];
   /** O que nao foi possivel verificar. */
   incertezas: string[];
   /** Conflitos entre a interpretacao e os dados locais. */

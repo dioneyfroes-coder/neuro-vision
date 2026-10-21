@@ -55,8 +55,11 @@ export interface MetricasAdaptador {
  * - `sem_resultado`: rodou corretamente e nao encontrou nada;
  * - `indisponivel`: nao rodou (desativado, falha de carga ou inferencia);
  * - `nao_carregado`: nunca foi carregado nesta sessao.
+ *
+ * Reusa o tipo do dominio (`src/domain/perception.ts`) para que a telemetria do
+ * adaptador e o contexto multimodal falem do mesmo estado.
  */
-export type EstadoSubsistema = "ok" | "sem_resultado" | "indisponivel" | "nao_carregado";
+export type EstadoSubsistema = import("../../src/domain/perception").EstadoSubsistema;
 
 /** Dimensoes, em pixels, da imagem analisada. */
 export interface Dimensoes {

@@ -68,13 +68,20 @@ describe("montarContextoCiclo", () => {
         deteccoes: [
           { nome: "pessoa", rotulo: "person", score: 0.91234, caixa: { xmin: 0, ymin: 0, xmax: 100, ymax: 100 } },
         ],
+        dimensoes: { largura: 200, altura: 200 },
       },
     }));
     const pacote: PacoteCiclo = { ...PACOTE, observacoes: obs };
     const { imagens, contexto } = montarContextoCiclo(pacote, { maxImagens: 3, decimais: 2 });
     expect(imagens).toHaveLength(3);
-    // score arredondado a 2 decimais
-    expect(contexto.frames[0].deteccoes).toContain("0.91");
+    // score arredondado a 2 decimais e caixa normalizada em [0,1]
+    expect(contexto.frames[0].deteccoes[0].score).toBe(0.91);
+    expect(contexto.frames[0].deteccoes[0].caixa).toEqual({
+      xmin: 0,
+      ymin: 0,
+      xmax: 0.5,
+      ymax: 0.5,
+    });
   });
 
   it("sem dados locais (variante B) envia so imagens + cronologia", () => {
@@ -99,14 +106,16 @@ describe("montarContextoCiclo", () => {
     const { imagens, contexto } = montarContextoCiclo(pacote, {}, { incluirDadosLocais: false });
 
     expect(imagens).toEqual(["img1", "img2"]);
+    expect(contexto.versao).toBe("contexto-1");
     expect(contexto.frames[0]).toMatchObject({
       frameId: "f1",
       indice: 1,
-      deteccoes: "",
-      pose: "",
-      maos: "",
-      pontos: [],
+      deteccoes: [],
+      pessoas: [],
+      maos: [],
+      movimento: [],
     });
+    expect(contexto.frames[0].subsistemas.deteccao.status).toBe("nao_carregado");
     expect(contexto.frames[1].offsetMs).toBe(100);
     expect(contexto.eventosTemporais).toEqual([]);
     expect(contexto.indisponibilidades).toEqual([]);
@@ -146,16 +155,17 @@ describe("montarPromptInterpretacao", () => {
     expect(prompt).toContain("f1");
   });
 
-  it("sem dados locais (variante B) o prompt nao cita det/pose/maos", () => {
+  it("sem dados locais (variante B) o prompt marca subsistemas como nao_carregado", () => {
     const o1: ObservacaoFrame = { ...OBS_BASE, frameId: "f1", capturadoEmMs: 0, imagem: "img1" };
     const pacote: PacoteCiclo = { ...PACOTE, observacoes: [o1] };
     const { contexto } = montarContextoCiclo(pacote, {}, { incluirDadosLocais: false });
     const prompt = montarPromptInterpretacao(contexto);
     expect(prompt).toContain("Imagem 1");
-    // Nao ha dados locais: o prompt nao deve sugerir deteccao/pose/maos.
-    expect(prompt).not.toContain("det=");
-    expect(prompt).not.toContain("pose=");
-    expect(prompt).not.toContain("maos=");
+    // Sem dados locais: nenhuma deteccao/pessoa/mao e enviada.
+    expect(prompt).not.toContain("det=[");
+    expect(prompt).not.toContain("pessoas=");
+    expect(prompt).not.toContain("maos=[");
+    expect(prompt).toContain("det=nao_carregado");
   });
 });
 
@@ -259,9 +269,9 @@ describe("InterpretadorCiclo", () => {
 
     expect(requisicao).not.toBeNull();
     expect(requisicao!.imagens).toEqual(["img1"]);
-    expect(requisicao!.contexto.frames[0].deteccoes).toBe("");
-    expect(requisicao!.contexto.frames[0].pose).toBe("");
-    expect(requisicao!.contexto.frames[0].maos).toBe("");
+    expect(requisicao!.contexto.frames[0].deteccoes).toEqual([]);
+    expect(requisicao!.contexto.frames[0].pessoas).toEqual([]);
+    expect(requisicao!.contexto.frames[0].maos).toEqual([]);
     expect(requisicao!.contexto.indisponibilidades).toEqual([]);
   });
 

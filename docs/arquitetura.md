@@ -70,9 +70,10 @@ public/
       nsfw-classifier.adapter.ts adaptador do classificador NSFW (YOLO11 ONNX) para a porta
   interpretation/
     contracts.ts       porta `InterpretadorMultimodal` (recebe o pacote; nunca captura a câmera)
-    interpretador-ciclo.ts  interpretador do ciclo multiframe (monta a mensagem do `PacoteCiclo`)
-    contexto.ts        montagem do contexto estruturado (dados locais + resumo temporal)
-    prompt.ts          instruções do prompt (orientação a eventos, resposta em PT-BR)
+    interpretador-ciclo.ts  interpretador do ciclo multiframe (monta a mensagem do `PacoteCiclo` e valida as referências do modelo)
+    esquema.ts         schema JSON versionado do contexto local (caixas normalizadas, keypoints nomeados, mãos, movimento, estado do subsistema, validação de IDs)
+    contexto.ts        montagem do contexto estruturado (frames no schema versionado + eventos temporais)
+    prompt.ts          instruções do prompt (orientação a eventos, evidência × inferência, resposta em PT-BR)
     normalizar.ts      normalização da resposta (JSON estruturado; falha vira texto bruto, sem mascarar erros)
     transporte-servidor.ts  transporte `POST /api/visao` (stream NDJSON)
   temporal/
@@ -162,6 +163,21 @@ O motor temporal (`public/temporal/`) mantém estado entre ciclos e trata a **se
 - **Falha ≠ ausência.** Um subsistema indisponível (erro, timeout, modelo não carregado) é informado por frame via `MaquinaSinais.processar(leituras, { indisponivel: true })`: a máquina **preserva os eventos ativos**, não conta ausência (`framesSemSinal`) e **reinicia candidatos** — uma inferência que falhou não pode encerrar um gesto nem confirmar um sinal. Só uma observação válida sem resultado (`rotulo: null`) conta como ausência.
 - **Intervalos cegos não presumem continuidade.** Um gap entre ciclos maior que `limiarPeriodoCegoMs` dispara `interromperPorPeriodoCego(gapMs)`: os sinais ativos são encerrados na última evidência e os candidatos descartados. Esses eventos saem com `estado: "incerto"` e `intervaloSemObservacaoMs` (a duração da lacuna), e ficam apenas no diagnóstico/contexto — `incerto` nunca é persistido como fato em `eventos.jsonl`. O `ResumoTemporal` expõe `houveIntervaloSemObservacao` e `intervaloSemObservacaoMs`.
 - **Braço levantado por relação articular.** `braco_levantado` não é apenas "punho acima do limiar": exige que o punho esteja acima do **ombro** e do **cotovelo** do mesmo lado (índices COCO 5/7/9 e 6/8/10), com os três pontos confiáveis. Uma **histerese** (`histereseBraco`) mantém o sinal ativo na faixa próxima ao limiar, evitando cintilação.
+
+## Contexto multimodal (schema versionado)
+
+O contexto enviado ao modelo de visão é um JSON **versionado** (`public/interpretation/esquema.ts`, `VERSAO_ESQUEMA_CONTEXTO = "contexto-1"`), montado por `montarContextoCiclo`. Cada frame carrega `versao`, `frameId`, `capturadoEm`/`offsetMs` e a evidência **observada** pelos detectores — sem fundi-la com a inferência textual do modelo:
+
+- **detecções:** `label`, `rotulo`, `score` e caixa **normalizada** em [0,1] (`dimensoes` do frame), com `trackId` quando houver;
+- **pessoas:** `trackId`, `confianca` e **keypoints nomeados** (ordem COCO de 17 pontos) com confiança por ponto;
+- **mãos:** lateralidade, gesto/score e landmarks normalizados (subconjunto compacto por padrão; os 21 com `landmarksCompletos`);
+- **movimento:** deslocamento e direção (graus, topo = 0) por `tipo:trackId`, entre o frame atual e o anterior observado — não só posição isolada;
+- **estado por subsistema** (`subsistemas.deteccao|pose|maos|nsfw`): `ok`/`sem_resultado`/`indisponivel`/`nao_carregado` + motivo, alimentado pela telemetria por frame (`metricas.subsistemas`);
+- **eventos temporais:** `eventoId`, `tipo`, `inicioEm`/`fimEm`, `status`, `trackId`, `confianca`, `evidencias` (frameIds) e `gapMs` para lacunas de observação.
+
+O teto de bytes (`maxBytesContexto`) descarta primeiro o menos crítico (landmarks/keypoints em excesso, movimento, NSFW, eventos, detecções extras); `frameId`, timestamp, `versao` e o estado do subsistema **nunca** são removidos. A variante B (`incluirDadosLocais: false`) envia só imagens e cronologia, com os subsistemas marcados `nao_carregado` (não sugerem falha).
+
+**Validação das referências do modelo.** O `InterpretadorCiclo` confronta os IDs citados pelo modelo com os frames/eventos reais do contexto (`validarReferencias`, item 6 da Fase 3): aceita `frameId`/`eventoId` exatos e resolve `"Imagem N"`/índice para o `frameId` correspondente; referências inexistentes saem de `evidencias`/`acoes[].evidencias` e ficam em `evidenciasInvalidas` — nunca se fabrica uma evidência que não exista. A inferência textual do modelo permanece separada da evidência observada, sem misturar os dois graus de certeza.
 
 ## Persistência, diagnóstico e recuperação
 

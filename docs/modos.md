@@ -18,6 +18,8 @@ Nos modos multiframe (B/C/D), a chamada multimodal acontece **a cada ciclo concl
 
 A percepção local dos modos C/D tenta **YOLO, pose e mãos** por padrão (`HABILITACAO_PADRAO`, com `MODELOS_PERCEPCAO_PADRAO`). A habilitação é **explícita** por subsistema (`HabilitacaoSubsistemas`: `deteccao`, `pose`, `maos`, `nsfw`): um subsistema desligado não toca o SDK e responde `indisponivel` ("desativado") em cada frame. A variante B desliga todos. Se um subsistema habilitado não carregar, o ciclo continua e ele aparece em `subsistemasIndisponiveis`. O carregamento é idempotente, o encerramento libera recursos de verdade (trocar de modelo encerra o anterior) e cada subsistema publica telemetria (`modelo`, `dispositivo`, `versao`, `status`, `motivoFalha`, tempos), replicada por frame. As mãos/gestos incluem **fallback GPU→CPU** (`delegate` GPU com timeout e retomada em CPU).
 
+O contexto enviado ao modelo é um JSON **versionado** (`contexto-1`, ver `docs/arquitetura.md` → *Contexto multimodal*): caixas normalizadas e score por detecção, keypoints corporais nomeados, mãos com lateralidade/gesto/landmarks compactos, movimento entre frames e o estado de cada subsistema — com `frameId`, timestamp e versão em cada registro. A variante B envia só imagens e cronologia.
+
 A troca de motor é centralizada em `public/modos.ts` (registro `MODOS`): cada modo descreve se usa detecção/modelo de visão, o prefixo da mensagem de falha e a fábrica de motor — o resto da aplicação não tem `if (modo === "...")` espalhado. O `<select id="motor">` abre em **Percepção** (primeira opção) e `MODO_PADRAO = "percepcao"` é o padrão — as variantes B/C continuam registradas em `MODOS` só para o harness de benchmark/E2E. O seletor `#model` é o do **modelo de detecção do navegador** (abaixo); o `#modeloVisao` é o do **backend de visão** (seção seguinte).
 
 ## Backend de visão
@@ -86,7 +88,7 @@ pré/pós-processamento, coberta pelos testes determinísticos.
 
 O checkbox **NSFW (experimental)** (`#nsfw`) liga um quarto subsistema do pipeline local: um classificador YOLO treinado para conteúdo sensível (mesmo runtime `onnxruntime-web`/WASM e mesma sessão compartilhada do detector COCO). Com o toggle ligado **na inicialização da sessão**, cada frame ganha marcações (`rotulo`, `score`, `caixa`) que:
 
-- entram no **contexto estruturado enviado ao modelo de visão** (`nsfw=...` por frame no prompt) — somente quando o toggle está ligado e os dados locais vão ao multimodal (variantes C/D); com o toggle desligado o campo é omitido por completo;
+- entram no **contexto estruturado enviado ao modelo de visão** (campo `nsfw` do frame no schema `contexto-1`) — somente quando o toggle está ligado e os dados locais vão ao multimodal (variantes C/D); com o toggle desligado o campo é omitido por completo;
 - aparecem no diagnóstico por ciclo (`observacoes[].nsfw`, métrica `nsfwMs`, `subsistemasIndisponiveis`).
 
 Detalhes:

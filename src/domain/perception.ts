@@ -154,3 +154,25 @@ export interface ResultadoNsfw {
 
 /** Qualquer subsistema pode falhar sem apagar os demais. */
 export type ResultadoOuIndisponivel<T> = T | ResultadoIndisponivel;
+
+/**
+ * Estado observado de um subsistema num frame (Fase 2/3).
+ *
+ * Distingue "rodou e entregou", "rodou sem resultado", "tentou e falhou" e
+ * "nao foi carregado" — nunca uma lista vazia indistinguivel. Reproduz a
+ * telemetria do adaptador (`MetricasAdaptador`) sem depender do SDK.
+ */
+export type EstadoSubsistema = "ok" | "sem_resultado" | "indisponivel" | "nao_carregado";
+
+/** Telemetria de um subsistema num frame, pronta para o contexto/registro. */
+export interface TelemetriaSubsistema {
+  status: EstadoSubsistema;
+  /** Modelo em uso, quando conhecido. */
+  modelo?: string;
+  /** Dispositivo de inferencia (ex.: `wasm`, `gpu`, `cpu`). */
+  dispositivo?: string;
+  /** Versao do runtime/modelo, quando exposta. */
+  versao?: string;
+  /** Motivo legivel quando `status === "indisponivel"`. */
+  motivoFalha?: string;
+}
