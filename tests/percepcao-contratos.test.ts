@@ -45,7 +45,7 @@ function fakeMotorMaos(): MotorMaos & { encerrar: ReturnType<typeof vi.fn> } {
       ],
     }),
     dispositivo: "cpu",
-    versao: "mediapipe-0.10.22",
+    versao: "mediapipe-0.10.21",
     encerrar: vi.fn(),
   };
 }
@@ -169,7 +169,7 @@ describe("AdaptadorMaos — idempotencia, encerramento e telemetria", () => {
     await adaptador.carregar("n");
     expect(primeiro.encerrar).toHaveBeenCalledTimes(1);
     expect(adaptador.metricas.dispositivo).toBe("cpu");
-    expect(adaptador.metricas.versao).toBe("mediapipe-0.10.22");
+    expect(adaptador.metricas.versao).toBe("mediapipe-0.10.21");
   });
 });
 

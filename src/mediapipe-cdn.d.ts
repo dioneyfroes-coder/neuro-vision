@@ -5,8 +5,10 @@
  * (`public/gestos.ts`): criacao do `GestureRecognizer` e a saida de `recognize`.
  * O esbuild mantem a URL externa no bundle do cliente; nenhum teste carrega o
  * pacote de verdade (os adaptadores usam motores falsos injetados).
+ *
+ * A versao precisa casar com `VERSAO_MEDIAPIPE` em `public/gestos.ts`.
  */
-declare module "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22" {
+declare module "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21" {
   export interface CategoriaVision {
     categoryName: string;
     score: number;

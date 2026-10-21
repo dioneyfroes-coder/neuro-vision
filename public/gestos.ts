@@ -4,7 +4,7 @@ import type {
   CategoriaVision,
   ReconhecedorVision,
   ResultadoGestos,
-} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22";
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21";
 
 /**
  * Motor de maos/gestos (MediaPipe Gesture Recognizer) — Etapa 5 do roteiro.
@@ -17,16 +17,26 @@ import type {
  *
  * Os testes unitarios usam um motor falso injetado; este modulo so roda num
  * navegador com rede, nunca em CI.
+ *
+ * **Versao do runtime:** fixada em `VERSAO_MEDIAPIPE`. Use uma versao que exista
+ * no npm — `0.10.22`, por exemplo, **nunca foi publicada** (a linha 0.10.x salta
+ * de `0.10.21` para `0.10.22-rc...`), e o CDN devolve 404 para o `import()`
+ * dinamico. Ao subir a versao, confirme o pacote e o diretorio `/wasm` e mude
+ * **os dois lugares**: `VERSAO_MEDIAPIPE` (aqui e no `.d.ts`) e a string literal
+ * do `import()` abaixo (o esbuild so mantem a URL externa com literal).
  */
+
+/** Versao do runtime MediaPipe carregada do CDN (fonte unica). */
+const VERSAO_MEDIAPIPE = "0.10.21";
+
+/** URL do bundle ESM do `tasks-vision` (pacote raiz no CDN). */
+const URL_MODULO_MEDIAPIPE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VERSAO_MEDIAPIPE}`;
 
 /** Caminho padrao do modelo `.task` do Gesture Recognizer. */
 export const MODELO_MAOS_PADRAO =
   "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task";
 
-const URL_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm";
-
-/** Versao do runtime MediaPipe carregado do CDN (telemetria). */
-const VERSAO_MEDIAPIPE = "0.10.22";
+const URL_WASM = `${URL_MODULO_MEDIAPIPE}/wasm`;
 
 /** Maior numero de maos detectadas por frame (a aplicacao observa gestos). */
 const MAX_MAOS = 2;
@@ -147,8 +157,10 @@ export const criarMotorGestosMediaPipe: CriadorMotorMaos = async (modelo, aoStat
     };
   };
   try {
+    // String literal: o esbuild precisa dela para manter a URL como external
+    // (`--external:https://*` no bundle do cliente).
     modulo = await import(
-      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22"
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21"
     );
   } catch (err) {
     throw new ErroPercepcao("detector", `falha ao carregar MediaPipe: ${mensagemDe(err)}`, {
