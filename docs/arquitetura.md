@@ -8,7 +8,7 @@ Estrutura de arquivos e como as partes conversam.
 - **Camada de persistência** (`src/persistence/`) — primitivas JSONL (`armazenamento-jsonl.ts`) e um repositório por tipo de registro (observações, eventos, registros operacionais e ciclos). Cada repositório só conhece o seu arquivo; o servidor HTTP não carrega detalhes de armazenamento.
 - **Domínio** (`src/domain/`) — contratos puros (IDs de sessão/ciclo/frame, observação, resultados de percepção, evento temporal, pacote de ciclo, resultado de interpretação e métricas) sem dependência de SDK de modelo.
 - **Controlador do ciclo** (`public/cycle/cycle-controller.ts`) — regra de negócio do ciclo de frame único (captura, inferência, rastreamento, persistência e progresso) com dependências injetadas; emite `EventoUi` em vez de tocar o DOM.
-- **Ciclo multiframe** (`public/cycle/ciclo-multiframe.ts`) — captura 4 snapshots identificados (~1 s), guarda-os sem inferência, processa-os em sequência, roda a leitura temporal e envia o `PacoteCiclo` à interpretação multimodal. As imagens que chegam ao interpretador são as mesmas capturadas (sem recaptura). Sem frame disponível o ciclo retorna vazio, sem interpretar nem persistir (não é falha).
+- **Ciclo multiframe** (`public/cycle/ciclo-multiframe.ts`) — captura 4 snapshots identificados (~1 s), guarda-os sem inferência, processa-os em sequência, roda a leitura temporal e envia o `PacoteCiclo` à interpretação multimodal. As imagens que chegam ao interpretador são as mesmas capturadas (sem recaptura). Sem frame disponível o ciclo retorna vazio, sem interpretar nem persistir (não é falha). A cadência é definida pela **política do ciclo** (`public/cycle/politica-ciclo.ts`): intervalo e quantidade de snapshots, pausa pós-ciclo contada do fim efetivo e frequência da interpretação.
 - **Controlador multiframe** (`public/cycle/ciclo-percepcao-controller.ts`) — liga o pipeline completo (captura + percepção local + motor temporal + interpretação) à interface, como `ControladorCiclo` do modo `percepcao`; emite `EventoUi`, persiste o diagnóstico do ciclo (best-effort) e grava os **eventos temporais confirmados** em `eventos.jsonl` (uma gravação por identidade, `timestamp` = início real — ver [`eventos.md`](./eventos.md)).
 - **Pipeline local de percepcao** (`public/perception/local-perception-pipeline.ts`) — executa detector, pose (YOLO Pose), maos/gestos (MediaPipe) e, quando habilitado, o classificador NSFW (experimental, opt-in) por snapshot em sequencia, com isolamento de falhas: um subsistema quebrado vira `ResultadoIndisponivel` e nao apaga os demais. Usa portas em `public/perception/contracts.ts`.
 - **Adaptadores de percepção** (`public/perception/`) — portas `DetectorObjetos`, `EstimadorPose`, `ReconhecedorGestos` e `ClassificadorNsfw` independentes do SDK; o núcleo conhece apenas essas interfaces, e cada SDK entra por um adaptador em `public/perception/adapters/` (`object-detector.adapter.ts`, `pose-estimator.adapter.ts`, `hand-gesture.adapter.ts`, `nsfw-classifier.adapter.ts`). Motores SDK concretos: `public/detector.ts` (Transformers.js), `public/pose.ts` (YOLO Pose via Transformers.js), `public/gestos.ts` (MediaPipe Gesture Recognizer) e `public/nsfw-onnx.ts` (YOLO11 NSFW via ONNX Runtime, experimental).
@@ -92,7 +92,7 @@ public/
   modos.ts             registro de modos/motores (Item do roadmap: trocar motor sem espalhar condições)
   motores.ts           adaptadores para o motor de percepção (deteccao usa a porta `DetectorObjetos`)
   persistencia.ts      fila de gravação (ordem, retentativas, falhas expostas)
-  scheduler.ts         agendador do próximo ciclo (ritmo `max(intervalo, duração + 500 ms)`)
+  scheduler.ts         agendador do próximo ciclo (ritmo `max(intervalo, duração + 500 ms, pausa pós-ciclo)`)
   style.css            estilos
 e2e/
   app.spec.ts          fluxos de interface (com o transformers.js substituído)
@@ -179,6 +179,31 @@ O teto de bytes (`maxBytesContexto`) descarta primeiro o menos crítico (landmar
 
 **Validação das referências do modelo.** O `InterpretadorCiclo` confronta os IDs citados pelo modelo com os frames/eventos reais do contexto (`validarReferencias`, item 6 da Fase 3): aceita `frameId`/`eventoId` exatos e resolve `"Imagem N"`/índice para o `frameId` correspondente; referências inexistentes saem de `evidencias`/`acoes[].evidencias` e ficam em `evidenciasInvalidas` — nunca se fabrica uma evidência que não exista. A inferência textual do modelo permanece separada da evidência observada, sem misturar os dois graus de certeza.
 
+## Política do ciclo
+
+A cadência do ciclo multiframe é explícita em `public/cycle/politica-ciclo.ts` (`POLITICA_CICLO_PADRAO`), separando o que antes vivia num único "intervalo":
+
+| Campo | Padrão | O que é |
+| --- | --- | --- |
+| `intervaloEntreSnapshotsMs` | 1000 | Espaçamento entre os snapshots **dentro** de um ciclo. |
+| `quantidadeSnapshots` | 4 | Quantos snapshots compõem a janela do ciclo. |
+| `pausaAposCicloMs` | 6000 | Descanso contado da **conclusão efetiva** do ciclo (não é intervalo entre inícios). |
+| `interpretacao` | `a_cada_ciclo` | Quando a etapa multimodal é chamada. |
+
+O agendador (`public/scheduler.ts`) combina os dois limites: `espera = max(500 ms, intervalo - duração, pausaAposCiclo)`. Como a espera começa sempre após a conclusão, a **pausa entra como piso direto** — um ciclo nunca começa antes do prazo apenas porque o ciclo anterior foi mais longo que o intervalo. O intervalo entre inícios continua vindo do seletor da interface; a `configuracaoCaptura` (quadros/intervalo entre snapshots) é derivada da política, para não divergir.
+
+**Frequência da interpretação.** `interpretacao` decide se a etapa multimodal roda:
+
+- `a_cada_ciclo`: interpreta sempre (linha de base);
+- `sob_demanda`: só em ciclo pedido pela interface (`solicitarManual`);
+- `quando_evento_relevante`: só quando o motor temporal produziu evento **relevante confirmado** (`aparicao`/`desaparecimento`/`mudanca_de_cena`/`gesto_detectado`/`braco_levantado`/`movimento_corporal` em estado `confirmado`/`encerrado`).
+
+Quando a política suprime a chamada, o ciclo **não é falha**: o motivo (`sem_evento_relevante`/`politica_sob_demanda`) fica em `metricas.interpretacaoSuprimida`, o diagnóstico e os eventos temporais continuam sendo persistidos, e nenhuma entrada nova vai ao histórico. As duas variantes (`a_cada_ciclo` × `quando_evento_relevante`) podem ser medidas no mesmo conjunto (Fase 5).
+
+**Um ciclo em voo por vez.** O `AgendadorAnalise` não sobrepõe execuções (single-flight): um ciclo só começa quando o anterior termina. O cancelamento usa `AbortController`; o motivo é registrado explicitamente (`ciclo cancelado (sinal de aborto)`) para que nenhum ciclo incompleto fique sem explicação.
+
+**Tempo e conclusão.** `concluidoEm` (no pacote e no registro) é gravado **no fim**: depois da interpretação e da gravação do diagnóstico. `MetricasCiclo` guarda também os timestamps por etapa (`capturaConcluidaEm`, `percepcaoConcluidaEm`, `temporalConcluidoEm`, `interpretacaoConcluidaEm`, `persistenciaConcluidaEm`) para reconstruir a linha do tempo real, não só a duração agregada.
+
 ## Persistência, diagnóstico e recuperação
 
 A persistência é separada do servidor HTTP (`src/persistence/`), com uma primitiva JSONL e um repositório por tipo de registro. Cada arquivo tem rotação por tamanho (`LOG_MAX_BYTES`):
@@ -190,7 +215,7 @@ A persistência é separada do servidor HTTP (`src/persistence/`), com uma primi
 | Operacionais (`RegistroOperacional`) | `operacional.jsonl` | `repositorio-operacional.ts` | `POST /api/operacional` | `DELETE /api/logs` |
 | Ciclos (`RegistroCiclo`) | `ciclos.jsonl` | `repositorio-ciclos.ts` | `POST /api/ciclos`, `GET /api/ciclos` | `DELETE /api/ciclos` |
 
-- **Diagnóstico por ciclo.** `RegistroCiclo` (derivado de `ResultadoCiclo` por `criarRegistroCiclo`, em `src/domain/cycle.ts`) reúne métricas por etapa (`capturaMs`, `deteccaoMs`, `poseMs`, `maosMs`, `nsfwMs`, `temporalMs`, `multimodalMs`, `persistenciaMs`, `totalMs`), os `erros` por etapa, os `subsistemasIndisponiveis` e a **relação** entre sessão, ciclo e imagens (`sessionId`, `cycleId`, `frameIds`). As imagens não são copiadas: vivem nos snapshots, referenciados por `frameId`.
+- **Diagnóstico por ciclo.** `RegistroCiclo` (derivado de `ResultadoCiclo` por `criarRegistroCiclo`, em `src/domain/cycle.ts`) reúne métricas por etapa (`capturaMs`, `deteccaoMs`, `poseMs`, `maosMs`, `nsfwMs`, `temporalMs`, `multimodalMs`, `persistenciaMs`, `totalMs`), os **timestamps de conclusão por etapa** (`capturaConcluidaEm`, `percepcaoConcluidaEm`, `temporalConcluidoEm`, `interpretacaoConcluidaEm`, `persistenciaConcluidaEm`, `concluidoEm`) e, quando a política suprime a interpretação, `interpretacaoSuprimida` — além dos `erros` por etapa, os `subsistemasIndisponiveis` e a **relação** entre sessão, ciclo e imagens (`sessionId`, `cycleId`, `frameIds`). As imagens não são copiadas: vivem nos snapshots, referenciados por `frameId`.
 - **Ciclos incompletos continuam diagnosticáveis.** O `executarCicloMultiframe` aceita um `persistirCiclo` opcional. Ao final do ciclo envia o registro; em falha/cancelamento, registra um **registro parcial** (frames já observados, erros e a flag `cancelado`) antes de propagar o erro. A falha de **gravação** nunca derruba o ciclo: vira um `ErroEtapa` de etapa `persistencia` e o resultado da inferência segue válido (falha de logging ≠ falha de inferência).
 - **IDs únicos.** `sessionId`, `cycleId` e `frameId` são gerados em `src/domain/ids.ts` com um componente aleatório/sequencial de sessão, o que evita colisão com o histórico de execuções anteriores.
 - **Idempotência.** Os eventos guardam uma `idempotencyKey` por arquivo (`repositorio-eventos.ts`), de modo que o reenvio da fila de persistência do cliente após uma falha transitória não duplica o evento. Limpar o arquivo invalida as chaves antigas.

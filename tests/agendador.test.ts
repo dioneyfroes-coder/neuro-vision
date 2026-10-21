@@ -19,6 +19,16 @@ describe("calcularEspera", () => {
   it("respeita uma margem customizada", () => {
     expect(calcularEspera(1000, 2000, 100)).toBe(Math.max(100, 1000 - 2000));
   });
+
+  it("aplica a pausa pos-ciclo como piso, contada do fim do ciclo", () => {
+    // Pausa maior que o intervalo entre inicios: o proximo ciclo so comeca
+    // depois de a pausa transcorrer apos a conclusao efetiva.
+    expect(calcularEspera(1000, 300, MARGEM_RESERVA_MS, 6000)).toBe(6000);
+    // Pausa menor que o intervalo: prevalece o intervalo entre inicios.
+    expect(calcularEspera(10_000, 300, MARGEM_RESERVA_MS, 6000)).toBe(9700);
+    // Sem pausa (padrao) o comportamento anterior e preservado.
+    expect(calcularEspera(4000, 300)).toBe(Math.max(MARGEM_RESERVA_MS, 3700));
+  });
 });
 
 describe("AgendadorAnalise", () => {
@@ -135,8 +145,7 @@ describe("AgendadorAnalise", () => {
     expect(execs).toBe(1);
   });
 
-  it("reiniciar apos parar durante a execucao roda a analise imediata sem sobrepor", async () => {
-    let chamadas = 0;
+  it("reiniciar apos parar durante a execucao roda a analise imediata sem sobrepor", async () => {    let chamadas = 0;
     let ativas = 0;
     let sobreposicoes = 0;
     const inicios: number[] = [];
@@ -172,6 +181,33 @@ describe("AgendadorAnalise", () => {
     await segunda;
     expect(inicios).toHaveLength(2); // a analise imediata do reinicio rodou
     expect(sobreposicoes).toBe(0);
+  });
+
+  it("garante a pausa pos-ciclo contada do fim do ciclo anterior", async () => {
+    // Ciclo curto (300ms) com intervalo curto, mas pausa pos-ciclo de 6000ms:
+    // o proximo inicio deve ocorrer 6000ms apos o **fim** do ciclo anterior.
+    const inicios: number[] = [];
+    const agendador = new AgendadorAnalise({
+      obterIntervaloMs: () => 1000,
+      obterPausaAposCicloMs: () => 6000,
+      executar: async () => {
+        inicios.push(Date.now());
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      },
+    });
+
+    const iniciar = agendador.iniciar();
+    await vi.advanceTimersByTimeAsync(300); // 1o ciclo termina em t=300
+    await iniciar;
+    expect(inicios).toHaveLength(1);
+
+    // Entre 300 e 6300 nada deve começar (a pausa é contada do fim).
+    await vi.advanceTimersByTimeAsync(5900); // t=6200
+    expect(inicios).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(200); // t=6400 > 300 + 6000
+    expect(inicios).toHaveLength(2);
+    expect(inicios[1] - inicios[0]).toBe(300 + 6000);
   });
 });
 

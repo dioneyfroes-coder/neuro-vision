@@ -17,6 +17,10 @@ import { MODELO_NSFW_PADRAO } from "./nsfw-onnx";
 import { MotorTemporalImpl } from "./temporal/motor-temporal";
 import { InterpretadorCiclo } from "./interpretation/interpretador-ciclo";
 import { criarTransporteServidor } from "./interpretation/transporte-servidor";
+import { POLITICA_CICLO_PADRAO } from "./cycle/politica-ciclo";
+import type { PoliticaCiclo } from "./cycle/politica-ciclo";
+import { CONFIG_CAPTURA_PADRAO } from "./capture/webcam-capture";
+import type { ConfigCaptura } from "./capture/webcam-capture";
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -54,6 +58,21 @@ const intervalValue = el<HTMLSpanElement>("intervalValue");
 const thresholdInput = el<HTMLInputElement>("threshold");
 const thresholdValue = el<HTMLSpanElement>("thresholdValue");
 const nsfwToggle = el<HTMLInputElement>("nsfw");
+
+/**
+ * Politica do ciclo (Fase 4): fonte unica de espacamento/quantidade de
+ * snapshots, pausa pos-ciclo e frequencia da interpretacao. O intervalo entre
+ * inicios continua vindo do seletor da interface (`intervaloMsConfigurado`); a
+ * pausa pos-ciclo e contada do **fim** de cada ciclo.
+ */
+const politicaCiclo: PoliticaCiclo = POLITICA_CICLO_PADRAO;
+
+/** Captura derivada da politica: quantidade e espacamento dos snapshots. */
+const configuracaoCaptura: ConfigCaptura = {
+  ...CONFIG_CAPTURA_PADRAO,
+  quadros: politicaCiclo.quantidadeSnapshots,
+  intervaloMs: politicaCiclo.intervaloEntreSnapshotsMs,
+};
 
 const detectorCoco = new AdaptadorDetectorObjetos();
 let running = false;
@@ -199,6 +218,8 @@ const controladorPercepcao = new CicloPercepcaoController({
       incluirDadosLocais: varianteDoModoAtual().dadosLocais,
     }),
   obterIntervaloMs: () => intervaloMsConfigurado,
+  politicaCiclo,
+  configuracaoCaptura,
 });
 
 /** Variante do benchmark declarada pelo modo ativo (B/C/D); padrao: alvo (D). */

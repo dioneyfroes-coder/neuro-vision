@@ -33,6 +33,19 @@ export interface MetricasCiclo {
   multimodalMs?: number;
   persistenciaMs?: number;
   totalMs?: number;
+  /**
+   * Timestamps ISO de **conclusao** de cada etapa (Fase 4, item 4). Permitem
+   * reconstruir a linha do tempo real do ciclo, nao apenas a duracao agregada.
+   */
+  capturaConcluidaEm?: string;
+  percepcaoConcluidaEm?: string;
+  temporalConcluidoEm?: string;
+  interpretacaoConcluidaEm?: string;
+  persistenciaConcluidaEm?: string;
+  /** Instante ISO da conclusao efetiva do ciclo (depois de persistir). */
+  concluidoEm?: string;
+  /** Motivo pelo qual a interpretacao multimodal foi suprimida pela politica. */
+  interpretacaoSuprimida?: "politica_sob_demanda" | "sem_evento_relevante";
 }
 
 /**

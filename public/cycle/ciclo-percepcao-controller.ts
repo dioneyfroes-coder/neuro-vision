@@ -32,6 +32,8 @@ import { obterVariante } from "../perception/variantes";
 import type { VariantePercepcao } from "../perception/variantes";
 import type { ModoMotorTemporal, MotorTemporal } from "../temporal/contracts";
 import type { InterpretadorMultimodal } from "../interpretation/contracts";
+import type { PoliticaCiclo } from "./politica-ciclo";
+import { decidirInterpretacao, POLITICA_CICLO_PADRAO } from "./politica-ciclo";
 
 /**
  * Controlador do ciclo multiframe (Etapa 5 + 6 + 8 ligadas a interface).
@@ -103,6 +105,13 @@ export interface DependenciasCicloPercepcao {
   criarInterpretador: () => InterpretadorMultimodal;
   /** Intervalo entre ciclos lido da interface. */
   obterIntervaloMs: () => number;
+  /**
+   * Politica do ciclo (Fase 4): espacamento/quantidade de snapshots, pausa
+   * pos-ciclo e frequencia da interpretacao. Padrao: `POLITICA_CICLO_PADRAO`.
+   * A `configuracaoCaptura` continua sendo a fonte dos parametros de captura; a
+   * politica fornece a pausa pos-ciclo e a decisao de interpretar.
+   */
+  politicaCiclo?: PoliticaCiclo;
   /** Captura: configuracao e relogios injetaveis (testes deterministicos). */
   configuracaoCaptura?: ConfigCaptura;
   dependenciasCaptura?: DepsCaptura;
@@ -136,9 +145,17 @@ export class CicloPercepcaoController implements ControladorCiclo {
   private ultimaDuracaoMsValor = 0;
   private ultimaCargaMsValor = 0;
   private ultimaPersistenciaMsValor = 0;
+  /** Politica do ciclo (Fase 4): pausa pos-ciclo e frequencia da interpretacao. */
+  private readonly politicaCiclo: PoliticaCiclo;
+  /**
+   * Marca que o proximo ciclo foi pedido pela interface (`solicitarManual`).
+   * Consumido uma vez por ciclo; alimenta a decisao `sob_demanda`.
+   */
+  private disparoManualPendente = false;
 
   constructor(private readonly deps: DependenciasCicloPercepcao) {
     const config = deps.configuracaoCaptura ?? CONFIG_CAPTURA_PADRAO;
+    this.politicaCiclo = deps.politicaCiclo ?? POLITICA_CICLO_PADRAO;
     this.percepcao = deps.criarPercepcao();
     this.motorTemporal = this.criarMotorTemporal();
     this.store = new SnapshotStore({ maxQuadros: config.quadros });
@@ -146,6 +163,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
     this.agendador = new AgendadorAnalise({
       executar: () => this.executarCiclo(),
       obterIntervaloMs: deps.obterIntervaloMs,
+      obterPausaAposCicloMs: () => this.politicaCiclo.pausaAposCicloMs,
     });
   }
 
@@ -201,6 +219,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
   }
 
   solicitarManual(): void {
+    this.disparoManualPendente = true;
     this.agendador.disparar();
   }
 
@@ -306,10 +325,17 @@ export class CicloPercepcaoController implements ControladorCiclo {
       const resultado = await executarCicloMultiframe(this.dependenciasCiclo(), signal);
       this.apresentarResultado(resultado);
     } catch (err) {
-      if (ehCancelamento(err) || signal.aborted) return;
+      if (ehCancelamento(err) || signal.aborted) {
+        // Cancelamento e um desfecho legitimo: registra o motivo explicito para
+        // que nenhum ciclo incompleto fique sem explicacao (criterio da Fase 4).
+        this.registrarOperacional("info", "ciclo", "ciclo cancelado (sinal de aborto)");
+        return;
+      }
       this.registrarOperacional("erro", "percepcao", (err as Error).message);
       this.status(`Erro no ciclo de percepcao: ${(err as Error).message}`);
     } finally {
+      // O flag de disparo manual vale para um unico ciclo.
+      this.disparoManualPendente = false;
       if (this.abortador === ctrl) {
         this.abortador = null;
         this.deps.aoUi({ tipo: "spinner", ativo: false });
@@ -328,6 +354,12 @@ export class CicloPercepcaoController implements ControladorCiclo {
       motorTemporal: this.motorTemporal ?? undefined,
       sessaoId: this.sessaoId,
       proximoCycleId: () => criarCycleId(this.sessaoId, (this.cicloSeq += 1)),
+      decidirInterpretacao: (resumoTemporal) => {
+        const decisao = decidirInterpretacao(this.politicaCiclo, resumoTemporal, {
+          disparoManual: this.disparoManualPendente,
+        });
+        return { interpretar: decisao.interpretar, motivo: decisao.motivo };
+      },
       persistirCiclo: (registro) => this.deps.repositorio.gravarCiclo(registro),
     };
   }
@@ -356,6 +388,18 @@ export class CicloPercepcaoController implements ControladorCiclo {
       });
     }
     this.deps.aoUi({ tipo: "desenhar_caixas", objetos: caixasDe(ultima) });
+
+    // Interpretacao suprimida pela politica (Fase 4): o frame foi observado, mas
+    // nao houve nova interpretacao — sem entrada no historico. Os eventos
+    // temporais e o diagnostico continuam sendo persistidos.
+    if (pacote.metricas.interpretacaoSuprimida) {
+      this.persistirEventosTemporais(pacote);
+      this.status(
+        this.resumoStatus(pacote.cycleId, undefined, pacote.metricas.totalMs) +
+          ` (interpretacao suprimida: ${pacote.metricas.interpretacaoSuprimida})`
+      );
+      return;
+    }
 
     const resumo = resultado.interpretacao?.trim();
     const entrada: EntradaLog = {

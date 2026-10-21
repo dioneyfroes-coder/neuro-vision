@@ -329,4 +329,84 @@ describe("executarCicloMultiframe", () => {
     expect(interpretados).toHaveLength(0);
     expect(registros).toHaveLength(0);
   });
+
+  it("registra concluidoEm no fim, depois da interpretacao e da persistencia", async () => {
+    const ordem: string[] = [];
+    const { deps } = montar({
+      processarFrame: async () => {
+        ordem.push("percepcao");
+        return processamento();
+      },
+    });
+    deps.agoraIso = () => "2026-10-16T10:00:00.000Z";
+    deps.interpretador = {
+      modelo: "m",
+      interpretar: async (): Promise<ResultadoInterpretacao> => {
+        ordem.push("interpretacao");
+        return {
+          resumo: "x",
+          acoes: [],
+          evidencias: [],
+          incertezas: [],
+          contradicoes: [],
+          duracaoMs: 5,
+        };
+      },
+    };
+    deps.persistirCiclo = () => {
+      ordem.push("persistencia");
+    };
+
+    const resultado = await executarCicloMultiframe(deps);
+    ordem.push("retorno");
+
+    // A ordem do ciclo e captura -> percepcao -> interpretacao -> persistencia.
+    expect(ordem.indexOf("interpretacao")).toBeLessThan(ordem.indexOf("persistencia"));
+    expect(ordem.indexOf("persistencia")).toBeLessThan(ordem.indexOf("retorno"));
+    // concluidoEm so existe depois de tudo: o pacote terminou.
+    expect(resultado.pacote.concluidoEm).toBe("2026-10-16T10:00:00.000Z");
+    expect(resultado.pacote.metricas.concluidoEm).toBe("2026-10-16T10:00:00.000Z");
+  });
+
+  it("registra timestamps por etapa (item 4)", async () => {
+    const { deps } = montar();
+    deps.motorTemporal = motorTemporalFalso([]);
+    const resultado = await executarCicloMultiframe(deps);
+    const m = resultado.pacote.metricas;
+
+    expect(m.capturaConcluidaEm).toBe("2026-10-16T10:00:00.000Z");
+    expect(m.percepcaoConcluidaEm).toBe("2026-10-16T10:00:00.000Z");
+    expect(m.temporalConcluidoEm).toBe("2026-10-16T10:00:00.000Z");
+    expect(m.interpretacaoConcluidaEm).toBe("2026-10-16T10:00:00.000Z");
+    expect(m.persistenciaConcluidaEm).toBe("2026-10-16T10:00:00.000Z");
+    expect(m.concluidoEm).toBe("2026-10-16T10:00:00.000Z");
+  });
+
+  it("suprime a interpretacao pela politica e registra o motivo", async () => {
+    const { deps, interpretados } = montar();
+    deps.decidirInterpretacao = () => ({ interpretar: false, motivo: "sem_evento_relevante" });
+
+    const resultado = await executarCicloMultiframe(deps);
+
+    expect(interpretados).toHaveLength(0);
+    expect(resultado.interpretacao).toBeUndefined();
+    expect(resultado.pacote.metricas.interpretacaoSuprimida).toBe("sem_evento_relevante");
+    // O ciclo continua valido: interpretacao suprimida nao e falha.
+    expect(resultado.erros).toHaveLength(0);
+    expect(resultado.cancelado).toBe(false);
+    // E conclui normalmente (concluidoEm registrado).
+    expect(resultado.pacote.concluidoEm).toBe("2026-10-16T10:00:00.000Z");
+  });
+
+  it("interpreta quando a politica decide pelo evento relevante", async () => {
+    const { deps, interpretados } = montar();
+    deps.motorTemporal = motorTemporalFalso([]);
+    deps.decidirInterpretacao = () => ({ interpretar: true });
+
+    const resultado = await executarCicloMultiframe(deps);
+
+    expect(interpretados).toHaveLength(1);
+    expect(resultado.interpretacao).toBe("quatro frames analisados");
+    expect(resultado.pacote.metricas.interpretacaoSuprimida).toBeUndefined();
+  });
 });

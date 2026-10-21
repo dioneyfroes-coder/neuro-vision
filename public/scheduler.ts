@@ -2,17 +2,25 @@
  * Agendador de analises encadeado.
  *
  * Mede a duração real de todo o ciclo (execução completa) com performance.now()
- * e calcula o atraso para que o próximo ciclo comece respeitando o intervalo
- * entre inícios configurado: espera = max(margemMinima, intervalo - duracaoCiclo).
+ * e calcula o atraso até o próximo ciclo respeitando **dois** limites:
+ * - o intervalo entre inícios configurado (`intervalo - duracaoCiclo`, contado
+ *   do início do ciclo anterior);
+ * - a pausa pós-ciclo (`pausaAposCicloMs`, contada do **fim** do ciclo anterior).
+ *
+ * Como a espera começa sempre após a conclusão, a pausa entra como piso direto:
+ * `espera = max(margemMinima, intervalo - duracaoCiclo, pausaAposCiclo)`. Isso
+ * garante que um ciclo nunca comece antes do prazo apenas porque o ciclo
+ * anterior foi mais longo que o intervalo.
  */
 export const MARGEM_RESERVA_MS = 500;
 
 export function calcularEspera(
   intervaloMs: number,
   duracaoCicloMs: number,
-  margemMs = MARGEM_RESERVA_MS
+  margemMs = MARGEM_RESERVA_MS,
+  pausaAposCicloMs = 0
 ): number {
-  return Math.max(margemMs, intervaloMs - duracaoCicloMs);
+  return Math.max(margemMs, intervaloMs - duracaoCicloMs, pausaAposCicloMs);
 }
 
 export interface DependenciasAgendador {
@@ -20,6 +28,11 @@ export interface DependenciasAgendador {
   executar: () => Promise<void>;
   /** Leitura do intervalo configurado em cada ciclo. */
   obterIntervaloMs: () => number;
+  /**
+   * Leitura da pausa pós-ciclo (ms), contada do fim efetivo do ciclo anterior.
+   * Quando ausente, equivale a 0 (só se aplica o intervalo entre inícios).
+   */
+  obterPausaAposCicloMs?: () => number;
 }
 
 export class AgendadorAnalise {
@@ -84,7 +97,9 @@ export class AgendadorAnalise {
     if (!this.rodando) return;
     const espera = calcularEspera(
       this.deps.obterIntervaloMs(),
-      this.ultimaDuracaoCicloMs
+      this.ultimaDuracaoCicloMs,
+      MARGEM_RESERVA_MS,
+      this.deps.obterPausaAposCicloMs?.() ?? 0
     );
     this.timer = setTimeout(() => void this.ciclo(), espera);
   }

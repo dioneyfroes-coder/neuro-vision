@@ -9,7 +9,6 @@ import type {
 import type { CameraCaptura, EventoUi, ItemHistorico } from "../public/cycle/cycle-controller";
 import type { ProcessamentoFrame } from "../public/cycle/ciclo-multiframe";
 import type { MotorTemporal } from "../public/temporal/contracts";
-import type { InterpretadorMultimodal } from "../public/interpretation/contracts";
 import type { ConfiguracaoParcial, ModelosPercepcao } from "../public/perception/local-perception-pipeline";
 import type { DefinicaoModo } from "../public/modos";
 import { VARIANTES_PERCEPCAO } from "../public/perception/variantes";
@@ -19,6 +18,8 @@ import type { RegistroCiclo } from "../src/domain/cycle";
 import type { ResultadoInterpretacao } from "../src/domain/interpretation";
 import type { EntradaLog, EventoVisual } from "../src/types";
 import type { EventoTemporal } from "../src/domain/temporal-event";
+import type { PoliticaCiclo } from "../public/cycle/politica-ciclo";
+import { POLITICA_CICLO_PADRAO } from "../public/cycle/politica-ciclo";
 
 const MODO: DefinicaoModo = {
   id: "percepcao",
@@ -117,20 +118,6 @@ function percepcaoFalsa(configuracao?: ConfiguracaoParcial): {
   return { percepcao, modelosVistos };
 }
 
-function interpretadorFalso(resumo = "pessoa gesticulando entre dois frames"): InterpretadorMultimodal {
-  return {
-    modelo: "modelo-teste",
-    interpretar: async (): Promise<ResultadoInterpretacao> => ({
-      resumo,
-      acoes: [],
-      evidencias: [],
-      incertezas: [],
-      contradicoes: [],
-      duracaoMs: 10,
-    }),
-  };
-}
-
 interface Contexto {
   controle: CicloPercepcaoController;
   eventos: EventoUi[];
@@ -145,6 +132,8 @@ interface Contexto {
   modelosVistos: ModelosPercepcao[];
   naoGravados: number;
   modosTemporais: string[];
+  /** Quantas vezes a interpretacao multimodal foi efetivamente chamada. */
+  interpretacoes: () => number;
 }
 
 function montar(
@@ -156,6 +145,8 @@ function montar(
     modo?: DefinicaoModo;
     /** Eventos que o motor temporal falso devolve a cada ciclo. */
     eventosTemporais?: EventoTemporal[];
+    /** Politica do ciclo (Fase 4); padrao: `POLITICA_CICLO_PADRAO`. */
+    politica?: PoliticaCiclo;
   } = {}
 ): Contexto {
   const eventos: EventoUi[] = [];
@@ -202,6 +193,7 @@ function montar(
     resetar: resetes,
   };
   const modosTemporais: string[] = [];
+  let interpretacoes = 0;
 
   const aoUi = (evento: EventoUi): ItemHistorico | void => {
     eventos.push(evento);
@@ -226,8 +218,22 @@ function montar(
       modosTemporais.push(modo);
       return motorTemporal;
     },
-    criarInterpretador: () => interpretadorFalso(),
+    criarInterpretador: () => ({
+      modelo: "modelo-teste",
+      interpretar: async (): Promise<ResultadoInterpretacao> => {
+        interpretacoes += 1;
+        return {
+          resumo: "pessoa gesticulando entre dois frames",
+          acoes: [],
+          evidencias: [],
+          incertezas: [],
+          contradicoes: [],
+          duracaoMs: 10,
+        };
+      },
+    }),
     obterIntervaloMs: () => 4000,
+    politicaCiclo: opcoes.politica,
     configuracaoCaptura: CONFIG_CAPTURA,
     dependenciasCaptura: DEPS_CAPTURA,
   };
@@ -248,6 +254,7 @@ function montar(
     get naoGravados() {
       return naoGravados;
     },
+    interpretacoes: () => interpretacoes,
   } as Contexto;
 }
 
@@ -449,6 +456,68 @@ describe("CicloPercepcaoController", () => {
     // A identidade que reaparece no proximo ciclo nao duplica no arquivo.
     await ctx.controle.executarCiclo();
     expect(ctx.tarefas.filter((t) => t.descricao.startsWith("evento:multiframe:"))).toHaveLength(1);
+    ctx.controle.parar();
+  });
+
+  it("a_cada_ciclo interpreta sempre (padrao)", async () => {
+    const ctx = montar();
+    await ctx.controle.iniciar();
+    expect(ctx.interpretacoes()).toBe(1);
+    ctx.controle.parar();
+  });
+
+  it("quando_evento_relevante suprime a interpretacao sem evento e registra o motivo", async () => {
+    const ctx = montar({
+      politica: { ...POLITICA_CICLO_PADRAO, interpretacao: "quando_evento_relevante" },
+    });
+    await ctx.controle.iniciar();
+
+    expect(ctx.interpretacoes()).toBe(0);
+    expect(ctx.ciclos).toHaveLength(1);
+    expect(ctx.ciclos[0].metricas.interpretacaoSuprimida).toBe("sem_evento_relevante");
+    // Sem interpretacao, nao ha entrada no historico; o ciclo segue diagnostico.
+    expect(primeiro(ctx.eventos, "exibir_entrada")).toBeUndefined();
+    expect(ctx.ciclos[0].cancelado).toBe(false);
+    ctx.controle.parar();
+  });
+
+  it("quando_evento_relevante interpreta quando o motor temporal confirma evento", async () => {
+    const confirmado: EventoTemporal = {
+      eventoId: "evt-1",
+      sessionId: "s",
+      tipo: "aparicao",
+      inicioEm: "2026-10-19T02:00:19.500Z",
+      descricao: "pessoa entra no quadro",
+      confianca: 0.8,
+      origens: ["objetos"],
+      frameIds: [],
+      estado: "confirmado",
+    };
+    const ctx = montar({
+      politica: { ...POLITICA_CICLO_PADRAO, interpretacao: "quando_evento_relevante" },
+      eventosTemporais: [confirmado],
+    });
+    await ctx.controle.iniciar();
+
+    expect(ctx.interpretacoes()).toBe(1);
+    expect(ctx.ciclos[0].metricas.interpretacaoSuprimida).toBeUndefined();
+    ctx.controle.parar();
+  });
+
+  it("sob_demanda so interpreta em ciclo pedido manualmente", async () => {
+    const ctx = montar({
+      politica: { ...POLITICA_CICLO_PADRAO, interpretacao: "sob_demanda" },
+    });
+    await ctx.controle.iniciar();
+
+    // Ciclo automatico: suprimido.
+    expect(ctx.interpretacoes()).toBe(0);
+    expect(ctx.ciclos[0].metricas.interpretacaoSuprimida).toBe("politica_sob_demanda");
+
+    // Ciclo pedido pela interface: interpreta.
+    ctx.controle.solicitarManual();
+    await ctx.controle.aguardarExecucao();
+    expect(ctx.interpretacoes()).toBe(1);
     ctx.controle.parar();
   });
 });

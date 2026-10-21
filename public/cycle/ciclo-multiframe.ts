@@ -23,6 +23,7 @@ import type { TelemetriaSubsistema } from "../../src/domain";
 import type { SubsistemaPercepcao } from "../perception/local-perception-pipeline";
 import type { InterpretadorMultimodal } from "../interpretation/contracts";
 import type { MotorTemporal } from "../temporal/contracts";
+import type { MotivoSupressaoInterpretacao } from "./politica-ciclo";
 
 /**
  * `CicloMultiframe` (Etapa 4 do roteiro).
@@ -93,6 +94,15 @@ export interface DependenciasCicloMultiframe {
   /** Relogio de parede ISO. Padrao: `new Date().toISOString`. */
   agoraIso?: () => string;
   /**
+   * Decide se a etapa multimodal roda neste ciclo (Fase 4, item 5). Devolve
+   * `interpretar: false` para suprimir a chamada; nesse caso o motivo entra nas
+   * metricas (`interpretacaoSuprimida`) e o ciclo segue valido, apenas sem
+   * interpretacao. Ausente, a interpretacao roda sempre.
+   */
+  decidirInterpretacao?: (
+    resumoTemporal: ResumoTemporal
+  ) => { interpretar: boolean; motivo?: MotivoSupressaoInterpretacao };
+  /**
    * Persiste o diagnostico do ciclo (Etapa 8), opcional. A falha de gravacao
    * **nao** derruba o ciclo nem se confunde com falha de inferencia: entra em
    * `erros` como etapa `persistencia` e o resultado segue valido.
@@ -153,20 +163,27 @@ export async function executarCicloMultiframe(
     deps.store.limpar();
     for (const snapshot of capturados) deps.store.adicionar(snapshot);
     const capturaMs = Math.round(agora() - inicioMs);
+    const capturaConcluidaEm = agoraIso();
 
     if (capturados.length === 0) {
       // Camera ainda sem frame: nao ha evidencia a interpretar. Nao e falha,
       // apenas um instante sem imagem (mesma semantica do ciclo de frame unico).
+      const concluidoEm = agoraIso();
       return {
         pacote: {
           sessionId: deps.sessaoId,
           cycleId,
           iniciadoEm,
-          concluidoEm: agoraIso(),
+          concluidoEm,
           observacoes: [],
           eventosTemporais: [],
           resumoTemporal: { eventos: [], entidadesAtivas: 0 },
-          metricas: { capturaMs, totalMs: Math.round(agora() - inicioMs) },
+          metricas: {
+            capturaMs,
+            capturaConcluidaEm,
+            concluidoEm,
+            totalMs: Math.round(agora() - inicioMs),
+          },
         },
         erros,
         cancelado: false,
@@ -222,11 +239,13 @@ export async function executarCicloMultiframe(
         })
       );
     }
+    const percepcaoConcluidaEm = agoraIso();
 
     // 2.5) Leitura temporal consolidada (motor com estado entre ciclos). Uma
     // falha do motor e isolada como etapa `temporal`: o ciclo segue com o
     // resumo vazio em vez de derrubar a interpretacao.
     let temporalMs = 0;
+    let temporalConcluidoEm: string | undefined;
     if (deps.motorTemporal && observacoes.length > 0) {
       const inicioTemporal = agora();
       try {
@@ -235,43 +254,63 @@ export async function executarCicloMultiframe(
         erros.push({ etapa: "temporal", mensagem: (err as Error).message });
       }
       temporalMs = Math.round(agora() - inicioTemporal);
+      temporalConcluidoEm = agoraIso();
     }
 
     // 3) Pacote do ciclo: fronteira entre analise local e interpretacao.
+    // `concluidoEm` e preenchido apenas no fim (item 4): aqui o pacote ainda
+    // nao terminou — a interpretacao e a persistencia ainda vao rodar.
     const pacote: PacoteCiclo = {
       sessionId: deps.sessaoId,
       cycleId,
       iniciadoEm,
-      concluidoEm: agoraIso(),
       observacoes,
       eventosTemporais: resumoTemporal.eventos,
       resumoTemporal,
       metricas: {
         capturaMs,
+        capturaConcluidaEm,
+        percepcaoConcluidaEm,
         deteccaoMs,
         poseMs,
         maosMs,
         ...(nsfwMs > 0 ? { nsfwMs } : {}),
         temporalMs,
+        ...(temporalConcluidoEm ? { temporalConcluidoEm } : {}),
         totalMs: Math.round(agora() - inicioMs),
       },
     };
     metricas = pacote.metricas;
 
-    // 4) Interpretacao multimodal sobre o pacote (sem nova captura).
-    const resultado = await deps.interpretador.interpretar(pacote, sinal);
-    pacote.metricas.multimodalMs = resultado.duracaoMs;
+    // 4) Interpretacao multimodal sobre o pacote (sem nova captura). A politica
+    // (item 5) pode suprimir a chamada; a supressao nao e falha — o motivo fica
+    // registrado e o ciclo continua valido.
+    let interpretacao: string | undefined;
+    const decisao = deps.decidirInterpretacao?.(resumoTemporal);
+    if (decisao && !decisao.interpretar) {
+      if (decisao.motivo) pacote.metricas.interpretacaoSuprimida = decisao.motivo;
+    } else {
+      const resultado = await deps.interpretador.interpretar(pacote, sinal);
+      pacote.metricas.multimodalMs = resultado.duracaoMs;
+      pacote.metricas.interpretacaoConcluidaEm = agoraIso();
+      interpretacao = resultado.resumo;
+    }
     pacote.metricas.totalMs = Math.round(agora() - inicioMs);
 
     // 5) Diagnostico persistido (Etapa 8). A falha de gravacao nao derruba o
     // ciclo: entra em `erros` como `persistencia`.
     const saida: ResultadoCiclo = {
       pacote,
-      interpretacao: resultado.resumo,
+      interpretacao,
       erros,
       cancelado: false,
     };
     pacote.metricas.persistenciaMs = await persistirDiagnostico(deps, saida, erros);
+    pacote.metricas.persistenciaConcluidaEm = agoraIso();
+    // Conclusao efetiva: depois da interpretacao e da persistencia.
+    const concluidoEm = agoraIso();
+    pacote.concluidoEm = concluidoEm;
+    pacote.metricas.concluidoEm = concluidoEm;
     pacote.metricas.totalMs = Math.round(agora() - inicioMs);
 
     return saida;
@@ -279,6 +318,7 @@ export async function executarCicloMultiframe(
     // 6) Falha/cancelamento: nao reter imagens em memoria, mas registrar o
     // diagnostico do ciclo incompleto para que a falha nao se perca.
     deps.store.limpar();
+    const concluidoEm = agoraIso();
     await persistirDiagnostico(
       deps,
       {
@@ -286,11 +326,11 @@ export async function executarCicloMultiframe(
           sessionId: deps.sessaoId,
           cycleId,
           iniciadoEm,
-          concluidoEm: agoraIso(),
+          concluidoEm,
           observacoes,
           eventosTemporais: resumoTemporal.eventos,
           resumoTemporal,
-          metricas,
+          metricas: { ...metricas, concluidoEm },
         },
         erros,
         cancelado: ehCancelamento(err) || sinal?.aborted === true,
