@@ -5,38 +5,33 @@ import type {
   ReconhecedorVision,
   ResultadoGestos,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21";
+import { caminhosMediaPipe, modelosDisponivel, baseModelosLocal, VERSAO_MEDIAPIPE } from "./offline";
 
 /**
  * Motor de maos/gestos (MediaPipe Gesture Recognizer) — Etapa 5 do roteiro.
  *
- * Modulo **especifico do SDK**: carrega `@mediapipe/tasks-vision` pelo CDN, cria
- * o `GestureRecognizer` e traduz a saida do `recognize` para `SaidaMaosCru`
+ * Modulo **especifico do SDK**: carrega `@mediapipe/tasks-vision` (local do
+ * servidor quando o modo offline esta preparado, senao pelo CDN), cria o
+ * `GestureRecognizer` e traduz a saida do `recognize` para `SaidaMaosCru`
  * (landmarks normalizados, rotulo cru de lateralidade e categorias de gesto). O
  * adaptador `AdaptadorMaos` faz a normalizacao para o dominio; nenhuma regra de
  * negocio vive aqui.
  *
  * Os testes unitarios usam um motor falso injetado; este modulo so roda num
- * navegador com rede, nunca em CI.
+ * navegador, nunca em CI.
  *
- * **Versao do runtime:** fixada em `VERSAO_MEDIAPIPE`. Use uma versao que exista
- * no npm — `0.10.22`, por exemplo, **nunca foi publicada** (a linha 0.10.x salta
- * de `0.10.21` para `0.10.22-rc...`), e o CDN devolve 404 para o `import()`
- * dinamico. Ao subir a versao, confirme o pacote e o diretorio `/wasm` e mude
- * **os dois lugares**: `VERSAO_MEDIAPIPE` (aqui e no `.d.ts`) e a string literal
- * do `import()` abaixo (o esbuild so mantem a URL externa com literal).
+ * **Versao do runtime:** fixada em `public/offline.ts` (`VERSAO_MEDIAPIPE`) e no
+ * manifesto de download. Use uma versao que exista no npm — `0.10.22`, por
+ * exemplo, **nunca foi publicada** (a linha 0.10.x salta de `0.10.21` para
+ * `0.10.22-rc...`), e o CDN devolve 404 para o `import()` dinamico.
  */
 
-/** Versao do runtime MediaPipe carregada do CDN (fonte unica). */
-const VERSAO_MEDIAPIPE = "0.10.21";
-
-/** URL do bundle ESM do `tasks-vision` (pacote raiz no CDN). */
-const URL_MODULO_MEDIAPIPE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VERSAO_MEDIAPIPE}`;
-
-/** Caminho padrao do modelo `.task` do Gesture Recognizer. */
+/** Caminho padrao do modelo `.task` do Gesture Recognizer (fallback CDN). */
 export const MODELO_MAOS_PADRAO =
   "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task";
 
-const URL_WASM = `${URL_MODULO_MEDIAPIPE}/wasm`;
+/** Caminho do modelo quando servido localmente (`/modelos/maos/`). */
+const MODELO_MAOS_LOCAL = "maos/gesture_recognizer.task";
 
 /** Maior numero de maos detectadas por frame (a aplicacao observa gestos). */
 const MAX_MAOS = 2;
@@ -147,9 +142,15 @@ export async function iniciarReconhecedorComFallback(
  * disponivel, o caminho CPU garante que as maos ainda sejam reconhecidas.
  */
 export const criarMotorGestosMediaPipe: CriadorMotorMaos = async (modelo, aoStatus) => {
-  const caminhoModelo = modelo || MODELO_MAOS_PADRAO;
+  const usarLocal = await modelosDisponivel();
+  const caminhoModelo = modelo
+    ? modelo
+    : usarLocal
+      ? `${baseModelosLocal()}/${MODELO_MAOS_LOCAL}`
+      : MODELO_MAOS_PADRAO;
   aoStatus?.("Carregando reconhecedor de maos/gestos (MediaPipe)...");
 
+  const caminhos = await caminhosMediaPipe();
   let modulo: {
     FilesetResolver: { forVisionTasks(caminhoWasm: string): Promise<unknown> };
     GestureRecognizer: {
@@ -157,18 +158,16 @@ export const criarMotorGestosMediaPipe: CriadorMotorMaos = async (modelo, aoStat
     };
   };
   try {
-    // String literal: o esbuild precisa dela para manter a URL como external
-    // (`--external:https://*` no bundle do cliente).
-    modulo = await import(
-      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21"
-    );
+    // `@vite-ignore` mantem o import dinamico no bundle: a URL (local ou CDN) e
+    // resolvida em tempo de execucao.
+    modulo = await import(/* @vite-ignore */ caminhos.modulo);
   } catch (err) {
     throw new ErroPercepcao("detector", `falha ao carregar MediaPipe: ${mensagemDe(err)}`, {
       cause: err,
     });
   }
 
-  const vision = await modulo.FilesetResolver.forVisionTasks(URL_WASM);
+  const vision = await modulo.FilesetResolver.forVisionTasks(caminhos.wasm);
   const { reconhecedor: motor, delegate } = await iniciarReconhecedorComFallback(
     (tentativa) =>
       modulo.GestureRecognizer.createFromOptions(vision, {

@@ -111,6 +111,11 @@ async function prepararPagina(
   page: Page,
   opcoes: { transformers?: string; ort?: string } = {}
 ): Promise<void> {
+  // Forca o caminho do CDN: aborta as sondagens locais (`/vendor/`, `/modelos/`)
+  // para que os testes sejam deterministicos mesmo com o modo offline baixado
+  // na maquina de desenvolvimento.
+  await page.route("**/vendor/**", (rota) => rota.abort("failed"));
+  await page.route("**/modelos/**", (rota) => rota.abort("failed"));
   await page.route(CDN_TRANSFORMERS, (rota) =>
     rota.fulfill({
       status: 200,

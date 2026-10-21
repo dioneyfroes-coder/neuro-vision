@@ -607,6 +607,84 @@ describe("createServer", () => {
     }
   });
 
+  it("GET /vendor/ serve bibliotecas locais do modo offline", async () => {
+    const vendorDir = await mkdtemp(path.join(os.tmpdir(), "neuro-vendor-"));
+    await mkdir(path.join(vendorDir, "onnxruntime"), { recursive: true });
+    await writeFile(path.join(vendorDir, "onnxruntime", "ort.min.mjs"), "// ort");
+    await writeFile(path.join(vendorDir, "onnxruntime", "ort-wasm.wasm"), "wasm");
+
+    const server = createServer({ publicDir: tmpDir, vendorDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/vendor/onnxruntime/ort.min.mjs`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("javascript");
+      expect(await res.text()).toBe("// ort");
+    } finally {
+      server.close();
+      await rm(vendorDir, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /vendor/ rejeita extensoes fora da allowlist", async () => {
+    const vendorDir = await mkdtemp(path.join(os.tmpdir(), "neuro-vendor-"));
+    await writeFile(path.join(vendorDir, "segredo.txt"), "conteudo");
+
+    const server = createServer({ publicDir: tmpDir, vendorDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/vendor/segredo.txt`);
+      expect(res.status).toBe(403);
+    } finally {
+      server.close();
+      await rm(vendorDir, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /vendor/ nao escapa da pasta (path traversal)", async () => {
+    const vendorDir = await mkdtemp(path.join(os.tmpdir(), "neuro-vendor-"));
+
+    const server = createServer({ publicDir: tmpDir, vendorDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/vendor/..%2f..%2fpackage.json`
+      );
+      expect([403, 404]).toContain(res.status);
+    } finally {
+      server.close();
+      await rm(vendorDir, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /modelos/ serve pesos locais e responde 404 sem download", async () => {
+    const modelosDir = await mkdtemp(path.join(os.tmpdir(), "neuro-modelos-"));
+    await mkdir(path.join(modelosDir, "coco"), { recursive: true });
+    await writeFile(path.join(modelosDir, "coco", "yolov10n.onnx"), "onnx");
+
+    const server = createServer({ publicDir: tmpDir, modelosDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/modelos/coco/yolov10n.onnx`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("application/octet-stream");
+
+      const faltando = await fetch(`http://127.0.0.1:${port}/modelos/coco/yolov10s.onnx`);
+      expect(faltando.status).toBe(404);
+    } finally {
+      server.close();
+      await rm(modelosDir, { recursive: true, force: true });
+    }
+  });
+
   it("POST /api/visao descreve via backend de visao (streaming mock) e grava log", async () => {
     let corpoVisao: Record<string, unknown> | null = null;
     const sse =

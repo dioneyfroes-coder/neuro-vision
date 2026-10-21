@@ -10,6 +10,9 @@ export default tseslint.config(
       "node_modules/**",
       // Pesos NSFW experimentais + venv de export (gitignored; nunca lintar).
       "yolonsfw/**",
+      // Artefatos do modo offline (gitignored; codigo de terceiros).
+      "vendor/**",
+      "modelos/**",
     ],
   },
   js.configs.recommended,

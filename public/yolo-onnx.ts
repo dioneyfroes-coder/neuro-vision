@@ -1,4 +1,5 @@
 import { ErroPercepcao } from "../src/erros";
+import { baseModelosLocal, caminhosOnnxRuntime, modelosDisponivel } from "./offline";
 
 /**
  * Detector de objetos **YOLO em ONNX** — substitui os detectores transformer
@@ -17,9 +18,14 @@ import { ErroPercepcao } from "../src/erros";
  * O mesmo runtime/sessao e reaproveitado pelo detector NSFW experimental.
  */
 
-/** Versao fixa do onnxruntime-web (comportamento nao muda sem aviso). */
-const CDN_ORT = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist";
-const CDN_ORT_MODULO = `${CDN_ORT}/ort.min.mjs`;
+/**
+ * URLs locais (`/modelos/coco/...`) dos pesos. Quando `modelos/` esta servido
+ * pelo servidor, o detector usa estes caminhos em vez do Hugging Face.
+ */
+const MODELOS_COCO_LOCAIS: Record<string, string> = {
+  "onnx-community/yolov10n": "coco/yolov10n.onnx",
+  "onnx-community/yolov10s": "coco/yolov10s.onnx",
+};
 
 /** Lado do quadrado de entrada exigido pelo YOLOv10. */
 export const LADO_ENTRADA_YOLO = 640;
@@ -174,16 +180,20 @@ export interface RuntimeORT {
 
 const cacheRuntime: Record<string, Promise<RuntimeORT>> = {};
 
-/** Carrega (com cache) o `onnxruntime-web` do CDN. */
+/**
+ * Carrega (com cache) o `onnxruntime-web`, do servidor local quando o modo
+ * offline esta preparado, senao do CDN.
+ */
 export async function carregarRuntimeYolo(): Promise<RuntimeORT> {
-  const url = CDN_ORT_MODULO;
+  const caminhos = await caminhosOnnxRuntime();
+  const url = caminhos.modulo;
   if (!(url in cacheRuntime)) {
     cacheRuntime[url] = import(/* @vite-ignore */ url)
       .then((modulo: RuntimeORT & { default?: RuntimeORT }) => {
         const ort = (modulo.default ?? modulo) as RuntimeORT;
-        // Os `.wasm` ficam ao lado do modulo no CDN; sem isso o runtime tenta
-        // baixar de um caminho relativo inexistente.
-        ort.env.wasm.wasmPaths = `${CDN_ORT}/`;
+        // Os `.wasm` ficam ao lado do modulo; sem isso o runtime tenta baixar
+        // de um caminho relativo inexistente.
+        ort.env.wasm.wasmPaths = caminhos.wasmPaths;
         return ort;
       })
       .catch((erro: unknown) => {
@@ -388,10 +398,25 @@ export class DetectorYoloOnnx implements MotorDeteccao {
     return MODELOS_COCO_YOLO[MODELO_YOLO_PADRAO].url;
   }
 
+  /**
+   * Como `resolverUrl`, mas prefere o caminho local (`/modelos/coco/...`) quando
+   * o modo offline esta preparado. URLs diretas informadas pelo usuario nao sao
+   * trocadas.
+   */
+  static async resolverUrlOffline(modelo: string | null | undefined): Promise<string> {
+    const chave = modelo?.trim() || MODELO_YOLO_PADRAO;
+    if (chave.startsWith("http")) return chave;
+    if (await modelosDisponivel()) {
+      const local = MODELOS_COCO_LOCAIS[chave] ?? MODELOS_COCO_LOCAIS[MODELO_YOLO_PADRAO];
+      return `${baseModelosLocal()}/${local}`;
+    }
+    return DetectorYoloOnnx.resolverUrl(chave);
+  }
+
   async carregar(modelo: string | null, aoStatus?: (mensagem: string) => void): Promise<void> {
     if (aoStatus) this.aoStatus = aoStatus;
     const chave = modelo?.trim() || null;
-    const url = DetectorYoloOnnx.resolverUrl(chave);
+    const url = await DetectorYoloOnnx.resolverUrlOffline(chave);
     if (this.sessao && this.urlModelo === url) return;
     const inicio = performance.now();
     this.aoStatus?.("carregando");

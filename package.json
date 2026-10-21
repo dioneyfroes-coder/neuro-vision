@@ -13,6 +13,7 @@
     "test:e2e": "playwright test",
     "bench": "node scripts/benchmark.mjs",
     "qualidade": "node scripts/avaliar-qualidade.mjs",
+    "preparar:offline": "node scripts/preparar-offline.mjs",
     "gravar:webcam": "node scripts/gravar-webcam.mjs",
     "extrair:frames": "node scripts/extrair-frames.mjs",
     "integrar:lmstudio": "node --import tsx scripts/testar-lmstudio.mjs",

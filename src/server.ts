@@ -75,6 +75,13 @@ const PUBLIC_DIR = path.join(ROOT, "public");
  * sob `/yolonsfw/` quando existem.
  */
 export const NSFW_DIR = path.join(ROOT, "yolonsfw");
+/**
+ * Artefatos do **modo offline** (gitignored, nunca commitados): bibliotecas e
+ * pesos baixados por `scripts/preparar-offline.mjs` e servidos sob `/vendor/` e
+ * `/modelos/`. Sem eles, o cliente cai no CDN (fallback automatico).
+ */
+export const VENDOR_DIR = path.join(ROOT, "vendor");
+export const MODELOS_DIR = path.join(ROOT, "modelos");
 export const LOG_DIR = path.join(ROOT, "logs");
 export const LOG_FILE = path.join(LOG_DIR, "visao.jsonl");
 export const EVENTOS_FILE = path.join(LOG_DIR, "eventos.jsonl");
@@ -201,6 +208,7 @@ const MIME: Record<string, string> = {
   ".wasm": "application/wasm",
   ".ico": "image/x-icon",
   ".onnx": "application/octet-stream",
+  ".task": "application/octet-stream",
 };
 
 export function sendJson(res: ServerResponse, status: number, data: unknown): void {
@@ -1468,6 +1476,58 @@ function serveModeloNsfw(req: IncomingMessage, res: ServerResponse, nsfwDir: str
   });
 }
 
+/**
+ * Serve um arquivo do **modo offline** (`vendor/` ou `modelos/`), restrito a
+ * uma allowlist de extensoes. As pastas sao gitignored: sem o download
+ * (`npm run preparar:offline`) a rota responde 404 e o cliente usa o CDN.
+ */
+function serveArquivoOffline(
+  req: IncomingMessage,
+  res: ServerResponse,
+  baseDir: string,
+  prefixo: RegExp,
+  extensoes: RegExp
+): void {
+  const pathname = pathnameDecodificado(req.url);
+  if (pathname === null) {
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Requisicao invalida");
+    return;
+  }
+  const rel = pathname.replace(prefixo, "");
+  if (!extensoes.test(rel)) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Acesso negado");
+    return;
+  }
+  const filePath = resolverCaminhoDentroDaBase(baseDir, rel);
+  if (!filePath) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Acesso negado");
+    return;
+  }
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Nao encontrado");
+      return;
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    const cabecalhos = {
+      "Content-Type": MIME[ext] || "application/octet-stream",
+      "Content-Length": String(data.byteLength),
+      "Cache-Control": "public, max-age=31536000, immutable",
+    };
+    if (req.method === "HEAD") {
+      res.writeHead(200, cabecalhos);
+      res.end();
+      return;
+    }
+    res.writeHead(200, cabecalhos);
+    res.end(data);
+  });
+}
+
 export interface ServerConfig {
   logFile?: string;
   snapDir?: string;
@@ -1484,6 +1544,10 @@ export interface ServerConfig {
   ciclosFile?: string;
   /** Diretorio dos pesos NSFW experimentais. Padrao: `yolonsfw/` na raiz. */
   nsfwDir?: string;
+  /** Diretorio das bibliotecas do modo offline. Padrao: `vendor/` na raiz. */
+  vendorDir?: string;
+  /** Diretorio dos pesos do modo offline. Padrao: `modelos/` na raiz. */
+  modelosDir?: string;
 }
 
 export function createServer(config: ServerConfig = {}): http.Server {
@@ -1567,6 +1631,26 @@ export function createServer(config: ServerConfig = {}): http.Server {
     }
     if (req.method === "GET" && pathname.startsWith("/yolonsfw/")) {
       serveModeloNsfw(req, res, config.nsfwDir ?? NSFW_DIR);
+      return;
+    }
+    if ((req.method === "GET" || req.method === "HEAD") && pathname.startsWith("/vendor/")) {
+      serveArquivoOffline(
+        req,
+        res,
+        config.vendorDir ?? VENDOR_DIR,
+        /^\/vendor\/?/,
+        /\.(mjs|js|wasm)$/
+      );
+      return;
+    }
+    if ((req.method === "GET" || req.method === "HEAD") && pathname.startsWith("/modelos/")) {
+      serveArquivoOffline(
+        req,
+        res,
+        config.modelosDir ?? MODELOS_DIR,
+        /^\/modelos\/?/,
+        /\.(onnx|task|json)$/
+      );
       return;
     }
     if (req.method === "GET") {

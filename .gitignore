@@ -17,3 +17,8 @@ bench/videos/*
 
 # Pesos de modelo locais (nao versionar).
 yolonsfw/
+
+# Artefatos do modo offline (bibliotecas + pesos servidos pelo servidor).
+# Baixados por `npm run preparar:offline`; nunca versionados.
+vendor/
+modelos/

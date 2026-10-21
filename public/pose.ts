@@ -4,6 +4,7 @@ import type {
   ProgressInfo,
   Tensor,
 } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1";
+import { baseModelosLocal, modelosDisponivel, moduloTransformers } from "./offline";
 
 /**
  * Motor de pose (YOLO Pose via Transformers.js) — Etapa 5 do roteiro.
@@ -46,19 +47,39 @@ interface ModuloTransformers {
   RawImage: {
     read(entrada: string): Promise<{ width: number; height: number }>;
   };
-  env: { allowLocalModels: boolean; useBrowserCache: boolean };
+  env: {
+    allowLocalModels: boolean;
+    useBrowserCache: boolean;
+    localModelPath: string;
+    remoteHost: string;
+  };
 }
 
 let promessaModulo: Promise<ModuloTransformers> | null = null;
 
-function carregarTransformers(): Promise<ModuloTransformers> {
-  promessaModulo ??= import(
-    "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1"
-  ).then((mod) => {
-    mod.env.allowLocalModels = false;
-    mod.env.useBrowserCache = true;
-    return mod as ModuloTransformers;
-  });
+async function carregarTransformers(): Promise<ModuloTransformers> {
+  if (promessaModulo === null) {
+    const url = await moduloTransformers();
+    promessaModulo = import(/* @vite-ignore */ url)
+      .then(async (mod) => {
+        const local = await modelosDisponivel();
+        mod.env.allowLocalModels = local;
+        mod.env.useBrowserCache = true;
+        if (local) {
+          // Carrega os pesos do proprio servidor (`/modelos/pose/...`).
+          mod.env.localModelPath = `${baseModelosLocal()}/pose/`;
+        } else {
+          // Fallback: baixa do Hugging Face, como antes do modo offline.
+          mod.env.remoteHost = "https://huggingface.co";
+        }
+        return mod as ModuloTransformers;
+      })
+      .catch((err) => {
+        // Nao guarda promessa rejeitada: a proxima tentativa recarrega.
+        promessaModulo = null;
+        throw err;
+      });
+  }
   return promessaModulo;
 }
 
