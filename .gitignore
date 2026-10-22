@@ -16,9 +16,9 @@ bench/videos/*
 !bench/videos/*.json
 
 # Pesos de modelo locais (nao versionar).
-yolonsfw/
-
-# Artefatos do modo offline (bibliotecas + pesos servidos pelo servidor).
-# Baixados por `npm run preparar:offline`; nunca versionados.
-vendor/
+# `modelos/` cobre os artefatos do modo offline (pesos) e o NSFW experimental
+# em `modelos/yolonsfw/`.
 modelos/
+
+# Bibliotecas do modo offline (baixadas por `npm run preparar:offline`).
+vendor/

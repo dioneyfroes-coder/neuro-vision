@@ -1,29 +1,29 @@
 #!/usr/bin/env node
 
 /**
- * Exporta os pesos NSFW experimentais (`yolonsfw/*.pt`) para ONNX.
+ * Exporta os pesos NSFW experimentais (`modelos/yolonsfw/*.pt`) para ONNX.
  *
- * A pasta `yolonsfw/` e **gitignored**: os pesos nunca sao commitados. O
- * servidor localiza os `.onnx` exportados ali e os serve em `/yolonsfw/`
+ * A pasta `modelos/yolonsfw/` e **gitignored**: os pesos nunca sao commitados.
+ * O servidor localiza os `.onnx` exportados ali e os serve em `/yolonsfw/`
  * (`src/server.ts`); sem export, o toggle "NSFW (experimental)" da interface
  * falha com instrucao de como gerar os arquivos.
  *
  * Para cada `.pt` o script:
- * 1. carrega o modelo com `ultralytics` (venv em `yolonsfw/.venv`, ou o python
- *    do sistema);
+ * 1. carrega o modelo com `ultralytics` (venv em `modelos/yolonsfw/.venv`, ou o
+ *    python do sistema);
  * 2. exporta `format="onnx"` com `imgsz=640` e `nms=True` — mesma saida
  *    `[1, 300, 6]` e o mesmo pre-pos-processamento do detector COCO
  *    (`public/yolo-onnx.ts`/`public/nsfw-onnx.ts`);
  * 3. grava o sidecar `<modelo>.onnx.json` com os nomes de classe do proprio
  *    modelo (o cliente usa os rotulos dele, sem tabela duplicada).
  *
- * Requisitos (uma vez): `python -m venv yolonsfw/.venv` e dentro dele
+ * Requisitos (uma vez): `python -m venv modelos/yolonsfw/.venv` e dentro dele
  * `pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu`
  * e `pip install ultralytics onnx onnxslim`.
  *
  * Uso:
- *   node scripts/exportar-yolo-nsfw.mjs            # todos os .pt de yolonsfw/
- *   node scripts/exportar-yolo-nsfw.mjs yolonsfw/erax_nsfw_yolo11n.pt
+ *   node scripts/exportar-yolo-nsfw.mjs            # todos os .pt de modelos/yolonsfw/
+ *   node scripts/exportar-yolo-nsfw.mjs modelos/yolonsfw/erax_nsfw_yolo11n.pt
  */
 
 import { spawnSync } from "node:child_process";
@@ -32,7 +32,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const DIR_PESOS = path.join(ROOT, "yolonsfw");
+const DIR_PESOS = path.join(ROOT, "modelos", "yolonsfw");
 const DIR_VENV = path.join(DIR_PESOS, ".venv");
 
 /** Python do venv de export quando existe; senao o python do sistema. */
@@ -74,11 +74,11 @@ function verificarAmbiente(python) {
   if (cheque.status !== 0) {
     console.error(`ultralytics nao encontrado em ${python}.`);
     console.error("Crie o venv de export e instale as dependencias:");
-    console.error("  python -m venv yolonsfw\\.venv");
+    console.error("  python -m venv modelos\\yolonsfw\\.venv");
     console.error(
-      "  yolonsfw\\.venv\\Scripts\\python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu"
+      "  modelos\\yolonsfw\\.venv\\Scripts\\python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu"
     );
-    console.error("  yolonsfw\\.venv\\Scripts\\python -m pip install ultralytics onnx onnxslim");
+    console.error("  modelos\\yolonsfw\\.venv\\Scripts\\python -m pip install ultralytics onnx onnxslim");
     process.exit(1);
   }
 }
@@ -101,7 +101,7 @@ function main() {
   const argumentos = process.argv.slice(2);
   if (argumentos.includes("--help") || argumentos.includes("-h")) {
     console.log("Uso: node scripts/exportar-yolo-nsfw.mjs [modelo.pt ...]");
-    console.log("Sem argumentos, exporta todos os .pt de yolonsfw/ para ONNX (gitignored).");
+    console.log("Sem argumentos, exporta todos os .pt de modelos/yolonsfw/ para ONNX (gitignored).");
     return;
   }
   if (!existsSync(DIR_PESOS)) {
@@ -137,7 +137,7 @@ function main() {
   console.log(
     falhas
       ? `\n${falhas} exportacao(oes) falhou(aram).`
-      : "\nPronto. Pesos em yolonsfw/ (gitignored, nunca commitar) e servidos em /yolonsfw/."
+      : "\nPronto. Pesos em modelos/yolonsfw/ (gitignored, nunca commitar) e servidos em /yolonsfw/."
   );
   process.exit(falhas ? 1 : 0);
 }

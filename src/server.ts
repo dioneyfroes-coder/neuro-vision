@@ -71,10 +71,10 @@ const ROOT = path.resolve(__dirname, "..");
 const PUBLIC_DIR = path.join(ROOT, "public");
 /**
  * Pesos NSFW experimentais (gitignored, nunca commitados): exportados de
- * `yolonsfw/*.pt` para ONNX por `scripts/exportar-yolo-nsfw.mjs` e servidos
- * sob `/yolonsfw/` quando existem.
+ * `modelos/yolonsfw/*.pt` para ONNX por `scripts/exportar-yolo-nsfw.mjs` e
+ * servidos sob `/yolonsfw/` quando existem.
  */
-export const NSFW_DIR = path.join(ROOT, "yolonsfw");
+export const NSFW_DIR = path.join(ROOT, "modelos", "yolonsfw");
 /**
  * Artefatos do **modo offline** (gitignored, nunca commitados): bibliotecas e
  * pesos baixados por `scripts/preparar-offline.mjs` e servidos sob `/vendor/` e
@@ -1437,9 +1437,9 @@ function serveSnapshot(
 }
 
 /**
- * Serve os pesos NSFW experimentais de `yolonsfw/` (`.onnx` + sidecar `.json`
- * de rotulos). A pasta e gitignored: sem export, responde 404 — e o cliente
- * traduz isso em "rode scripts/exportar-yolo-nsfw.mjs".
+ * Serve os pesos NSFW experimentais de `modelos/yolonsfw/` (`.onnx` + sidecar
+ * `.json` de rotulos). A pasta e gitignored: sem export, responde 404 — e o
+ * cliente traduz isso em "rode scripts/exportar-yolo-nsfw.mjs".
  */
 function serveModeloNsfw(req: IncomingMessage, res: ServerResponse, nsfwDir: string): void {
   const pathname = pathnameDecodificado(req.url);
@@ -1542,7 +1542,7 @@ export interface ServerConfig {
   operacionalFile?: string;
   /** Arquivo de diagnosticos de ciclo. Padrao: `ciclos.jsonl` ao lado do log. */
   ciclosFile?: string;
-  /** Diretorio dos pesos NSFW experimentais. Padrao: `yolonsfw/` na raiz. */
+  /** Diretorio dos pesos NSFW experimentais. Padrao: `modelos/yolonsfw/` na raiz. */
   nsfwDir?: string;
   /** Diretorio das bibliotecas do modo offline. Padrao: `vendor/` na raiz. */
   vendorDir?: string;

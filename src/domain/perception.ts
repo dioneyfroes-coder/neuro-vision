@@ -131,7 +131,7 @@ export interface ResultadoMaos {
  * Marcacao de conteudo sensivel (**NSFW experimental**) em um frame.
  *
  * O subsistema e experimental e desligado por padrao: so roda quando o usuario
- * habilita o toggle da interface e os pesos ONNX existem em `yolonsfw/`
+ * habilita o toggle da interface e os pesos ONNX existem em `modelos/yolonsfw/`
  * (ver `scripts/exportar-yolo-nsfw.mjs`). Rotulos vem do proprio modelo
  * (ex.: `neutral`, `hentai`, `porn`, `sexy`), sem traducao fixa.
  */

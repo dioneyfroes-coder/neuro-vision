@@ -4,8 +4,8 @@
  * Baixa bibliotecas e pesos para o **modo offline** (servidos pelo proprio
  * servidor Node), eliminando a dependencia de CDN/rede em execucao.
  *
- * As pastas `vendor/` e `modelos/` sao **gitignored** (como `yolonsfw/`): os
- * arquivos nunca sao commitados; quem quiser offline roda este script uma vez.
+ * As pastas `vendor/` e `modelos/` sao **gitignored** (como `modelos/yolonsfw/`):
+ * os arquivos nunca sao commitados; quem quiser offline roda este script uma vez.
  * Sem elas, o app continua funcionando com o CDN como fallback — nada quebra.
  *
  * Uso:

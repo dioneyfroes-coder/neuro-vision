@@ -4,8 +4,8 @@
  * Verificacao empirica do classificador **NSFW experimental**.
  *
  * Espelha `scripts/verificar-yolo-onnx.mjs`, mas usa os pesos LOCAIS exportados
- * por `scripts/exportar-yolo-nsfw.mjs` (`yolonsfw/*.onnx`, gitignored) e os
- * rotulos do sidecar `<modelo>.onnx.json`. A inferencia roda em WASM **no
+ * por `scripts/exportar-yolo-nsfw.mjs` (`modelos/yolonsfw/*.onnx`, gitignored) e
+ * os rotulos do sidecar `<modelo>.onnx.json`. A inferencia roda em WASM **no
  * Chromium** (mesmo runtime/caminho de producao) sobre um frame real de
  * `bench/videos/frames/`. O pre-pos-processamento espelha `public/nsfw-onnx.ts`:
  *   stretch 640x640 -> /255 RGB NCHW -> saida [1, 300, 6] -> caixas na
@@ -27,7 +27,7 @@ import { chromium } from "@playwright/test";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST_ORT = path.join(ROOT, "node_modules", "onnxruntime-web", "dist");
-const DIR_PESOS = path.join(ROOT, "yolonsfw");
+const DIR_PESOS = path.join(ROOT, "modelos", "yolonsfw");
 
 const MIME = {
   ".mjs": "application/javascript",

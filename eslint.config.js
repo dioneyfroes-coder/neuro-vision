@@ -8,9 +8,8 @@ export default tseslint.config(
       "dist/**",
       "public/app.js",
       "node_modules/**",
-      // Pesos NSFW experimentais + venv de export (gitignored; nunca lintar).
-      "yolonsfw/**",
-      // Artefatos do modo offline (gitignored; codigo de terceiros).
+      // Artefatos do modo offline + pesos NSFW experimentais e venv de export
+      // (gitignored; codigo de terceiros/pesos, nunca lintar).
       "vendor/**",
       "modelos/**",
     ],

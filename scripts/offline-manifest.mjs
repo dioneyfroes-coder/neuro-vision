@@ -5,9 +5,10 @@
  * onde ele deve ficar servido pelo servidor Node.
  *
  * Fonte unica para `scripts/preparar-offline.mjs` (download) — as pastas
- * `vendor/` e `modelos/` sao **gitignored**, como `yolonsfw/`.
+ * `vendor/` e `modelos/` sao **gitignored** (o NSFW experimental fica em
+ * `modelos/yolonsfw/`, tambem ignorado).
  *
- * Estrutura servida (mesmas rotas de `/yolonsfw/`, em `src/server.ts`):
+ * Estrutura servida (mesmas rotas de `/yolonsfw/` e `/vendor/`, em `src/server.ts`):
  *   vendor/mediapipe/     bundle ESM do tasks-vision + /wasm
  *   vendor/transformers/  bundle ESM do Transformers.js + wasm jsep
  *   vendor/onnxruntime/   ort.min.mjs + wasm + glue dos workers

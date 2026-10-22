@@ -21,7 +21,7 @@ Referência completa da API HTTP, formato das entradas, retenção de snapshots 
 | `GET` | `/api/contexto` | Reidrata um contexto curto do estado recente (`{ resumo, roteiro, ultimaDescricao, entradas, eventos }`) com janela por `maxEntradas`/`maxEventos`/`maxCaracteres`. |
 | `GET` | `/api/health` | Status do backend de visão (`{ visao: { online, solicitado, modelo, modelos, carregados, erro } }`). `modelo` é o efetivo (o solicitado ou o melhor disponível quando o solicitado não está instalado). |
 | `GET` | `/snapshots/<arquivo>` | Serve os snapshots (thumbnails) gravados. |
-| `GET` | `/yolonsfw/<arquivo>` | Serve pesos/catálogo NSFW locais (`.onnx`/`.json`) de `yolonsfw/`; demais arquivos são recusados. |
+| `GET` | `/yolonsfw/<arquivo>` | Serve pesos/catálogo NSFW locais (`.onnx`/`.json`) de `modelos/yolonsfw/`; demais arquivos são recusados. |
 
 As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jsonl`, os registros operacionais em `logs/operacional.jsonl` e os diagnósticos de ciclo em `logs/ciclos.jsonl` (uma linha JSON por registro, própria política de rotação); os snapshots ficam em `logs/snapshots/`.
 

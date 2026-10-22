@@ -93,7 +93,7 @@ O checkbox **NSFW (experimental)** (`#nsfw`) liga um quarto subsistema do pipeli
 
 Detalhes:
 
-- **Pesos locais, nunca commitados.** Os `.pt` vivem em `yolonsfw/` (gitignored) e são exportados para ONNX por `node scripts/exportar-yolo-nsfw.mjs` (requer `ultralytics` — venv sugerida em `yolonsfw/.venv`). O servidor expõe os arquivos em `/yolonsfw/` (`src/server.ts`); sem export, a carga falha com instrução de como gerar.
+- **Pesos locais, nunca commitados.** Os `.pt` vivem em `modelos/yolonsfw/` (gitignored) e são exportados para ONNX por `node scripts/exportar-yolo-nsfw.mjs` (requer `ultralytics` — venv sugerida em `modelos/yolonsfw/.venv`). O servidor expõe os arquivos em `/yolonsfw/` (`src/server.ts`); sem export, a carga falha com instrução de como gerar.
 - **Rótulos do próprio modelo.** O export grava o sidecar `<modelo>.onnx.json` com as classes (no erax: `anus`, `make_love`, `nipple`, `penis`, `vagina`); o cliente lê o sidecar em vez de duplicar a tabela.
 - **Desligado por padrão e experimental.** Sem toggle, nada é carregado e o `nsfw` fica ausente nas observações (a distinção "não rodou" × "rodou e não marcou" é preservada). O toggle fica bloqueado durante a captura (como os seletores de motor): ele vale para a próxima inicialização de sessão.
 - **Verificação empírica:** `node scripts/verificar-yolo-nsfw.mjs [modelo] [frame] [limiar]` — roda o caminho real em WASM no Chromium sobre frames de `bench/videos/frames/` (~0,8 s por inferência com o nano, saída `1×300×6`, NMS embutido no export).

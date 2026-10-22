@@ -19,10 +19,10 @@ import type { DeteccaoYOLO, MotorDeteccao, OpcoesInferenciaYolo, RuntimeORT, Ses
  *
  * Diferenças do COCO:
  * - os pesos **nao vem de CDN publica**: sao exportados localmente de
- *   `yolonsfw/*.pt` para `yolonsfw/*.onnx` (`scripts/exportar-yolo-nsfw.mjs`)
- *   e servidos pelo proprio servidor em `/yolonsfw/`. A pasta e gitignored —
- *   os pesos nunca sao commitados; sem export, o subsistema falha com mensagem
- *   instruindo como gerar os arquivos.
+ *   `modelos/yolonsfw/*.pt` para `modelos/yolonsfw/*.onnx`
+ *   (`scripts/exportar-yolo-nsfw.mjs`) e servidos pelo proprio servidor em
+ *   `/yolonsfw/`. A pasta e gitignored — os pesos nunca sao commitados; sem
+ *   export, o subsistema falha com mensagem instruindo como gerar os arquivos.
  * - os rotulos vem do sidecar `<modelo>.onnx.json` gravado junto do export
  *   (nomes de classe do proprio modelo); sem sidecar, os ids aparecem como
  *   `classe N`.
@@ -31,7 +31,7 @@ import type { DeteccaoYOLO, MotorDeteccao, OpcoesInferenciaYolo, RuntimeORT, Ses
  * toggle "NSFW (experimental)" da interface.
  */
 
-/** Diretorio servido pelo backend (mesma raiz do `yolonsfw/` gitignored). */
+/** Diretorio servido pelo backend (mesma raiz do `modelos/yolonsfw/` gitignored). */
 export const DIR_NSFW = "/yolonsfw";
 
 /** Modelo padrao: o nano, rapido o suficiente para 4 frames por ciclo. */

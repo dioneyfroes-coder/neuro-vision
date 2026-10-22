@@ -32,7 +32,7 @@ Não altera `bench/BASELINE.md`. Relatórios de apoio:
 | Menu de modos | 7 opções, nenhum multiframe como padrão | **"Percepção multi-frame" é a primeira opção e o modo padrão** (`public/modos.ts`, `MODO_PADRAO = "percepcao"`); B/C seguem registrados para o harness e o E2E |
 | Detecção de objetos | Transformers.js (`DetectorTransformers`), carga fria de ~95 s dentro do ciclo | **YOLOv10 em ONNX** (`public/yolo-onnx.ts`, `onnxruntime-web@1.21.0` WASM, catálogo `yolov10n|s`, saída `[1,300,6]`, cache de sessão por URL). Validação empírica com frames reais: `person` 0.937, caixas dentro dos limites (`scripts/verificar-yolo-onnx.mjs`) |
 | Percepção local | 3 subsistemas (detecção, pose, mãos) | **4º subsistema NSFW experimental** (`public/nsfw-onnx.ts`): YOLO11 exportado para ONNX, rótulos via sidecar `<modelo>.onnx.json`, **opt-in** (toggle `#nsfw`, desligado por padrão, bloqueado durante captura); contexto vai ao gemma **somente quando o toggle está ligado**, junto dos dados locais |
-| Infra ONNX | inexistente | Runtime compartilhado e cache de sessões reutilizados entre detecção e NSFW; rota `GET /yolonsfw/` serve apenas `.onnx`/`.json`; pesos `yolonsfw/*.pt|*.onnx` **gitignored, nunca commitados** |
+| Infra ONNX | inexistente | Runtime compartilhado e cache de sessões reutilizados entre detecção e NSFW; rota `GET /yolonsfw/` serve apenas `.onnx`/`.json`; pesos `modelos/yolonsfw/*.pt|*.onnx` **gitignored, nunca commitados** |
 
 ## 2. Verificação final [5.4] — 2026-10-20
 
@@ -42,7 +42,7 @@ existentes sobre o código final:
 | Verificação | Comando | Resultado |
 | --- | --- | --- |
 | Typecheck | `npm run typecheck` | ✅ sem erros |
-| Lint | `npm run lint` | ✅ sem erros (após ignorar `yolonsfw/**` — o venv Python não é código) |
+| Lint | `npm run lint` | ✅ sem erros (após ignorar `modelos/**` — o venv Python não é código) |
 | Testes | `npm test` | ✅ **487 passed** (34 arquivos) |
 | Build | `npm run build` | ✅ `public/app.js` regenerado (154,0 kB) |
 | E2E padrão | `npx playwright test` | ✅ **15 passed, 4 skipped** (os skips são os E2E opt-in de webcam/clipes, por design) |
@@ -99,6 +99,6 @@ node scripts/verificar-yolo-nsfw.mjs    # validação empírica do NSFW ONNX
 node scripts/benchmark-variantes.mjs --help   # harness A–D sobre bench/videos
 ```
 
-Exportação do modelo NSFW (requer venv Python local em `yolonsfw/.venv`):
-`node scripts/exportar-yolo-nsfw.mjs` — gera `yolonsfw/*.onnx` + sidecar de
+Exportação do modelo NSFW (requer venv Python local em `modelos/yolonsfw/.venv`):
+`node scripts/exportar-yolo-nsfw.mjs` — gera `modelos/yolonsfw/*.onnx` + sidecar de
 rótulos; nunca versionar os pesos.
