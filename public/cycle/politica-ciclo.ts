@@ -16,7 +16,7 @@ import type { ResumoTemporal, TipoEventoTemporal } from "../../src/domain";
  * a duracao do ciclo seja maior que o intervalo entre inicios.
  */
 export interface PoliticaCiclo {
-  /** Intervalo entre snapshots dentro do ciclo (ms). Padrao: 1000. */
+  /** Intervalo entre snapshots dentro do ciclo (ms). Padrao: 500. */
   intervaloEntreSnapshotsMs: number;
   /** Quantidade de snapshots por ciclo. Padrao: 4. */
   quantidadeSnapshots: number;
@@ -52,7 +52,9 @@ export const TIPOS_EVENTO_RELEVANTES: readonly TipoEventoTemporal[] = [
 ];
 
 export const POLITICA_CICLO_PADRAO: PoliticaCiclo = {
-  intervaloEntreSnapshotsMs: 1000,
+  // 500 ms entre snapshots: encurta a janela do ciclo (~1,5 s de captura em vez
+  // de ~3 s) sem deixar de amostrar vários instantes. Ajustável por modo.
+  intervaloEntreSnapshotsMs: 500,
   quantidadeSnapshots: 4,
   pausaAposCicloMs: 6000,
   interpretacao: "a_cada_ciclo",

@@ -113,7 +113,7 @@ class MaosFalso implements ReconhecedorGestos {
 }
 
 describe("PipelineLocal", () => {
-  it("roda deteccao, pose e maos em sequencia e associa o resultado ao snapshot", async () => {
+  it("roda deteccao, pose e maos no mesmo frame e associa o resultado ao snapshot", async () => {
     const ordem: string[] = [];
     const pipeline = new PipelineLocal({
       detector: new DetectorFalso(ordem),
@@ -123,7 +123,8 @@ describe("PipelineLocal", () => {
 
     const resultado = await pipeline.processarFrame(snapshot("s-c1-f2"));
 
-    // Sequencia fixa e previsivel (item 4): deteccao -> pose -> maos.
+    // Os subsistemas sao disparados na mesma passada (ordem de chamada estavel),
+    // mas a conclusao e concorrente — o teste verifica a presenca de todos.
     expect(ordem).toEqual(["deteccao", "pose", "maos"]);
     expect(resultado.deteccoes).toEqual(DETECCAO);
     expect(resultado.pose).toEqual(POSE);
@@ -131,6 +132,51 @@ describe("PipelineLocal", () => {
     expect(resultado.metricas.duracaoDeteccaoMs).toBeTypeOf("number");
     expect(resultado.metricas.duracaoPoseMs).toBeTypeOf("number");
     expect(resultado.metricas.duracaoMaosMs).toBeTypeOf("number");
+  });
+
+  it("executa os subsistemas do mesmo frame em paralelo (nao soma as esperas)", async () => {
+    let emAndamento = 0;
+    let pico = 0;
+    const atraso = (ms: number): Promise<void> =>
+      new Promise((resolve) => setTimeout(resolve, ms));
+    const porta = <T>(resultado: T, ms: number) => async (): Promise<T> => {
+      emAndamento += 1;
+      pico = Math.max(pico, emAndamento);
+      await atraso(ms);
+      emAndamento -= 1;
+      return resultado;
+    };
+
+    const detector: DetectorObjetos = {
+      id: "objetos",
+      modelo: "obj",
+      metricas: {},
+      carregar: () => Promise.resolve(),
+      detectar: porta(DETECCAO, 20),
+      encerrar: () => {},
+    };
+    const pose: EstimadorPose = {
+      id: "pose",
+      modelo: "pose",
+      metricas: {},
+      carregar: () => Promise.resolve(),
+      estimar: porta(POSE, 20),
+      encerrar: () => {},
+    };
+    const maos: ReconhecedorGestos = {
+      id: "maos",
+      modelo: "maos",
+      metricas: {},
+      carregar: () => Promise.resolve(),
+      reconhecer: porta(MAOS, 20),
+      encerrar: () => {},
+    };
+
+    await new PipelineLocal({ detector, pose, maos }).processarFrame(snapshot());
+
+    // Os tres subsistemas ficam em andamento ao mesmo tempo: o pico concorrente
+    // e 3. Se fossem sequenciais, o pico seria 1.
+    expect(pico).toBe(3);
   });
 
   it("isola falha de um subsistema sem apagar o resultado dos demais", async () => {

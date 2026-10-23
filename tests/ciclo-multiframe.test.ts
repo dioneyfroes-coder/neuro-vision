@@ -96,6 +96,7 @@ function montar(opcoes: {
   imagens?: string[];
   processarFrame?: DependenciasCicloMultiframe["processarFrame"];
   fonte?: FonteCaptura;
+  concorrenciaFrames?: number;
 } = {}) {
   const imagens = opcoes.imagens ?? ["A", "B", "C", "D"];
   const capturados: string[] = [];
@@ -121,6 +122,9 @@ function montar(opcoes: {
     captura,
     store,
     processarFrame,
+    ...(opcoes.concorrenciaFrames !== undefined
+      ? { concorrenciaFrames: opcoes.concorrenciaFrames }
+      : {}),
     interpretador: interpretadorFalso(interpretados),
     sessaoId: "sess0001",
     proximoCycleId: () => "sess0001-c1",
@@ -159,7 +163,7 @@ describe("executarCicloMultiframe", () => {
     expect(resultado.cancelado).toBe(false);
   });
 
-  it("processa os frames em sequencia, depois da captura", async () => {
+  it("preserva a ordem dos frames ao processar depois da captura", async () => {
     const ordem: string[] = [];
     const { deps } = montar({
       processarFrame: async (snapshot) => {
@@ -174,6 +178,30 @@ describe("executarCicloMultiframe", () => {
       "proc:sess0001-c1-f2",
       "proc:sess0001-c1-f3",
     ]);
+  });
+
+  it("processa frames em paralelo com concorrencia limitada (ordem preservada)", async () => {
+    let emAndamento = 0;
+    let pico = 0;
+    const { deps, interpretados } = montar({
+      concorrenciaFrames: 2,
+      processarFrame: async () => {
+        emAndamento += 1;
+        pico = Math.max(pico, emAndamento);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        emAndamento -= 1;
+        return processamento();
+      },
+    });
+
+    const resultado = await executarCicloMultiframe(deps);
+
+    // No maximo 2 frames avancam juntos (limite pedido) e pelo menos 2 de fato
+    // coincidem — prova que nao rodou estritamente em serie.
+    expect(pico).toBe(2);
+    // A ordem das observacoes segue a ordem de captura, nao a de conclusao.
+    expect(resultado.pacote.observacoes.map((o) => o.imagem)).toEqual(["A", "B", "C", "D"]);
+    expect(interpretados).toEqual([["A", "B", "C", "D"]]);
   });
 
   it("registra falha de processamento como indisponivel sem apagar a evidencia", async () => {

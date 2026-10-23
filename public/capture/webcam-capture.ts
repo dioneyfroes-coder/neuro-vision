@@ -33,7 +33,13 @@ export interface ConfigCaptura {
 
 export const CONFIG_CAPTURA_PADRAO: ConfigCaptura = {
   quadros: 4,
-  intervaloMs: 1000,
+  /**
+   * Espacamento entre snapshots dentro do ciclo. Reduzido de 1000 para 500 ms:
+   * com o processamento local ja paralelizado, encurtar a janela de captura
+   * diminui o tempo total do ciclo sem perder a ideia de "varios instantes".
+   * Ajustavel pela politica do ciclo (`intervaloEntreSnapshotsMs`).
+   */
+  intervaloMs: 500,
   maxLargura: 640,
   larguraThumb: 240,
   qualidadeJpeg: 0.7,

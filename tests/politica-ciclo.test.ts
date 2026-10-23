@@ -38,7 +38,7 @@ function resumo(eventos: EventoTemporal[]): ResumoTemporal {
 describe("POLITICA_CICLO_PADRAO", () => {
   it("separa intervalo entre snapshots, quantidade, pausa e frequencia", () => {
     expect(POLITICA_CICLO_PADRAO).toEqual({
-      intervaloEntreSnapshotsMs: 1000,
+      intervaloEntreSnapshotsMs: 500,
       quantidadeSnapshots: 4,
       pausaAposCicloMs: 6000,
       interpretacao: "a_cada_ciclo",

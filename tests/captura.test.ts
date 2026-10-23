@@ -77,7 +77,7 @@ describe("WebcamCapture", () => {
       "sess-c1-f2",
       "sess-c1-f3",
     ]);
-    expect(snapshots.map((s) => s.capturadoEmMs)).toEqual([0, 1000, 2000, 3000]);
+    expect(snapshots.map((s) => s.capturadoEmMs)).toEqual([0, 500, 1000, 1500]);
     expect(snapshots.map((s) => s.imagem)).toEqual([
       "data:image/jpeg;base64,F1",
       "data:image/jpeg;base64,F2",
@@ -86,7 +86,7 @@ describe("WebcamCapture", () => {
     ]);
     expect(snapshots[0].dimensoes).toEqual({ largura: 1280, altura: 720 });
     // Tres esperas entre quatro frames.
-    expect(esperas).toEqual([1000, 1000, 1000]);
+    expect(esperas).toEqual([500, 500, 500]);
   });
 
   it("para quando a camera ainda nao tem frame", async () => {

@@ -74,7 +74,7 @@ O modelo real é **pesado**: no Chromium do Playwright (WASM/CPU) uma inferênci
 
 ### Smoke multiframe (3 modos, pipeline real)
 
-`e2e/webcam-multiframe.spec.ts` roda os modos `percepcao-sequencia` (variante B), `percepcao-fundida` (C) e `percepcao` (D) com o **mesmo clipe no lugar da webcam** (4 frames a 1 frame/s), e grava por modo:
+`e2e/webcam-multiframe.spec.ts` roda os modos `percepcao-sequencia` (variante B), `percepcao-fundida` (C) e `percepcao` (D) com o **mesmo clipe no lugar da webcam** (4 frames a 1 frame/s no clipe; o app amostra a cada 500 ms), e grava por modo:
 
 - `logs/e2e-multiframe-<modo>.jsonl` — eventos (`POST /api/eventos`);
 - `logs/e2e-multiframe-<modo>.log.jsonl` — entradas da IA local (`POST /api/log`);

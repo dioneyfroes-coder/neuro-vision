@@ -24,9 +24,11 @@ import type {
  * Pipeline local do ciclo multiframe (Etapa 5 do roteiro).
  *
  * Executa os tres subsistemas — deteccao de objetos, pose e maos/gestos — sobre
- * **cada snapshot** capturado, em sequencia e de forma previsivel (item 4:
- * "a primeira configuracao de referencia deve ser simples e previsivel"; so
- * experimentar paralelismo depois do primeiro benchmark sequencial).
+ * **cada snapshot** capturado. Os subsistemas de um mesmo frame rodam em
+ * **paralelo** (`Promise.all`): sao runtimes distintos (YOLO/Transformers,
+ * MediaPipe) e nao competem pela mesma sessao, entao a espera deixa de somar.
+ * A previsibilidade continua garantida pelo isolamento por subsistema (abaixo) e
+ * pela ordem estavel das observacoes no ciclo — nao pela ordem de conclusao.
  *
  * Cada subsistema e isolado: se um modelo lanca, o pipeline registra
  * `ResultadoIndisponivel` para aquele subsistema e **preserva** o resultado dos
@@ -39,7 +41,7 @@ import type {
  * associa ao timestamp do snapshot.
  */
 
-/** Subsistemas de percepcao local, na ordem sequencial do pipeline. */
+/** Subsistemas de percepcao local (disparados em paralelo por frame). */
 export type SubsistemaPercepcao = "deteccao" | "pose" | "maos" | "nsfw";
 
 export interface DependenciasPipelineLocal {
@@ -88,9 +90,9 @@ function mensagemDe(err: unknown): string {
 }
 
 /**
- * Roda os tres subsistemas em sequencia sobre cada snapshot, isolando falhas.
- * Reusa as portas ja carregadas; o carregamento dos modelos acontece antes, no
- * ponto de composicao, nao dentro do ciclo.
+ * Roda os subsistemas sobre cada snapshot, isolando falhas. Os subsistemas de um
+ * mesmo frame sao disparados em paralelo por `processarFrame`; a injecao das
+ * portas ja carregadas acontece antes, no ponto de composicao, nao no ciclo.
  */
 export class PipelineLocal {
   constructor(private readonly deps: DependenciasPipelineLocal) {}
@@ -109,35 +111,42 @@ export class PipelineLocal {
       ...this.deps.habilitacao,
     };
 
-    const deteccao = await this.executar("deteccao", sinal, () =>
-      habilitacao.deteccao && this.deps.detector
-        ? this.deps.detector.detectar(entrada, { threshold, percentage: false })
-        : Promise.resolve(indisponivel("deteccao", "detector de objetos desativado"))
-    );
-    const pose = await this.executar("pose", sinal, () =>
-      habilitacao.pose && this.deps.pose
-        ? this.deps.pose.estimar(entrada)
-        : Promise.resolve(indisponivel("pose", "estimador de pose desativado"))
-    );
-    const maos = await this.executar("maos", sinal, () =>
-      habilitacao.maos && this.deps.maos
-        ? this.deps.maos.reconhecer(entrada)
-        : Promise.resolve(indisponivel("maos", "reconhecedor de maos desativado"))
-    );
+    // Os subsistemas rodam **em paralelo** no mesmo frame (otimizacao de
+    // desempenho): YOLO (objetos/pose), MediaPipe (maos) e NSFW compartilham a
+    // inferencia concorrente sem competir pela mesma sessao (runtimes distintos).
+    // Cada um continua isolado: uma falha vira `indisponivel` sem apagar os
+    // demais (item 8), e o cancelamento propaga (nunca mascarado).
+    const nsfwHabilitado = habilitacao.nsfw && Boolean(this.deps.nsfw?.modelo);
+    const [deteccao, pose, maos, nsfwExecucao] = await Promise.all([
+      this.executar("deteccao", sinal, () =>
+        habilitacao.deteccao && this.deps.detector
+          ? this.deps.detector.detectar(entrada, { threshold, percentage: false })
+          : Promise.resolve(indisponivel("deteccao", "detector de objetos desativado"))
+      ),
+      this.executar("pose", sinal, () =>
+        habilitacao.pose && this.deps.pose
+          ? this.deps.pose.estimar(entrada)
+          : Promise.resolve(indisponivel("pose", "estimador de pose desativado"))
+      ),
+      this.executar("maos", sinal, () =>
+        habilitacao.maos && this.deps.maos
+          ? this.deps.maos.reconhecer(entrada)
+          : Promise.resolve(indisponivel("maos", "reconhecedor de maos desativado"))
+      ),
+      // NSFW experimental: roda somente quando habilitado (toggle da interface)
+      // **e** carregado. Nesses casos, falha vira `indisponivel` como nos demais;
+      // caso contrario o campo `nsfw` fica ausente no frame.
+      nsfwHabilitado
+        ? this.executar("nsfw", sinal, () =>
+            this.deps.nsfw!.avaliar(entrada, { threshold, percentage: false })
+          )
+        : Promise.resolve(null),
+    ]);
 
-    // NSFW experimental: roda somente quando habilitado (toggle da interface)
-    // **e** carregado. Nesses casos, falha vira `indisponivel` como nos demais;
-    // caso contrario o campo `nsfw` fica ausente no frame.
-    let nsfw: ProcessamentoFrame["nsfw"];
-    let duracaoNsfwMs: number | undefined;
-    if (habilitacao.nsfw && this.deps.nsfw?.modelo) {
-      const classificador = this.deps.nsfw;
-      const execucao = await this.executar("nsfw", sinal, () =>
-        classificador.avaliar(entrada, { threshold, percentage: false })
-      );
-      nsfw = execucao.resultado as ResultadoOuIndisponivel<ResultadoNsfw>;
-      duracaoNsfwMs = execucao.duracaoMs;
-    }
+    const nsfw = nsfwExecucao
+      ? (nsfwExecucao.resultado as ResultadoOuIndisponivel<ResultadoNsfw>)
+      : undefined;
+    const duracaoNsfwMs = nsfwExecucao?.duracaoMs;
 
     return {
       deteccoes: deteccao.resultado as ResultadoOuIndisponivel<ResultadoDeteccaoLocal>,

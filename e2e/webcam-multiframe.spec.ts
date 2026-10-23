@@ -173,7 +173,8 @@ for (const { id, letra } of MODOS) {
     // variantes usam o MESMA versão (o modelo efetivo do backend), que o
     // `app.ts` registra no campo `modelo` via `infoVisao.modelo` — é o que a
     // verificação de `--modelo-visao` confere em logs/visao.jsonl.
-    // 1 frame por segundo de video: 4 frames -> um ciclo multiframe a cada ~4s.
+    // Intervalo entre ciclos de 1 s (seletor #interval). A janela do ciclo tem
+    // 4 snapshots a 500 ms; o agendador respeita o piso de margem entre ciclos.
     await page.locator("#interval").evaluate((el) => {
       const input = el as HTMLInputElement;
       input.value = "1";

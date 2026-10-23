@@ -29,8 +29,9 @@ import type { MotivoSupressaoInterpretacao } from "./politica-ciclo";
  * `CicloMultiframe` (Etapa 4 do roteiro).
  *
  * Ordem do ciclo: **capturar** os snapshots identificados (sem inferencia),
- * guarda-los no buffer, **depois** processa-los localmente em sequencia e, por
- * fim, enviar `PacoteCiclo` a interpretacao multimodal. As imagens que chegam ao
+ * guarda-los no buffer, **depois** processa-los localmente (com concorrencia
+ * limitada entre frames — ver `concorrenciaFrames`) e, por fim, enviar
+ * `PacoteCiclo` a interpretacao multimodal. As imagens que chegam ao
  * interpretador sao exatamente as guardadas na captura — o pacote carrega os
  * mesmos `imagem`, `frameId` e `capturadoEm`, e a interface do interpretador
  * nao expoe nenhuma camera.
@@ -63,6 +64,17 @@ export interface ProcessamentoFrame {
 /** Telemetria de um subsistema num frame (Fase 2, item 5; tipo do dominio). */
 export type { TelemetriaSubsistema };
 
+/**
+ * Resultado interno do processamento concorrente de um frame: o `processamento`
+ * sempre existe; `falha` so aparece quando o processador lancou (o fallback
+ * marca os subsistemas como `indisponivel`). Permite preservar a ordem das
+ * observacoes independentemente da ordem de conclusao.
+ */
+interface FrameProcessado {
+  processamento: ProcessamentoFrame;
+  falha?: string;
+}
+
 export interface DependenciasCicloMultiframe {
   /** Captura identificada, sem inferencia. */
   captura: WebcamCapture;
@@ -77,6 +89,13 @@ export interface DependenciasCicloMultiframe {
     snapshot: SnapshotCapturado,
     sinal?: AbortSignal
   ) => Promise<ProcessamentoFrame>;
+  /**
+   * Quantos frames do ciclo sao processados em paralelo (padrao:
+   * `CONCORRENCIA_FRAMES_PADRAO`). Cada frame ja roda seus subsistemas em
+   * paralelo; este limite controla quantos frames avancam juntos. `1` reproduz
+   * o comportamento estritamente sequencial.
+   */
+  concorrenciaFrames?: number;
   /** Interpretador multimodal; recebe o pacote, nunca a camera. */
   interpretador: InterpretadorMultimodal;
   /**
@@ -112,6 +131,44 @@ export interface DependenciasCicloMultiframe {
 
 function cancelado(): ErroPercepcao {
   return new ErroPercepcao("cancelamento", "ciclo cancelado");
+}
+
+/**
+ * Frames processados em paralelo por ciclo. Limita a concorrencia para nao
+ * disparar inferencias demais ao mesmo tempo (memoria/CPU): com 4 snapshots por
+ * ciclo e 2 em paralelo, a espera cai mas o pico continua controlado. Ajustavel
+ * por `DependenciasCicloMultiframe.concorrenciaFrames`.
+ */
+export const CONCORRENCIA_FRAMES_PADRAO = 2;
+
+/**
+ * Mapeia `itens` aplicando `tarefa` com concorrencia limitada, preservando a
+ * ordem de entrada no resultado. Rejeita com o primeiro erro (o chamador trata
+ * cancelamento/falha) e para de agendar novos itens assim que um falha — as
+ * tarefas ja em andamento terminam, mas nenhuma nova e iniciada.
+ */
+async function mapearConcorrente<T, R>(
+  itens: readonly T[],
+  concorrencia: number,
+  tarefa: (item: T, indice: number) => Promise<R>
+): Promise<R[]> {
+  const resultados = new Array<R>(itens.length);
+  let proximo = 0;
+  let falhou = false;
+  const trabalhadores = Array.from({ length: Math.min(concorrencia, itens.length) }, async () => {
+    while (!falhou) {
+      const indice = proximo++;
+      if (indice >= itens.length) return;
+      try {
+        resultados[indice] = await tarefa(itens[indice], indice);
+      } catch (err) {
+        falhou = true;
+        throw err;
+      }
+    }
+  });
+  await Promise.all(trabalhadores);
+  return resultados;
 }
 
 /**
@@ -190,31 +247,47 @@ export async function executarCicloMultiframe(
       };
     }
 
-    // 2) Processamento local do conjunto, depois da captura, em sequencia.
+    // 2) Processamento local do conjunto, depois da captura. Os frames sao
+    // processados com **concorrencia limitada** (nao em serie): cada frame ja
+    // tem seus subsistemas em paralelo (pipeline), e varios frames avancam
+    // juntos sem estourar a memoria/CPU. A ordem das observacoes e preservada
+    // (a associacao resultado<->snapshot e indexada), entao a semantica do ciclo
+    // nao depende da ordem de conclusao.
     const quadros = deps.store.quadros;
+    const concorrencia = Math.max(1, deps.concorrenciaFrames ?? CONCORRENCIA_FRAMES_PADRAO);
     let deteccaoMs = 0;
     let poseMs = 0;
     let maosMs = 0;
     let nsfwMs = 0;
 
-    for (const snapshot of quadros) {
-      if (sinal?.aborted) throw cancelado();
-      let processamento: ProcessamentoFrame;
-      try {
-        processamento = await deps.processarFrame(snapshot, sinal);
-      } catch (err) {
-        if (ehCancelamento(err) || sinal?.aborted) throw cancelado();
-        const mensagem = (err as Error).message;
-        erros.push({ etapa: "deteccao", mensagem });
-        processamento = {
-          deteccoes: indisponivel("deteccao", mensagem),
-          pose: indisponivel("pose", mensagem),
-          maos: indisponivel("maos", mensagem),
-          // NSFW omitido no fallback: sem processamento nao ha como saber se o
-          // subsistema rodaria (toggle) — "indeterminado" != "indisponivel".
-          metricas: {},
-        };
+    const processados = await mapearConcorrente(
+      quadros,
+      concorrencia,
+      async (snapshot): Promise<FrameProcessado> => {
+        try {
+          return { processamento: await deps.processarFrame(snapshot, sinal) };
+        } catch (err) {
+          if (ehCancelamento(err) || sinal?.aborted) throw cancelado();
+          const mensagem = (err as Error).message;
+          return {
+            falha: mensagem,
+            processamento: {
+              deteccoes: indisponivel("deteccao", mensagem),
+              pose: indisponivel("pose", mensagem),
+              maos: indisponivel("maos", mensagem),
+              // NSFW omitido no fallback: sem processamento nao ha como saber se o
+              // subsistema rodaria (toggle) — "indeterminado" != "indisponivel".
+              metricas: {},
+            },
+          };
+        }
       }
+    );
+
+    for (const [i, item] of processados.entries()) {
+      const snapshot = quadros[i];
+      if (item.falha !== undefined) erros.push({ etapa: "deteccao", mensagem: item.falha });
+      const processamento = item.processamento;
       deteccaoMs += processamento.metricas.duracaoDeteccaoMs ?? 0;
       poseMs += processamento.metricas.duracaoPoseMs ?? 0;
       maosMs += processamento.metricas.duracaoMaosMs ?? 0;
