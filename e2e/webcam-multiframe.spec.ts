@@ -156,6 +156,13 @@ for (const { id, letra } of MODOS) {
     });
 
     await page.goto("/");
+    // O isolamento entre origens (COOP/COEP) e o que habilita SharedArrayBuffer
+    // e o WASM multithread. Se os headers sumirem, o teste falha aqui em vez de
+    // apenas ficar mais lento sem ninguem perceber.
+    expect(
+      await page.evaluate(() => globalThis.crossOriginIsolated),
+      "COOP/COEP ausentes: o WASM multithread nao sera habilitado"
+    ).toBe(true);
     // B/C sao categorias de benchmark e ficaram FORA do `<select id="motor">`
     // (nao sao escolhas de usuario; so `percepcao` aparece). O E2E injeta a
     // opcao de volta para medir cada variante sobre o mesmo clipe.

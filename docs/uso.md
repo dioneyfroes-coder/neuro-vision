@@ -138,7 +138,7 @@ Ela separa três tempos para localizar a lentidão:
 - **inferência** — `duracaoMs` do resultado da análise;
 - **persistência** — quanto levou para gravar a entrada no servidor.
 
-A detecção de objetos roda em **WASM por decisão de compatibilidade** — a mesma rota em qualquer navegador, sem depender de WebGPU. Não há aviso de fallback (o comportamento é o esperado); a linha de diagnóstico mostra `dispositivo wasm`.
+A detecção de objetos roda em **worker dedicado**. O runtime tenta **WebGPU** quando há GPU e o navegador não está sob automação; se a sessão WebGPU falhar, recria em **WASM**. Com os headers COOP/COEP do servidor, o WASM usa até 4 threads por worker; sem isolamento, fica em 1. A linha de diagnóstico mostra o EP efetivo (`dispositivo webgpu` ou `wasm`) e, em caso de fallback do worker, o status informa que a thread principal assumiu.
 
 Nos modos multiframe (C/D), cada frame carrega **telemetria por subsistema** em `metricas.subsistemas`: `status` (`ok`/`sem_resultado`/`indisponivel`/`nao_carregado`), `modelo`, `dispositivo`, `versao` e `motivoFalha`. Ela distingue "rodou e não encontrou nada" (`sem_resultado`) de "não rodou" (`indisponivel`/`nao_carregado`) — princípio 8, falha ≠ ausência. Para as mãos/gestos, `dispositivo` mostra se o MediaPipe caiu do **GPU para o CPU** (fallback automático).
 
@@ -147,7 +147,8 @@ Nos modos multiframe (C/D), cada frame carrega **telemetria por subsistema** em 
 | Script | Descrição |
 | --- | --- |
 | `npm run dev` | Servidor + cliente em modo watch. |
-| `npm run build` | Build de servidor (`dist/server.js`) e cliente (`public/app.js`). |
+| `npm run build` | Build de servidor (`dist/server.js`), cliente (`public/app.js`) e workers (`public/workers/*.js`). |
+| `npm run build:workers` | Build apenas dos três workers de percepção (esbuild). |
 | `npm start` | Build e executa o servidor. |
 | `npm test` | Testes unitários/integração (vitest). |
 | `npm run test:watch` | Testes em watch. |

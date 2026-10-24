@@ -607,6 +607,20 @@ describe("createServer", () => {
     }
   });
 
+  it("envia COOP/COEP para habilitar WASM multithread", async () => {
+    const server = createServer({ publicDir: tmpDir });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/nao-existe.html`);
+      expect(res.headers.get("cross-origin-opener-policy")).toBe("same-origin");
+      expect(res.headers.get("cross-origin-embedder-policy")).toBe("credentialless");
+    } finally {
+      server.close();
+    }
+  });
+
   it("GET /vendor/ serve bibliotecas locais do modo offline", async () => {
     const vendorDir = await mkdtemp(path.join(os.tmpdir(), "neuro-vendor-"));
     await mkdir(path.join(vendorDir, "onnxruntime"), { recursive: true });

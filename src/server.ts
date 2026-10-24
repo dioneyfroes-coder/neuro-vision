@@ -1562,6 +1562,13 @@ export function createServer(config: ServerConfig = {}): http.Server {
 
   return http.createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = req.url ?? "/";
+    // Isolamento entre origens (COOP/COEP): habilita SharedArrayBuffer e, com
+    // ele, o WASM multithread do ONNX Runtime (ate 4 threads por worker -
+    // ver `public/desempenho.ts`). `credentialless` mantem o fallback de CDN
+    // funcionando (jsdelivr/Hugging Face respondem CORS) sem exigir CORP em
+    // cada recurso externo.
+    res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+    res.setHeader("Cross-Origin-Embedder-Policy", "credentialless");
     if (origemBloqueada(req.headers.origin, req.headers.host, permitidas)) {
       res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("Origem nao permitida");

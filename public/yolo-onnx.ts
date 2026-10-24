@@ -1,5 +1,6 @@
 import { ErroPercepcao } from "../src/erros";
 import { baseModelosLocal, caminhosOnnxRuntime, modelosDisponivel } from "./offline";
+import { threadsWasm, webgpuDisponivel } from "./desempenho";
 
 /**
  * Detector de objetos **YOLO em ONNX** — substitui os detectores transformer
@@ -175,7 +176,13 @@ export interface RuntimeORT {
   };
   /** Os feeds de `run` precisam de instancias reais de `Tensor`. */
   Tensor: new (type: "float32", data: Float32Array, dims: number[]) => TensorORT;
-  env: { wasm: { wasmPaths: string } };
+  env: {
+    wasm: {
+      wasmPaths: string;
+      /** Threads do WASM (exige `crossOriginIsolated`; ver `desempenho.ts`). */
+      numThreads?: number;
+    };
+  };
 }
 
 const cacheRuntime: Record<string, Promise<RuntimeORT>> = {};
@@ -194,6 +201,9 @@ export async function carregarRuntimeYolo(): Promise<RuntimeORT> {
         // Os `.wasm` ficam ao lado do modulo; sem isso o runtime tenta baixar
         // de um caminho relativo inexistente.
         ort.env.wasm.wasmPaths = caminhos.wasmPaths;
+        // Com COOP/COEP (isolamento entre origens) o WASM usa ate 4 threads por
+        // worker; sem isolamento fica em 1 e evitamos o aviso do runtime.
+        ort.env.wasm.numThreads = threadsWasm();
         return ort;
       })
       .catch((erro: unknown) => {
@@ -213,6 +223,39 @@ const cacheSessoes: Record<string, Promise<SessaoORT>> = {};
  * isso, encerrar um detector quebraria o outro que usa o mesmo modelo.
  */
 const referenciasSessoes: Record<string, number> = {};
+/**
+ * Dispositivo efetivamente usado por sessao (`webgpu` so quando a criacao no
+ * WebGPU funcionou; se o EP falhar, a sessao e recriada em WASM).
+ */
+const dispositivosSessoes: Record<string, "webgpu" | "wasm"> = {};
+
+/** Dispositivo efetivo da sessao carregada para `url` (default: `wasm`). */
+export function dispositivoSessaoYolo(url: string): "webgpu" | "wasm" {
+  return dispositivosSessoes[url] ?? "wasm";
+}
+
+/**
+ * Cria a sessao tentando WebGPU primeiro quando ha GPU e nao estamos sob
+ * automacao. A GPU desta maquina (6 GB) cabe folgado no YOLOv10 nano; se a
+ * criacao falhar por qualquer motivo, a mesma URL e recriada em WASM - o
+ * resultado do produto nao depende do EP.
+ */
+async function criarSessaoComFallback(ort: RuntimeORT, url: string): Promise<SessaoORT> {
+  if (webgpuDisponivel()) {
+    try {
+      const sessao = await ort.InferenceSession.create(url, {
+        executionProviders: ["webgpu", "wasm"],
+      });
+      dispositivosSessoes[url] = "webgpu";
+      return sessao;
+    } catch {
+      // GPU ocupada/driver sem suporte: segue para o WASM abaixo.
+    }
+  }
+  const sessao = await ort.InferenceSession.create(url, { executionProviders: ["wasm"] });
+  dispositivosSessoes[url] = "wasm";
+  return sessao;
+}
 
 /**
  * Sessao de inferencia por URL (compartilhada por todos os detectores que
@@ -230,12 +273,11 @@ export function obterSessaoYolo(
   if (!(url in cacheSessoes)) {
     cacheSessoes[url] = (async () => {
       const ort = await carregarRuntime();
-      // `graphsOptimizationLevel: "all"` e o padrao; WebGPU nao e usado de
-      // proposito: o WASM roda em qualquer navegador (inclusive no E2E).
-      return ort.InferenceSession.create(url, { executionProviders: ["wasm"] });
+      return criarSessaoComFallback(ort, url);
     })().catch((erro: unknown) => {
       delete cacheSessoes[url];
       delete referenciasSessoes[url];
+      delete dispositivosSessoes[url];
       throw new ErroPercepcao(
         "detector",
         `Falha ao carregar o modelo YOLO ONNX (${String(erro)}).`,
@@ -261,6 +303,7 @@ export function liberarSessaoYolo(url: string): void {
     return;
   }
   delete referenciasSessoes[url];
+  delete dispositivosSessoes[url];
   const pendente = cacheSessoes[url];
   delete cacheSessoes[url];
   void pendente
@@ -380,8 +423,8 @@ export interface MotorDeteccao {
 /** Detector COCO via YOLO ONNX (mesmo contrato interno do antigo detector). */
 export class DetectorYoloOnnx implements MotorDeteccao {
   modelo: string | null = null;
-  /** O onnxruntime-web roda em WASM (sem WebGPU) por decisao de compatibilidade. */
-  dispositivo = "wasm" as const;
+  /** EP efetivo da sessao: WebGPU quando disponivel, senao WASM. */
+  dispositivo: "webgpu" | "wasm" = "wasm";
   tempoCargaMs: number | null = null;
   aoStatus?: (mensagem: string) => void;
 
@@ -422,6 +465,7 @@ export class DetectorYoloOnnx implements MotorDeteccao {
     this.aoStatus?.("carregando");
     this.sessao = await obterSessaoYolo(url);
     this.runtime = await carregarRuntimeYolo();
+    this.dispositivo = dispositivoSessaoYolo(url);
     this.urlModelo = url;
     this.modelo =
       chave && (chave in MODELOS_COCO_YOLO || chave.startsWith("http"))
@@ -494,5 +538,6 @@ export class DetectorYoloOnnx implements MotorDeteccao {
     this.runtime = null;
     this.urlModelo = null;
     this.modelo = null;
+    this.dispositivo = "wasm";
   }
 }

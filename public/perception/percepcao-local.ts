@@ -5,6 +5,12 @@ import { AdaptadorClassificadorNsfw } from "./adapters/nsfw-classifier.adapter";
 import { criarMotorPoseTransformers, MODELO_POSE_PADRAO } from "../pose";
 import { criarMotorGestosMediaPipe, MODELO_MAOS_PADRAO } from "../gestos";
 import { MODELO_YOLO_PADRAO } from "../yolo-onnx";
+import {
+  criarMotorDeteccaoRemoto,
+  criarMotorMaosRemoto,
+  criarMotorNsfwRemoto,
+  criarMotorPoseRemoto,
+} from "./workers/motores-remotos";
 import { PipelineLocal, configurarSubsistemas, criarProcessadorFrameLocal, HABILITACAO_PADRAO } from "./local-perception-pipeline";
 import type { DetectorObjetos } from "./contracts";
 import type {
@@ -29,8 +35,14 @@ import type {
  */
 
 export interface OpcoesPercepcaoLocal {
-  /** Detector de objetos ja existente (reutiliza o modelo carregado no app). */
+  /** Detector de objetos ja existente (sobrescreve o detector em worker). */
   detector?: DetectorObjetos;
+  /**
+   * Usa workers dedicados por subsistema (padrao `true`). Com `false` os
+   * motores rodam na thread principal - util para diagnostico/comparacao e como
+   * alvo de fallback quando o ambiente nao suporta module workers.
+   */
+  usarWorkers?: boolean;
   /** Ids de modelo a carregar; utiliza MODELOS_PERCEPCAO_PADRAO quando ausente. */
   modelos?: ModelosPercepcao;
   /** Habilitacao explicita por subsistema; default `HABILITACAO_PADRAO`. */
@@ -80,10 +92,18 @@ export const MODELOS_PERCEPCAO_PADRAO: ModelosPercepcao = {
 };
 
 export function criarPercepcaoLocal(opcoes: OpcoesPercepcaoLocal = {}): PercepcaoLocal {
-  const detector = opcoes.detector ?? new AdaptadorDetectorObjetos();
-  const pose = new AdaptadorPose(criarMotorPoseTransformers);
-  const maos = new AdaptadorMaos(criarMotorGestosMediaPipe);
-  const nsfw = new AdaptadorClassificadorNsfw();
+  // Workers dedicados por padrao: a inferencia sai da thread principal e roda em
+  // paralelo de verdade (deteccao/pose/maos em nucleos distintos). Cada motor
+  // remoto cai para a implementacao local se o worker nao puder ser usado.
+  const usarWorkers = opcoes.usarWorkers ?? true;
+  const detector =
+    opcoes.detector ??
+    new AdaptadorDetectorObjetos(usarWorkers ? criarMotorDeteccaoRemoto() : undefined);
+  const pose = new AdaptadorPose(usarWorkers ? criarMotorPoseRemoto : criarMotorPoseTransformers);
+  const maos = new AdaptadorMaos(usarWorkers ? criarMotorMaosRemoto : criarMotorGestosMediaPipe);
+  const nsfw = new AdaptadorClassificadorNsfw(
+    usarWorkers ? criarMotorNsfwRemoto() : undefined
+  );
 
   const habilitacao: Required<HabilitacaoSubsistemas> = {
     ...HABILITACAO_PADRAO,

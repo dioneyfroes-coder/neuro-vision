@@ -5,6 +5,7 @@ import type {
   Tensor,
 } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1";
 import { baseModelosLocal, modelosDisponivel, moduloTransformers } from "./offline";
+import { threadsWasm, webgpuDisponivel } from "./desempenho";
 
 /**
  * Motor de pose (YOLO Pose via Transformers.js) — Etapa 5 do roteiro.
@@ -31,11 +32,19 @@ const LIMIAR_SCORE = 0.3;
 const OFFSET_KEYPOINTS = 5;
 const PASSO_KEYPOINT = 3;
 
+interface OpcoesModelo {
+  progress_callback?: (info: ProgressInfo) => void;
+  /** `webgpu`/`wasm` (Transformers.js escolhe o backend do ONNX Runtime). */
+  device?: string;
+  /** Tipo dos pesos: `fp32` casa com o `model.onnx` local. */
+  dtype?: string;
+}
+
 interface ModuloTransformers {
   AutoModel: {
     from_pretrained(
       modelo: string,
-      opcoes?: { progress_callback?: (info: ProgressInfo) => void }
+      opcoes?: OpcoesModelo
     ): Promise<(entrada: { images: Tensor }) => Promise<{ output0: Tensor }>>;
   };
   AutoProcessor: {
@@ -52,6 +61,13 @@ interface ModuloTransformers {
     useBrowserCache: boolean;
     localModelPath: string;
     remoteHost: string;
+    backends?: {
+      onnx?: {
+        wasm?: {
+          numThreads?: number;
+        };
+      };
+    };
   };
 }
 
@@ -65,6 +81,10 @@ async function carregarTransformers(): Promise<ModuloTransformers> {
         const local = await modelosDisponivel();
         mod.env.allowLocalModels = local;
         mod.env.useBrowserCache = true;
+        // Threads do WASM (pose roda em worker dedicado; ver `desempenho.ts`).
+        if (mod.env.backends?.onnx?.wasm) {
+          mod.env.backends.onnx.wasm.numThreads = threadsWasm();
+        }
         if (local) {
           // Carrega os pesos do proprio servidor (`/modelos/pose/...`).
           mod.env.localModelPath = `${baseModelosLocal()}/pose/`;
@@ -108,17 +128,39 @@ export const criarMotorPoseTransformers: CriadorMotorPose = async (modelo, aoSta
   }
 
   try {
-    const [model, processor] = await Promise.all([
-      modulo.AutoModel.from_pretrained(idModelo, { progress_callback: progresso }),
-      modulo.AutoProcessor.from_pretrained(idModelo, { progress_callback: progresso }),
-    ]);
+    const processor = modulo.AutoProcessor.from_pretrained(idModelo, {
+      progress_callback: progresso,
+    });
+    let dispositivo: "webgpu" | "wasm" = "wasm";
+    let model: Awaited<ReturnType<ModuloTransformers["AutoModel"]["from_pretrained"]>> | null =
+      null;
+    if (webgpuDisponivel()) {
+      try {
+        model = await modulo.AutoModel.from_pretrained(idModelo, {
+          progress_callback: progresso,
+          device: "webgpu",
+          dtype: "fp32",
+        });
+        dispositivo = "webgpu";
+      } catch (erro) {
+        aoStatus?.(
+          `WebGPU indisponivel para pose (${mensagemDe(erro)}); usando WASM.`
+        );
+      }
+    }
+    if (!model) {
+      model = await modulo.AutoModel.from_pretrained(idModelo, {
+        progress_callback: progresso,
+      });
+    }
+    const processorPronto = await processor;
 
     return {
-      dispositivo: "wasm",
+      dispositivo,
       versao: "3.8.1",
       async executar(imagem) {
         const crua = await modulo.RawImage.read(imagem);
-        const { pixel_values } = await processor(crua);
+        const { pixel_values } = await processorPronto(crua);
         const { output0 } = await model({ images: pixel_values });
 
         // `pixel_values` costuma vir com o lado maior redimensionado (ex.: 640).

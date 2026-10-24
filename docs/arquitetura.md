@@ -10,9 +10,11 @@ Estrutura de arquivos e como as partes conversam.
 - **Controlador do ciclo** (`public/cycle/cycle-controller.ts`) — regra de negócio do ciclo de frame único (captura, inferência, rastreamento, persistência e progresso) com dependências injetadas; emite `EventoUi` em vez de tocar o DOM.
 - **Ciclo multiframe** (`public/cycle/ciclo-multiframe.ts`) — captura 4 snapshots identificados (~1,5 s), guarda-os sem inferência, processa-os com concorrência limitada entre frames (padrão 2 por vez, ordem preservada), roda a leitura temporal e envia o `PacoteCiclo` à interpretação multimodal. As imagens que chegam ao interpretador são as mesmas capturadas (sem recaptura). Sem frame disponível o ciclo retorna vazio, sem interpretar nem persistir (não é falha). A cadência é definida pela **política do ciclo** (`public/cycle/politica-ciclo.ts`): intervalo e quantidade de snapshots, pausa pós-ciclo contada do fim efetivo e frequência da interpretação.
 - **Controlador multiframe** (`public/cycle/ciclo-percepcao-controller.ts`) — liga o pipeline completo (captura + percepção local + motor temporal + interpretação) à interface, como `ControladorCiclo` do modo `percepcao`; emite `EventoUi`, persiste o diagnóstico do ciclo (best-effort) e grava os **eventos temporais confirmados** em `eventos.jsonl` (uma gravação por identidade, `timestamp` = início real — ver [`eventos.md`](./eventos.md)).
-- **Pipeline local de percepcao** (`public/perception/local-perception-pipeline.ts`) — executa detector, pose (YOLO Pose), maos/gestos (MediaPipe) e, quando habilitado, o classificador NSFW (experimental, opt-in) por snapshot **em paralelo** (`Promise.all`, runtimes distintos), com isolamento de falhas: um subsistema quebrado vira `ResultadoIndisponivel` e nao apaga os demais. Usa portas em `public/perception/contracts.ts`.
+- **Pipeline local de percepcao** (`public/perception/local-perception-pipeline.ts`) — executa detector, pose (YOLO Pose), maos/gestos (MediaPipe) e, quando habilitado, o classificador NSFW (experimental, opt-in) por snapshot **em paralelo** (`Promise.all`, motores independentes — cada um no seu worker quando disponível), com isolamento de falhas: um subsistema quebrado vira `ResultadoIndisponivel` e nao apaga os demais. Usa portas em `public/perception/contracts.ts`.
 - **Adaptadores de percepção** (`public/perception/`) — portas `DetectorObjetos`, `EstimadorPose`, `ReconhecedorGestos` e `ClassificadorNsfw` independentes do SDK; o núcleo conhece apenas essas interfaces, e cada SDK entra por um adaptador em `public/perception/adapters/` (`object-detector.adapter.ts`, `pose-estimator.adapter.ts`, `hand-gesture.adapter.ts`, `nsfw-classifier.adapter.ts`). Motores SDK concretos: `public/detector.ts` (Transformers.js), `public/pose.ts` (YOLO Pose via Transformers.js), `public/gestos.ts` (MediaPipe Gesture Recognizer) e `public/nsfw-onnx.ts` (YOLO11 NSFW via ONNX Runtime, experimental).
-- **Composicao da percepcao** (`public/perception/percepcao-local.ts`) — cria os adaptadores concretos (reaproveitando o detector já carregado), coordena o carregamento isolado (`configurarSubsistemas`, com override de modelos por sessão) e expõe `processarFrame` pronto para o ciclo multiframe.
+- **Composicao da percepcao** (`public/perception/percepcao-local.ts`) — cria os adaptadores concretos sobre os motores worker-first (com fallback para a thread principal), coordena o carregamento isolado (`configurarSubsistemas`, com override de modelos por sessão) e expõe `processarFrame` pronto para o ciclo multiframe.
+- **Workers de percepção** (`public/perception/workers/`) — a inferência dos subsistemas roda fora da thread principal, um worker por motor: `worker-onnx.js` atende detecção (COCO) e NSFW (cada um com sua própria instância); `worker-pose.js`, pose; `worker-maos.js`, mãos/gestos. O RPC mínimo fica em `cliente-worker.ts` (thread principal) e `atender.ts` (worker). Cada worker serializa as próprias inferências — uma sessão ONNX/MediaPipe não ganha com reentrada — e o paralelismo real vem de workers distintos. Timeout de carga (180 s), de inferência (120 s), erro do worker e falha de inicialização caem de forma transparente no motor local; o fallback é decidido **uma vez por motor**, sem repetir a tentativa cara a cada frame. Os bundles são gerados por esbuild em `public/workers/` (`npm run build:workers`, artefato não versionado).
+- **Ajustes de desempenho** (`public/desempenho.ts`) — decisões para o hardware-alvo (20 núcleos lógicos, 16 GB de RAM, GPU de 6 GB): WASM com até 4 threads por worker quando o documento está isolado (`crossOriginIsolated`), WebGPU quando existe e fora de automação (`navigator.webdriver`), e fallback WASM em qualquer falha de GPU. O servidor envia `Cross-Origin-Opener-Policy: same-origin` e `Cross-Origin-Embedder-Policy: credentialless` em todas as respostas — isso habilita `SharedArrayBuffer`/WASM multithread sem exigir CORP nos recursos de CDN.
 - **Motor temporal** (`public/temporal/`) — encapsula o rastreamento de objetos (`rastreamento.ts`) e a mudança de cena (`cena.ts`) **sem reescrever os algoritmos** e adiciona rastreadores de pose (pessoas) e mãos com IDs estáveis na sessão, suavização e métricas de movimento em coordenadas normalizadas, além de máquinas de estado de gestos e de braço levantado com confirmação/encerramento temporais. Emite `EventoTemporal` (identidade única, duração, confiança, timestamps e IDs dos frames de evidência) e trata frames ausentes, inferências falhas, mudanças de resolução (coordenadas normalizadas) e períodos cegos. O estado é reutilizado entre ciclos; `resetar()` só é chamado em evento explícito de sessão.
 - **Variantes do benchmark** (`public/perception/variantes.ts`) — a matriz A–D da Etapa 9 num único registro (`percepcaoLocal` × `dadosLocais` × `temporal`): B = só sequência de imagens, C = dados locais + temporal básico, D = arquitetura-alvo completa; A é o fluxo de frame único dos modos existentes. O modo (seletor `#motor`) declara a variante, em vez de condições espalhadas pelo código. A decisão arquitetural que usa essa matriz está em `bench/DECISAO_ARQUITETURAL_2026-10-19.md`.
 
@@ -51,6 +53,8 @@ src/
 public/
   index.html           interface
   app.ts               ponto de composição: liga botões/seletores, cria dependências e renderiza os `EventoUi`
+  desempenho.ts        ajustes para o hardware-alvo: threads do WASM, detecção de WebGPU e isolamento
+  workers/             bundles gerados por `npm run build:workers` (não versionados)
   cycle/
     cycle-controller.ts  controlador do ciclo de frame único (captura, inferência, rastreamento, persistência, progresso)
     ciclo-multiframe.ts  ciclo de 4 snapshots: captura → processamento local concorrente → temporal → pacote → interpretação
@@ -61,13 +65,20 @@ public/
   perception/
     contracts.ts       portas `DetectorObjetos`, `EstimadorPose`, `ReconhecedorGestos` e `ClassificadorNsfw` (sem SDK de modelo)
     local-perception-pipeline.ts  pipeline paralelo por snapshot (subsistemas) com isolamento de falhas
-    percepcao-local.ts  composicao concreta (adaptadores + motor SDK + configuracao isolada)
+    percepcao-local.ts  composicao concreta (adaptadores + motor SDK/worker + configuracao isolada)
     variantes.ts       matriz de variantes do benchmark A–D (Etapa 9)
     adapters/
       object-detector.adapter.ts  adaptador do detector instalado (Transformers.js) para a porta
       pose-estimator.adapter.ts   adaptador do estimador de pose (YOLO Pose) para a porta
       hand-gesture.adapter.ts    adaptador do reconhecedor de maos/gestos (MediaPipe) para a porta
       nsfw-classifier.adapter.ts adaptador do classificador NSFW (YOLO11 ONNX) para a porta
+    workers/
+      protocolo.ts       contrato RPC (requisicao, resposta e motores)
+      cliente-worker.ts  cliente na thread principal (correlacao por id, timeouts, `ErroWorker`)
+      atender.ts         dispatcher no worker (fila em cadeia serializa as inferencias)
+      worker-onnx.ts     worker de deteccao COCO + NSFW (onnxruntime-web)
+      worker-pose.ts     worker de pose (Transformers.js)
+      worker-maos.ts     worker de maos/gestos (MediaPipe)
   interpretation/
     contracts.ts       porta `InterpretadorMultimodal` (recebe o pacote; nunca captura a câmera)
     interpretador-ciclo.ts  interpretador do ciclo multiframe (monta a mensagem do `PacoteCiclo` e valida as referências do modelo)
@@ -84,7 +95,7 @@ public/
     motor-temporal.ts  fachada: objetos + cena + pose + mãos + máquinas → `ResumoTemporal`
   api.ts               cliente HTTP (histórico, eventos, contexto, backend de visão)
   detector.ts          helpers da detecção (COCO → português, resumo do log; sem SDK)
-  yolo-onnx.ts         detector de objetos YOLOv10 em ONNX (`onnxruntime-web`, WASM; catálogo COCO + inferência)
+  yolo-onnx.ts         detector de objetos YOLOv10 em ONNX (`onnxruntime-web`; WebGPU quando disponível, senão WASM; catálogo COCO + inferência)
   nsfw-onnx.ts         detector NSFW experimental em ONNX (YOLO11; rótulos do sidecar `<modelo>.onnx.json`; opt-in)
   pose.ts              motor SDK para YOLO Pose (Transformers.js) usado pelo adaptador
   gestos.ts            motor SDK para MediaPipe Gesture Recognizer (Tasks Vision) usado pelo adaptador
@@ -122,6 +133,22 @@ scripts/
   verificar-yolo-nsfw.mjs   verificação empírica do .onnx exportado (dims, labels, inferência real)
 ```
 
+## Percepção local em workers
+
+A inferência do multiframe não roda mais na thread principal. `criarPercepcaoLocal` monta os motores remotos por padrão (`usarWorkers: true`); `usarWorkers: false` mantém os motores locais na thread principal para diagnóstico/comparação. A main thread continua responsável por captura, renderização, montagem do pacote e chamada multimodal.
+
+| Worker | Arquivo gerado | Motores | Runtime |
+| --- | --- | --- | --- |
+| ONNX | `public/workers/worker-onnx.js` | `deteccao` (YOLOv10 COCO) e `nsfw` (YOLO11 experimental) | `onnxruntime-web` (WebGPU→WASM) |
+| pose | `public/workers/worker-pose.js` | `pose` (YOLO Pose) | Transformers.js (WebGPU→WASM) |
+| mãos | `public/workers/worker-maos.js` | `maos` (Gesture Recognizer) | MediaPipe Tasks (GPU→CPU) |
+
+- O id do modelo escolhido na interface atravessa o RPC; o worker carrega o mesmo modelo. O `detectorCoco` da main thread atende apenas os modos de frame único e **não** é reutilizado pelo multiframe.
+- O protocolo é `{id, tipo: "carregar"|"executar"|"encerrar", motor, modelo?, imagem?, threshold?, percentage?}`. `ClienteWorker` correlaciona a resposta pelo `id`; `atender.ts` mantém uma fila em cadeia por worker. Uma inferência por vez no mesmo worker; subsistemas diferentes rodam em paralelo, em núcleos distintos.
+- `ErroWorker` representa falha de infraestrutura (script, mensagem inválida, timeout, worker encerrado). Erro devolvido pelo motor é erro de carga/inferência. Nos dois casos `motores-remotos.ts` cai para o motor local e **não volta** a tentar o worker naquela instância — o fallback é decidido uma vez por motor.
+- MediaPipe no worker usa `ImageBitmap`/`OffscreenCanvas` (o bitmap é fechado após `recognize`); se o SDK não funcionar sem DOM/GPU, a inicialização falha e o cliente usa o motor local.
+- Os bundles são gerados por esbuild (`npm run build:workers`, incluído em `npm run build`; `npm run dev` mantém os três em watch) e ficam em `public/workers/`, fora do versionamento.
+
 ## Modos multiframe (variantes B/C/D)
 
 Os modos `percepcao`, `percepcao-fundida` e `percepcao-sequencia` (opções **Percepção**, **Percepção fundida** e **Percepção sequência** no seletor de motor) trocam o `CycleController` de frame único por um `CicloPercepcaoController`. Os dois implementam `ControladorCiclo`, e `app.ts` escolhe a implementação por `obterModo(motor).multiframe` — a interface usa sempre a mesma superfície (`iniciar`, `parar`, `solicitarManual`, …). O que muda entre eles é apenas a `VariantePercepcao` (`public/perception/variantes.ts`):
@@ -135,7 +162,7 @@ Os modos `percepcao`, `percepcao-fundida` e `percepcao-sequencia` (opções **Pe
 A variante **A** (referência) é o fluxo de frame único dos modos existentes (`deteccao`/`eventos`/`visao`) e não usa este ciclo. Comparação e decisão em `bench/COMPARATIVO_A_B_C_D_*.md` e `bench/DECISAO_ARQUITETURAL_2026-10-19.md`; execução reproduzível em [`qualidade.md`](./qualidade.md). O artefato de **2026-10-18** é histórico e **inválido como comparativo** (zero ciclos e eventos compartilhados); use o harness atual, que recusa concluir sem dados comparáveis.
 
 1. A cada ciclo o `WebcamCapture` coleta 4 snapshots identificados (~1,5 s, 500 ms entre eles) **sem inferência** e os guarda no `SnapshotStore`.
-2. O `PercepcaoLocal` processa os snapshots com **concorrência limitada** (padrão 2 frames por vez) e, dentro de cada frame, os subsistemas rodam em paralelo: detecção (porta `DetectorObjetos`, reaproveitando o modelo já carregado), pose (YOLO Pose), mãos/gestos (MediaPipe) e, com o seletor NSFW ligado, o classificador NSFW experimental (YOLO11 ONNX) — nos modos C/D; a variante B pula esta etapa. A ordem das observações é preservada independentemente da ordem de conclusão. A ativação é **explícita** (`HabilitacaoSubsistemas`): cada subsistema só tenta carregar quando está habilitado **e** tem modelo, e um subsistema desligado responde `indisponivel` ("desativado") em cada frame, sem tocar o SDK. Cada subsistema é isolado: uma falha vira `ResultadoIndisponivel` para aquele frame e não apaga os demais. Se **nenhum** subsistema carregar, a sessão não inicia.
+2. O `PercepcaoLocal` processa os snapshots com **concorrência limitada** (padrão 2 frames por vez) e, dentro de cada frame, os subsistemas rodam em paralelo: detecção (porta `DetectorObjetos`, em worker dedicado com o modelo selecionado), pose (YOLO Pose), mãos/gestos (MediaPipe) e, com o seletor NSFW ligado, o classificador NSFW experimental (YOLO11 ONNX) — nos modos C/D; a variante B pula esta etapa. A ordem das observações é preservada independentemente da ordem de conclusão. A ativação é **explícita** (`HabilitacaoSubsistemas`): cada subsistema só tenta carregar quando está habilitado **e** tem modelo, e um subsistema desligado responde `indisponivel` ("desativado") em cada frame, sem tocar o SDK. Cada subsistema é isolado: uma falha vira `ResultadoIndisponivel` para aquele frame e não apaga os demais. Se **nenhum** subsistema carregar, a sessão não inicia.
 
    O carregamento é **idempotente** (repetir com o mesmo modelo não recria o motor) e o encerramento libera recursos de verdade: adaptadores chamam `encerrar()` do motor (MediaPipe `close()`, sessões ONNX descartadas por contagem de referências em `yolo-onnx.ts`), e trocar de modelo encerra o anterior antes de criar o novo. Cada subsistema expõe telemetria (`modelo`, `dispositivo`, `versao`, `status`, `motivoFalha`, `tempoCargaMs`, `tempoInferenciaMs`), replicada por frame em `metricas.subsistemas` do `ProcessamentoFrame`. Para o MediaPipe há **fallback GPU→CPU** documentado (tenta `delegate: "GPU"`, cai para `"CPU"` com timeout e aviso de status).
 3. O `MotorTemporalImpl` consome as observações e devolve um `ResumoTemporal` (eventos com identidade e continuidade entre ciclos) que entra no `PacoteCiclo`. No fim do ciclo, eventos `confirmado`/`encerrado` de tipo `aparicao`/`desaparecimento`/`mudanca_de_cena` são gravados **uma única vez por `eventoId`** em `eventos.jsonl` (`origem: "rastreador"`, `timestamp` = início real — ver [`eventos.md`](./eventos.md)).
@@ -202,7 +229,7 @@ Quando a política suprime a chamada, o ciclo **não é falha**: o motivo (`sem_
 
 **Um ciclo em voo por vez.** O `AgendadorAnalise` não sobrepõe execuções (single-flight): um ciclo só começa quando o anterior termina. O cancelamento usa `AbortController`; o motivo é registrado explicitamente (`ciclo cancelado (sinal de aborto)`) para que nenhum ciclo incompleto fique sem explicação.
 
-**Tempo e conclusão.** `concluidoEm` (no pacote e no registro) é gravado **no fim**: depois da interpretação e da gravação do diagnóstico. `MetricasCiclo` guarda também os timestamps por etapa (`capturaConcluidaEm`, `percepcaoConcluidaEm`, `temporalConcluidoEm`, `interpretacaoConcluidaEm`, `persistenciaConcluidaEm`) para reconstruir a linha do tempo real, não só a duração agregada.
+**Tempo e conclusão.** `concluidoEm` (no pacote e no registro) é gravado **imediatamente antes** da gravação do diagnóstico — para que o JSONL persistido nunca fique sem ele — e o pacote é atualizado com o instante efetivo depois da persistência. `MetricasCiclo` guarda também os timestamps por etapa (`capturaConcluidaEm`, `percepcaoConcluidaEm`, `temporalConcluidoEm`, `interpretacaoConcluidaEm`, `persistenciaConcluidaEm`) para reconstruir a linha do tempo real, não só a duração agregada.
 
 ## Persistência, diagnóstico e recuperação
 
@@ -225,5 +252,6 @@ A persistência é separada do servidor HTTP (`src/persistence/`), com uma primi
 ## Testes e regressão
 
 - Unitários/integração: `npm test` (vitest, incluindo `percepcao`, `motores`, `rastreamento`, `cena`, `motor-temporal`, `memoria`, `persistence`, `server`, `politica-analise`, `provedor`, `visao`, ciclos multiframe e os testes dos scripts `tests/scripts/*.test.mjs`).
-- E2E: `npm run test:e2e` (Playwright; o transformers.js é substituído por stubs em `e2e/app.spec.ts`; `e2e/webcam.spec.ts` e `e2e/webcam-multiframe.spec.ts` são **opt-in** com modelo real e clipe via `E2E_WEBCAM_*`).
+- Build: `npm run build` gera servidor, `public/app.js` e os três bundles de worker (`npm run build:workers`); `npm run clean` remove todos os artefatos.
+- E2E: `npm run test:e2e` (Playwright; o transformers.js é substituído por stubs em `e2e/app.spec.ts`; `e2e/webcam.spec.ts` e `e2e/webcam-multiframe.spec.ts` são **opt-in** com modelo real e clipe via `E2E_WEBCAM_*`). O `webServer` do Playwright roda `npm run build`, então os workers são exercitados no E2E.
 - Desempenho/qualidade: ver [`qualidade.md`](./qualidade.md).

@@ -331,8 +331,8 @@ export async function executarCicloMultiframe(
     }
 
     // 3) Pacote do ciclo: fronteira entre analise local e interpretacao.
-    // `concluidoEm` e preenchido apenas no fim (item 4): aqui o pacote ainda
-    // nao terminou — a interpretacao e a persistencia ainda vao rodar.
+    // `concluidoEm` so entra no passo 5, imediatamente antes da persistencia:
+    // aqui a interpretacao e a gravacao ainda vao rodar.
     const pacote: PacoteCiclo = {
       sessionId: deps.sessaoId,
       cycleId,
@@ -378,6 +378,13 @@ export async function executarCicloMultiframe(
       erros,
       cancelado: false,
     };
+    // O registro persistido precisa carregar o instante de conclusao. Usamos o
+    // instante imediatamente anterior a gravacao (a diferenca sera o custo da
+    // propria persistencia) e, no fim, atualizamos o pacote com o instante
+    // efetivo - assim o JSONL nao fica sem `concluidoEm`.
+    const antesDaPersistencia = agoraIso();
+    pacote.concluidoEm = antesDaPersistencia;
+    pacote.metricas.concluidoEm = antesDaPersistencia;
     pacote.metricas.persistenciaMs = await persistirDiagnostico(deps, saida, erros);
     pacote.metricas.persistenciaConcluidaEm = agoraIso();
     // Conclusao efetiva: depois da interpretacao e da persistencia.

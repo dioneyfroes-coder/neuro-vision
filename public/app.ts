@@ -178,8 +178,13 @@ const controladorFrame = new CycleController({
 
 /**
  * Controlador do ciclo multiframe: pipeline local completo (deteccao + pose +
- * maos), motor temporal e interpretacao multimodal. Reaproveita o detector ja
- * carregado no navegador para nao baixar o mesmo modelo duas vezes.
+ * maos), motor temporal e interpretacao multimodal.
+ *
+ * O `detectorCoco` da thread principal atende apenas os modos de frame unico.
+ * O multiframe usa o detector em **worker dedicado** (ver
+ * `perception/workers/`), para nao disputar a main thread com captura,
+ * renderizacao e interpretacao; o mesmo id de modelo selecionado e carregado
+ * dentro do worker.
  */
 const controladorPercepcao = new CicloPercepcaoController({
   camera,
@@ -194,7 +199,6 @@ const controladorPercepcao = new CicloPercepcaoController({
   obterModo: () => obterModo(motorSelect.value),
   criarPercepcao: () =>
     criarPercepcaoLocal({
-      detector: detectorCoco,
       habilitacao: montarHabilitacao(),
       obterThreshold: () => Number(thresholdInput.value),
       aoStatus: (mensagem) => setStatus(mensagem),

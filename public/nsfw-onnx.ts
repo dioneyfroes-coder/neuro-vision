@@ -4,6 +4,7 @@ import {
   carregarRuntimeYolo,
   decodificarImagem,
   interpretarSaidaYolo,
+  dispositivoSessaoYolo,
   liberarSessaoYolo,
   obterSessaoYolo,
   rasterizar,
@@ -75,8 +76,8 @@ async function carregarRotulosNsfw(urlModelo: string): Promise<string[] | null> 
  */
 export class DetectorNsfwOnnx implements MotorDeteccao {
   modelo: string | null = null;
-  /** Mesma decisao de compatibilidade do COCO: WASM, sem WebGPU. */
-  dispositivo = "wasm" as const;
+  /** Mesma selecao de EP do COCO: WebGPU quando disponivel, senao WASM. */
+  dispositivo: "webgpu" | "wasm" = "wasm";
   tempoCargaMs: number | null = null;
   aoStatus?: (mensagem: string) => void;
 
@@ -96,6 +97,7 @@ export class DetectorNsfwOnnx implements MotorDeteccao {
     // nao existem ate `scripts/exportar-yolo-nsfw.mjs` rodar (erro claro no 404).
     this.sessao = await obterSessaoYolo(url);
     this.runtime = await carregarRuntimeYolo();
+    this.dispositivo = dispositivoSessaoYolo(url);
     this.rotulos = await carregarRotulosNsfw(url);
     this.urlModelo = url;
     this.modelo = chave;
@@ -154,5 +156,6 @@ export class DetectorNsfwOnnx implements MotorDeteccao {
     this.urlModelo = null;
     this.rotulos = null;
     this.modelo = null;
+    this.dispositivo = "wasm";
   }
 }

@@ -52,14 +52,33 @@ interface ImagemCarregavel {
   decode(): Promise<void>;
 }
 
+/** Imagem pronta para o `recognize`, com a forma de liberacao adequada. */
+interface ImagemParaReconhecer {
+  imagem: unknown;
+  liberar(): void;
+}
+
 function mensagemDe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function carregarImagem(imagem: string): Promise<unknown> {
+/**
+ * Carrega a data URL como `Image` (thread principal) ou `ImageBitmap` (worker).
+ *
+ * Em worker nao existe `Image`; `createImageBitmap` + `OffscreenCanvas` sao o
+ * caminho suportado pelo MediaPipe Tasks. O bitmap e fechado depois do
+ * `recognize` para nao vazar memoria a cada frame.
+ */
+async function carregarImagem(imagem: string): Promise<ImagemParaReconhecer> {
+  if (typeof Image === "undefined") {
+    const resposta = await fetch(imagem);
+    const bitmap = await createImageBitmap(await resposta.blob());
+    return { imagem: bitmap, liberar: () => bitmap.close() };
+  }
   const img = new Image() as unknown as ImagemCarregavel;
   img.src = imagem;
-  return img.decode().then(() => img);
+  await img.decode();
+  return { imagem: img, liberar: () => undefined };
 }
 
 /** Rejeita se `promessa` nao resolver dentro de `timeoutMs`. */
@@ -181,9 +200,13 @@ export const criarMotorGestosMediaPipe: CriadorMotorMaos = async (modelo, aoStat
     dispositivo: delegate,
     versao: VERSAO_MEDIAPIPE,
     async executar(imagem) {
-      const img = await carregarImagem(imagem);
-      const resultado = motor.recognize(img);
-      return { maos: extrairMaos(resultado) };
+      const carregada = await carregarImagem(imagem);
+      try {
+        const resultado = motor.recognize(carregada.imagem);
+        return { maos: extrairMaos(resultado) };
+      } finally {
+        carregada.liberar();
+      }
     },
     encerrar() {
       motor.close?.();

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 public/app.js
+public/workers/
 logs/*.jsonl
 logs/*.inicio
 logs/snapshots/

@@ -7,6 +7,7 @@ export default tseslint.config(
     ignores: [
       "dist/**",
       "public/app.js",
+      "public/workers/**",
       "node_modules/**",
       // Artefatos do modo offline + pesos NSFW experimentais e venv de export
       // (gitignored; codigo de terceiros/pesos, nunca lintar).

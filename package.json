@@ -6,8 +6,8 @@
   "license": "MIT",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
+    "lint": "eslint src tests public --ext .ts,.js",
+    "lint:fix": "eslint src tests public --ext .ts,.js --fix",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
@@ -17,14 +17,16 @@
     "gravar:webcam": "node scripts/gravar-webcam.mjs",
     "extrair:frames": "node scripts/extrair-frames.mjs",
     "integrar:lmstudio": "node --import tsx scripts/testar-lmstudio.mjs",
-    "build": "npm run clean && npm run build:server && npm run build:client",
+    "build": "npm run clean && npm run build:server && npm run build:client && npm run build:workers",
     "build:server": "esbuild src/server.ts --bundle --platform=node --format=esm --outfile=dist/server.js --external:node:*",
     "build:client": "esbuild public/app.ts --bundle --format=esm --outfile=public/app.js --external:https://*",
-    "clean": "rimraf dist public/app.js",
+    "build:workers": "esbuild public/perception/workers/worker-onnx.ts --bundle --format=esm --outfile=public/workers/worker-onnx.js --external:https://* && esbuild public/perception/workers/worker-pose.ts --bundle --format=esm --outfile=public/workers/worker-pose.js --external:https://* && esbuild public/perception/workers/worker-maos.ts --bundle --format=esm --outfile=public/workers/worker-maos.js --external:https://*",
+    "clean": "rimraf dist public/app.js public/workers",
     "start": "npm run build && node dist/server.js",
-    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\" \"npm:dev:workers\"",
     "dev:server": "tsx watch src/server.ts",
-    "dev:client": "esbuild public/app.ts --bundle --format=esm --outfile=public/app.js --external:https://* --watch"
+    "dev:client": "esbuild public/app.ts --bundle --format=esm --outfile=public/app.js --external:https://* --watch",
+    "dev:workers": "esbuild public/perception/workers/worker-onnx.ts --bundle --format=esm --outfile=public/workers/worker-onnx.js --external:https://* --watch & esbuild public/perception/workers/worker-pose.ts --bundle --format=esm --outfile=public/workers/worker-pose.js --external:https://* --watch & esbuild public/perception/workers/worker-maos.ts --bundle --format=esm --outfile=public/workers/worker-maos.js --external:https://* --watch"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

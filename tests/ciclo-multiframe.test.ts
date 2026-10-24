@@ -396,6 +396,19 @@ describe("executarCicloMultiframe", () => {
     expect(resultado.pacote.metricas.concluidoEm).toBe("2026-10-16T10:00:00.000Z");
   });
 
+  it("entrega concluidoEm ao registro persistido (JSONL nunca fica sem ele)", async () => {
+    const { deps } = montar();
+    let persistido: RegistroCiclo | undefined;
+    deps.persistirCiclo = (registro) => {
+      persistido = registro;
+    };
+
+    const resultado = await executarCicloMultiframe(deps);
+
+    expect(persistido?.concluidoEm).toBeTruthy();
+    expect(resultado.pacote.concluidoEm).toBeTruthy();
+  });
+
   it("registra timestamps por etapa (item 4)", async () => {
     const { deps } = montar();
     deps.motorTemporal = motorTemporalFalso([]);
