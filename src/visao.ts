@@ -1,4 +1,6 @@
 import { env } from "./env";
+import { blocoNsfwPrompt } from "./nsfw-prompt";
+import type { MarcacaoNsfwLog } from "./types";
 import {
   cabecalhos,
   interpretarLinha,
@@ -27,6 +29,12 @@ export interface OpcoesGerarDescricao {
   signal?: AbortSignal;
   /** Chave enviada como `Authorization: Bearer` no backend. */
   apiKey?: string;
+  /**
+   * Marcacoes NSFW do classificador local. Presente (mesmo vazio) = subsistema
+   * ativo: o prompt padrao ganha a instrucao explicita de descrever conteudo
+   * adulto sem eufemismos/censura. `undefined` = desligado.
+   */
+  nsfw?: MarcacaoNsfwLog[];
 }
 
 /**
@@ -389,9 +397,15 @@ function montarCorpo(
   const modelo = resolverModelo(opcoes);
   const backend = backendDe(opcoes);
   const roteiro = opcoes.modo === "roteiro";
-  const prompt =
+  const promptBase =
     opcoes.prompt ??
     (roteiro ? montarPromptRoteiro(opcoes.base === true, opcoes.roteiro) : montarPromptDescricao());
+  // NSFW ativo: o bloco e anexado ao prompt padrao (um prompt explicito, como o
+  // do ciclo multiframe, ja traz o proprio bloco e nao e duplicado).
+  const prompt =
+    opcoes.prompt === undefined && opcoes.nsfw !== undefined
+      ? `${promptBase}\n\n${blocoNsfwPrompt([{ indice: 1, marcacoes: opcoes.nsfw }])}`
+      : promptBase;
   const numPredict = roteiro
     ? opcoes.base === true
       ? NUM_PREDICT_BASE

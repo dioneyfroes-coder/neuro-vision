@@ -1,5 +1,7 @@
-import type { Caixa, EntradaLog } from "../src/types";
+import type { Caixa, EntradaLog, MarcacaoNsfwLog } from "../src/types";
 import { AdaptadorDetectorObjetos } from "./perception/adapters/object-detector.adapter";
+import { AdaptadorClassificadorNsfw } from "./perception/adapters/nsfw-classifier.adapter";
+import { criarMotorNsfwRemoto } from "./perception/workers/motores-remotos";
 import { Camera } from "./camera";
 import { obterModo } from "./modos";
 import { MotorVisao } from "./motores";
@@ -75,6 +77,12 @@ const configuracaoCaptura: ConfigCaptura = {
 };
 
 const detectorCoco = new AdaptadorDetectorObjetos();
+/**
+ * Classificador NSFW do modo de frame unico (worker dedicado, fallback local).
+ * O multiframe cria o proprio adaptador dentro do pipeline local; este atende
+ * `deteccao`, `eventos`, `visao` e `roteiro` quando o toggle esta ligado.
+ */
+const classificadorNsfw = new AdaptadorClassificadorNsfw(criarMotorNsfwRemoto());
 let running = false;
 let intervaloMsConfigurado = Number(intervalInput.value) * 1000;
 
@@ -105,7 +113,7 @@ function aoUi(evento: EventoUi): ItemHistorico | void {
       };
     }
     case "desenhar_caixas":
-      drawBoxes(evento.objetos);
+      drawBoxes(evento.objetos, evento.nsfw);
       return;
     case "preparar_canvas":
       overlay.width = evento.largura;
@@ -174,6 +182,10 @@ const controladorFrame = new CycleController({
   criarMotorVisao: (opcoes) => new MotorVisao(opcoes),
   obterModeloVisao: () => modeloVisaoSelecionado(),
   obterIntervaloMs: () => intervaloMsConfigurado,
+  classificadorNsfw,
+  // So carrega quando o toggle esta ligado no inicio da sessao; desligado, o
+  // modo de frame unico roda exatamente como antes.
+  obterModeloNsfw: () => (nsfwToggle.checked ? MODELO_NSFW_PADRAO : undefined),
 });
 
 /**
@@ -393,7 +405,10 @@ function habilitarSeletoresDeMotor(habilitado: boolean): void {
   nsfwToggle.disabled = !habilitado;
 }
 
-function drawBoxes(objetos: ReadonlyArray<{ nome: string; score: number; caixa: Caixa }>): void {
+function drawBoxes(
+  objetos: ReadonlyArray<{ nome: string; score: number; caixa: Caixa }>,
+  nsfw: ReadonlyArray<MarcacaoNsfwLog> = []
+): void {
   ctx.clearRect(0, 0, overlay.width, overlay.height);
   ctx.lineWidth = 3;
   ctx.font = "16px 'Segoe UI', sans-serif";
@@ -410,6 +425,25 @@ function drawBoxes(objetos: ReadonlyArray<{ nome: string; score: number; caixa: 
     ctx.fillRect(xmin, ymin, textWidth + 12, 22);
     ctx.fillStyle = "#fff";
     ctx.fillText(label, xmin + 6, ymin + 3);
+  }
+
+  // NSFW: caixas normalizadas [0,1] relativas ao frame; cor distinta para nao
+  // se confundirem com as deteccoes COCO (pixels).
+  for (const m of nsfw) {
+    const { xmin, ymin, xmax, ymax } = m.caixa;
+    const x = xmin * overlay.width;
+    const y = ymin * overlay.height;
+    const w = (xmax - xmin) * overlay.width;
+    const h = (ymax - ymin) * overlay.height;
+    ctx.strokeStyle = "#ff4d6d";
+    ctx.strokeRect(x, y, w, h);
+
+    const label = `NSFW ${m.rotulo} ${(m.score * 100).toFixed(0)}%`;
+    const textWidth = ctx.measureText(label).width;
+    ctx.fillStyle = "#ff4d6d";
+    ctx.fillRect(x, y, textWidth + 12, 22);
+    ctx.fillStyle = "#fff";
+    ctx.fillText(label, x + 6, y + 3);
   }
 }
 
@@ -500,6 +534,17 @@ function criarItem(entry: EntradaLog): HTMLLIElement {
     }
   }
   corpo.appendChild(objs);
+  if (entry.nsfw && entry.nsfw.length > 0) {
+    const nsfw = document.createElement("div");
+    nsfw.className = "objs";
+    for (const m of entry.nsfw) {
+      const tag = document.createElement("span");
+      tag.className = "tag nsfw";
+      tag.textContent = `NSFW ${m.rotulo} ${(m.score * 100).toFixed(0)}%`;
+      nsfw.appendChild(tag);
+    }
+    corpo.appendChild(nsfw);
+  }
   li.appendChild(corpo);
   return li;
 }
@@ -702,7 +747,7 @@ modeloVisaoSelect.addEventListener("change", () => {
 nsfwToggle.addEventListener("change", () => {
   setStatus(
     nsfwToggle.checked
-      ? "NSFW experimental: ligado. As marcacoes entram no contexto do modelo de visao ao iniciar a analise."
+      ? "NSFW experimental: ligado. As marcacoes e a descricao explicita seguem no contexto, no prompt e na resposta."
       : "NSFW experimental: desligado."
   );
 });

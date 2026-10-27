@@ -133,6 +133,29 @@ describe("montarEntrada", () => {
     expect(montarEntrada({ tipo: "roteiro", papel: "qualquer" }).papel).toBeUndefined();
     expect(montarEntrada({ tipo: "roteiro", papel: "delta" }).papel).toBe("delta");
   });
+
+  it("normaliza marcacoes NSFW do payload, limitando score e caixa", () => {
+    const entrada = montarEntrada({
+      nsfw: [
+        {
+          rotulo: "porn",
+          score: 1.7,
+          caixa: { xmin: -1, ymin: 0.25, xmax: 2, ymax: 0.75 },
+        },
+        { rotulo: 123, score: 0.5, caixa: {} },
+        "lixo",
+      ],
+    });
+    expect(entrada.nsfw).toEqual([
+      {
+        rotulo: "porn",
+        score: 1,
+        caixa: { xmin: 0, ymin: 0.25, xmax: 1, ymax: 0.75 },
+      },
+    ]);
+    expect(montarEntrada({ nsfw: [] }).nsfw).toEqual([]);
+    expect(montarEntrada({}).nsfw).toBeUndefined();
+  });
 });
 
 describe("appendLogEntry", () => {
@@ -293,10 +316,14 @@ describe("seguranca de rede", () => {
     expect(validarPayloadLog({ resumo: 1 })).toContain("resumo");
     expect(validarPayloadLog({ objetos: [], resumo: "ok" })).toBeNull();
     expect(validarPayloadLog({ resumo: "ok", capturadoEm: 42 })).toContain("capturadoEm");
+    expect(validarPayloadLog({ resumo: "ok", nsfw: "x" })).toContain("nsfw");
+    expect(validarPayloadLog({ resumo: "ok", nsfw: [] })).toBeNull();
 
     expect(validarPayloadVisao({ imagem: 42 })).toContain("imagem");
     expect(validarPayloadVisao({ imagem: "QkxPQ" })).toBeNull();
     expect(validarPayloadVisao({ imagem: "QkxPQ", capturadoEm: false })).toContain("capturadoEm");
+    expect(validarPayloadVisao({ imagem: "QkxPQ", nsfw: {} })).toContain("nsfw");
+    expect(validarPayloadVisao({ imagem: "QkxPQ", nsfw: [] })).toBeNull();
   });
 });
 
@@ -773,6 +800,94 @@ describe("createServer", () => {
         modelo: "qwen2.5-vl-3b-instruct",
         objetos: [],
         tipo: "descricao",
+      });
+    } finally {
+      server.close();
+    }
+  });
+
+  it("POST /api/visao preserva NSFW no prompt e no log, com caixas normalizadas", async () => {
+    let corpoVisao: Record<string, unknown> | null = null;
+    const sse =
+      [
+        `data: ${JSON.stringify({ model: "m", choices: [{ delta: { content: "Pessoa nua, seios e genitais visiveis." } }] })}`,
+        `data: ${JSON.stringify({
+          model: "m",
+          choices: [{ delta: {}, finish_reason: "stop" }],
+          usage: { completion_tokens: 12 },
+        })}`,
+        "data: [DONE]",
+      ].join("\n") + "\n";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/v1/chat/completions")) {
+          if (init?.body) corpoVisao = JSON.parse(String(init.body)) as Record<string, unknown>;
+          return { ok: true, body: new Response(sse).body };
+        }
+        return realFetch(input, init);
+      })
+    );
+
+    const logFile = path.join(tmpDir, "visao-nsfw.jsonl");
+    const server = createServer({
+      logFile,
+      publicDir: tmpDir,
+      backendUrl: "http://localhost:1234",
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/visao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imagem: "data:image/jpeg;base64,QkxPQ",
+          modelo: "m",
+          nsfw: [
+            {
+              rotulo: "porn",
+              score: 0.9,
+              caixa: { xmin: 0.1, ymin: 0.2, xmax: 0.5, ymax: 0.8 },
+            },
+          ],
+        }),
+      });
+      expect(res.status).toBe(200);
+      const eventos = (await res.text())
+        .trim()
+        .split("\n")
+        .map((linha) => JSON.parse(linha) as { type: string; nsfw?: unknown });
+      const done = eventos.find((e) => e.type === "done");
+      expect(done?.nsfw).toEqual([
+        {
+          rotulo: "porn",
+          score: 0.9,
+          caixa: { xmin: 0.1, ymin: 0.2, xmax: 0.5, ymax: 0.8 },
+        },
+      ]);
+
+      const corpoVisto = corpoVisao as unknown as Record<string, unknown>;
+      const conteudo = (corpoVisto.messages as { content: unknown }[])[0].content as {
+        type: string;
+        text?: string;
+      }[];
+      expect(conteudo[0].text).toContain("CONTEUDO ADULTO (NSFW)");
+      expect(conteudo[0].text).toContain("sem eufemismos");
+      expect(conteudo[0].text).toContain("porn 0.900");
+
+      const linhas = (await readFile(logFile, "utf8")).trim().split("\n");
+      expect(JSON.parse(linhas[0])).toMatchObject({
+        resumo: "Pessoa nua, seios e genitais visiveis.",
+        nsfw: [
+          {
+            rotulo: "porn",
+            score: 0.9,
+            caixa: { xmin: 0.1, ymin: 0.2, xmax: 0.5, ymax: 0.8 },
+          },
+        ],
       });
     } finally {
       server.close();

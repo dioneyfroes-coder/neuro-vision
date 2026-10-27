@@ -155,6 +155,39 @@ describe("montarPromptInterpretacao", () => {
     expect(prompt).toContain("f1");
   });
 
+  it("inclui bloco NSFW explicito por imagem quando o subsistema rodou", () => {
+    const o1: ObservacaoFrame = {
+      ...OBS_BASE,
+      frameId: "f1",
+      capturadoEmMs: 0,
+      imagem: "img1",
+      nsfw: {
+        marcacoes: [
+          {
+            rotulo: "porn",
+            score: 0.87,
+            caixa: { xmin: 0.1, ymin: 0.2, xmax: 0.5, ymax: 0.8 },
+          },
+        ],
+      },
+      metricas: {
+        subsistemas: {
+          deteccao: { status: "ok" },
+          pose: { status: "ok" },
+          maos: { status: "ok" },
+          nsfw: { status: "ok" },
+        },
+      },
+    };
+    const pacote: PacoteCiclo = { ...PACOTE, observacoes: [o1] };
+    const { contexto } = montarContextoCiclo(pacote);
+    const prompt = montarPromptInterpretacao(contexto);
+    expect(prompt).toContain("CONTEUDO ADULTO (NSFW)");
+    expect(prompt).toContain("sem eufemismos");
+    expect(prompt).toContain("Imagem 1 (frameId f1): porn 0.870");
+    expect(prompt).toContain("nsfw=[");
+  });
+
   it("sem dados locais (variante B) o prompt marca subsistemas como nao_carregado", () => {
     const o1: ObservacaoFrame = { ...OBS_BASE, frameId: "f1", capturadoEmMs: 0, imagem: "img1" };
     const pacote: PacoteCiclo = { ...PACOTE, observacoes: [o1] };

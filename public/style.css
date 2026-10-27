@@ -334,6 +334,11 @@ button.ghost:hover:not(:disabled) {
   font-size: 12px;
 }
 
+#log li .tag.nsfw {
+  background: rgba(255, 77, 109, 0.16);
+  color: #ff4d6d;
+}
+
 #log li .empty { color: var(--muted); }
 
 #log li .desc {

@@ -282,7 +282,8 @@ function coletarIndisponibilidades(observacoes: ObservacaoFrame[]): string[] {
  * frame e imagem. Ordem de descarte (do mais caro/menos critico ao essencial):
  * 1. landmarks completos de mao; 2. keypoints alem dos essenciais; 3. movimento;
  * 4. eventos temporais; 5. deteccoes/pessoas restantes. `frameId`, timestamp,
- * `versao` e o estado do subsistema nunca sao removidos.
+ * `versao`, o estado do subsistema e as **marcacoes NSFW** nunca sao removidos:
+ * quando o classificador esta ativo, a informacao +18 e evidencia essencial.
  */
 function limitarPorBytes(contexto: ContextoCicloSerializavel, maxBytes: number): void {
   if (tamanhoBytes(contexto) <= maxBytes) return;
@@ -307,15 +308,13 @@ function limitarPorBytes(contexto: ContextoCicloSerializavel, maxBytes: number):
   for (const frame of contexto.frames) frame.movimento = [];
   if (tamanhoBytes(contexto) <= maxBytes) return;
 
-  // 4. Marcacoes NSFW (experimental).
-  for (const frame of contexto.frames) delete frame.nsfw;
-  if (tamanhoBytes(contexto) <= maxBytes) return;
-
-  // 5. Eventos temporais.
+  // 4. Eventos temporais.
   contexto.eventosTemporais = [];
   if (tamanhoBytes(contexto) <= maxBytes) return;
 
-  // 6. Deteccoes menos confiaveis primeiro; depois pessoas/maos alem da primeira.
+  // 5. Deteccoes menos confiaveis primeiro; depois pessoas/maos alem da primeira.
+  // As marcacoes NSFW ficam intactas de proposito: sao a evidencia +18 que o
+  // modelo precisa para descrever o conteudo sem omitir.
   for (const frame of contexto.frames) {
     frame.deteccoes = frame.deteccoes.slice(0, 3);
     frame.pessoas = frame.pessoas.slice(0, 2);

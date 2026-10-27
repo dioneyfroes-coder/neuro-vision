@@ -12,6 +12,21 @@ export interface ObjetoVisto {
   caixa: Caixa;
 }
 
+/**
+ * Marcacao NSFW persistida no historico e enviada ao modelo de visao.
+ *
+ * Diferente de `MarcacaoNsfw` (dominio, caixa em pixels da imagem analisada),
+ * aqui a caixa ja esta **normalizada em [0, 1]** — independente da resolucao da
+ * captura, o que mantem log, prompt e desenho coerentes entre modos.
+ */
+export interface MarcacaoNsfwLog {
+  /** Rotulo do proprio modelo (em ingles, ex.: `porn`, `sexy`). */
+  rotulo: string;
+  /** Confianca em [0, 1]. */
+  score: number;
+  caixa: Caixa;
+}
+
 export type TipoEntrada = "deteccao" | "descricao" | "roteiro";
 
 /** Razao que acionou uma analise do modelo de visao (Fase 5). */
@@ -48,6 +63,12 @@ export interface EntradaLog {
   sessaoId?: string;
   /** Identificador do frame que gerou esta entrada (reutilizado para deduplicar snapshots). */
   frameId?: string;
+  /**
+   * Marcacoes do classificador NSFW experimental, com caixas normalizadas.
+   * Presente apenas quando o subsistema rodou nesta analise (lista vazia =
+   * rodou e nao encontrou nada).
+   */
+  nsfw?: MarcacaoNsfwLog[];
 }
 
 /** Objeto acompanhado ao longo de varios frames dentro de uma sessao. */

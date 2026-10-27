@@ -220,6 +220,71 @@ describe("schema versionado (contexto-1)", () => {
       expect(frame.subsistemas.deteccao.status).toBeDefined();
     }
   });
+
+  it("preserva marcacoes NSFW normalizadas e o estado do subsistema", () => {
+    const o = observacao({
+      nsfw: {
+        marcacoes: [
+          {
+            rotulo: "porn",
+            score: 0.8765,
+            caixa: { xmin: 20, ymin: 40, xmax: 100, ymax: 200 },
+          },
+        ],
+        modelo: "erax_nsfw_yolo11n",
+      },
+      metricas: {
+        subsistemas: {
+          deteccao: { status: "ok" },
+          pose: { status: "ok" },
+          maos: { status: "ok" },
+          nsfw: { status: "ok", modelo: "erax_nsfw_yolo11n" },
+        },
+      },
+    });
+    const { contexto } = montarContextoCiclo(pacote([o]));
+    expect(contexto.frames[0].subsistemas.nsfw).toMatchObject({ status: "ok" });
+    expect(contexto.frames[0].nsfw).toEqual([
+      {
+        rotulo: "porn",
+        score: 0.88,
+        caixa: { xmin: 0.1, ymin: 0.1, xmax: 0.5, ymax: 0.5 },
+      },
+    ]);
+  });
+
+  it("nunca descarta marcacoes NSFW ao reduzir o contexto por bytes", () => {
+    const o = observacao({
+      frameId: "f-nsfw",
+      nsfw: {
+        marcacoes: [
+          {
+            rotulo: "porn",
+            score: 0.9,
+            caixa: { xmin: 20, ymin: 40, xmax: 100, ymax: 200 },
+          },
+        ],
+      },
+      metricas: {
+        subsistemas: {
+          deteccao: { status: "ok" },
+          pose: { status: "ok" },
+          maos: { status: "ok" },
+          nsfw: { status: "ok" },
+        },
+      },
+    });
+    // Teto bem abaixo do contexto completo: todas as reducoes nao-NSFW rodam.
+    const { contexto } = montarContextoCiclo(pacote([o]), { maxBytesContexto: 400 });
+    expect(contexto.frames[0].nsfw).toEqual([
+      {
+        rotulo: "porn",
+        score: 0.9,
+        caixa: { xmin: 0.1, ymin: 0.1, xmax: 0.5, ymax: 0.5 },
+      },
+    ]);
+    expect(contexto.frames[0].subsistemas.nsfw?.status).toBe("ok");
+  });
 });
 
 describe("estadoSubsistema", () => {

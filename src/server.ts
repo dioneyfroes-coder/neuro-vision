@@ -60,11 +60,13 @@ import type {
   Caixa,
   EntradaLog,
   EventoVisual,
+  MarcacaoNsfwLog,
   MotivoAnalise,
   ObjetoVisto,
   TipoEntrada,
   TipoEventoVisual,
 } from "./types";
+import { normalizarCaixaNsfw } from "./nsfw-prompt";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -274,6 +276,31 @@ function normalizarObjetos(valor: unknown): ObjetoVisto[] {
   return objetos;
 }
 
+/**
+ * Normaliza marcacoes NSFW recebidas do cliente.
+ *
+ * O cliente ja envia caixas normalizadas; aqui apenas validamos tipos e
+ * limitamos score/caixa a [0, 1]. Uma lista vazia e preservada (o subsistema
+ * rodou e nao encontrou nada), enquanto `undefined` significa desligado.
+ */
+function normalizarMarcacoesNsfw(valor: unknown): MarcacaoNsfwLog[] | undefined {
+  if (valor === undefined || valor === null) return undefined;
+  if (!Array.isArray(valor)) return undefined;
+  const marcacoes: MarcacaoNsfwLog[] = [];
+  for (const item of valor) {
+    if (typeof item !== "object" || item === null) continue;
+    const m = item as Record<string, unknown>;
+    if (typeof m.rotulo !== "string" || m.rotulo.length === 0) continue;
+    const score = campoNumero(m.score);
+    marcacoes.push({
+      rotulo: m.rotulo,
+      score: score === undefined ? 0 : Math.min(1, Math.max(0, score)),
+      caixa: normalizarCaixaNsfw(normalizarCaixa(m.caixa)),
+    });
+  }
+  return marcacoes;
+}
+
 const MOTIVOS_VALIDOS: MotivoAnalise[] = [
   "primeira_analise",
   "mudanca_de_cena",
@@ -332,6 +359,7 @@ export function montarEntrada(payload: unknown): EntradaLog {
     motivo: normalizarMotivo(p.motivo),
     sessaoId: typeof p.sessaoId === "string" ? p.sessaoId : undefined,
     frameId: typeof p.frameId === "string" ? p.frameId : undefined,
+    nsfw: normalizarMarcacoesNsfw(p.nsfw),
   };
 }
 
@@ -506,6 +534,9 @@ export function validarPayloadLog(payload: unknown): string | null {
   if (p.objetos !== undefined && !Array.isArray(p.objetos)) {
     return "campo 'objetos' deve ser uma lista";
   }
+  if (p.nsfw !== undefined && !Array.isArray(p.nsfw)) {
+    return "campo 'nsfw' deve ser uma lista";
+  }
   const texto =
     campoTipoTexto(p.resumo, "resumo") ??
     campoTipoTexto(p.modelo, "modelo") ??
@@ -544,6 +575,9 @@ export function validarPayloadVisao(payload: unknown): string | null {
   if (texto) return texto;
   const erroImagens = validarListaImagens(p.imagens);
   if (erroImagens) return erroImagens;
+  if (p.nsfw !== undefined && !Array.isArray(p.nsfw)) {
+    return "campo 'nsfw' deve ser uma lista";
+  }
   if (p.motivo !== undefined && p.motivo !== null && !normalizarMotivo(p.motivo)) {
     return "campo 'motivo' tem valor invalido";
   }
@@ -1071,6 +1105,8 @@ async function streamVisao(
     base?: boolean;
     motivo?: MotivoAnalise;
     capturadoEm?: string;
+    /** Marcacoes NSFW normalizadas; `undefined` = subsistema desligado. */
+    nsfw?: MarcacaoNsfwLog[];
     apiKey?: string;
   },
   logFile: string,
@@ -1134,6 +1170,7 @@ async function streamVisao(
       ms: resumo.duracaoMs,
       tokens: resumo.tokens,
       motivo: opcoes.motivo,
+      nsfw: opcoes.nsfw,
     };
     const snap = await salvarSnapshot(snapshot, snapDir);
     if (snap) entry.snapshot = snap;
@@ -1151,6 +1188,7 @@ async function streamVisao(
         tipo,
         papel,
         motivo: entry.motivo,
+        nsfw: entry.nsfw,
         semMudanca: false,
       }) + "\n"
     );
@@ -1227,6 +1265,7 @@ async function handleVisao(
         base: p.base === true,
         motivo: normalizarMotivo(p.motivo),
         capturadoEm: typeof p.capturadoEm === "string" ? p.capturadoEm : undefined,
+        nsfw: normalizarMarcacoesNsfw(p.nsfw),
       },
       config.logFile ?? LOG_FILE,
       config.snapDir ?? SNAP_DIR,

@@ -86,10 +86,21 @@ pré/pós-processamento, coberta pelos testes determinísticos.
 
 ## NSFW experimental (toggle da interface)
 
-O checkbox **NSFW (experimental)** (`#nsfw`) liga um quarto subsistema do pipeline local: um classificador YOLO treinado para conteúdo sensível (mesmo runtime `onnxruntime-web`/WASM e mesma sessão compartilhada do detector COCO). Com o toggle ligado **na inicialização da sessão**, cada frame ganha marcações (`rotulo`, `score`, `caixa`) que:
+O checkbox **NSFW (experimental)** (`#nsfw`) liga um subsistema do pipeline local: um classificador YOLO treinado para conteúdo sensível (YOLO11 ONNX, executado no worker ONNX dedicado, com tentativa WebGPU e recriação em WASM). Com o toggle ligado **na inicialização da sessão**, cada frame ganha marcações (`rotulo`, `score`, `caixa`) que:
 
-- entram no **contexto estruturado enviado ao modelo de visão** (campo `nsfw` do frame no schema `contexto-1`) — somente quando o toggle está ligado e os dados locais vão ao multimodal (variantes C/D); com o toggle desligado o campo é omitido por completo;
-- aparecem no diagnóstico por ciclo (`observacoes[].nsfw`, métrica `nsfwMs`, `subsistemasIndisponiveis`).
+- entram no **contexto estruturado** dos modos multiframe C/D (campo `nsfw` do frame no schema `contexto-1`) e no **corpo de `/api/visao`** de todos os modos; com o toggle desligado o campo é omitido por completo;
+- são devolvidas no `done` do stream, ficando também na entrada persistida (`visao.jsonl`) e no diagnóstico por ciclo (`observacoes[].nsfw`, métrica `nsfwMs`, `subsistemasIndisponiveis`);
+- aparecem na interface: caixas em vermelho sobre o frame e tags `.tag.nsfw` na entrada do histórico.
+
+### Contexto, prompt e resposta sem censura
+
+Quando o NSFW está ativo, a informação +18 é preservada de ponta a ponta:
+
+- o **contexto** mantém todas as marcações NSFW mesmo sob `maxBytesContexto`; o teto reduz primeiro landmarks/keypoints, movimento, eventos e detecções/pessoas, nunca o campo `nsfw`;
+- o **prompt** recebe o bloco de `src/nsfw-prompt.ts`: instrução explícita para descrever nudez e atos sexuais com termos anatômicos, sem eufemismos, censura ou recusa, usando as marcações como evidência e sem inventar o que não está visível. No multiframe o bloco lista as marcações por imagem/frame; no frame único ele acompanha o prompt padrão de descrição/roteiro;
+- a **resposta** do modelo não é censurada nem filtrada pelo app; o texto explícito é exibido e persistido como qualquer outra descrição.
+
+Em `Deteccao` e `Eventos`, o NSFW roda em paralelo à percepção e o resultado é reaproveitado pela análise de visão do mesmo frame. Em `Visao` e `Roteiro`, ele roda antes da chamada multimodal. Falha ao carregar o classificador não derruba a sessão: gera aviso operacional (`origem: nsfw`) e o ciclo segue sem o bloco.
 
 Detalhes:
 

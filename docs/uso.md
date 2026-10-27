@@ -142,6 +142,16 @@ A detecção de objetos roda em **worker dedicado**. O runtime tenta **WebGPU** 
 
 Nos modos multiframe (C/D), cada frame carrega **telemetria por subsistema** em `metricas.subsistemas`: `status` (`ok`/`sem_resultado`/`indisponivel`/`nao_carregado`), `modelo`, `dispositivo`, `versao` e `motivoFalha`. Ela distingue "rodou e não encontrou nada" (`sem_resultado`) de "não rodou" (`indisponivel`/`nao_carregado`) — princípio 8, falha ≠ ausência. Para as mãos/gestos, `dispositivo` mostra se o MediaPipe caiu do **GPU para o CPU** (fallback automático).
 
+## NSFW experimental
+
+O checkbox **NSFW (experimental)** no cabeçalho liga o classificador local de conteúdo adulto. Ele vale para a próxima inicialização de sessão e funciona em **todos os modos**: frame único (`Deteccao`, `Eventos`, `Visao`, `Roteiro`) e multiframe C/D. Com ele ligado:
+
+- as marcações (`rotulo`, `score`, `caixa`) vão ao contexto (multiframe), ao prompt/corpo de `/api/visao` (quando o modo chama o modelo) e ao log;
+- o modelo recebe instrução explícita para descrever conteúdo adulto sem eufemismos ou censura, e a resposta não é filtrada pelo app;
+- as caixas aparecem sobre o frame e as tags `.tag.nsfw` na entrada do histórico.
+
+O classificador roda localmente. Ele requer os pesos exportados em `modelos/yolonsfw/` (instruções em [`modos.md`](./modos.md#nsfw-experimental-toggle-da-interface)); sem eles, a sessão continua e registra um aviso operacional, sem o bloco NSFW.
+
 ## Scripts
 
 | Script | Descrição |

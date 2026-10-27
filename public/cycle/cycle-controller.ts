@@ -1,4 +1,4 @@
-import type { Caixa, EntradaLog, EventoVisual, MotivoAnalise } from "../../src/types";
+import type { Caixa, EntradaLog, EventoVisual, MarcacaoNsfwLog, MotivoAnalise } from "../../src/types";
 import { colapsarRepeticoes } from "../../src/texto";
 import { entradaDeResultado } from "../../src/percepcao";
 import type { MotorPercepcao, ResultadoPercepcao } from "../../src/percepcao";
@@ -7,10 +7,12 @@ import { DetectorMudancaDeCena } from "../../src/cena";
 import { ehCancelamento } from "../../src/erros";
 import { PoliticaAnalise, comMotivo, rotuloMotivo } from "../../src/politica-analise";
 import { criarSessionId, uuid } from "../../src/domain/ids";
+import { normalizarMarcacoesNsfw, resumirMarcacoesNsfw } from "../../src/nsfw-prompt";
 import { AgendadorAnalise } from "../scheduler";
 import type { FilaPersistencia } from "../persistencia";
 import type { DefinicaoModo } from "../modos";
 import type { OpcoesMotorVisao } from "../motores";
+import type { ClassificadorNsfw } from "../perception/contracts";
 
 /**
  * Controlador do ciclo (Etapa 2 do roteiro de modularizacao).
@@ -35,7 +37,12 @@ export type EventoUi =
   | { tipo: "status"; texto: string }
   | { tipo: "spinner"; ativo: boolean }
   | { tipo: "exibir_entrada"; entrada: EntradaLog }
-  | { tipo: "desenhar_caixas"; objetos: ReadonlyArray<{ nome: string; score: number; caixa: Caixa }> }
+  | {
+      tipo: "desenhar_caixas";
+      objetos: ReadonlyArray<{ nome: string; score: number; caixa: Caixa }>;
+      /** Marcacoes NSFW com caixas normalizadas (desenhadas em cor distinta). */
+      nsfw?: ReadonlyArray<MarcacaoNsfwLog>;
+    }
   | { tipo: "preparar_canvas"; largura: number; altura: number }
   | { tipo: "limpar_canvas" }
   | { tipo: "iniciando" }
@@ -87,10 +94,34 @@ export interface DependenciasCiclo {
   obterModeloVisao: () => string | undefined;
   /** Intervalo entre ciclos lido da interface. */
   obterIntervaloMs: () => number;
+  /**
+   * Classificador NSFW experimental injetado pelo app (worker-first). Quando
+   * ausente, o modo de frame unico roda sem o subsistema.
+   */
+  classificadorNsfw?: ClassificadorNsfw;
+  /** Modelo NSFW a carregar; `undefined` desliga o subsistema nesta sessao. */
+  obterModeloNsfw?: () => string | undefined;
 }
 
 function gerarId(): string {
   return uuid().replace(/-/g, "").slice(0, 12);
+}
+
+/**
+ * Dimensoes da imagem apos `Camera.capturarFrame(maxWidth)`: mesma regra de
+ * escala usada pela captura, para normalizar caixas NSFW sem depender do
+ * tamanho original do video.
+ */
+function dimensoesReduzidas(
+  largura: number,
+  altura: number,
+  maxWidth: number
+): { largura: number; altura: number } {
+  const escala = maxWidth > 0 && largura > maxWidth ? maxWidth / largura : 1;
+  return {
+    largura: Math.round(largura * escala),
+    altura: Math.round(altura * escala),
+  };
 }
 
 /**
@@ -134,6 +165,8 @@ export class CycleController implements ControladorCiclo {
   private roteiroPrimeiro = true;
   private frameIdAtual: string | null = null;
   private manualSolicitado = false;
+  /** NSFW carregado com sucesso nesta sessao; falha de carga nao derruba o ciclo. */
+  private nsfwAtivo = false;
 
   constructor(private readonly deps: DependenciasCiclo) {
     this.rastreador = new RastreadorObjetos({}, this.sessaoId);
@@ -275,6 +308,11 @@ export class CycleController implements ControladorCiclo {
         this.falharInicializacao("A camera foi encerrada durante a inicializacao.");
         return;
       }
+      await this.carregarNsfw();
+      if (!this.deps.camera.ativa) {
+        this.falharInicializacao("A camera foi encerrada durante a inicializacao.");
+        return;
+      }
       this.rodando = true;
       this.politica.reiniciar();
       this.deps.aoUi({ tipo: "pronto", definicao });
@@ -329,6 +367,54 @@ export class CycleController implements ControladorCiclo {
     }
   }
 
+  /**
+   * Carrega o classificador NSFW quando o toggle esta ligado.
+   *
+   * Falha de carga **nao** aborta a sessao: o restante do modo continua e a
+   * analise segue sem o bloco NSFW (registrado como aviso operacional).
+   */
+  private async carregarNsfw(): Promise<void> {
+    const modelo = this.deps.obterModeloNsfw?.();
+    const classificador = this.deps.classificadorNsfw;
+    if (!modelo || !classificador) {
+      this.nsfwAtivo = false;
+      return;
+    }
+    this.deps.aoUi({ tipo: "spinner", ativo: true });
+    try {
+      await classificador.carregar(modelo, (mensagem) => this.status(mensagem));
+      this.nsfwAtivo = true;
+    } catch (err) {
+      this.nsfwAtivo = false;
+      this.registrarOperacional("aviso", "nsfw", (err as Error).message);
+      this.status(`NSFW indisponivel; seguindo sem o bloco NSFW: ${(err as Error).message}`);
+    } finally {
+      this.deps.aoUi({ tipo: "spinner", ativo: false });
+    }
+  }
+
+  /**
+   * Roda o classificador NSFW no frame e devolve as marcacoes normalizadas.
+   *
+   * `undefined` = subsistema desligado ou falhou nesta analise; lista vazia =
+   * rodou e nao encontrou nada. Falha e nao fatal e fica registrada.
+   */
+  private async avaliarNsfw(
+    imagem: string,
+    dimensoes: { largura: number; altura: number }
+  ): Promise<MarcacaoNsfwLog[] | undefined> {
+    const classificador = this.deps.classificadorNsfw;
+    if (!this.nsfwAtivo || !classificador) return undefined;
+    try {
+      const resultado = await classificador.avaliar({ imagem, dimensoes });
+      return normalizarMarcacoesNsfw(resultado.marcacoes, dimensoes);
+    } catch (err) {
+      this.registrarOperacional("aviso", "nsfw", (err as Error).message);
+      this.status(`NSFW indisponivel neste frame: ${(err as Error).message}`);
+      return undefined;
+    }
+  }
+
   private encerrar(): void {
     this.rodando = false;
     this.agendador.parar();
@@ -338,6 +424,8 @@ export class CycleController implements ControladorCiclo {
     }
     this.motorAtual?.encerrar();
     this.motorAtual = null;
+    this.deps.classificadorNsfw?.encerrar();
+    this.nsfwAtivo = false;
     this.deps.camera.encerrar();
   }
 
@@ -399,7 +487,14 @@ export class CycleController implements ControladorCiclo {
     signal: AbortSignal,
     ehRoteiro: boolean,
     motivo?: MotivoAnalise | null,
-    capturaVisao?: { imagem: string; thumb: string; capturadoEm: string }
+    capturaVisao?: {
+      imagem: string;
+      thumb: string;
+      capturadoEm: string;
+      /** NSFW ja avaliado no mesmo frame (fluxo de eventos); evita repetir. */
+      nsfw?: MarcacaoNsfwLog[];
+      nsfwAvaliado?: boolean;
+    }
   ): Promise<void> {
     const camera = this.deps.camera;
     const capturadoEm = capturaVisao?.capturadoEm ?? new Date().toISOString();
@@ -411,6 +506,17 @@ export class CycleController implements ControladorCiclo {
     this.deps.aoUi({ tipo: "limpar_canvas" });
 
     const base64 = dataUrl.split(",")[1] ?? "";
+    // `capturarFrame(512)` reduz a imagem; as caixas NSFW precisam das
+    // dimensoes da imagem efetivamente analisada para normalizar.
+    const dimensoes = capturaVisao
+      ? { largura: width, altura: height }
+      : dimensoesReduzidas(width, height, 512);
+    let nsfw = capturaVisao?.nsfw;
+    if (capturaVisao?.nsfwAvaliado !== true) {
+      nsfw = await this.avaliarNsfw(dataUrl, dimensoes);
+    }
+    if (signal.aborted) return;
+
     this.status(`LM Studio analisando frame... (pode demorar)`);
 
     const motor = this.deps.criarMotorVisao({
@@ -420,6 +526,7 @@ export class CycleController implements ControladorCiclo {
       base: ehRoteiro ? this.roteiroPrimeiro : undefined,
       anterior: ehRoteiro ? undefined : this.ultimaDescricao,
       motivo: motivo ?? undefined,
+      nsfw,
     });
 
     let resultado: ResultadoPercepcao | null;
@@ -453,11 +560,15 @@ export class CycleController implements ControladorCiclo {
       {
         ...entradaDeResultado(resultado, ehRoteiro ? "roteiro" : "descricao"),
         frameId: this.frameIdAtual ?? undefined,
+        nsfw,
       },
       motivo
     );
     this.ultimaDescricao = resultado.descricao ?? "";
     this.deps.aoUi({ tipo: "exibir_entrada", entrada: entry });
+    if (nsfw !== undefined) {
+      this.deps.aoUi({ tipo: "desenhar_caixas", objetos: [], nsfw });
+    }
 
     const tokens = resultado.confianca?.tokens;
     if (tokens) {
@@ -487,17 +598,21 @@ export class CycleController implements ControladorCiclo {
 
     this.status("Analisando frame...");
     let resultado: ResultadoPercepcao | null;
+    let nsfw: MarcacaoNsfwLog[] | undefined;
     try {
       if (!this.motorAtual) return;
-      resultado = await this.motorAtual.analisar(
-        {
-          imagem: captura.imagem,
-          snapshot: captura.thumb,
-          capturadoEm,
-          dimensoes: { largura: width, altura: height },
-        },
-        signal
-      );
+      [resultado, nsfw] = await Promise.all([
+        this.motorAtual.analisar(
+          {
+            imagem: captura.imagem,
+            snapshot: captura.thumb,
+            capturadoEm,
+            dimensoes: { largura: width, altura: height },
+          },
+          signal
+        ),
+        this.avaliarNsfw(captura.imagem, { largura: width, altura: height }),
+      ]);
     } catch (err) {
       if (ehCancelamento(err) || signal.aborted) return;
       this.registrarOperacional("erro", "detector", (err as Error).message);
@@ -522,16 +637,18 @@ export class CycleController implements ControladorCiclo {
       sessaoId: this.sessaoId,
     });
     const eventos = sinalCena ? [...quadro.eventos, sinalCena] : quadro.eventos;
-    this.deps.aoUi({ tipo: "desenhar_caixas", objetos: quadro.objetos });
+    this.deps.aoUi({ tipo: "desenhar_caixas", objetos: quadro.objetos, nsfw });
 
     const entry = {
       ...entradaDeResultado(resultado, "deteccao"),
       frameId: this.frameIdAtual ?? undefined,
+      nsfw,
     };
     const item = this.deps.aoUi({ tipo: "exibir_entrada", entrada: entry });
     const resumoEventos = eventos.map((e) => e.descricao).join(", ");
+    const resumoNsfw = nsfw?.length ? ` · NSFW: ${resumirMarcacoesNsfw(nsfw)}` : "";
     this.status(
-      `Viu: ${entry.resumo}  (${resultado.duracaoMs} ms)${resumoEventos ? ` · ${resumoEventos}` : ""}`
+      `Viu: ${entry.resumo}  (${resultado.duracaoMs} ms)${resumoEventos ? ` · ${resumoEventos}` : ""}${resumoNsfw}`
     );
 
     for (const evt of eventos) this.persistirEvento(evt);
@@ -558,6 +675,12 @@ export class CycleController implements ControladorCiclo {
     const assinatura = camera.assinaturaDeCena();
 
     const agora = capturadoMs;
+    // Roda junto da percepcao leve. Mesmo que a deteccao falhe, o NSFW do
+    // mesmo frame alimenta a visao acionada por `falha_percepcao`.
+    const promessaNsfw = this.avaliarNsfw(captura.imagem, {
+      largura: width,
+      altura: height,
+    });
     let resultado: ResultadoPercepcao | null;
     try {
       if (!this.motorAtual) return;
@@ -573,6 +696,7 @@ export class CycleController implements ControladorCiclo {
     } catch (err) {
       if (ehCancelamento(err) || signal.aborted) return;
       this.registrarOperacional("erro", "detector", (err as Error).message);
+      const nsfw = await promessaNsfw;
       const decisao = this.politica.avaliar({
         agora,
         eventos: [],
@@ -593,6 +717,8 @@ export class CycleController implements ControladorCiclo {
           imagem: captura.imagem,
           thumb: captura.thumb,
           capturadoEm,
+          nsfw,
+          nsfwAvaliado: true,
         });
       } else {
         this.status(`Percepcao leve falhou: ${(err as Error).message}`);
@@ -601,6 +727,8 @@ export class CycleController implements ControladorCiclo {
     }
     if (signal.aborted || !resultado) return;
     this.ultimaDuracaoMsValor = resultado.duracaoMs;
+    const nsfw = await promessaNsfw;
+    if (signal.aborted) return;
 
     const timestamp = capturadoEm;
     const quadro = this.rastreador.processar(resultado.objetos, agora, {
@@ -642,20 +770,26 @@ export class CycleController implements ControladorCiclo {
         imagem: captura.imagem,
         thumb: captura.thumb,
         capturadoEm,
+        nsfw,
+        nsfwAvaliado: true,
       });
       if (signal.aborted) return;
       // O modelo de visao limpa o canvas; desenha as caixas de novo por cima.
-      this.deps.aoUi({ tipo: "desenhar_caixas", objetos: quadro.objetos });
+      this.deps.aoUi({ tipo: "desenhar_caixas", objetos: quadro.objetos, nsfw });
       return;
     }
 
-    this.deps.aoUi({ tipo: "desenhar_caixas", objetos: quadro.objetos });
+    this.deps.aoUi({ tipo: "desenhar_caixas", objetos: quadro.objetos, nsfw });
     const entry = {
       ...entradaDeResultado(resultado, "deteccao"),
       frameId: this.frameIdAtual ?? undefined,
+      nsfw,
     };
     const item = this.deps.aoUi({ tipo: "exibir_entrada", entrada: entry });
-    this.status(`Viu: ${entry.resumo} (${resultado.duracaoMs} ms) · sem mudanca relevante`);
+    const resumoNsfw = nsfw?.length ? ` · NSFW: ${resumirMarcacoesNsfw(nsfw)}` : "";
+    this.status(
+      `Viu: ${entry.resumo} (${resultado.duracaoMs} ms) · sem mudanca relevante${resumoNsfw}`
+    );
     this.persistirEntrada(entry, item);
   }
 }

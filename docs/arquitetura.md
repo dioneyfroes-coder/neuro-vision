@@ -31,6 +31,7 @@ src/
   cena.ts              detecção de mudança de cena (sinal)
   provedor.ts          camada de protocolo do backend de visão (chat completions / LM Studio)
   visao.ts             cliente de visão (modelos, prompts de descrição/roteiro, geração e tradução)
+  nsfw-prompt.ts       instrução e formatação do bloco NSFW compartilhadas entre cliente e servidor (módulo puro)
   texto.ts             pós-processamento: colapsa repetições, detecta "sem mudança", corta frase incompleta
   types.ts             tipos compartilhados (EntradaLog, ObjetoVisto, EventoVisual, ...)
   env.ts               variáveis de ambiente (carrega o .env e expõe os padrões)
@@ -200,9 +201,12 @@ O contexto enviado ao modelo de visão é um JSON **versionado** (`public/interp
 - **mãos:** lateralidade, gesto/score e landmarks normalizados (subconjunto compacto por padrão; os 21 com `landmarksCompletos`);
 - **movimento:** deslocamento e direção (graus, topo = 0) por `tipo:trackId`, entre o frame atual e o anterior observado — não só posição isolada;
 - **estado por subsistema** (`subsistemas.deteccao|pose|maos|nsfw`): `ok`/`sem_resultado`/`indisponivel`/`nao_carregado` + motivo, alimentado pela telemetria por frame (`metricas.subsistemas`);
-- **eventos temporais:** `eventoId`, `tipo`, `inicioEm`/`fimEm`, `status`, `trackId`, `confianca`, `evidencias` (frameIds) e `gapMs` para lacunas de observação.
+- **eventos temporais:** `eventoId`, `tipo`, `inicioEm`/`fimEm`, `status`, `trackId`, `confianca`, `evidencias` (frameIds) e `gapMs` para lacunas de observação;
+- **NSFW (quando o subsistema rodou):** `nsfw` com `rotulo`, `score` e caixa normalizada em [0,1]. O campo só existe quando o toggle estava ligado — `undefined` (desligado) é diferente de lista vazia (rodou e não marcou).
 
-O teto de bytes (`maxBytesContexto`) descarta primeiro o menos crítico (landmarks/keypoints em excesso, movimento, NSFW, eventos, detecções extras); `frameId`, timestamp, `versao` e o estado do subsistema **nunca** são removidos. A variante B (`incluirDadosLocais: false`) envia só imagens e cronologia, com os subsistemas marcados `nao_carregado` (não sugerem falha).
+O teto de bytes (`maxBytesContexto`) descarta primeiro o menos crítico (landmarks completos, keypoints além dos essenciais, movimento, eventos temporais e, por fim, detecções/pessoas extras); as marcações `nsfw` **nunca** são descartadas, e `frameId`, timestamp, `versao` e o estado do subsistema também não. A variante B (`incluirDadosLocais: false`) envia só imagens e cronologia, com os subsistemas marcados `nao_carregado` (não sugerem falha).
+
+**Bloco NSFW no prompt.** Quando o subsistema NSFW rodou, `src/nsfw-prompt.ts` monta uma instrução explícita (descrever nudez/atos sexuais com termos anatômicos, sem eufemismos, censura ou recusa) e lista as marcações por imagem/frame. O bloco é anexado ao prompt padrão de `src/visao.ts` sempre que há chamada multimodal no frame único (`Eventos`, `Visao`, `Roteiro`) e incluído no prompt multiframe sempre que qualquer frame tem `subsistemas.nsfw` — inclusive quadros sem marcação, que continuam autorizados a descrever conteúdo adulto visível. O prompt explícito do multiframe já traz o bloco e não é duplicado. No modo `Deteccao` não há prompt, mas as marcações continuam na entrada e na interface. A resposta do modelo não é censurada nem filtrada pelo app.
 
 **Validação das referências do modelo.** O `InterpretadorCiclo` confronta os IDs citados pelo modelo com os frames/eventos reais do contexto (`validarReferencias`, item 6 da Fase 3): aceita `frameId`/`eventoId` exatos e resolve `"Imagem N"`/índice para o `frameId` correspondente; referências inexistentes saem de `evidencias`/`acoes[].evidencias` e ficam em `evidenciasInvalidas` — nunca se fabrica uma evidência que não exista. A inferência textual do modelo permanece separada da evidência observada, sem misturar os dois graus de certeza.
 

@@ -1,3 +1,4 @@
+import { blocoNsfwPrompt } from "../../src/nsfw-prompt";
 import type { ContextoCicloSerializavel } from "./esquema";
 
 /**
@@ -12,6 +13,10 @@ import type { ContextoCicloSerializavel } from "./esquema";
  * O contexto e **evidencia observada**: nao deve ser repetido como se fosse
  * inferencia. A tarefa distingue explicitamente o que foi observado do que o
  * modelo conclui — a saida vai no bloco de inferencia.
+ *
+ * Quando o subsistema NSFW rodou em qualquer frame, o prompt inclui um bloco
+ * explicito: as marcacoes +18 sao evidencia e o modelo deve descreve-las sem
+ * eufemismos, censura ou omissao.
  */
 export function montarPromptInterpretacao(contexto: ContextoCicloSerializavel): string {
   const frames = contexto.frames
@@ -47,6 +52,17 @@ export function montarPromptInterpretacao(contexto: ContextoCicloSerializavel): 
     )
     .join("\n");
 
+  // Subsistema NSFW ativo em qualquer frame: o bloco vale para todas as
+  // imagens, mesmo que o detector nao tenha marcado aquele frame especifico.
+  const quadrosNsfw = contexto.frames
+    .filter((f) => f.subsistemas.nsfw !== undefined)
+    .map((f) => ({
+      indice: f.indice,
+      frameId: f.frameId,
+      marcacoes: f.nsfw ?? [],
+    }));
+  const blocoNsfw = blocoNsfwPrompt(quadrosNsfw);
+
   return [
     "Voce e um analista visual que interpreta EXCLUSIVAMENTE as evidencias fornecidas.",
     "Nunca inferencie acoes, intencoes ou objetos nao visiveis.",
@@ -65,14 +81,20 @@ export function montarPromptInterpretacao(contexto: ContextoCicloSerializavel): 
     "Eventos temporais (motor local; status `incerto` = interrompido por lacuna, nao por ausencia observada):",
     eventos.length ? eventos : "- nenhum",
     "",
+    ...(blocoNsfw ? [blocoNsfw, ""] : []),
     "Tarefa:",
     "- Produza uma NARRATIVA CRONOLOGICA baseada APENAS nos dados acima e nas imagens.",
     "- Referencie os INDICES das imagens (1..N) e os frameIds/eventoIds reais.",
     "- Cite como EVIDENCIAS apenas IDs que aparecam acima (frames ou eventos). Nao invente IDs.",
-    "- Separe o que foi OBSERVADO (deteccoes/pose/maos/eventos) do que voce INFERE.",
+    "- Separe o que foi OBSERVADO (deteccoes/pose/maos/eventos/nsfw) do que voce INFERE.",
     "- Liste INCERTEZAS explicitamente se qualquer afirmacao nao for diretamente observada.",
     "- Nao adivinhe. Se nao tem evidencia, diga 'nao observado'.",
     "- Nao invente acoes nao vistas. Se houver ambiguidade, aponte incerteza.",
+    ...(blocoNsfw
+      ? [
+          "- Se houver conteudo adulto, descreva-o explicitamente, sem eufemismos, censura ou omissao.",
+        ]
+      : []),
     "",
     "Saida OBRIGATORIA em JSON (sem markdown) conforme schema:",
     '{',

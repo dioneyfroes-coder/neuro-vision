@@ -3,7 +3,7 @@ import type {
   MotorPercepcao,
   ResultadoPercepcao,
 } from "../src/percepcao";
-import type { MotivoAnalise } from "../src/types";
+import type { MarcacaoNsfwLog, MotivoAnalise } from "../src/types";
 import type { DetectorObjetos } from "./perception/contracts";
 import * as api from "./api";
 import type { PayloadVisao } from "./api";
@@ -58,6 +58,8 @@ export interface OpcoesMotorVisao {
   anterior?: string;
   /** Razao que acionou esta analise (fluxo orientado a eventos). */
   motivo?: MotivoAnalise;
+  /** Marcacoes NSFW do frame (caixas normalizadas); `undefined` = desligado. */
+  nsfw?: MarcacaoNsfwLog[];
 }
 
 /** Motor de descricao/roteiro via backend de visao, atras da interface comum. */
@@ -96,6 +98,7 @@ export class MotorVisao implements MotorPercepcao {
       payload.anterior = this.opcoes.anterior;
     }
     payload.motivo = this.opcoes.motivo;
+    if (this.opcoes.nsfw !== undefined) payload.nsfw = this.opcoes.nsfw;
 
     const { evento, parcial } = await api.descreverFrame(payload, sinal, aoProgresso);
     const descricao = evento?.descricao ?? parcial;

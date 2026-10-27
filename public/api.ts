@@ -1,4 +1,4 @@
-import type { EntradaLog, EventoVisual, MotivoAnalise, TipoEventoVisual } from "../src/types";
+import type { EntradaLog, EventoVisual, MarcacaoNsfwLog, MotivoAnalise, TipoEventoVisual } from "../src/types";
 import type { RegistroCiclo } from "../src/domain/cycle";
 import { ErroPercepcao } from "../src/erros";
 
@@ -31,6 +31,8 @@ export interface EventoVisao {
   tipo?: string;
   papel?: "base" | "delta";
   semMudanca?: boolean;
+  /** Marcacoes NSFW (caixas normalizadas) quando o subsistema rodou. */
+  nsfw?: MarcacaoNsfwLog[];
 }
 
 export interface PayloadVisao {
@@ -50,6 +52,11 @@ export interface PayloadVisao {
   base?: boolean;
   /** Razao que acionou esta analise (fluxo orientado a eventos). */
   motivo?: MotivoAnalise;
+  /**
+   * Marcacoes NSFW (caixas normalizadas) do frame. Presente mesmo vazio quando
+   * o subsistema esta ativo; `undefined` = desligado.
+   */
+  nsfw?: MarcacaoNsfwLog[];
 }
 
 export interface ResultadoVisao {
