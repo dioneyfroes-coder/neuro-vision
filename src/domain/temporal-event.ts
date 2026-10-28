@@ -11,6 +11,7 @@ export type TipoEventoTemporal =
   | "gesto_detectado"
   | "braco_levantado"
   | "movimento_corporal"
+  | "movimento_objeto"
   | "aparicao"
   | "desaparecimento"
   | "mudanca_de_cena";

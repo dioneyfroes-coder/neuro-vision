@@ -43,14 +43,22 @@ function obs(o: OpcoesObs): ObservacaoFrame {
 }
 
 /** Pose COCO (17 pontos) com os punhos em alturas configuraveis. */
-function posePessoa(punhoEsqY?: number, punhoDirY?: number): ObservacaoFrame["pose"] {
+function posePessoa(
+  punhoEsqY?: number,
+  punhoDirY?: number,
+  deslocamentoX = 0
+): ObservacaoFrame["pose"] {
   const pontos: PontoCorporal[] = Array.from({ length: 17 }, () => ({
-    x: 0.5,
+    x: 0.5 + deslocamentoX,
     y: 0.6,
     confianca: 0.9,
   }));
-  if (punhoEsqY !== undefined) pontos[9] = { x: 0.4, y: punhoEsqY, confianca: 0.9 };
-  if (punhoDirY !== undefined) pontos[10] = { x: 0.6, y: punhoDirY, confianca: 0.9 };
+  if (punhoEsqY !== undefined) {
+    pontos[9] = { x: 0.4 + deslocamentoX, y: punhoEsqY, confianca: 0.9 };
+  }
+  if (punhoDirY !== undefined) {
+    pontos[10] = { x: 0.6 + deslocamentoX, y: punhoDirY, confianca: 0.9 };
+  }
   return { pessoas: [{ pontos, confianca: 0.9 } as PessoaPose] };
 }
 
@@ -561,8 +569,42 @@ describe("MotorTemporalImpl — objetos e cena", () => {
     expect(aparicao?.frameIds.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("mudanca de assinatura de cena gera evento de cena", () => {
+  it("movimento de objeto vira movimento_objeto, nunca movimento_corporal", () => {
     reiniciarContador();
+    const motor = criarMotor();
+    const caneca = (xmin: number) => ({
+      nome: "caneca",
+      rotulo: "cup",
+      score: 0.9,
+      caixa: { xmin, ymin: 0, xmax: xmin + 100, ymax: 100 },
+    });
+    const eventos = [];
+    for (let i = 0; i < 4; i += 1) {
+      const r = motor.processar([obs({ ms: i * 100, deteccoes: { deteccoes: [caneca(i * 60)] } })]);
+      eventos.push(...r.eventos);
+    }
+    const movimento = eventos.find((e) => e.tipo === "movimento_objeto");
+    expect(movimento).toBeDefined();
+    expect(movimento?.origens).toEqual(["objetos"]);
+    expect(eventos.some((e) => e.tipo === "movimento_corporal")).toBe(false);
+  });
+
+  it("deslocamento de pessoa rastreada gera movimento_corporal com origem pose", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    const eventos = [];
+    for (let i = 0; i < 3; i += 1) {
+      const r = motor.processar([obs({ ms: i * 1_000, pose: posePessoa(undefined, undefined, i * 0.05) })]);
+      eventos.push(...r.eventos);
+    }
+    const movimento = eventos.find((e) => e.tipo === "movimento_corporal");
+    expect(movimento).toBeDefined();
+    expect(movimento?.origens).toEqual(["pose"]);
+    expect(movimento?.entidadeId).toBe(motor.pessoasVivas[0]?.entidadeId);
+    expect(eventos.some((e) => e.tipo === "movimento_objeto")).toBe(false);
+  });
+
+  it("mudanca de assinatura de cena gera evento de cena", () => {    reiniciarContador();
     const motor = criarMotor();
     const escuro = Array(9).fill(0);
     const claro = Array(9).fill(255);

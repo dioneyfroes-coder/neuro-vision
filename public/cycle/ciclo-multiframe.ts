@@ -209,6 +209,8 @@ export async function executarCicloMultiframe(
   // Declarado fora do try para que o diagnostico de um ciclo incompleto
   // (catch) tambem possa registrar o que ja foi observado.
   const observacoes: ObservacaoFrame[] = [];
+  // Copias enriquecidas com IDs de rastreamento; alimentam o pacote/contexto.
+  let observacoesEnriquecidas: ObservacaoFrame[] = observacoes;
   let resumoTemporal: ResumoTemporal = { eventos: [], entidadesAtivas: 0 };
   let metricas: MetricasCiclo = {};
 
@@ -322,7 +324,10 @@ export async function executarCicloMultiframe(
     if (deps.motorTemporal && observacoes.length > 0) {
       const inicioTemporal = agora();
       try {
-        resumoTemporal = deps.motorTemporal.processar(observacoes);
+        const resultado = deps.motorTemporal.processar(observacoes);
+        const { observacoes: enriquecidas, ...resumo } = resultado;
+        resumoTemporal = resumo;
+        observacoesEnriquecidas = enriquecidas;
       } catch (err) {
         erros.push({ etapa: "temporal", mensagem: (err as Error).message });
       }
@@ -337,7 +342,7 @@ export async function executarCicloMultiframe(
       sessionId: deps.sessaoId,
       cycleId,
       iniciadoEm,
-      observacoes,
+      observacoes: observacoesEnriquecidas,
       eventosTemporais: resumoTemporal.eventos,
       resumoTemporal,
       metricas: {
@@ -407,7 +412,7 @@ export async function executarCicloMultiframe(
           cycleId,
           iniciadoEm,
           concluidoEm,
-          observacoes,
+          observacoes: observacoesEnriquecidas,
           eventosTemporais: resumoTemporal.eventos,
           resumoTemporal,
           metricas: { ...metricas, concluidoEm },

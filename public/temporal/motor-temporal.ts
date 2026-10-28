@@ -6,7 +6,6 @@ import {
   type OrigemSinalTemporal,
   type PessoaPose,
   type PontoCorporal,
-  type ResumoTemporal,
   type TipoEventoTemporal,
 } from "../../src/domain";
 import { uuid } from "../../src/domain/ids";
@@ -17,6 +16,7 @@ import type {
   ConfigMotorTemporal,
   ConfiguracaoParcialMotorTemporal,
   MotorTemporal,
+  ResultadoTemporal,
 } from "./contracts";
 import { CONFIG_MOTOR_TEMPORAL_PADRAO } from "./contracts";
 import { RastreadorEntidades } from "./rastreador-entidades";
@@ -55,6 +55,7 @@ export class MotorTemporalImpl implements MotorTemporal {
   private readonly maos: RastreadorEntidades;
   private readonly gestos: MaquinaSinais;
   private readonly braco: MaquinaSinais;
+  private readonly movimento: MaquinaSinais;
   private ultimoTempoMs: number | null = null;
 
   constructor(config?: ConfiguracaoParcialMotorTemporal) {
@@ -64,6 +65,7 @@ export class MotorTemporalImpl implements MotorTemporal {
       rastreador: { ...CONFIG_MOTOR_TEMPORAL_PADRAO.rastreador, ...config?.rastreador },
       gestos: { ...CONFIG_MOTOR_TEMPORAL_PADRAO.gestos, ...config?.gestos },
       braco: { ...CONFIG_MOTOR_TEMPORAL_PADRAO.braco, ...config?.braco },
+      movimento: { ...CONFIG_MOTOR_TEMPORAL_PADRAO.movimento, ...config?.movimento },
     };
     this.objetos = new RastreadorObjetos();
     this.cena = new DetectorMudancaDeCena();
@@ -71,19 +73,23 @@ export class MotorTemporalImpl implements MotorTemporal {
     this.maos = new RastreadorEntidades(this.config.rastreador, "mao");
     this.gestos = new MaquinaSinais(this.config.gestos);
     this.braco = new MaquinaSinais(this.config.braco);
+    this.movimento = new MaquinaSinais(this.config.movimento);
   }
 
   /**
    * Processa a sequencia de observacoes de um ciclo e retorna o resumo
    * temporal consolidado. O estado persiste entre chamadas.
    */
-  processar(observacoes: ObservacaoFrame[]): ResumoTemporal {
+  processar(observacoes: ObservacaoFrame[]): ResultadoTemporal {
     if (observacoes.length === 0) {
-      return { eventos: [], entidadesAtivas: 0 };
+      return { eventos: [], entidadesAtivas: 0, observacoes: [] };
     }
 
     const sessionId = observacoes[0].sessionId;
     const eventos: EventoTemporal[] = [];
+    // Copias com `entidadeId` preenchido. Sao elas que alimentam os sinais e o
+    // contexto serializado; as observacoes originais sao congeladas e nao mudam.
+    const observacoesEnriquecidas: ObservacaoFrame[] = [];
     let houvePeriodoCego = false;
     let gapMs: number | undefined;
 
@@ -111,6 +117,13 @@ export class MotorTemporalImpl implements MotorTemporal {
         eventos.push(
           this.sinalParaEvento(sinal, "braco_levantado", "pose", sessionId, () =>
             "Braco levantado interrompido por periodo cego"
+          )
+        );
+      }
+      for (const sinal of this.movimento.interromperPorPeriodoCego(gapMs)) {
+        eventos.push(
+          this.sinalParaEvento(sinal, "movimento_corporal", "pose", sessionId, () =>
+            "Movimento corporal interrompido por periodo cego"
           )
         );
       }
@@ -153,14 +166,19 @@ export class MotorTemporalImpl implements MotorTemporal {
       // 3–6. Leitura temporal ampliada (pose/maos + maquinas de estado). No
       // modo `basico` apenas objetos e cena (acima) sao considerados: a variante
       // C do benchmark nao deve ganhar interpretacao temporal explicita.
-      if (this.config.modo === "basico") continue;
+      if (this.config.modo === "basico") {
+        observacoesEnriquecidas.push(obs);
+        continue;
+      }
 
-      // 3. Rastreamento de pose (pessoas) em coordenadas normalizadas.
-      const poseDisponivel = !estaIndisponivel(obs.pose);
-      let poses: PessoaPose[] = [];
+      // 3. Rastreamento de pose (pessoas) em coordenadas normalizadas. As
+      // associacoes explicitas (indice da sonda -> entidadeId) permitem copiar a
+      // observacao com identidade estavel sem tocar no objeto compartilhado.
+      let poseObservada = obs.pose;
+      let posesComTrackId: PessoaPose[] = [];
       if (!estaIndisponivel(obs.pose)) {
-        poses = obs.pose.pessoas;
-        this.pessoas.atualizar(
+        const poses = obs.pose.pessoas;
+        const rastreamento = this.pessoas.atualizarComAssociacoes(
           poses
             .map((p, i) => {
               const centro = centroide(p.pontos);
@@ -175,14 +193,21 @@ export class MotorTemporalImpl implements MotorTemporal {
             .filter((s): s is NonNullable<typeof s> => s !== null),
           tempoMs
         );
+        posesComTrackId = poses.map((p) => ({ ...p }));
+        for (const { indice, entidadeId } of rastreamento.associacoes) {
+          const pessoa = posesComTrackId[indice];
+          if (pessoa) pessoa.entidadeId = entidadeId;
+        }
+        poseObservada = { ...obs.pose, pessoas: posesComTrackId };
       }
+      const poseDisponivel = !estaIndisponivel(obs.pose);
 
       // 4. Rastreamento de maos em coordenadas normalizadas.
-      const maosDisponivel = !estaIndisponivel(obs.maos);
-      let maosVistas: MaoDetectada[] = [];
+      let maosObservadas = obs.maos;
+      let maosComTrackId: MaoDetectada[] = [];
       if (!estaIndisponivel(obs.maos)) {
-        maosVistas = obs.maos.maos;
-        this.maos.atualizar(
+        const maosVistas = obs.maos.maos;
+        const rastreamento = this.maos.atualizarComAssociacoes(
           maosVistas
             .map((m, i) => {
               const centro = centroide(m.landmarks as PontoCorporal[]);
@@ -197,10 +222,22 @@ export class MotorTemporalImpl implements MotorTemporal {
             .filter((s): s is NonNullable<typeof s> => s !== null),
           tempoMs
         );
+        maosComTrackId = maosVistas.map((m) => ({ ...m }));
+        for (const { indice, entidadeId } of rastreamento.associacoes) {
+          const mao = maosComTrackId[indice];
+          if (mao) mao.entidadeId = entidadeId;
+        }
+        maosObservadas = { ...obs.maos, maos: maosComTrackId };
       }
+      const maosDisponivel = !estaIndisponivel(obs.maos);
 
-      // 5. Maquina de braco levantado (a partir da pose).
-      const leiturasBraco = this.montarLeiturasBraco(poses, obs.capturadoEm, frameId, obs.cycleId);
+      // 5. Maquina de braco levantado (a partir da pose enriquecida).
+      const leiturasBraco = this.montarLeiturasBraco(
+        posesComTrackId,
+        obs.capturadoEm,
+        frameId,
+        obs.cycleId
+      );
       for (const sinal of this.braco.processar(leiturasBraco, { indisponivel: !poseDisponivel })) {
         eventos.push(
           this.sinalParaEvento(sinal, "braco_levantado", "pose", sessionId, (s) =>
@@ -211,8 +248,32 @@ export class MotorTemporalImpl implements MotorTemporal {
         );
       }
 
-      // 6. Maquina de gestos (a partir das maos).
-      const leiturasGesto = this.montarLeiturasGesto(maosVistas, obs.capturadoEm, frameId, obs.cycleId);
+      // 5b. Movimento corporal: deslocamento de pessoas rastreadas. Nao confundir
+      // com `movimento_objeto` (deslocamento de objetos do detector COCO).
+      const leiturasMovimento = this.montarLeiturasMovimento(
+        obs.capturadoEm,
+        frameId,
+        obs.cycleId
+      );
+      for (const sinal of this.movimento.processar(leiturasMovimento, {
+        indisponivel: !poseDisponivel,
+      })) {
+        eventos.push(
+          this.sinalParaEvento(sinal, "movimento_corporal", "pose", sessionId, (s) =>
+            s.estado === "confirmado"
+              ? "Movimento corporal"
+              : "Movimento corporal encerrado"
+          )
+        );
+      }
+
+      // 6. Maquina de gestos (a partir das maos enriquecidas).
+      const leiturasGesto = this.montarLeiturasGesto(
+        maosComTrackId,
+        obs.capturadoEm,
+        frameId,
+        obs.cycleId
+      );
       for (const sinal of this.gestos.processar(leiturasGesto, { indisponivel: !maosDisponivel })) {
         eventos.push(
           this.sinalParaEvento(sinal, "gesto_detectado", "maos", sessionId, (s) =>
@@ -222,6 +283,12 @@ export class MotorTemporalImpl implements MotorTemporal {
           )
         );
       }
+
+      observacoesEnriquecidas.push({
+        ...obs,
+        pose: poseObservada,
+        maos: maosObservadas,
+      });
     }
 
     this.ultimoTempoMs = observacoes[observacoes.length - 1].capturadoEmMs;
@@ -232,6 +299,7 @@ export class MotorTemporalImpl implements MotorTemporal {
     return {
       eventos,
       entidadesAtivas,
+      observacoes: observacoesEnriquecidas,
       houveIntervaloSemObservacao: houvePeriodoCego || undefined,
       intervaloSemObservacaoMs: gapMs,
     };
@@ -245,6 +313,7 @@ export class MotorTemporalImpl implements MotorTemporal {
     this.maos.limpar();
     this.gestos.limpar();
     this.braco.limpar();
+    this.movimento.limpar();
     this.ultimoTempoMs = null;
   }
 
@@ -264,10 +333,12 @@ export class MotorTemporalImpl implements MotorTemporal {
     frameId: string,
     cycleId: string
   ) {
+    const porEntidade = new Map<string, PessoaPose>();
+    for (const pose of poses) {
+      if (pose.entidadeId) porEntidade.set(pose.entidadeId, pose);
+    }
     return this.pessoas.vivas.map((entidade) => {
-      const visto = entidade.framesAusente === 0;
-      const indice = typeof entidade.meta.indice === "number" ? entidade.meta.indice : -1;
-      const pose = visto ? poses[indice] : undefined;
+      const pose = porEntidade.get(entidade.entidadeId);
       // Histerese: se o sinal ja esta ativo para a entidade, o punho continua
       // contando como erguido com um limiar mais folgado (`limiar + histerese`).
       const jaAtivo = this.braco.estaAtivo(entidade.entidadeId);
@@ -287,16 +358,35 @@ export class MotorTemporalImpl implements MotorTemporal {
     });
   }
 
+  private montarLeiturasMovimento(timestamp: string, frameId: string, cycleId: string) {
+    const limiar = this.config.limiarMovimentoCorporal;
+    return this.pessoas.vivas.map((entidade) => {
+      // Entidade ausente nao "se moveu": o deslocamento e uma leitura valida
+      // apenas no frame em que ela foi efetivamente vista.
+      const movimento = entidade.framesAusente === 0 && entidade.deslocamento >= limiar;
+      return {
+        entidadeId: entidade.entidadeId,
+        rotulo: movimento ? "movimento" : null,
+        confianca: movimento ? 1 : 0,
+        frameId,
+        timestamp,
+        cycleId,
+      };
+    });
+  }
+
   private montarLeiturasGesto(
     maos: MaoDetectada[],
     timestamp: string,
     frameId: string,
     cycleId: string
   ) {
+    const porEntidade = new Map<string, MaoDetectada>();
+    for (const mao of maos) {
+      if (mao.entidadeId) porEntidade.set(mao.entidadeId, mao);
+    }
     return this.maos.vivas.map((entidade) => {
-      const visto = entidade.framesAusente === 0;
-      const indice = typeof entidade.meta.indice === "number" ? entidade.meta.indice : -1;
-      const mao = visto ? maos[indice] : undefined;
+      const mao = porEntidade.get(entidade.entidadeId);
       const gesto = mao?.gesto;
       return {
         entidadeId: entidade.entidadeId,
@@ -365,7 +455,7 @@ export class MotorTemporalImpl implements MotorTemporal {
 const MAPEAMENTO_EVENTO_VISUAL: Partial<Record<EventoVisual["tipo"], TipoEventoTemporal>> = {
   aparicao: "aparicao",
   desaparecimento: "desaparecimento",
-  movimento: "movimento_corporal",
+  movimento: "movimento_objeto",
   mudanca_de_cena: "mudanca_de_cena",
 };
 

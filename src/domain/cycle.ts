@@ -3,6 +3,36 @@ import type { ResultadoIndisponivel } from "./perception";
 import { estaIndisponivel } from "./perception";
 import type { EventoTemporal } from "./temporal-event";
 
+/** Finalidade declarada da politica do ciclo. */
+export type FinalidadePoliticaCiclo = "operacional" | "benchmark";
+
+/** Quando a etapa multimodal e chamada. */
+export type FrequenciaInterpretacao =
+  | "a_cada_ciclo"
+  | "sob_demanda"
+  | "quando_evento_relevante";
+
+/**
+ * Configuracao efetiva da politica do ciclo, copiada para cada registro.
+ *
+ * Existe para que um `ciclos.jsonl` seja reproduzivel: dois ciclos com janelas
+ * temporais ou frequencias de interpretacao diferentes nao devem ser comparados
+ * como se tivessem usado a mesma politica.
+ */
+export interface PoliticaCicloAplicada {
+  /** Identificador estavel da configuracao (ex.: `benchmark-1s`). */
+  id: string;
+  finalidade: FinalidadePoliticaCiclo;
+  /** Rotulo legivel da janela temporal (ex.: `1s`, `500ms`). */
+  referencia: string;
+  intervaloEntreSnapshotsMs: number;
+  quantidadeSnapshots: number;
+  /** Janela nominal entre o primeiro e o ultimo snapshot (ms). */
+  janelaNominalMs: number;
+  pausaAposCicloMs: number;
+  interpretacao: FrequenciaInterpretacao;
+}
+
 /** Leitura consolidada do motor temporal para um ciclo. */
 export interface ResumoTemporal {
   /** Eventos ativos/encerrados neste ciclo (com identidade unica). */
@@ -46,6 +76,12 @@ export interface MetricasCiclo {
   concluidoEm?: string;
   /** Motivo pelo qual a interpretacao multimodal foi suprimida pela politica. */
   interpretacaoSuprimida?: "politica_sob_demanda" | "sem_evento_relevante";
+  /**
+   * Janela real de captura do ciclo (ms): diferenca entre o primeiro e o ultimo
+   * snapshot efetivamente observado. Pode ser menor que a janela nominal quando
+   * a captura perde frames; e `0` com um unico frame.
+   */
+  janelaCapturaMs?: number;
 }
 
 /**
@@ -61,6 +97,8 @@ export interface PacoteCiclo {
   observacoes: ObservacaoFrame[];
   eventosTemporais: EventoTemporal[];
   resumoTemporal: ResumoTemporal;
+  /** Politica efetivamente aplicada no ciclo (ausente em chamadas legadas). */
+  politica?: PoliticaCicloAplicada;
   metricas: MetricasCiclo;
 }
 

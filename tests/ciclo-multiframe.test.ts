@@ -86,7 +86,8 @@ function motorTemporalFalso(
   return {
     processar: (observacoes) => {
       vistos.push([...observacoes]);
-      return typeof produzir === "function" ? produzir() : produzir;
+      const resumo = typeof produzir === "function" ? produzir() : produzir;
+      return { ...resumo, observacoes: [...observacoes] };
     },
     resetar: () => undefined,
   };

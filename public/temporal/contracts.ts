@@ -62,6 +62,11 @@ export interface ConfigMotorTemporal {
   rastreador: ConfigRastreador;
   gestos: ConfigMaquinaSinais;
   braco: ConfigMaquinaSinais;
+  /**
+   * Maquina de estado do movimento corporal (deslocamento de pessoas rastreadas).
+   * Separada de gestos/braco para que cada sinal tenha sua propria confirmacao.
+   */
+  movimento: ConfigMaquinaSinais;
   /** y (normalizado, topo = 0) a partir do qual um punho conta como erguido. */
   limiarAlturaBraco: number;
   /**
@@ -77,6 +82,12 @@ export interface ConfigMotorTemporal {
    */
   confiancaMinimaPontoBraco: number;
   /**
+   * Deslocamento normalizado minimo (por frame) do centro de uma pessoa
+   * rastreada para contar como movimento corporal. Valores muito baixos
+   * transformam ruido de pose em evento; altos perdem deslocamentos lentos.
+   */
+  limiarMovimentoCorporal: number;
+  /**
    * Gap (ms) entre o fim do ciclo anterior e o inicio do atual que sinaliza um
    * periodo cego (janela sem observacao).
    */
@@ -88,24 +99,37 @@ export const CONFIG_MOTOR_TEMPORAL_PADRAO: ConfigMotorTemporal = {
   rastreador: CONFIG_RASTREADOR_PADRAO,
   gestos: CONFIG_MAQUINA_PADRAO,
   braco: CONFIG_MAQUINA_PADRAO,
+  movimento: { framesParaConfirmar: 2, framesParaEncerrar: 2, confiancaMinima: 0.5 },
   limiarAlturaBraco: 0.4,
   histereseBraco: 0.1,
   confiancaMinimaPontoBraco: 0.5,
+  limiarMovimentoCorporal: 0.015,
   limiarPeriodoCegoMs: 1200,
 };
 
 /** Configuracao parcial aceita na construcao do motor. */
 export type ConfiguracaoParcialMotorTemporal = Partial<
-  Omit<ConfigMotorTemporal, "rastreador" | "gestos" | "braco">
+  Omit<ConfigMotorTemporal, "rastreador" | "gestos" | "braco" | "movimento">
 > & {
   rastreador?: Partial<ConfigRastreador>;
   gestos?: Partial<ConfigMaquinaSinais>;
   braco?: Partial<ConfigMaquinaSinais>;
+  movimento?: Partial<ConfigMaquinaSinais>;
 };
+
+/** Leitura consolidada + observacoes enriquecidas com os IDs de rastreamento. */
+export interface ResultadoTemporal extends ResumoTemporal {
+  /**
+   * Copias das observacoes do ciclo com `entidadeId` preenchido em pessoas e
+   * maos pelo rastreador. Sao essas copias que devem seguir para o contexto
+   * serializado: os objetos originais (congelados) nao sao mutados.
+   */
+  observacoes: ObservacaoFrame[];
+}
 
 /** Porta do motor temporal: consome observacoes e emite resumo por ciclo. */
 export interface MotorTemporal {
-  processar(observacoes: ObservacaoFrame[]): ResumoTemporal;
+  processar(observacoes: ObservacaoFrame[]): ResultadoTemporal;
   /** Reseta todo o estado (sessao explicita). Nao usar entre ciclos normais. */
   resetar(): void;
 }

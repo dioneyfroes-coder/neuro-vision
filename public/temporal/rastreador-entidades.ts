@@ -44,6 +44,24 @@ export interface Entidade {
 }
 
 /**
+ * Associacao entre a sonda de um frame e a entidade rastreada.
+ *
+ * `indice` e a posicao da sonda na lista recebida por `atualizar` (o mesmo
+ * indice da pessoa/mao no resultado do adaptador). Permite enriquecer as
+ * observacoes por copia, sem depender de ordem de insercao do rastreador.
+ */
+export interface AssociacaoSonda {
+  indice: number;
+  entidadeId: string;
+}
+
+/** Resultado de uma atualizacao: entidades atualizadas e mapa sonda->entidade. */
+export interface ResultadoRastreamento {
+  entidades: Entidade[];
+  associacoes: AssociacaoSonda[];
+}
+
+/**
  * Rastreador generico de entidades com IDs estaveis na sessao.
  *
  * Associa sondas a entidades vivas pela menor distancia (guloso), desde que
@@ -70,36 +88,38 @@ export class RastreadorEntidades {
   }
 
   /**
-   * Atualiza o rastreamento com as sondas de um frame.
+   * Atualiza o rastreamento e devolve, alem das entidades, o mapa explicito
+   * entre o indice de cada sonda e o `entidadeId` associado.
    *
    * @param sondas pontos de referencia detectados no frame (podem estar vazios
    *               quando o subsistema falhou ou a entidade sumiu).
    * @param tempoMs tempo monotono (ms) do frame.
-   * @returns as entidades vivas apos a atualizacao.
    */
-  atualizar(sondas: Sonda[], tempoMs: number): Entidade[] {
-    const naoAssociadas = [...sondas];
+  atualizarComAssociacoes(sondas: Sonda[], tempoMs: number): ResultadoRastreamento {
+    const naoAssociadas = sondas.map((sonda, indice) => ({ sonda, indice }));
     const entidadesVivas = this.vivas;
     const atualizadas = new Set<string>();
+    const associacoes: AssociacaoSonda[] = [];
 
     // Guloso: para cada entidade viva, associa a sonda mais proxima disponivel.
     for (const entidade of entidadesVivas) {
-      let melhor: Sonda | null = null;
+      let melhor: (typeof naoAssociadas)[number] | null = null;
       let melhorDist = Infinity;
       let melhorIdx = -1;
       for (let i = 0; i < naoAssociadas.length; i += 1) {
-        const sonda = naoAssociadas[i];
-        const d = distanciaPontos(entidade, sonda);
+        const item = naoAssociadas[i];
+        const d = distanciaPontos(entidade, item.sonda);
         if (d < melhorDist) {
           melhorDist = d;
-          melhor = sonda;
+          melhor = item;
           melhorIdx = i;
         }
       }
       if (melhor && melhorDist <= this.config.distanciaMaxima) {
         naoAssociadas.splice(melhorIdx, 1);
-        this.aplicar(entidade, melhor, tempoMs);
+        this.aplicar(entidade, melhor.sonda, tempoMs);
         atualizadas.add(entidade.entidadeId);
+        associacoes.push({ indice: melhor.indice, entidadeId: entidade.entidadeId });
       } else {
         entidade.framesAusente += 1;
       }
@@ -114,12 +134,26 @@ export class RastreadorEntidades {
     }
 
     // Cria entidades novas para as sondas restantes.
-    for (const sonda of naoAssociadas) {
-      const nova = this.criar(sonda, tempoMs);
+    for (const item of naoAssociadas) {
+      const nova = this.criar(item.sonda, tempoMs);
       atualizadas.add(nova.entidadeId);
+      associacoes.push({ indice: item.indice, entidadeId: nova.entidadeId });
     }
 
-    return this.vivas.filter((e) => atualizadas.has(e.entidadeId));
+    associacoes.sort((a, b) => a.indice - b.indice);
+    return {
+      entidades: this.vivas.filter((e) => atualizadas.has(e.entidadeId)),
+      associacoes,
+    };
+  }
+
+  /**
+   * Atualiza o rastreamento com as sondas de um frame e devolve as entidades
+   * atualizadas (uma por sonda associada). Mantido para consumidores que nao
+   * precisam do mapa de indices.
+   */
+  atualizar(sondas: Sonda[], tempoMs: number): Entidade[] {
+    return this.atualizarComAssociacoes(sondas, tempoMs).entidades;
   }
 
   /** Busca uma entidade viva por ID. */
