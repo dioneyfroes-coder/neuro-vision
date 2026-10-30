@@ -19,7 +19,10 @@ import type { ResultadoInterpretacao } from "../src/domain/interpretation";
 import type { EntradaLog, EventoVisual } from "../src/types";
 import type { EventoTemporal } from "../src/domain/temporal-event";
 import type { PoliticaCiclo } from "../public/cycle/politica-ciclo";
-import { POLITICA_CICLO_PADRAO } from "../public/cycle/politica-ciclo";
+import {
+  POLITICA_CICLO_BENCHMARK_ALVO,
+  POLITICA_CICLO_OPERACIONAL,
+} from "../public/cycle/politica-ciclo";
 
 const MODO: DefinicaoModo = {
   id: "percepcao",
@@ -145,7 +148,7 @@ function montar(
     modo?: DefinicaoModo;
     /** Eventos que o motor temporal falso devolve a cada ciclo. */
     eventosTemporais?: EventoTemporal[];
-    /** Politica do ciclo (Fase 4); padrao: `POLITICA_CICLO_PADRAO`. */
+    /** Politica do ciclo (Fase 4); padrao do controlador: `POLITICA_CICLO_BENCHMARK_ALVO`. */
     politica?: PoliticaCiclo;
   } = {}
 ): Contexto {
@@ -459,8 +462,8 @@ describe("CicloPercepcaoController", () => {
     ctx.controle.parar();
   });
 
-  it("a_cada_ciclo interpreta sempre (padrao)", async () => {
-    const ctx = montar();
+  it("a_cada_ciclo interpreta sempre", async () => {
+    const ctx = montar({ politica: POLITICA_CICLO_BENCHMARK_ALVO });
     await ctx.controle.iniciar();
     expect(ctx.interpretacoes()).toBe(1);
     ctx.controle.parar();
@@ -468,7 +471,7 @@ describe("CicloPercepcaoController", () => {
 
   it("quando_evento_relevante suprime a interpretacao sem evento e registra o motivo", async () => {
     const ctx = montar({
-      politica: { ...POLITICA_CICLO_PADRAO, interpretacao: "quando_evento_relevante" },
+      politica: { ...POLITICA_CICLO_OPERACIONAL, interpretacao: "quando_evento_relevante" },
     });
     await ctx.controle.iniciar();
 
@@ -494,7 +497,7 @@ describe("CicloPercepcaoController", () => {
       estado: "confirmado",
     };
     const ctx = montar({
-      politica: { ...POLITICA_CICLO_PADRAO, interpretacao: "quando_evento_relevante" },
+      politica: { ...POLITICA_CICLO_OPERACIONAL, interpretacao: "quando_evento_relevante" },
       eventosTemporais: [confirmado],
     });
     await ctx.controle.iniciar();
@@ -506,7 +509,7 @@ describe("CicloPercepcaoController", () => {
 
   it("sob_demanda so interpreta em ciclo pedido manualmente", async () => {
     const ctx = montar({
-      politica: { ...POLITICA_CICLO_PADRAO, interpretacao: "sob_demanda" },
+      politica: { ...POLITICA_CICLO_OPERACIONAL, interpretacao: "sob_demanda" },
     });
     await ctx.controle.iniciar();
 

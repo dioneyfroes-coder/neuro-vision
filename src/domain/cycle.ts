@@ -12,6 +12,11 @@ export type FrequenciaInterpretacao =
   | "sob_demanda"
   | "quando_evento_relevante";
 
+/** Motivo pelo qual uma interpretacao foi suprimida (registrado no ciclo). */
+export type MotivoSupressaoInterpretacao =
+  | "politica_sob_demanda"
+  | "sem_evento_relevante";
+
 /**
  * Configuracao efetiva da politica do ciclo, copiada para cada registro.
  *
@@ -75,7 +80,7 @@ export interface MetricasCiclo {
   /** Instante ISO da conclusao efetiva do ciclo (depois de persistir). */
   concluidoEm?: string;
   /** Motivo pelo qual a interpretacao multimodal foi suprimida pela politica. */
-  interpretacaoSuprimida?: "politica_sob_demanda" | "sem_evento_relevante";
+  interpretacaoSuprimida?: MotivoSupressaoInterpretacao;
   /**
    * Janela real de captura do ciclo (ms): diferenca entre o primeiro e o ultimo
    * snapshot efetivamente observado. Pode ser menor que a janela nominal quando
@@ -143,6 +148,11 @@ export interface RegistroCiclo {
   metricas: MetricasCiclo;
   /** Interpretacao multimodal, quando houve. */
   interpretacao?: string;
+  /**
+   * Politica efetivamente aplicada no ciclo, quando conhecida. Permite comparar
+   * ciclos sem confundir janelas/frequencias diferentes.
+   */
+  politica?: PoliticaCicloAplicada;
   cancelado: boolean;
   /** Instante ISO em que o registro foi gravado. */
   registroEm: string;
@@ -172,6 +182,7 @@ export function criarRegistroCiclo(
     erros: resultado.erros,
     metricas: pacote.metricas,
     interpretacao: resultado.interpretacao,
+    politica: pacote.politica,
     cancelado: resultado.cancelado,
     registroEm: opcoes.registroEm ?? new Date().toISOString(),
   };

@@ -1,4 +1,12 @@
 import type { ResumoTemporal, TipoEventoTemporal } from "../../src/domain";
+import type {
+  FrequenciaInterpretacao,
+  FinalidadePoliticaCiclo,
+  MotivoSupressaoInterpretacao,
+  PoliticaCicloAplicada,
+} from "../../src/domain/cycle";
+
+export type { FrequenciaInterpretacao, MotivoSupressaoInterpretacao } from "../../src/domain/cycle";
 
 /**
  * Politica do ciclo multiframe (Fase 4).
@@ -7,33 +15,25 @@ import type { ResumoTemporal, TipoEventoTemporal } from "../../src/domain";
  * "intervalo":
  * - `intervaloEntreSnapshotsMs`: espacamento entre os snapshots **dentro** de um ciclo;
  * - `quantidadeSnapshots`: quantos snapshots compoem a janela do ciclo;
- * - `pausaAposCicloMs`: descanso apos a **conclusao efetiva** do ciclo (nao e
- *   intervalo entre inicios — nao se aplica apenas quando ha folga);
+ * - `pausaAposCicloMs`: descanso apos a **conclusao efetiva** do ciclo (contado
+ *   do fim, nao e intervalo entre inicios);
  * - `interpretacao`: quando a etapa multimodal e chamada.
- *
- * O agendador usa `pausaAposCicloMs` como piso: o proximo ciclo so comeca
- * depois de a pausa transcorrer contada do **fim** do ciclo anterior, ainda que
- * a duracao do ciclo seja maior que o intervalo entre inicios.
  */
 export interface PoliticaCiclo {
-  /** Intervalo entre snapshots dentro do ciclo (ms). Padrao: 500. */
+  /** Identificador estavel da politica (ex.: `benchmark-500ms`). */
+  id: string;
+  finalidade: FinalidadePoliticaCiclo;
+  /** Rotulo legivel (ex.: `500ms`, `1s`). */
+  referencia: string;
+  /** Intervalo entre snapshots dentro do ciclo (ms). */
   intervaloEntreSnapshotsMs: number;
-  /** Quantidade de snapshots por ciclo. Padrao: 4. */
+  /** Quantidade de snapshots por ciclo. */
   quantidadeSnapshots: number;
-  /** Descanso apos a conclusao efetiva do ciclo (ms). Padrao: 6000. */
+  /** Descanso apos a conclusao efetiva do ciclo (ms). */
   pausaAposCicloMs: number;
-  /**
-   * Frequencia da interpretacao multimodal:
-   * - `a_cada_ciclo`: interpreta sempre (linha de base);
-   * - `sob_demanda`: so quando a UI pede (ciclo disparado manualmente);
-   * - `quando_evento_relevante`: so quando o motor temporal produziu evento
-   *   relevante no ciclo — permite medir a variante com supressao.
-   */
+  /** Frequencia da interpretacao multimodal. */
   interpretacao: FrequenciaInterpretacao;
 }
-
-/** Quando a etapa multimodal e chamada. */
-export type FrequenciaInterpretacao = "a_cada_ciclo" | "sob_demanda" | "quando_evento_relevante";
 
 /**
  * Tipos de evento considerados "relevantes" para justificar uma nova
@@ -51,19 +51,64 @@ export const TIPOS_EVENTO_RELEVANTES: readonly TipoEventoTemporal[] = [
   "movimento_corporal",
 ];
 
-export const POLITICA_CICLO_PADRAO: PoliticaCiclo = {
-  // 500 ms entre snapshots: encurta a janela do ciclo (~1,5 s de captura em vez
-  // de ~3 s) sem deixar de amostrar vários instantes. Ajustável por modo.
+/** Politica padrao do modo operacional (producao/uso real). */
+export const POLITICA_CICLO_OPERACIONAL: PoliticaCiclo = {
+  id: "operacional-500ms",
+  finalidade: "operacional",
+  referencia: "500ms",
+  // 500 ms entre snapshots, janela nominal ~1,5 s (0,500,1000,1500).
+  intervaloEntreSnapshotsMs: 500,
+  quantidadeSnapshots: 4,
+  pausaAposCicloMs: 6000,
+  // Sem dados locais confiaveis o suficiente ainda: manter sob demanda ou por
+  // evento relevante em operacao; o benchmark define sua propria politica.
+  interpretacao: "sob_demanda",
+};
+
+/** Politica de benchmark alvo (variantes multiframe): 1s entre snapshots. */
+export const POLITICA_CICLO_BENCHMARK_ALVO: PoliticaCiclo = {
+  id: "benchmark-1s",
+  finalidade: "benchmark",
+  referencia: "1s",
+  // Plano original: 1 snapshot por segundo, 4 snapshots = janela ~3 s.
+  intervaloEntreSnapshotsMs: 1000,
+  quantidadeSnapshots: 4,
+  pausaAposCicloMs: 6000,
+  // Medido explicitamente como variante experimental/caro.
+  interpretacao: "a_cada_ciclo",
+};
+
+/** Politica alternativa (500ms) para comparar latencia vs janela temporal. */
+export const POLITICA_CICLO_BENCHMARK_RAPIDO: PoliticaCiclo = {
+  id: "benchmark-500ms",
+  finalidade: "benchmark",
+  referencia: "500ms",
   intervaloEntreSnapshotsMs: 500,
   quantidadeSnapshots: 4,
   pausaAposCicloMs: 6000,
   interpretacao: "a_cada_ciclo",
 };
 
-/** Motivo pelo qual uma interpretacao foi suprimida (registrado no ciclo). */
-export type MotivoSupressaoInterpretacao =
-  | "politica_sob_demanda"
-  | "sem_evento_relevante";
+/**
+ * Politica padrao mantida para compatibilidade com codigo existente.
+ * O modo operacional da interface deve passar explicitamente sua politica.
+ */
+export { POLITICA_CICLO_OPERACIONAL as POLITICA_CICLO_PADRAO_OPERACIONAL };
+
+/**
+ * Cria a representacao aplicada da politica para persistencia/metricas.
+ * Usa a definicao completa quando disponivel, senao deriva os campos basicos.
+ */
+export function aplicarPolitica(
+  politica: PoliticaCiclo | PoliticaCicloAplicada
+): PoliticaCicloAplicada {
+  if ("janelaNominalMs" in politica) return politica;
+  const janelaNominalMs =
+    politica.quantidadeSnapshots > 0
+      ? politica.intervaloEntreSnapshotsMs * Math.max(0, politica.quantidadeSnapshots - 1)
+      : 0;
+  return { ...politica, janelaNominalMs };
+}
 
 /** Decisao da politica sobre a etapa multimodal, com motivo explicito. */
 export interface DecisaoInterpretacao {
@@ -93,7 +138,7 @@ export function eventosRelevantes(resumo: ResumoTemporal): string[] {
  * ciclo pedido pela UI (`sob_demanda`).
  */
 export function decidirInterpretacao(
-  politica: PoliticaCiclo,
+  politica: PoliticaCiclo | PoliticaCicloAplicada,
   resumo: ResumoTemporal,
   opcoes: { disparoManual?: boolean } = {}
 ): DecisaoInterpretacao {

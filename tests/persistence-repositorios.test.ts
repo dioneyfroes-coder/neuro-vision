@@ -204,6 +204,17 @@ describe("rotas de ciclos", () => {
     const logFile = path.join(tmpDir, "visao.jsonl");
     const ciclosFile = path.join(tmpDir, "ciclos.jsonl");
     const registro = criarRegistroCiclo(resultadoCiclo([observacao("f1")]));
+    const politica = {
+      id: "benchmark-1s",
+      finalidade: "benchmark" as const,
+      referencia: "1s",
+      intervaloEntreSnapshotsMs: 1000,
+      quantidadeSnapshots: 4,
+      janelaNominalMs: 3000,
+      pausaAposCicloMs: 6000,
+      interpretacao: "a_cada_ciclo" as const,
+    };
+    registro.politica = politica;
 
     await comServidor({ logFile, ciclosFile, publicDir: tmpDir }, async (base) => {
       const post = await fetch(`${base}/api/ciclos`, {
@@ -216,7 +227,11 @@ describe("rotas de ciclos", () => {
       const list = await fetch(`${base}/api/ciclos`);
       const corpo = (await list.json()) as { ok: boolean; total: number; ciclos: unknown[] };
       expect(corpo).toMatchObject({ ok: true, total: 1 });
-      expect(corpo.ciclos[0]).toMatchObject({ cycleId: "sessao-1-c1", frameIds: ["f1"] });
+      expect(corpo.ciclos[0]).toMatchObject({
+        cycleId: "sessao-1-c1",
+        frameIds: ["f1"],
+        politica,
+      });
 
       const del = await fetch(`${base}/api/ciclos`, { method: "DELETE" });
       expect(del.status).toBe(200);

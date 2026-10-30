@@ -33,7 +33,7 @@ import type { VariantePercepcao } from "../perception/variantes";
 import type { ModoMotorTemporal, MotorTemporal } from "../temporal/contracts";
 import type { InterpretadorMultimodal } from "../interpretation/contracts";
 import type { PoliticaCiclo } from "./politica-ciclo";
-import { decidirInterpretacao, POLITICA_CICLO_PADRAO } from "./politica-ciclo";
+import { aplicarPolitica, decidirInterpretacao, POLITICA_CICLO_BENCHMARK_ALVO } from "./politica-ciclo";
 
 /**
  * Controlador do ciclo multiframe (Etapa 5 + 6 + 8 ligadas a interface).
@@ -107,7 +107,7 @@ export interface DependenciasCicloPercepcao {
   obterIntervaloMs: () => number;
   /**
    * Politica do ciclo (Fase 4): espacamento/quantidade de snapshots, pausa
-   * pos-ciclo e frequencia da interpretacao. Padrao: `POLITICA_CICLO_PADRAO`.
+   * pos-ciclo e frequencia da interpretacao. Padrao: `POLITICA_CICLO_BENCHMARK_ALVO`.
    * A `configuracaoCaptura` continua sendo a fonte dos parametros de captura; a
    * politica fornece a pausa pos-ciclo e a decisao de interpretar.
    */
@@ -155,7 +155,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
 
   constructor(private readonly deps: DependenciasCicloPercepcao) {
     const config = deps.configuracaoCaptura ?? CONFIG_CAPTURA_PADRAO;
-    this.politicaCiclo = deps.politicaCiclo ?? POLITICA_CICLO_PADRAO;
+    this.politicaCiclo = deps.politicaCiclo ?? POLITICA_CICLO_BENCHMARK_ALVO;
     this.percepcao = deps.criarPercepcao();
     this.motorTemporal = this.criarMotorTemporal();
     this.store = new SnapshotStore({ maxQuadros: config.quadros });
@@ -360,6 +360,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
         });
         return { interpretar: decisao.interpretar, motivo: decisao.motivo };
       },
+      obterPolitica: () => aplicarPolitica(this.politicaCiclo),
       persistirCiclo: (registro) => this.deps.repositorio.gravarCiclo(registro),
     };
   }

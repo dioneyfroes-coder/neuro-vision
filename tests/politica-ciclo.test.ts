@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { EventoTemporal, ResumoTemporal } from "../src/domain";
 import {
+  aplicarPolitica,
   decidirInterpretacao,
   eventosRelevantes,
-  POLITICA_CICLO_PADRAO,
+  POLITICA_CICLO_BENCHMARK_ALVO,
+  POLITICA_CICLO_BENCHMARK_RAPIDO,
+  POLITICA_CICLO_OPERACIONAL,
   TIPOS_EVENTO_RELEVANTES,
 } from "../public/cycle/politica-ciclo";
 import type { PoliticaCiclo } from "../public/cycle/politica-ciclo";
@@ -35,14 +38,57 @@ function resumo(eventos: EventoTemporal[]): ResumoTemporal {
   return { eventos, entidadesAtivas: 1 };
 }
 
-describe("POLITICA_CICLO_PADRAO", () => {
-  it("separa intervalo entre snapshots, quantidade, pausa e frequencia", () => {
-    expect(POLITICA_CICLO_PADRAO).toEqual({
+describe("politicas explicitas do ciclo", () => {
+  it("operacional usa 500ms, sob demanda e finalidade operacional", () => {
+    expect(POLITICA_CICLO_OPERACIONAL).toMatchObject({
+      id: "operacional-500ms",
+      finalidade: "operacional",
+      referencia: "500ms",
       intervaloEntreSnapshotsMs: 500,
       quantidadeSnapshots: 4,
       pausaAposCicloMs: 6000,
+      interpretacao: "sob_demanda",
+    });
+  });
+
+  it("benchmark alvo usa 1s e interpreta a cada ciclo", () => {
+    expect(POLITICA_CICLO_BENCHMARK_ALVO).toMatchObject({
+      id: "benchmark-1s",
+      finalidade: "benchmark",
+      referencia: "1s",
+      intervaloEntreSnapshotsMs: 1000,
+      quantidadeSnapshots: 4,
       interpretacao: "a_cada_ciclo",
     });
+  });
+
+  it("benchmark rapido usa 500ms e interpreta a cada ciclo", () => {
+    expect(POLITICA_CICLO_BENCHMARK_RAPIDO).toMatchObject({
+      id: "benchmark-500ms",
+      finalidade: "benchmark",
+      referencia: "500ms",
+      intervaloEntreSnapshotsMs: 500,
+      quantidadeSnapshots: 4,
+      interpretacao: "a_cada_ciclo",
+    });
+  });
+});
+
+describe("aplicarPolitica", () => {
+  it("deriva a janela nominal entre o primeiro e o ultimo snapshot", () => {
+    expect(aplicarPolitica(POLITICA_CICLO_BENCHMARK_ALVO)).toMatchObject({
+      id: "benchmark-1s",
+      janelaNominalMs: 3000,
+    });
+    expect(aplicarPolitica(POLITICA_CICLO_OPERACIONAL)).toMatchObject({
+      id: "operacional-500ms",
+      janelaNominalMs: 1500,
+    });
+  });
+
+  it("e idempotente para uma politica ja aplicada", () => {
+    const aplicada = aplicarPolitica(POLITICA_CICLO_BENCHMARK_ALVO);
+    expect(aplicarPolitica(aplicada)).toBe(aplicada);
   });
 });
 
@@ -76,13 +122,16 @@ describe("decidirInterpretacao", () => {
   ]);
 
   it("a_cada_ciclo interpreta sempre, mesmo sem evento relevante", () => {
-    const politica: PoliticaCiclo = POLITICA_CICLO_PADRAO;
+    const politica: PoliticaCiclo = POLITICA_CICLO_BENCHMARK_ALVO;
     expect(decidirInterpretacao(politica, semEvento)).toMatchObject({ interpretar: true });
     expect(decidirInterpretacao(politica, comEvento).interpretar).toBe(true);
   });
 
   it("sob_demanda so interpreta em ciclo pedido pela UI, com motivo quando suprime", () => {
-    const politica: PoliticaCiclo = { ...POLITICA_CICLO_PADRAO, interpretacao: "sob_demanda" };
+    const politica: PoliticaCiclo = {
+      ...POLITICA_CICLO_OPERACIONAL,
+      interpretacao: "sob_demanda",
+    };
     expect(decidirInterpretacao(politica, comEvento)).toEqual({
       interpretar: false,
       motivo: "politica_sob_demanda",
@@ -95,7 +144,7 @@ describe("decidirInterpretacao", () => {
 
   it("quando_evento_relevante suprime ciclos sem mudanca relevante", () => {
     const politica: PoliticaCiclo = {
-      ...POLITICA_CICLO_PADRAO,
+      ...POLITICA_CICLO_OPERACIONAL,
       interpretacao: "quando_evento_relevante",
     };
     expect(decidirInterpretacao(politica, semEvento)).toEqual({

@@ -19,7 +19,7 @@ import { MODELO_NSFW_PADRAO } from "./nsfw-onnx";
 import { MotorTemporalImpl } from "./temporal/motor-temporal";
 import { InterpretadorCiclo } from "./interpretation/interpretador-ciclo";
 import { criarTransporteServidor } from "./interpretation/transporte-servidor";
-import { POLITICA_CICLO_PADRAO } from "./cycle/politica-ciclo";
+import { POLITICA_CICLO_OPERACIONAL } from "./cycle/politica-ciclo";
 import type { PoliticaCiclo } from "./cycle/politica-ciclo";
 import { CONFIG_CAPTURA_PADRAO } from "./capture/webcam-capture";
 import type { ConfigCaptura } from "./capture/webcam-capture";
@@ -67,7 +67,7 @@ const nsfwToggle = el<HTMLInputElement>("nsfw");
  * inicios continua vindo do seletor da interface (`intervaloMsConfigurado`); a
  * pausa pos-ciclo e contada do **fim** de cada ciclo.
  */
-const politicaCiclo: PoliticaCiclo = POLITICA_CICLO_PADRAO;
+const politicaCiclo: PoliticaCiclo = POLITICA_CICLO_OPERACIONAL;
 
 /** Captura derivada da politica: quantidade e espacamento dos snapshots. */
 const configuracaoCaptura: ConfigCaptura = {

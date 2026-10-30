@@ -98,6 +98,7 @@ function montar(opcoes: {
   processarFrame?: DependenciasCicloMultiframe["processarFrame"];
   fonte?: FonteCaptura;
   concorrenciaFrames?: number;
+  agoraCaptura?: () => number;
 } = {}) {
   const imagens = opcoes.imagens ?? ["A", "B", "C", "D"];
   const capturados: string[] = [];
@@ -107,7 +108,7 @@ function montar(opcoes: {
     opcoes.fonte ?? fonteComImagens(imagens),
     CONFIG_CAPTURA_PADRAO,
     {
-      agora: () => 0,
+      agora: opcoes.agoraCaptura ?? (() => 0),
       esperar: async () => undefined,
       agoraIso: () => "2026-10-16T10:00:00.000Z",
     }
@@ -450,5 +451,65 @@ describe("executarCicloMultiframe", () => {
     expect(interpretados).toHaveLength(1);
     expect(resultado.interpretacao).toBe("quatro frames analisados");
     expect(resultado.pacote.metricas.interpretacaoSuprimida).toBeUndefined();
+  });
+
+  it("registra a politica aplicada no pacote e no registro persistido", async () => {
+    const { deps } = montar();
+    const politica = {
+      id: "benchmark-1s",
+      finalidade: "benchmark" as const,
+      referencia: "1s",
+      intervaloEntreSnapshotsMs: 1000,
+      quantidadeSnapshots: 4,
+      janelaNominalMs: 3000,
+      pausaAposCicloMs: 6000,
+      interpretacao: "a_cada_ciclo" as const,
+    };
+    deps.obterPolitica = () => politica;
+    let persistido: RegistroCiclo | undefined;
+    deps.persistirCiclo = (registro) => {
+      persistido = registro;
+    };
+
+    const resultado = await executarCicloMultiframe(deps);
+
+    expect(resultado.pacote.politica).toEqual(politica);
+    expect(persistido?.politica).toEqual(politica);
+  });
+
+  it("calcula janelaCapturaMs a partir dos timestamps reais dos snapshots", async () => {
+    let relogio = 0;
+    const { deps } = montar({
+      agoraCaptura: () => {
+        const valor = relogio;
+        relogio += 500;
+        return valor;
+      },
+    });
+
+    const resultado = await executarCicloMultiframe(deps);
+
+    // 4 snapshots capturados em 0, 1000, 2000 e 3000 ms.
+    expect(resultado.pacote.metricas.janelaCapturaMs).toBe(3000);
+  });
+
+  it("janelaCapturaMs e 0 quando o ciclo tem um unico snapshot", async () => {
+    let chamadas = 0;
+    const fonte: FonteCaptura = {
+      ativa: true,
+      largura: 1280,
+      altura: 720,
+      capturarQuadro: () => {
+        chamadas += 1;
+        return chamadas === 1 ? { imagem: "A", thumb: "thumb:A" } : null;
+      },
+      assinaturaDeCena: () => null,
+    };
+    const { deps } = montar({ fonte });
+
+    const resultado = await executarCicloMultiframe(deps);
+
+    expect(resultado.pacote.observacoes).toHaveLength(1);
+    expect(resultado.pacote.metricas.janelaCapturaMs).toBe(0);
   });
 });

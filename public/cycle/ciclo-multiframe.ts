@@ -13,6 +13,7 @@ import type {
   ErroEtapa,
   MetricasCiclo,
   PacoteCiclo,
+  PoliticaCicloAplicada,
   RegistroCiclo,
   ResultadoCiclo,
   ResumoTemporal,
@@ -23,7 +24,7 @@ import type { TelemetriaSubsistema } from "../../src/domain";
 import type { SubsistemaPercepcao } from "../perception/local-perception-pipeline";
 import type { InterpretadorMultimodal } from "../interpretation/contracts";
 import type { MotorTemporal } from "../temporal/contracts";
-import type { MotivoSupressaoInterpretacao } from "./politica-ciclo";
+import type { MotivoSupressaoInterpretacao } from "../../src/domain/cycle";
 
 /**
  * `CicloMultiframe` (Etapa 4 do roteiro).
@@ -121,6 +122,8 @@ export interface DependenciasCicloMultiframe {
   decidirInterpretacao?: (
     resumoTemporal: ResumoTemporal
   ) => { interpretar: boolean; motivo?: MotivoSupressaoInterpretacao };
+  /** Politica efetiva a registrar no ciclo (Fase 4/P1.4). */
+  obterPolitica?: () => PoliticaCicloAplicada;
   /**
    * Persiste o diagnostico do ciclo (Etapa 8), opcional. A falha de gravacao
    * **nao** derruba o ciclo nem se confunde com falha de inferencia: entra em
@@ -327,7 +330,9 @@ export async function executarCicloMultiframe(
         const resultado = deps.motorTemporal.processar(observacoes);
         const { observacoes: enriquecidas, ...resumo } = resultado;
         resumoTemporal = resumo;
-        observacoesEnriquecidas = enriquecidas;
+        // Um motor que nao devolve copias enriquecidas nao pode zerar as
+        // observacoes do ciclo: preserva as originais como fallback.
+        observacoesEnriquecidas = enriquecidas ?? observacoes;
       } catch (err) {
         erros.push({ etapa: "temporal", mensagem: (err as Error).message });
       }
@@ -345,6 +350,7 @@ export async function executarCicloMultiframe(
       observacoes: observacoesEnriquecidas,
       eventosTemporais: resumoTemporal.eventos,
       resumoTemporal,
+      politica: deps.obterPolitica?.(),
       metricas: {
         capturaMs,
         capturaConcluidaEm,
@@ -358,6 +364,16 @@ export async function executarCicloMultiframe(
         totalMs: Math.round(agora() - inicioMs),
       },
     };
+    const timestamps = observacoesEnriquecidas
+      .map((o) => o.capturadoEmMs)
+      .filter((v) => Number.isFinite(v));
+    if (timestamps.length >= 2) {
+      pacote.metricas.janelaCapturaMs = Math.round(
+        Math.max(...timestamps) - Math.min(...timestamps)
+      );
+    } else if (timestamps.length === 1) {
+      pacote.metricas.janelaCapturaMs = 0;
+    }
     metricas = pacote.metricas;
 
     // 4) Interpretacao multimodal sobre o pacote (sem nova captura). A politica
