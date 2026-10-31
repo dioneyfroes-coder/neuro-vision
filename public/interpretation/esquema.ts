@@ -182,6 +182,10 @@ export interface EventoTemporalSerializavel {
   inicioEm: string;
   /** Ultima evidencia positiva; ausente enquanto o evento esta ativo. */
   fimEm?: string;
+  /** Instante da ultima evidencia positiva (inclusive em evento ativo). */
+  ultimaEvidenciaEm?: string;
+  /** Instante da ultima observacao valida (pode ser posterior a evidencia). */
+  ultimaObservacaoEm?: string;
   /** Ciclo de vida: `candidato`/`confirmado`/`encerrado`/`incerto`. */
   status: string;
   /** Id de entidade associada, quando houver. */

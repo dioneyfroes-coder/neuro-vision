@@ -238,6 +238,12 @@ function serializarEvento(
     evidencias: evento.frameIds.slice(0, 8),
   };
   if (evento.fimEm !== undefined) serializado.fimEm = evento.fimEm;
+  if (evento.ultimaEvidenciaEm !== undefined) {
+    serializado.ultimaEvidenciaEm = evento.ultimaEvidenciaEm;
+  }
+  if (evento.ultimaObservacaoEm !== undefined) {
+    serializado.ultimaObservacaoEm = evento.ultimaObservacaoEm;
+  }
   if (evento.entidadeId !== undefined) serializado.trackId = evento.entidadeId;
   if (evento.confianca !== undefined) serializado.confianca = arredondar(evento.confianca, decimais);
   if (evento.intervaloSemObservacaoMs !== undefined) {

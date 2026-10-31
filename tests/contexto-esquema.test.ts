@@ -183,6 +183,8 @@ describe("schema versionado (contexto-1)", () => {
       tipo: "braco_levantado",
       inicioEm: "2026-10-17T12:00:00.000Z",
       fimEm: "2026-10-17T12:00:00.500Z",
+      ultimaEvidenciaEm: "2026-10-17T12:00:00.500Z",
+      ultimaObservacaoEm: "2026-10-17T12:00:00.800Z",
       descricao: "Braco levantado interrompido",
       origens: ["pose"],
       frameIds: ["f1", "f2"],
@@ -203,6 +205,10 @@ describe("schema versionado (contexto-1)", () => {
     });
     expect(serializado.evidencias).toEqual(["f1", "f2"]);
     expect(serializado.fimEm).toBe("2026-10-17T12:00:00.500Z");
+    // Evidencia e observacao sao explicitas e distintas: o sinal parou antes da
+    // observacao da entidade.
+    expect(serializado.ultimaEvidenciaEm).toBe("2026-10-17T12:00:00.500Z");
+    expect(serializado.ultimaObservacaoEm).toBe("2026-10-17T12:00:00.800Z");
   });
 
   it("descarta campos menos criticos antes de perder frameId/versao/estado", () => {

@@ -19,6 +19,15 @@ export interface LeituraSinal {
   frameId: string;
   timestamp: string;
   cycleId: string;
+  /**
+   * `false` quando a entidade ainda esta no rastreador (janela de tolerancia),
+   * mas **nao foi vista** neste frame. A leitura continua contando ausencia de
+   * sinal, porem nao avanca `ultimaObservacaoEm`: observar que o sinal sumiu e
+   * diferente de observar a entidade.
+   *
+   * Omitido equivale a `true` (leitura de entidade efetivamente observada).
+   */
+  observada?: boolean;
 }
 
 /** Por que um evento foi encerrado (preservado no diagnostico). */
@@ -39,6 +48,10 @@ export interface EventoSinal {
   estado: "confirmado" | "encerrado";
   inicioEm: string;
   fimEm?: string;
+  /** Instante ISO da ultima evidencia positiva do sinal. */
+  ultimaEvidenciaEm: string;
+  /** Instante ISO da ultima observacao valida da entidade (com ou sem sinal). */
+  ultimaObservacaoEm: string;
   frameIds: string[];
   confianca: number;
   cycleIdInicio: string;
@@ -60,6 +73,8 @@ interface Ativo {
   framesSinal: number;
   /** Instante ISO da ultima leitura valida que sustentou o sinal. */
   ultimoSinalEm: string;
+  /** Instante ISO da ultima observacao valida da entidade (com ou sem sinal). */
+  ultimaObservacaoEm: string;
   /** Ultimo frame com evidencia positiva do sinal. */
   ultimoFrameId: string;
 }
@@ -143,8 +158,11 @@ export class MaquinaSinais {
           continue;
         }
 
-        // Troca de sinal encerra o ativo anterior antes de avaliar o novo.
+        // Troca de sinal encerra o ativo anterior antes de avaliar o novo. A
+        // entidade foi observada neste frame (ainda que com outro sinal), entao
+        // `ultimaObservacaoEm` avanca sem alterar a ultima evidencia positiva.
         if (estado.ativo) {
+          estado.ativo.ultimaObservacaoEm = leitura.timestamp;
           emitidos.push(this.encerrar(estado, "troca_sinal"));
         }
 
@@ -164,7 +182,12 @@ export class MaquinaSinais {
           emitidos.push(this.eventoDe(estado.ativo, "confirmado"));
         }
       } else {
-        // Sem sinal valido neste frame (observacao valida, sem resultado).
+        // Sem sinal valido neste frame. Se a entidade foi de fato observada
+        // (mesmo sem sinal), a ultima observacao avanca; se ela apenas segue na
+        // janela de tolerancia do rastreador, a observacao NAO avanca.
+        if (estado.ativo && leitura.observada !== false) {
+          estado.ativo.ultimaObservacaoEm = leitura.timestamp;
+        }
         estado.framesSemSinal += 1;
         this.resetarCandidato(estado);
         if (estado.ativo && estado.framesSemSinal >= this.config.framesParaEncerrar) {
@@ -263,6 +286,7 @@ export class MaquinaSinais {
       confianca: leitura.confianca,
       framesSinal: estado.frameIdsCandidato.length,
       ultimoSinalEm: leitura.timestamp,
+      ultimaObservacaoEm: leitura.timestamp,
       ultimoFrameId: leitura.frameId,
     };
   }
@@ -272,6 +296,7 @@ export class MaquinaSinais {
     ativo.confianca = Math.max(ativo.confianca, leitura.confianca);
     ativo.framesSinal += 1;
     ativo.ultimoSinalEm = leitura.timestamp;
+    ativo.ultimaObservacaoEm = leitura.timestamp;
     ativo.ultimoFrameId = leitura.frameId;
   }
 
@@ -304,6 +329,8 @@ export class MaquinaSinais {
       // Um evento nunca termina antes de comecar: se nao houver evidencia
       // posterior, o fim coincide com o inicio.
       fimEm: estado === "encerrado" ? this.garantirFimNaoAnterior(ativo, fimEm) : undefined,
+      ultimaEvidenciaEm: ativo.ultimoSinalEm,
+      ultimaObservacaoEm: ativo.ultimaObservacaoEm,
       frameIds: [...ativo.frameIds],
       confianca: ativo.confianca,
       cycleIdInicio: ativo.cycleIdInicio,

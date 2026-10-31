@@ -354,6 +354,9 @@ export class MotorTemporalImpl implements MotorTemporal {
         frameId,
         timestamp,
         cycleId,
+        // Sem pose da entidade neste frame, a leitura apenas preserva a
+        // ausencia de sinal; nao conta como observacao da entidade.
+        observada: pose !== undefined,
       };
     });
   }
@@ -371,6 +374,7 @@ export class MotorTemporalImpl implements MotorTemporal {
         frameId,
         timestamp,
         cycleId,
+        observada: entidade.framesAusente === 0,
       };
     });
   }
@@ -395,6 +399,8 @@ export class MotorTemporalImpl implements MotorTemporal {
         frameId,
         timestamp,
         cycleId,
+        // Mao ainda na janela de tolerancia do rastreador nao e observacao.
+        observada: mao !== undefined,
       };
     });
   }
@@ -417,6 +423,8 @@ export class MotorTemporalImpl implements MotorTemporal {
       tipo,
       inicioEm: sinal.inicioEm,
       fimEm: sinal.fimEm,
+      ultimaEvidenciaEm: sinal.ultimaEvidenciaEm,
+      ultimaObservacaoEm: sinal.ultimaObservacaoEm,
       entidadeId: sinal.entidadeId,
       descricao: descricao(sinal),
       confianca: sinal.confianca,
@@ -442,6 +450,10 @@ export class MotorTemporalImpl implements MotorTemporal {
       cycleId,
       tipo,
       inicioEm: ev.timestamp,
+      // Eventos visuais nascem de uma observacao pontual: evidencia e
+      // observacao coincidem no mesmo instante.
+      ultimaEvidenciaEm: ev.timestamp,
+      ultimaObservacaoEm: ev.timestamp,
       entidadeId: ev.objetoId,
       descricao: ev.descricao,
       confianca: ev.confianca,

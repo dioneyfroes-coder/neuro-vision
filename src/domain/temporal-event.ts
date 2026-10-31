@@ -31,8 +31,24 @@ export interface EventoTemporal {
   tipo: TipoEventoTemporal;
   /** Instante ISO do inicio do evento. */
   inicioEm: string;
-  /** Instante ISO do fim, quando encerrado. */
+  /**
+   * Instante ISO do fim do evento, quando encerrado. Para sinais, coincide com
+   * a **ultima evidencia positiva** (`ultimaEvidenciaEm`), nunca com o frame em
+   * que a ausencia foi percebida.
+   */
   fimEm?: string;
+  /**
+   * Instante ISO da ultima evidencia **positiva** do evento (o sinal ainda
+   * estava presente). Pode ser anterior a `ultimaObservacaoEm` quando o sinal
+   * sumiu, mas a entidade/subsistema continuou sendo observado.
+   */
+  ultimaEvidenciaEm?: string;
+  /**
+   * Instante ISO da ultima **observacao valida** da entidade/subsistema, mesmo
+   * sem sinal positivo. Ajuda a separar "o sinal parou" (evidencia) de "a
+   * observacao parou" (lacuna/entidade fora de quadro).
+   */
+  ultimaObservacaoEm?: string;
   /** Entidade associada (objeto, pessoa ou mao rastreada), quando houver. */
   entidadeId?: string;
   /** Descricao legivel em portugues. */

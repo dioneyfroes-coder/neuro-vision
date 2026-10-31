@@ -46,6 +46,8 @@ export function montarPromptInterpretacao(contexto: ContextoCicloSerializavel): 
         `, status ${e.status}` +
         (e.trackId ? `, track ${e.trackId}` : "") +
         (e.confianca !== undefined ? `, conf ${e.confianca}` : "") +
+        (e.ultimaEvidenciaEm ? `, ultimaEvidencia ${e.ultimaEvidenciaEm}` : "") +
+        (e.ultimaObservacaoEm ? `, ultimaObservacao ${e.ultimaObservacaoEm}` : "") +
         (e.gapMs !== undefined ? `, gap ${e.gapMs}ms sem observacao` : "") +
         (e.evidencias.length ? `, frames=${e.evidencias.join(",")}` : "") +
         ")"

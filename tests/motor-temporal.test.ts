@@ -188,6 +188,37 @@ describe("MaquinaSinais", () => {
     expect(fim).toBeGreaterThan(inicio); // nao colapsa para o inicio
     expect(evento.fimEm).toBe(leitura("gesto_a", 4).timestamp);
     expect(evento.motivoEncerramento).toBe("sem_sinal");
+    // Evidencia positiva parou no frame 4; a entidade continuou sendo
+    // observada (sem sinal) ate o frame 6, quando o evento encerrou.
+    expect(evento.ultimaEvidenciaEm).toBe(leitura("gesto_a", 4).timestamp);
+    expect(evento.ultimaObservacaoEm).toBe(leitura(null, 6).timestamp);
+    expect(Date.parse(evento.ultimaObservacaoEm!)).toBeGreaterThan(
+      Date.parse(evento.ultimaEvidenciaEm!)
+    );
+  });
+
+  it("leitura sem sinal de entidade ainda no rastreador nao avanca a observacao", () => {
+    const m = new MaquinaSinais({ framesParaConfirmar: 2, framesParaEncerrar: 2 });
+    const leitura = (rotulo: string | null, frame: number, observada = true) => ({
+      entidadeId: "e1",
+      rotulo,
+      confianca: rotulo === null ? 0 : 0.9,
+      frameId: `f${frame}`,
+      timestamp: new Date(1700000000000 + frame * 100).toISOString(),
+      cycleId: "c1",
+      observada,
+    });
+
+    m.processar([leitura("gesto_a", 1)]);
+    m.processar([leitura("gesto_a", 2)]);
+    m.processar([leitura("gesto_a", 3)]);
+    // Frame 4: entidade nao foi vista, mas o rastreador ainda a mantem.
+    expect(m.processar([leitura(null, 4, false)])).toHaveLength(0);
+    const encerrados = m.processar([leitura(null, 5, false)]);
+    expect(encerrados).toHaveLength(1);
+    expect(encerrados[0].ultimaEvidenciaEm).toBe(leitura("gesto_a", 3).timestamp);
+    // A observacao nao avancou para frames sem a entidade.
+    expect(encerrados[0].ultimaObservacaoEm).toBe(leitura("gesto_a", 3).timestamp);
   });
 
   it("evento nunca termina antes de comecar (duracao nao negativa)", () => {
@@ -227,6 +258,9 @@ describe("MaquinaSinais", () => {
     const encerrados = m.processar([]);
     expect(encerrados).toHaveLength(1);
     expect(encerrados[0].fimEm).toBe(leitura(3).timestamp);
+    expect(encerrados[0].ultimaEvidenciaEm).toBe(leitura(3).timestamp);
+    // Sumiu do frame: a ultima observacao e a ultima vez que foi vista.
+    expect(encerrados[0].ultimaObservacaoEm).toBe(leitura(3).timestamp);
     expect(Date.parse(encerrados[0].fimEm!)).toBeGreaterThan(Date.parse(encerrados[0].inicioEm));
   });
 
@@ -490,6 +524,55 @@ describe("MotorTemporalImpl — estado entre ciclos", () => {
     const inicio = Date.parse(interrompido!.inicioEm);
     expect(fim).toBe(Date.parse(new Date(1700000000000 + 100).toISOString()));
     expect(fim).toBeGreaterThan(inicio);
+  });
+
+  it("lacuna entre ciclos usa a ultima observacao global, nao a ultima evidencia", () => {
+    reiniciarContador();
+    const motor = new MotorTemporalImpl({
+      rastreador: { distanciaMaxima: 0.3, maxFramesAusente: 3, alphaSuavizacao: 0.5 },
+      gestos: { framesParaConfirmar: 2, framesParaEncerrar: 5, confiancaMinima: 0.5 },
+    });
+    // Mesma mao/posicao, porem sem gesto: a entidade e observada, o sinal nao.
+    const maoSemGesto = (): ObservacaoFrame["maos"] => ({
+      maos: [
+        {
+          lateralidade: "direita",
+          landmarks: [
+            { x: 0.5, y: 0.4 },
+            { x: 0.52, y: 0.38 },
+          ],
+        },
+      ],
+    });
+
+    motor.processar([obs({ ms: 0, maos: maoComGesto("mao_aberta"), cycleId: "c1" })]);
+    const r2 = motor.processar([
+      obs({ ms: 100, maos: maoComGesto("mao_aberta"), cycleId: "c1" }),
+    ]);
+    expect(
+      r2.eventos.some((e) => e.tipo === "gesto_detectado" && e.estado === "confirmado")
+    ).toBe(true);
+
+    // A mao continua visivel (sem gesto): a observacao avanca, a evidencia nao.
+    motor.processar([obs({ ms: 200, maos: maoSemGesto(), cycleId: "c1" })]);
+    motor.processar([obs({ ms: 300, maos: maoSemGesto(), cycleId: "c1" })]);
+
+    const r5 = motor.processar([
+      obs({ ms: 5000, maos: maoComGesto("mao_aberta"), cycleId: "c2" }),
+    ]);
+    const interrompido = r5.eventos.find(
+      (e) => e.tipo === "gesto_detectado" && e.estado === "incerto"
+    );
+    expect(interrompido).toBeDefined();
+    expect(interrompido?.ultimaEvidenciaEm).toBe(
+      new Date(1700000000000 + 100).toISOString()
+    );
+    expect(interrompido?.ultimaObservacaoEm).toBe(
+      new Date(1700000000000 + 300).toISOString()
+    );
+    // O gap e medido desde a ultima observacao global (300), nao desde a
+    // ultima evidencia positiva (100).
+    expect(interrompido?.intervaloSemObservacaoMs).toBe(5000 - 300);
   });
 
   it("resetar limpa o estado entre sessoes", () => {
