@@ -198,7 +198,7 @@ O contexto enviado ao modelo de visão é um JSON **versionado** (`public/interp
 
 - **detecções:** `label`, `rotulo`, `score` e caixa **normalizada** em [0,1] (`dimensoes` do frame), com `trackId` quando houver;
 - **pessoas:** `trackId`, `confianca` e **keypoints nomeados** (ordem COCO de 17 pontos) com confiança por ponto;
-- **mãos:** lateralidade, gesto/score e landmarks normalizados (subconjunto compacto por padrão; os 21 com `landmarksCompletos`);
+- **mãos:** lateralidade, gesto/score e landmarks normalizados (subconjunto compacto por padrão; os 21 com `landmarksCompletos`). Independentemente do gesto predefinido do MediaPipe, cada mão traz `geometria` — ângulos articulares (graus) e estado estendido/dobrado por dedo, com um resumo (`todos`, `nenhum` ou `indicador+medio`) — derivada dos 21 landmarks por `src/domain/hand-geometry.ts` (`geometriaMao: false` desliga). A configuração experimental de mãos envia os 21 landmarks via `InterpretadorCiclo({ serializacao: { landmarksCompletos: true } })`;
 - **movimento:** deslocamento e direção (graus, topo = 0) por `tipo:trackId`, entre o frame atual e o anterior observado — não só posição isolada;
 - **estado por subsistema** (`subsistemas.deteccao|pose|maos|nsfw`): `ok`/`sem_resultado`/`indisponivel`/`nao_carregado` + motivo, alimentado pela telemetria por frame (`metricas.subsistemas`);
 - **eventos temporais:** `eventoId`, `tipo`, `inicioEm`/`fimEm`, `status`, `trackId`, `confianca`, `evidencias` (frameIds) e `gapMs` para lacunas de observação;

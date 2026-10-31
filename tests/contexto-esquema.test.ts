@@ -117,6 +117,11 @@ describe("schema versionado (contexto-1)", () => {
     expect(mao.landmarksCompletos).toBe(false);
     expect(mao.landmarks.length).toBeLessThanOrEqual(6);
     expect(mao.landmarks.map((l) => l.nome)).toContain("polegar_ponta");
+    // A geometria usa os 21 landmarks brutos, mesmo no modo compacto.
+    expect(mao.geometria).toBeDefined();
+    expect(mao.geometria?.dedos).toHaveLength(5);
+    expect(mao.geometria?.totalEstendidos).toBe(5);
+    expect(mao.geometria?.configuracao).toBe("todos");
   });
 
   it("envia os 21 landmarks quando landmarksCompletos=true", () => {
@@ -125,6 +130,14 @@ describe("schema versionado (contexto-1)", () => {
     });
     expect(contexto.frames[0].maos[0].landmarksCompletos).toBe(true);
     expect(contexto.frames[0].maos[0].landmarks).toHaveLength(21);
+    expect(contexto.frames[0].maos[0].geometria?.totalEstendidos).toBe(5);
+  });
+
+  it("permite desligar a geometria da mao na serializacao", () => {
+    const { contexto } = montarContextoCiclo(pacote([observacao()]), {}, {
+      serializacao: { geometriaMao: false },
+    });
+    expect(contexto.frames[0].maos[0].geometria).toBeUndefined();
   });
 
   it("calcula movimento (deslocamento/direcao) entre frames da mesma entidade", () => {
@@ -391,5 +404,29 @@ describe("InterpretadorCiclo valida referencias do modelo", () => {
     });
     const res = await interpreter.interpretar(pacote([observacao({ frameId: "f1" })]));
     expect(res.evidencias).toEqual(["f1"]);
+  });
+
+  it("repassa a serializacao experimental de maos (21 landmarks + geometria)", async () => {
+    let landmarks: number | undefined;
+    let completos: boolean | undefined;
+    let geometria: number | undefined;
+    const interpreter = new InterpretadorCiclo({
+      enviar: async (requisicao) => {
+        const mao = requisicao.contexto.frames[0].maos[0];
+        landmarks = mao.landmarks.length;
+        completos = mao.landmarksCompletos;
+        geometria = mao.geometria?.dedos.length;
+        return {
+          texto:
+            '{"resumo":"x","acoes":[],"evidencias":[],"incertezas":[],"contradicoes":[]}',
+          modelo: "m",
+        };
+      },
+      serializacao: { landmarksCompletos: true },
+    });
+    await interpreter.interpretar(pacote([observacao({ frameId: "f1" })]));
+    expect(landmarks).toBe(21);
+    expect(completos).toBe(true);
+    expect(geometria).toBe(5);
   });
 });

@@ -6,6 +6,7 @@
  */
 export * from "./ids";
 export * from "./perception";
+export * from "./hand-geometry";
 export * from "./observation";
 export * from "./temporal-event";
 export * from "./cycle";

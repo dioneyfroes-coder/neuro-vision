@@ -7,7 +7,7 @@ import {
   type LimitesContexto,
   LIMITES_CONTEXTO_PADRAO,
 } from "./contexto";
-import { validarReferencias } from "./esquema";
+import { validarReferencias, type OpcoesSerializacao } from "./esquema";
 import { montarPromptInterpretacao } from "./prompt";
 import { normalizarInterpretacao } from "./normalizar";
 
@@ -49,6 +49,12 @@ export interface DependenciasInterpretadorCiclo {
    * apenas as imagens + cronologia. Padrao: `true`.
    */
   incluirDadosLocais?: boolean;
+  /**
+   * Opcoes de serializacao do contexto. A configuracao experimental de maos
+   * (P2.1) usa `{ landmarksCompletos: true }` para enviar os 21 landmarks,
+   * alem da geometria calculada. O padrao permanece compacto.
+   */
+  serializacao?: Partial<OpcoesSerializacao>;
   agora?: () => number;
 }
 
@@ -68,6 +74,7 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
   private readonly obterModelo: () => string | null;
   private readonly limites: LimitesContexto;
   private readonly incluirDadosLocais: boolean;
+  private readonly serializacao?: Partial<OpcoesSerializacao>;
   private readonly agora: () => number;
 
   constructor(deps: DependenciasInterpretadorCiclo) {
@@ -77,6 +84,7 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
       typeof modelo === "function" ? () => modelo() ?? null : () => modelo ?? null;
     this.limites = { ...LIMITES_CONTEXTO_PADRAO, ...deps.limites };
     this.incluirDadosLocais = deps.incluirDadosLocais ?? true;
+    this.serializacao = deps.serializacao;
     this.agora = deps.agora ?? (() => performance.now());
   }
 
@@ -87,6 +95,7 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
   async interpretar(pacote: PacoteCiclo, sinal?: AbortSignal): Promise<ResultadoInterpretacao> {
     const { imagens, contexto } = montarContextoCiclo(pacote, this.limites, {
       incluirDadosLocais: this.incluirDadosLocais,
+      serializacao: this.serializacao,
     });
     const prompt = montarPromptInterpretacao(contexto);
     const modelo = this.obterModelo();

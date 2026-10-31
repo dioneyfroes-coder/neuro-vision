@@ -1,6 +1,8 @@
 import {
+  calcularGeometriaMao,
   estaIndisponivel,
   type Caixa,
+  type GeometriaMao,
   type ObservacaoFrame,
   type PessoaPose,
   type PontoCorporal,
@@ -112,6 +114,12 @@ export interface MaoObservada {
    */
   landmarks: Array<{ nome: string; x: number; y: number }>;
   landmarksCompletos: boolean;
+  /**
+   * Geometria derivada dos 21 landmarks: angulos articulares e estado
+   * estendido/dobrado por dedo. Independe do gesto predefinido do MediaPipe.
+   * Ausente quando os landmarks sao insuficientes para calcular.
+   */
+  geometria?: GeometriaMao;
 }
 
 /** Marcacao NSFW observada (rotulos do proprio modelo, em ingles). */
@@ -239,6 +247,11 @@ export interface OpcoesSerializacao {
   decimais: number;
   /** Inclui os 21 landmarks de mao (em vez do subconjunto compacto). */
   landmarksCompletos: boolean;
+  /**
+   * Inclui a geometria da mao (angulos articulares e dedos estendidos),
+   * calculada sobre os 21 landmarks mesmo no modo compacto. Padrao: `true`.
+   */
+  geometriaMao: boolean;
   /** Confianca minima para manter um keypoint nomeado no registro. */
   confiancaMinimaKeypoint: number;
   /** Maximo de keypoints nomeados por pessoa (os mais confiaveis). */
@@ -256,6 +269,7 @@ export interface OpcoesSerializacao {
 export const OPCOES_SERIALIZACAO_PADRAO: OpcoesSerializacao = {
   decimais: 2,
   landmarksCompletos: false,
+  geometriaMao: true,
   confiancaMinimaKeypoint: 0.3,
   maxKeypointsPorPessoa: 17,
   confiancaMinimaDeteccao: 0,
@@ -416,6 +430,12 @@ export function serializarMaos(
         nome: mao.gesto.nome,
         confianca: arredondar(limitar01(mao.gesto.confianca), opcoes.decimais),
       };
+    }
+    if (opcoes.geometriaMao) {
+      const geometria = calcularGeometriaMao(mao.landmarks, {
+        decimais: opcoes.decimais,
+      });
+      if (geometria) observada.geometria = geometria;
     }
     return observada;
   });
