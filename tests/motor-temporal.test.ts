@@ -129,6 +129,134 @@ describe("RastreadorEntidades", () => {
     r.atualizar([], 300);
     expect(r.vivas).toHaveLength(0); // removido
   });
+
+  it("expira por tempo mesmo com poucos frames ausentes", () => {
+    // A contagem por frames toleraria muitos frames; a lacuna temporal longa
+    // nao deve manter a entidade viva.
+    const r = new RastreadorEntidades(
+      { distanciaMaxima: 0.3, maxFramesAusente: 10, maxTempoAusenteMs: 500 },
+      "t"
+    );
+    r.atualizar([{ x: 0.5, y: 0.5, confianca: 0.9 }], 0);
+    r.atualizar([], 300);
+    expect(r.vivas).toHaveLength(1);
+    // 501 ms sem observacao: expira no inicio da atualizacao.
+    r.atualizar([], 501);
+    expect(r.vivas).toHaveLength(0);
+  });
+
+  it("nao reutiliza o ID de uma entidade expirada por tempo", () => {
+    const r = new RastreadorEntidades(
+      { distanciaMaxima: 0.3, maxFramesAusente: 10, maxTempoAusenteMs: 500 },
+      "t"
+    );
+    const antes = r.atualizar([{ x: 0.5, y: 0.5, confianca: 0.9 }], 0);
+    const idAntes = antes[0].entidadeId;
+    // A pessoa reaparece no mesmo lugar, mas depois da lacuna temporal.
+    const depois = r.atualizar([{ x: 0.5, y: 0.5, confianca: 0.9 }], 900);
+    expect(depois).toHaveLength(1);
+    expect(depois[0].entidadeId).not.toBe(idAntes);
+  });
+
+  it("oclusao curta preserva o ID e atualiza a ultima observacao", () => {
+    const r = new RastreadorEntidades(
+      { distanciaMaxima: 0.3, maxFramesAusente: 5, maxTempoAusenteMs: 1000 },
+      "t"
+    );
+    const a1 = r.atualizar([{ x: 0.5, y: 0.5, confianca: 0.9 }], 0);
+    const id = a1[0].entidadeId;
+    r.atualizar([], 100);
+    r.atualizar([], 200);
+    const voltou = r.atualizar([{ x: 0.52, y: 0.5, confianca: 0.9 }], 300);
+    expect(voltou[0].entidadeId).toBe(id);
+    expect(voltou[0].ultimaObservacaoMs).toBe(300);
+    expect(voltou[0].framesAusente).toBe(0);
+  });
+
+  it("trajetorias proximas sem cruzamento preservam os IDs", () => {
+    const r = new RastreadorEntidades(
+      { distanciaMaxima: 0.2, maxFramesAusente: 5, maxTempoAusenteMs: 2000 },
+      "t"
+    );
+    const a = r.atualizarComAssociacoes(
+      [
+        { x: 0.3, y: 0.5, confianca: 0.9 },
+        { x: 0.7, y: 0.5, confianca: 0.9 },
+      ],
+      0
+    );
+    const idEsquerda = a.entidades.find((e) => e.x < 0.5)!.entidadeId;
+    const idDireita = a.entidades.find((e) => e.x > 0.5)!.entidadeId;
+
+    // Aproximam-se ate 0.1 de separacao, mas sem se cruzarem.
+    const passos = [
+      [0.35, 0.65],
+      [0.4, 0.6],
+      [0.42, 0.58],
+      [0.45, 0.55],
+    ];
+    for (let i = 0; i < passos.length; i += 1) {
+      const [x1, x2] = passos[i];
+      const atual = r.atualizarComAssociacoes(
+        [
+          { x: x1, y: 0.5, confianca: 0.9 },
+          { x: x2, y: 0.5, confianca: 0.9 },
+        ],
+        (i + 1) * 100
+      );
+      const porIndice = new Map(atual.associacoes.map((ass) => [ass.indice, ass.entidadeId]));
+      expect(porIndice.get(0)).toBe(idEsquerda);
+      expect(porIndice.get(1)).toBe(idDireita);
+    }
+  });
+
+  it("cruzamento ambiguo expoe a limitacao do guloso (IDs podem trocar)", () => {
+    // Documenta o comportamento atual, nao um contrato desejavel: quando duas
+    // trajetorias se cruzam e a suavizacao fica atras do movimento, a menor
+    // distancia pode associar cada entidade a pessoa oposta. O roteiro (P2.2)
+    // pede IoU/Hungarian apenas se os dados mostrarem falha frequente — por
+    // isso o teste fixa a limitacao em vez de escondela.
+    const r = new RastreadorEntidades(
+      { distanciaMaxima: 0.2, maxFramesAusente: 5, maxTempoAusenteMs: 2000 },
+      "t"
+    );
+    const a = r.atualizarComAssociacoes(
+      [
+        { x: 0.3, y: 0.5, confianca: 0.9 },
+        { x: 0.7, y: 0.5, confianca: 0.9 },
+      ],
+      0
+    );
+    const idEsquerda = a.entidades.find((e) => e.x < 0.5)!.entidadeId;
+    const idDireita = a.entidades.find((e) => e.x > 0.5)!.entidadeId;
+
+    const passos = [
+      [0.35, 0.65],
+      [0.4, 0.6],
+      [0.45, 0.55],
+      [0.55, 0.45],
+    ];
+    const associacoes: Array<Map<number, string>> = [];
+    for (let i = 0; i < passos.length; i += 1) {
+      const [x1, x2] = passos[i];
+      const atual = r.atualizarComAssociacoes(
+        [
+          { x: x1, y: 0.5, confianca: 0.9 },
+          { x: x2, y: 0.5, confianca: 0.9 },
+        ],
+        (i + 1) * 100
+      );
+      associacoes.push(new Map(atual.associacoes.map((ass) => [ass.indice, ass.entidadeId])));
+    }
+
+    // Antes do cruzamento os IDs seguem a trajetoria fisica.
+    expect(associacoes[1].get(0)).toBe(idEsquerda);
+    expect(associacoes[1].get(1)).toBe(idDireita);
+    // No frame do cruzamento a associacao gulosa troca os IDs de sonda.
+    const ultimo = associacoes[associacoes.length - 1];
+    expect(ultimo.get(0)).toBe(idDireita);
+    expect(ultimo.get(1)).toBe(idEsquerda);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -418,6 +546,43 @@ describe("MotorTemporalImpl — braço", () => {
     const r3 = motor.processar([obs({ ms: 700, pose: posePessoa(0.3, 0.9) })]);
     eventos.push(...r3.eventos.filter((e) => e.tipo === "braco_levantado"));
     expect(eventos.filter((e) => e.estado === "encerrado")).toHaveLength(0);
+  });
+});
+
+describe("MotorTemporalImpl — rastreamento de pessoas", () => {
+  it("mudanca brusca de postura nao troca o ID (referencia no torso)", () => {
+    reiniciarContador();
+    const motor = new MotorTemporalImpl({
+      // Limiar curto: se a referencia fosse o centroide de todos os keypoints,
+      // os membros em posicoes opostas mudariam o centro e criariam outro track.
+      rastreador: { distanciaMaxima: 0.05, maxFramesAusente: 5, alphaSuavizacao: 0.6 },
+    });
+    const poseComMembros = (yMembros: number): ObservacaoFrame["pose"] => {
+      const pontos: PontoCorporal[] = Array.from({ length: 17 }, () => ({
+        x: 0.5,
+        y: yMembros,
+        confianca: 0.9,
+      }));
+      // Torso fixo: ombros (5/6) e quadris (11/12).
+      pontos[5] = { x: 0.45, y: 0.4, confianca: 0.9 };
+      pontos[6] = { x: 0.55, y: 0.4, confianca: 0.9 };
+      pontos[11] = { x: 0.45, y: 0.6, confianca: 0.9 };
+      pontos[12] = { x: 0.55, y: 0.6, confianca: 0.9 };
+      return { pessoas: [{ pontos, confianca: 0.9 } as PessoaPose] };
+    };
+
+    motor.processar([obs({ ms: 0, pose: poseComMembros(0.15) })]);
+    const id = motor.pessoasVivas[0]?.entidadeId;
+    expect(id).toBeDefined();
+
+    // Bracos, cabeca e pernas saltam entre extremos; o torso nao se move.
+    for (let i = 0; i < 4; i += 1) {
+      motor.processar([
+        obs({ ms: (i + 1) * 100, pose: poseComMembros(i % 2 === 0 ? 0.85 : 0.15) }),
+      ]);
+      expect(motor.pessoasVivas).toHaveLength(1);
+      expect(motor.pessoasVivas[0].entidadeId).toBe(id);
+    }
   });
 });
 

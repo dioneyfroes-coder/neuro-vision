@@ -16,6 +16,13 @@ export interface ConfigRastreador {
   distanciaMaxima: number;
   /** Frames consecutivos ausentes antes de descartar a entidade. */
   maxFramesAusente: number;
+  /**
+   * Tempo maximo (ms) desde `ultimaObservacaoMs` antes de descartar a entidade
+   * em cada atualizacao. Expiracao **temporal explicita**: cobre lacunas entre
+   * ciclos em que poucos frames validos fariam a contagem por frames manter uma
+   * entidade viva por tempo demais. Padrao: 2000 ms.
+   */
+  maxTempoAusenteMs: number;
   /** Fator de suavizacao exponencial (0 = sem memoria, 1 = nunca atualiza). */
   alphaSuavizacao: number;
 }
@@ -23,6 +30,7 @@ export interface ConfigRastreador {
 export const CONFIG_RASTREADOR_PADRAO: ConfigRastreador = {
   distanciaMaxima: 0.25,
   maxFramesAusente: 5,
+  maxTempoAusenteMs: 2000,
   alphaSuavizacao: 0.6,
 };
 

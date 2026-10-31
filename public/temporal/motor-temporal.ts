@@ -21,7 +21,7 @@ import type {
 import { CONFIG_MOTOR_TEMPORAL_PADRAO } from "./contracts";
 import { RastreadorEntidades } from "./rastreador-entidades";
 import { MaquinaSinais, type EventoSinal } from "./maquina-sinais";
-import type { Ponto2D } from "./suavizador";
+import { centroidePontos, pontoReferenciaPose } from "./referencia-pose";
 
 /**
  * Indices dos pontos-chave na ordem COCO (17 pontos) usada pelo estimador de
@@ -181,13 +181,16 @@ export class MotorTemporalImpl implements MotorTemporal {
         const rastreamento = this.pessoas.atualizarComAssociacoes(
           poses
             .map((p, i) => {
-              const centro = centroide(p.pontos);
-              if (!centro) return null;
+              // Torso/ombros/quadris: referencia estavel mesmo com mudanca de
+              // postura (bracos/cabeca). O centroide de todos os keypoints fica
+              // apenas como ultimo recurso dentro de `pontoReferenciaPose`.
+              const referencia = pontoReferenciaPose(p.pontos);
+              if (!referencia) return null;
               return {
-                x: centro.x,
-                y: centro.y,
+                x: referencia.x,
+                y: referencia.y,
                 confianca: p.confianca ?? 0.8,
-                meta: { indice: i },
+                meta: { indice: i, referenciaPose: referencia.fonte },
               };
             })
             .filter((s): s is NonNullable<typeof s> => s !== null),
@@ -210,7 +213,7 @@ export class MotorTemporalImpl implements MotorTemporal {
         const rastreamento = this.maos.atualizarComAssociacoes(
           maosVistas
             .map((m, i) => {
-              const centro = centroide(m.landmarks as PontoCorporal[]);
+              const centro = centroidePontos(m.landmarks as PontoCorporal[]);
               if (!centro) return null;
               return {
                 x: centro.x,
@@ -470,23 +473,6 @@ const MAPEAMENTO_EVENTO_VISUAL: Partial<Record<EventoVisual["tipo"], TipoEventoT
   movimento: "movimento_objeto",
   mudanca_de_cena: "mudanca_de_cena",
 };
-
-/** Centroide dos pontos com confianca valida (ou de todos, se nenhuma informa). */
-function centroide(pontos: PontoCorporal[]): Ponto2D | null {
-  if (!pontos || pontos.length === 0) return null;
-  let sx = 0;
-  let sy = 0;
-  let n = 0;
-  for (const p of pontos) {
-    if (!p || typeof p.x !== "number" || typeof p.y !== "number") continue;
-    if (p.confianca !== undefined && p.confianca < 0.05) continue;
-    sx += p.x;
-    sy += p.y;
-    n += 1;
-  }
-  if (n === 0) return null;
-  return { x: sx / n, y: sy / n };
-}
 
 /**
  * Indices COCO (17 pontos) usados na relacao articular do braco erguido.

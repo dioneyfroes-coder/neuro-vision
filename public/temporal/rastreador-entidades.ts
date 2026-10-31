@@ -65,9 +65,10 @@ export interface ResultadoRastreamento {
  * Rastreador generico de entidades com IDs estaveis na sessao.
  *
  * Associa sondas a entidades vivas pela menor distancia (guloso), desde que
- * abaixo de `distanciaMaxima`. Entidades ausentes por mais de
- * `maxFramesAusente` frames sao descartadas. O estado persiste entre chamadas
- * (entre ciclos) ate `limpar()` ser chamado.
+ * abaixo de `distanciaMaxima`. A expiracao e **temporal** e explicita: em cada
+ * atualizacao, entidades sem observacao ha mais de `maxTempoAusenteMs` sao
+ * descartadas; a contagem de `maxFramesAusente` continua como guarda adicional.
+ * O estado persiste entre chamadas (entre ciclos) ate `limpar()` ser chamado.
  */
 export class RastreadorEntidades {
   private readonly config: ConfigRastreador;
@@ -96,6 +97,10 @@ export class RastreadorEntidades {
    * @param tempoMs tempo monotono (ms) do frame.
    */
   atualizarComAssociacoes(sondas: Sonda[], tempoMs: number): ResultadoRastreamento {
+    // Expiracao temporal no inicio da atualizacao: uma entidade nao observada
+    // por tempo demais nao deve sobreviver a lacunas longas entre ciclos.
+    this.expirarPorTempo(tempoMs);
+
     const naoAssociadas = sondas.map((sonda, indice) => ({ sonda, indice }));
     const entidadesVivas = this.vivas;
     const atualizadas = new Set<string>();
@@ -166,6 +171,16 @@ export class RastreadorEntidades {
     this.entidades.clear();
     this.posicoesBrutas.clear();
     this.contador = 0;
+  }
+
+  /** Remove entidades sem observacao ha mais de `maxTempoAusenteMs`. */
+  private expirarPorTempo(tempoMs: number): void {
+    for (const entidade of [...this.entidades.values()]) {
+      if (tempoMs - entidade.ultimaObservacaoMs > this.config.maxTempoAusenteMs) {
+        this.entidades.delete(entidade.entidadeId);
+        this.posicoesBrutas.delete(entidade.entidadeId);
+      }
+    }
   }
 
   private criar(sonda: Sonda, tempoMs: number): Entidade {
