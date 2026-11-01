@@ -1,5 +1,6 @@
 import { ErroPercepcao } from "../src/erros";
 import type { CriadorMotorPose } from "./perception/adapters/pose-estimator.adapter";
+import { interpretarLinhasYoloPose } from "./perception/yolo-pose-output";
 import type {
   ProgressInfo,
   Tensor,
@@ -24,13 +25,6 @@ import { threadsWasm, webgpuDisponivel } from "./desempenho";
 
 /** Modelo de pose padrao: YOLOv8 nano (COCO keypoints, 17 pontos). */
 export const MODELO_POSE_PADRAO = "Xenova/yolov8n-pose";
-
-/** Confianca minima para manter uma pessoa detectada (model card do YOLO Pose). */
-const LIMIAR_SCORE = 0.3;
-
-/** 17 keypoints COCO, cada um com (x, y, visibilidade), apos os 4 da caixa + score. */
-const OFFSET_KEYPOINTS = 5;
-const PASSO_KEYPOINT = 3;
 
 interface OpcoesModelo {
   progress_callback?: (info: ProgressInfo) => void;
@@ -170,26 +164,11 @@ export const criarMotorPoseTransformers: CriadorMotorPose = async (modelo, aoSta
 
         // output0: [1, 56, N] -> [N, 56]: 4 caixa + 1 score + 17 * 3 keypoints.
         const linhas = output0[0].transpose(1, 0).tolist() as number[][];
-        const pessoas: {
-          keypoints: { x: number; y: number; confianca?: number }[];
-          confianca?: number;
-        }[] = [];
-
-        for (const linha of linhas) {
-          const score = linha[4] ?? 0;
-          if (score < LIMIAR_SCORE) continue;
-
-          const keypoints: { x: number; y: number; confianca?: number }[] = [];
-          for (let i = OFFSET_KEYPOINTS; i + 2 < linha.length; i += PASSO_KEYPOINT) {
-            keypoints.push({
-              // Escala os keypoints do espaco redimensionado para a imagem original.
-              x: ((linha[i] ?? 0) / larguraEscalada) * crua.width,
-              y: ((linha[i + 1] ?? 0) / alturaEscalada) * crua.height,
-              confianca: linha[i + 2],
-            });
-          }
-          pessoas.push({ keypoints, confianca: score });
-        }
+        const { pessoas } = interpretarLinhasYoloPose(
+          linhas,
+          { largura: larguraEscalada, altura: alturaEscalada },
+          { largura: crua.width, altura: crua.height }
+        );
 
         return {
           pessoas,
