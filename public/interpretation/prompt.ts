@@ -76,6 +76,13 @@ export function montarPromptInterpretacao(contexto: ContextoCicloSerializavel): 
         ? ` (${contexto.resumoTemporal.intervaloSemObservacaoMs}ms sem observacao)`
         : ""),
     `Indisponibilidades: ${contexto.indisponibilidades.length ? contexto.indisponibilidades.join("; ") : "nenhuma"}`,
+    ...(contexto.limiteContexto?.excedeu
+      ? [
+          `Atencao: o contexto local excedeu o teto de ${contexto.limiteContexto.maxBytes} bytes UTF-8 ` +
+            `(${contexto.limiteContexto.bytes} bytes apos as reducoes) e nao pode ser encaixado por completo. ` +
+            "Dados ausentes podem ter sido removidos por limite de tamanho, nao por ausencia observada.",
+        ]
+      : []),
     "",
     "Frames (em ordem cronologica, cada um corresponde a uma imagem; coordenadas normalizadas em [0,1]):",
     frames,

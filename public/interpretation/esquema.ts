@@ -239,6 +239,16 @@ export interface ContextoCicloSerializavel {
   };
   /** Subsistemas indisponiveis (sinalizacao de falha != ausencia). */
   indisponibilidades: string[];
+  /**
+   * Registro explicito de que o contexto continuou acima do teto mesmo apos
+   * todas as reducoes. Ausente quando o payload coube (com ou sem reducoes).
+   * `bytes` e medido antes de incluir este proprio registro.
+   */
+  limiteContexto?: {
+    maxBytes: number;
+    bytes: number;
+    excedeu: true;
+  };
 }
 
 /** Limites de resolucao/normalizacao usados na montagem do schema. */

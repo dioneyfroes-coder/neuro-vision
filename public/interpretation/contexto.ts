@@ -50,7 +50,7 @@ export interface LimitesContexto {
   maxPontosPorFrame: number;
   /** Casas decimais para coordenadas/confiancas (limita dados numericos). */
   decimais: number;
-  /** Teto aproximado do JSON do contexto (bytes). */
+  /** Teto do JSON do contexto em **bytes UTF-8** (nao unidades de string). */
   maxBytesContexto: number;
 }
 
@@ -290,17 +290,26 @@ function coletarIndisponibilidades(observacoes: ObservacaoFrame[]): string[] {
  * 4. eventos temporais; 5. deteccoes/pessoas restantes. `frameId`, timestamp,
  * `versao`, o estado do subsistema e as **marcacoes NSFW** nunca sao removidos:
  * quando o classificador esta ativo, a informacao +18 e evidencia essencial.
+ *
+ * O teto e medido em **bytes UTF-8** (`TextEncoder`), nao em unidades de string.
+ * Se o payload continuar acima do teto apos todas as reducoes, o proprio
+ * contexto registra `limiteContexto` com `excedeu: true` — nunca falha em
+ * silencio.
  */
 function limitarPorBytes(contexto: ContextoCicloSerializavel, maxBytes: number): void {
-  if (tamanhoBytes(contexto) <= maxBytes) return;
+  if (tamanhoBytesUtf8(contexto) <= maxBytes) return;
 
   // 1. Landmarks de mao: mantem apenas os pontas/articulacoes compactas.
   for (const frame of contexto.frames) {
     for (const mao of frame.maos) {
-      if (mao.landmarks.length > 6) mao.landmarks = mao.landmarks.slice(0, 6);
+      if (mao.landmarks.length > 6) {
+        mao.landmarks = mao.landmarks.slice(0, 6);
+        // O registro deixa de representar os 21 landmarks.
+        mao.landmarksCompletos = false;
+      }
     }
   }
-  if (tamanhoBytes(contexto) <= maxBytes) return;
+  if (tamanhoBytesUtf8(contexto) <= maxBytes) return;
 
   // 2. Keypoints: mantem apenas os mais confiaveis por pessoa.
   for (const frame of contexto.frames) {
@@ -308,15 +317,15 @@ function limitarPorBytes(contexto: ContextoCicloSerializavel, maxBytes: number):
       if (pessoa.keypoints.length > 6) pessoa.keypoints = pessoa.keypoints.slice(0, 6);
     }
   }
-  if (tamanhoBytes(contexto) <= maxBytes) return;
+  if (tamanhoBytesUtf8(contexto) <= maxBytes) return;
 
   // 3. Movimento (derivavel de posicoes; menos critico que a evidencia bruta).
   for (const frame of contexto.frames) frame.movimento = [];
-  if (tamanhoBytes(contexto) <= maxBytes) return;
+  if (tamanhoBytesUtf8(contexto) <= maxBytes) return;
 
   // 4. Eventos temporais.
   contexto.eventosTemporais = [];
-  if (tamanhoBytes(contexto) <= maxBytes) return;
+  if (tamanhoBytesUtf8(contexto) <= maxBytes) return;
 
   // 5. Deteccoes menos confiaveis primeiro; depois pessoas/maos alem da primeira.
   // As marcacoes NSFW ficam intactas de proposito: sao a evidencia +18 que o
@@ -326,8 +335,23 @@ function limitarPorBytes(contexto: ContextoCicloSerializavel, maxBytes: number):
     frame.pessoas = frame.pessoas.slice(0, 2);
     frame.maos = frame.maos.slice(0, 2);
   }
+
+  const final = tamanhoBytesUtf8(contexto);
+  if (final > maxBytes) {
+    // Registro explicito: o teto nao foi alcancavel sem remover evidencia
+    // essencial. O campo nao entra na medicao de `bytes` (medido antes dele).
+    contexto.limiteContexto = { maxBytes, bytes: final, excedeu: true };
+  }
 }
 
-function tamanhoBytes(valor: unknown): number {
-  return JSON.stringify(valor).length;
+/**
+ * Tamanho em **bytes UTF-8** da representacao JSON do valor.
+ *
+ * `String.length` conta unidades UTF-16: um acento ou emoji ocupa 1 unidade mas
+ * 2-4 bytes. O limite do contexto e de transporte, portanto precisa da
+ * codificacao real.
+ */
+export function tamanhoBytesUtf8(valor: unknown): number {
+  const texto = JSON.stringify(valor) ?? "";
+  return new TextEncoder().encode(texto).length;
 }
