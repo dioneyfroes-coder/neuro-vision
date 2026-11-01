@@ -35,7 +35,13 @@ function evento(
 }
 
 function resumo(eventos: EventoTemporal[]): ResumoTemporal {
-  return { eventos, entidadesAtivas: 1 };
+  return {
+    eventos,
+    tracksAtivos: 1,
+    pessoasAtivas: 1,
+    maosAtivas: 0,
+    objetosAtivos: 0,
+  };
 }
 
 describe("politicas explicitas do ciclo", () => {

@@ -30,7 +30,13 @@ const PACOTE: PacoteCiclo = {
   concluidoEm: "2026-10-17T12:00:00.500Z",
   observacoes: [OBS_BASE],
   eventosTemporais: [],
-  resumoTemporal: { eventos: [], entidadesAtivas: 1 },
+  resumoTemporal: {
+    eventos: [],
+    tracksAtivos: 1,
+    pessoasAtivas: 1,
+    maosAtivas: 0,
+    objetosAtivos: 0,
+  },
   metricas: {},
 };
 
@@ -119,7 +125,10 @@ describe("montarContextoCiclo", () => {
     expect(contexto.frames[1].offsetMs).toBe(100);
     expect(contexto.eventosTemporais).toEqual([]);
     expect(contexto.indisponibilidades).toEqual([]);
-    expect(contexto.resumoTemporal.entidadesAtivas).toBe(0);
+    expect(contexto.resumoTemporal.tracksAtivos).toBe(0);
+    expect(contexto.resumoTemporal.pessoasAtivas).toBe(0);
+    expect(contexto.resumoTemporal.maosAtivas).toBe(0);
+    expect(contexto.resumoTemporal.objetosAtivos).toBe(0);
   });
 });
 

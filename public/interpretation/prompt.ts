@@ -71,7 +71,7 @@ export function montarPromptInterpretacao(contexto: ContextoCicloSerializavel): 
     `Schema do contexto: ${contexto.versao}.`,
     "",
     `Sessao: ${contexto.sessionId}, ciclo: ${contexto.cycleId}, iniciado ${contexto.iniciadoEm}, janela ${contexto.janelaMs}ms.`,
-    `Entidades ativas: ${contexto.resumoTemporal.entidadesAtivas}, intervalo cego: ${contexto.resumoTemporal.houveIntervaloSemObservacao}` +
+    `Tracks ativos: ${contexto.resumoTemporal.tracksAtivos} (pessoas: ${contexto.resumoTemporal.pessoasAtivas}, maos: ${contexto.resumoTemporal.maosAtivas}, objetos: ${contexto.resumoTemporal.objetosAtivos}); intervalo cego: ${contexto.resumoTemporal.houveIntervaloSemObservacao}` +
       (contexto.resumoTemporal.intervaloSemObservacaoMs !== undefined
         ? ` (${contexto.resumoTemporal.intervaloSemObservacaoMs}ms sem observacao)`
         : ""),

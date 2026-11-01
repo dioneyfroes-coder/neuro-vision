@@ -76,7 +76,13 @@ function pacote(observacoes: ObservacaoFrame[], eventos: EventoTemporal[] = []):
     concluidoEm: "2026-10-17T12:00:01.000Z",
     observacoes,
     eventosTemporais: eventos,
-    resumoTemporal: { eventos, entidadesAtivas: 1 },
+    resumoTemporal: {
+      eventos,
+      tracksAtivos: 1,
+      pessoasAtivas: 1,
+      maosAtivas: 0,
+      objetosAtivos: 0,
+    },
     metricas: {},
   };
 }

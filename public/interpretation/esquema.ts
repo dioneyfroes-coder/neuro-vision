@@ -232,7 +232,17 @@ export interface ContextoCicloSerializavel {
   frames: ObservacaoLocalSerializavel[];
   eventosTemporais: EventoTemporalSerializavel[];
   resumoTemporal: {
-    entidadesAtivas: number;
+    /**
+     * Soma de tracks vivos (pessoas + maos + objetos). Nao e o numero de
+     * entidades fisicas: pose e maos de uma mesma pessoa contam separadamente.
+     */
+    tracksAtivos: number;
+    /** Tracks de pessoas (pose) vivos no fim do ciclo. */
+    pessoasAtivas: number;
+    /** Tracks de maos vivos no fim do ciclo. */
+    maosAtivas: number;
+    /** Tracks de objetos vivos no fim do ciclo. */
+    objetosAtivos: number;
     houveIntervaloSemObservacao: boolean;
     /** Duracao (ms) do periodo cego anterior ao ciclo, quando houver. */
     intervaloSemObservacaoMs?: number;

@@ -82,7 +82,14 @@ export class MotorTemporalImpl implements MotorTemporal {
    */
   processar(observacoes: ObservacaoFrame[]): ResultadoTemporal {
     if (observacoes.length === 0) {
-      return { eventos: [], entidadesAtivas: 0, observacoes: [] };
+      return {
+        eventos: [],
+        tracksAtivos: 0,
+        pessoasAtivas: 0,
+        maosAtivas: 0,
+        objetosAtivos: 0,
+        observacoes: [],
+      };
     }
 
     const sessionId = observacoes[0].sessionId;
@@ -296,12 +303,19 @@ export class MotorTemporalImpl implements MotorTemporal {
 
     this.ultimoTempoMs = observacoes[observacoes.length - 1].capturadoEmMs;
 
-    const entidadesAtivas =
-      this.pessoas.vivas.length + this.maos.vivas.length + this.objetos.rastreados.length;
+    const pessoasAtivas = this.pessoas.vivas.length;
+    const maosAtivas = this.maos.vivas.length;
+    const objetosAtivos = this.objetos.rastreados.length;
+    // Soma de tracks, nao de entidades fisicas: pose e maos de uma mesma pessoa
+    // contam separadamente (ver `ResumoTemporal`).
+    const tracksAtivos = pessoasAtivas + maosAtivas + objetosAtivos;
 
     return {
       eventos,
-      entidadesAtivas,
+      tracksAtivos,
+      pessoasAtivas,
+      maosAtivas,
+      objetosAtivos,
       observacoes: observacoesEnriquecidas,
       houveIntervaloSemObservacao: houvePeriodoCego || undefined,
       intervaloSemObservacaoMs: gapMs,

@@ -42,8 +42,19 @@ export interface PoliticaCicloAplicada {
 export interface ResumoTemporal {
   /** Eventos ativos/encerrados neste ciclo (com identidade unica). */
   eventos: EventoTemporal[];
-  /** Entidades vivas no fim do ciclo (objetos/pessoas/maos rastreados). */
-  entidadesAtivas: number;
+  /**
+   * Tracks vivos no fim do ciclo: **soma** de pessoas, maos e objetos
+   * rastreados. Nao e a quantidade de entidades fisicas distintas — uma mesma
+   * pessoa pode contribuir com o track de pose e com um ou dois tracks de mao.
+   * Use a decomposicao abaixo quando o numero precisar de significado fisico.
+   */
+  tracksAtivos: number;
+  /** Tracks de pessoas (pose) vivos no fim do ciclo. */
+  pessoasAtivas: number;
+  /** Tracks de maos vivos no fim do ciclo. */
+  maosAtivas: number;
+  /** Tracks de objetos vivos no fim do ciclo. */
+  objetosAtivos: number;
   /** Texto curto consolidado, quando o motor produz um. */
   descricao?: string;
   /** Sinal de que faltaram observacoes (janela cega anterior ao ciclo). */

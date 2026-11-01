@@ -191,7 +191,10 @@ function montar(
   const motorTemporal: MotorTemporal = {
     processar: () => ({
       eventos: (opcoes.eventosTemporais ?? []).map((e) => ({ ...e })),
-      entidadesAtivas: 0,
+      tracksAtivos: 0,
+      pessoasAtivas: 0,
+      maosAtivas: 0,
+      objetosAtivos: 0,
     }),
     resetar: resetes,
   };

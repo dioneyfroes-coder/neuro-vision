@@ -140,7 +140,10 @@ export function montarContextoCiclo(
     frames,
     eventosTemporais,
     resumoTemporal: {
-      entidadesAtivas: incluirDadosLocais ? pacote.resumoTemporal.entidadesAtivas : 0,
+      tracksAtivos: incluirDadosLocais ? pacote.resumoTemporal.tracksAtivos : 0,
+      pessoasAtivas: incluirDadosLocais ? pacote.resumoTemporal.pessoasAtivas : 0,
+      maosAtivas: incluirDadosLocais ? pacote.resumoTemporal.maosAtivas : 0,
+      objetosAtivos: incluirDadosLocais ? pacote.resumoTemporal.objetosAtivos : 0,
       houveIntervaloSemObservacao: incluirDadosLocais
         ? Boolean(pacote.resumoTemporal.houveIntervaloSemObservacao)
         : false,

@@ -71,7 +71,13 @@ describe("contratos de observacao e pacote", () => {
       iniciadoEm: "2026-10-16T10:00:00.000Z",
       observacoes: [observacao],
       eventosTemporais: [],
-      resumoTemporal: { eventos: [], entidadesAtivas: 0 },
+      resumoTemporal: {
+        eventos: [],
+        tracksAtivos: 0,
+        pessoasAtivas: 0,
+        maosAtivas: 0,
+        objetosAtivos: 0,
+      },
       metricas: {},
     };
     expect(pacote.observacoes[0].imagem).toBe(observacao.imagem);

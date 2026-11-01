@@ -763,7 +763,38 @@ describe("MotorTemporalImpl — estado entre ciclos", () => {
     // Sem pessoas rastreadas, mas maos funcionando.
     expect(motor.pessoasVivas).toHaveLength(0);
     expect(motor.maosVivas).toHaveLength(1);
-    expect(r.entidadesAtivas).toBeGreaterThanOrEqual(1);
+    expect(r.tracksAtivos).toBeGreaterThanOrEqual(1);
+  });
+
+  it("tracksAtivos conta tracks, nao entidades fisicas distintas", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    const duasMaos: ObservacaoFrame["maos"] = {
+      maos: [
+        {
+          lateralidade: "esquerda",
+          landmarks: [
+            { x: 0.4, y: 0.5 },
+            { x: 0.42, y: 0.48 },
+          ],
+        },
+        {
+          lateralidade: "direita",
+          landmarks: [
+            { x: 0.6, y: 0.5 },
+            { x: 0.62, y: 0.48 },
+          ],
+        },
+      ],
+    };
+
+    const r = motor.processar([obs({ ms: 0, pose: posePessoa(), maos: duasMaos })]);
+
+    expect(r.pessoasAtivas).toBe(1);
+    expect(r.maosAtivas).toBe(2);
+    expect(r.objetosAtivos).toBe(0);
+    // Uma pessoa fisica, tres tracks: pose + mao esquerda + mao direita.
+    expect(r.tracksAtivos).toBe(3);
   });
 
   it("falha de maos nao encerra gesto ativo", () => {

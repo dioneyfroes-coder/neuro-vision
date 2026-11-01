@@ -214,7 +214,13 @@ export async function executarCicloMultiframe(
   const observacoes: ObservacaoFrame[] = [];
   // Copias enriquecidas com IDs de rastreamento; alimentam o pacote/contexto.
   let observacoesEnriquecidas: ObservacaoFrame[] = observacoes;
-  let resumoTemporal: ResumoTemporal = { eventos: [], entidadesAtivas: 0 };
+  let resumoTemporal: ResumoTemporal = {
+    eventos: [],
+    tracksAtivos: 0,
+    pessoasAtivas: 0,
+    maosAtivas: 0,
+    objetosAtivos: 0,
+  };
   let metricas: MetricasCiclo = {};
 
   try {
@@ -239,7 +245,13 @@ export async function executarCicloMultiframe(
           concluidoEm,
           observacoes: [],
           eventosTemporais: [],
-          resumoTemporal: { eventos: [], entidadesAtivas: 0 },
+          resumoTemporal: {
+            eventos: [],
+            tracksAtivos: 0,
+            pessoasAtivas: 0,
+            maosAtivas: 0,
+            objetosAtivos: 0,
+          },
           metricas: {
             capturaMs,
             capturaConcluidaEm,

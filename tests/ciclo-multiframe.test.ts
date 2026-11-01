@@ -81,7 +81,13 @@ function evento(n: number): EventoTemporal {
 
 function motorTemporalFalso(
   vistos: ObservacaoFrame[][],
-  produzir: ResumoTemporal | (() => ResumoTemporal) = { eventos: [evento(1)], entidadesAtivas: 1 }
+  produzir: ResumoTemporal | (() => ResumoTemporal) = {
+    eventos: [evento(1)],
+    tracksAtivos: 1,
+    pessoasAtivas: 1,
+    maosAtivas: 0,
+    objetosAtivos: 0,
+  }
 ): MotorTemporal {
   return {
     processar: (observacoes) => {
@@ -320,7 +326,10 @@ describe("executarCicloMultiframe", () => {
     expect(resultado.pacote.eventosTemporais).toEqual([evento(1)]);
     expect(resultado.pacote.resumoTemporal).toEqual({
       eventos: [evento(1)],
-      entidadesAtivas: 1,
+      tracksAtivos: 1,
+      pessoasAtivas: 1,
+      maosAtivas: 0,
+      objetosAtivos: 0,
     });
     expect(typeof resultado.pacote.metricas.temporalMs).toBe("number");
     expect(resultado.erros).toHaveLength(0);
@@ -339,7 +348,13 @@ describe("executarCicloMultiframe", () => {
       mensagem: "motor temporal quebrou",
     });
     expect(resultado.pacote.eventosTemporais).toEqual([]);
-    expect(resultado.pacote.resumoTemporal).toEqual({ eventos: [], entidadesAtivas: 0 });
+    expect(resultado.pacote.resumoTemporal).toEqual({
+      eventos: [],
+      tracksAtivos: 0,
+      pessoasAtivas: 0,
+      maosAtivas: 0,
+      objetosAtivos: 0,
+    });
     // O ciclo segue: a interpretacao multimodal ainda acontece.
     expect(resultado.interpretacao).toBe("quatro frames analisados");
   });
