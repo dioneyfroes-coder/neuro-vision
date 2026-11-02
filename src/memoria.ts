@@ -1,4 +1,5 @@
 import type { EntradaLog, EventoVisual, TipoEventoVisual } from "./types";
+import type { OrigemSinalTemporal } from "./domain/temporal-event";
 
 // As primitivas de JSONL foram movidas para a camada de persistencia
 // (`src/persistence/`). Reexportadas aqui para nao quebrar consumidores
@@ -26,6 +27,13 @@ export const TIPOS_EVENTO: TipoEventoVisual[] = [
   "mudanca_de_cena",
   "resumo",
 ];
+const ORIGENS_SINAL_EVENTO: OrigemSinalTemporal[] = [
+  "objetos",
+  "pose",
+  "maos",
+  "cena",
+  "movimento",
+];
 
 /** Normaliza um valor para `TipoEventoVisual` ou `null` quando desconhecido. */
 export function normalizarTipoEvento(valor: unknown): TipoEventoVisual | null {
@@ -44,6 +52,11 @@ export function montarEvento(payload: unknown): EventoVisual | null {
   // `"ollama"` e o valor legado; normaliza para `"visao"` na leitura.
   const origem = p.origem === "ollama" ? "visao" : p.origem;
   if (typeof origem !== "string" || !origens.includes(origem as EventoVisual["origem"])) return null;
+  const origensSinal = Array.isArray(p.origensSinal)
+    ? p.origensSinal.filter((s): s is OrigemSinalTemporal =>
+        ORIGENS_SINAL_EVENTO.includes(s as OrigemSinalTemporal)
+      )
+    : undefined;
   return {
     id: typeof p.id === "string" && p.id ? p.id : `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     timestamp: typeof p.timestamp === "string" ? p.timestamp : new Date().toISOString(),
@@ -52,6 +65,7 @@ export function montarEvento(payload: unknown): EventoVisual | null {
     descricao: p.descricao,
     confianca: typeof p.confianca === "number" && Number.isFinite(p.confianca) ? p.confianca : undefined,
     origem: origem as EventoVisual["origem"],
+    origensSinal,
     snapshot: typeof p.snapshot === "string" ? p.snapshot : undefined,
     modelo: typeof p.modelo === "string" ? p.modelo : undefined,
     sessaoId: typeof p.sessaoId === "string" ? p.sessaoId : undefined,

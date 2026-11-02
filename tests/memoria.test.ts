@@ -134,6 +134,16 @@ describe("montarEvento", () => {
       idempotencyKey: "chave-1",
     });
   });
+
+  it("preserva apenas as origens semanticas conhecidas", () => {
+    const evento = montarEvento({
+      tipo: "movimento",
+      origem: "rastreador",
+      descricao: "caneca se desloca",
+      origensSinal: ["objetos", "origem-invalida"],
+    });
+    expect(evento?.origensSinal).toEqual(["objetos"]);
+  });
 });
 
 describe("filtrarEventos", () => {

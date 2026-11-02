@@ -505,13 +505,19 @@ export class CicloPercepcaoController implements ControladorCiclo {
    *
    * Tipos sem equivalente em `EventoVisual` (`gesto_detectado`,
    * `braco_levantado`, `movimento_corporal`) nao entram neste stream: vao para
-   * a memoria temporal propria em `persistirMemoriaTemporal`.
+   * a memoria temporal propria em `persistirMemoriaTemporal`. `movimento_objeto`
+   * e adaptado ao rótulo visual legado `movimento` com origem semantica explícita.
    */
   private persistirEventosTemporais(pacote: PacoteCiclo): void {
     for (const evt of pacote.eventosTemporais) {
       if (this.eventosPersistidos.has(evt.eventoId)) continue;
       if (evt.estado !== "confirmado" && evt.estado !== "encerrado") continue;
-      if (evt.tipo !== "aparicao" && evt.tipo !== "desaparecimento" && evt.tipo !== "mudanca_de_cena") {
+      if (
+        evt.tipo !== "aparicao" &&
+        evt.tipo !== "desaparecimento" &&
+        evt.tipo !== "mudanca_de_cena" &&
+        evt.tipo !== "movimento_objeto"
+      ) {
         continue;
       }
       this.eventosPersistidos.add(evt.eventoId);
@@ -526,11 +532,12 @@ export class CicloPercepcaoController implements ControladorCiclo {
       const evento: EventoVisual = {
         id: evt.eventoId,
         timestamp: evt.inicioEm,
-        tipo: evt.tipo,
+        tipo: evt.tipo === "movimento_objeto" ? "movimento" : evt.tipo,
         objetoId: evt.entidadeId,
         descricao: evt.descricao,
         confianca: evt.confianca,
         origem: "rastreador",
+        origensSinal: evt.origens,
         snapshot: obs?.thumb,
         modelo: modeloDeteccao,
         sessaoId: pacote.sessionId,

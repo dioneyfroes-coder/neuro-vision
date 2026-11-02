@@ -1,4 +1,4 @@
-import type { EventoTemporal } from "./domain/temporal-event";
+import type { EventoTemporal, OrigemSinalTemporal } from "./domain/temporal-event";
 
 export interface Caixa {
   xmin: number;
@@ -130,6 +130,8 @@ export interface EventoVisual {
   descricao: string;
   confianca?: number;
   origem: OrigemEvento;
+  /** Evidência semântica que sustenta o evento, quando conhecida. */
+  origensSinal?: OrigemSinalTemporal[];
   snapshot?: string;
   modelo?: string;
   /** Sessao a que pertence este evento (legado: ausente). */

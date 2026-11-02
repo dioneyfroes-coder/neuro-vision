@@ -521,6 +521,12 @@ describe("CicloPercepcaoController", () => {
       frameIds: [],
       estado: "confirmado",
     };
+    const movimentoObjeto: EventoTemporal = {
+      ...confirmado,
+      eventoId: "evt-mov",
+      tipo: "movimento_objeto",
+      descricao: "caneca se desloca para a direita",
+    };
     const candidato: EventoTemporal = {
       ...confirmado,
       eventoId: "evt-2",
@@ -533,14 +539,16 @@ describe("CicloPercepcaoController", () => {
       tipo: "gesto_detectado",
       estado: "confirmado",
     };
-    const ctx = montar({ eventosTemporais: [confirmado, candidato, gestoConfirmado] });
+    const ctx = montar({
+      eventosTemporais: [confirmado, movimentoObjeto, candidato, gestoConfirmado],
+    });
     await ctx.controle.iniciar();
 
-    // So o evento de tipo mapeavel e confirmado vai para a fila (1 por ciclo).
+    // Fatos visuais confirmados vao para a fila; gesto fica no stream proprio.
     const agendados = ctx.tarefas.filter((t) => t.descricao.startsWith("evento:multiframe:"));
-    expect(agendados).toHaveLength(1);
+    expect(agendados).toHaveLength(2);
     await Promise.all(ctx.tarefas.map((t) => t.executar()));
-    expect(ctx.eventosVisuais).toHaveLength(1);
+    expect(ctx.eventosVisuais).toHaveLength(2);
     // timestamp = inicioEm (instante real), frameId = evidencia do ciclo,
     // id = identidade temporal (rastreavel de volta ao RegistroCiclo).
     expect(ctx.eventosVisuais[0]).toMatchObject({
@@ -551,11 +559,20 @@ describe("CicloPercepcaoController", () => {
       sessaoId: ctx.ciclos[0].sessionId,
       frameId: ctx.ciclos[0].frameIds[1],
     });
+    expect(ctx.eventosVisuais).toContainEqual(
+      expect.objectContaining({
+        id: "evt-mov",
+        tipo: "movimento",
+        descricao: "caneca se desloca para a direita",
+        origem: "rastreador",
+        origensSinal: ["objetos"],
+      })
+    );
     expect(ctx.eventosVisuais[0].idempotencyKey).toBeTruthy();
 
     // A identidade que reaparece no proximo ciclo nao duplica no arquivo.
     await ctx.controle.executarCiclo();
-    expect(ctx.tarefas.filter((t) => t.descricao.startsWith("evento:multiframe:"))).toHaveLength(1);
+    expect(ctx.tarefas.filter((t) => t.descricao.startsWith("evento:multiframe:"))).toHaveLength(2);
     ctx.controle.parar();
   });
 
