@@ -1,0 +1,15 @@
+{
+  "versaoEsquema": 2,
+  "clip": "bolt-detection.mp4",
+  "conjunto": "eval",
+  "duracaoMs": 30064,
+  "revisao": {
+    "status": "revisada",
+    "metodo": "amostragem-manual-1fps"
+  },
+  "notas": "Video mostra apenas parafusos, sem pessoas ou maos visiveis; negativo especifico para gesto.aceno.",
+  "negativos": [
+    "gesto.aceno"
+  ],
+  "eventos": []
+}

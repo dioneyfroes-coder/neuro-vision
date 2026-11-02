@@ -29,24 +29,25 @@ reservado foi usado nos relatórios (protocolo e gate em
 Quando `--conjunto eval` é usado, o harness exige o diretório EVAL oficial e
 bloqueia a rodada se `validar:eval` não comprovar a cobertura e a separação.
 
-## Conjunto EVAL (anotações verificadas — números finais)
+## Conjunto EVAL (anotações revisadas; gate ainda incompleto)
 
 | Clipe | Duração | Cobertura | Anotação | Status |
 |-------|--------:|-----------|----------|--------|
-| `webcam-mudanca.webm` | 30 s | cena estática → desaparecimento único | `eval/webcam-mudanca.json` | ✅ verificada (v2, intervalo e metadados humanos) |
+| `webcam-mudanca.webm` | 30 s | pessoa sai do quadro | `eval/webcam-mudanca.json` | ✅ verificada (v2) |
+| `fruit-and-vegetable-detection.mp4` | 61 s | objetos atravessam esteira; negativo de aceno | `eval/fruit-and-vegetable-detection.json` | ✅ revisada por amostragem de 1 fps |
+| `car-detection.mp4` | 30 s | carros cruzam o quadro; negativo de aceno | `eval/car-detection.json` | ✅ revisada por amostragem de 1 fps |
+| `bolt-detection.mp4` | 30 s | negativo de aceno (sem pessoas no quadro) | `eval/bolt-detection.json` | ✅ revisada por amostragem de 1 fps |
 
-Candidatos **pendentes de anotação humana** (não usar em eval até revisar):
-`one-by-one-person-detection.mp4` (139 s — sequência de ações),
-`face-demographics-walking-and-pause.mp4` (91 s — ação lenta + pausa),
-`classroom.mp4` (33 s — oclusões/múltiplas pessoas),
-`car-detection.mp4` (30 s — cena sem pessoa).
+As amostras revisadas não contêm aceno inequívoco; não foi criada ocorrência
+positiva dessa classe. A interpretação textual ainda precisa de verdade-base e
+de uma saída correspondente no comparador. Os eventos de movimento nos clipes
+acima foram anotados por amostragem, não quadro a quadro.
 
-**Fase 4 em andamento:** o formato v2 registra categoria/classe, início/fim,
-visibilidade, parte envolvida e determinabilidade; o comparador exclui eventos
-indeterminados das métricas. O EVAL ainda tem somente um clipe e não alcança a
-cobertura mínima de várias ocorrências por classe nem negativos revisados. Não
-promover variantes com base neste conjunto até revisar os candidatos e atualizar
-esta matriz.
+**Fase 4 em andamento:** o manifesto exige as três classes escolhidas, três
+ocorrências por classe e três clipes com cobertura negativa. `negativos`
+registra alvos ausentes individualmente; `casoNegativo` continua reservado a
+clipes sem nenhum alvo. O gate deve continuar falhando enquanto aceno positivo
+e interpretação textual não tiverem ocorrências suficientes.
 
 ## Conjunto TUNING (rascunhos + limiares)
 
@@ -85,16 +86,16 @@ esta matriz.
   (`gesto`, `postura`, `movimento_corporal`, `movimento_objeto`,
   `aparicao_desaparecimento`, `interpretacao_textual`), classe, visibilidade,
   parte envolvida e `determinavel`.
-- `eval/manifest.json` fixa, antes da rodada, sete classes-alvo com três
-  ocorrências mínimas cada e dois clipes negativos; `npm run validar:eval`
-  verifica a cobertura, revisão humana e separação dos splits.
+- `eval/manifest.json` fixa três classes-alvo com três ocorrências mínimas
+  cada e três clipes negativos; `npm run validar:eval` verifica a cobertura,
+  revisão humana e separação dos splits.
 - Eventos impossíveis de julgar ficam anotados com `determinavel: false`; o
   comparador os reporta à parte e não os trata como perdas.
 - **Rascunho** = `eventos: []` + `notas` iniciando com "RASCUNHO": significa
   "sem evento esperado anotado ainda" — serve para medir FP/min no tuning,
   **não** para recall. Promover a eval só após revisão humana quadro a quadro.
-- Um negativo EVAL v2 exige `casoNegativo: true` e `revisao.status: "revisada"`;
-  um array vazio sem essa confirmação não conta como cobertura negativa.
+- Negativos EVAL v2 exigem revisão concluída e são registrados como
+  `casoNegativo` (ausência global) ou em `negativos` (ausência de alvos específicos).
 - A base temporal `em` dos clipes de webcam vem do sidecar `<eventos>.inicio`
   gravado pelo E2E (`e2e/webcam.spec.ts` / `webcam-multiframe.spec.ts`).
 - Nunca alterar `bench/BASELINE.md`; relatórios vão para

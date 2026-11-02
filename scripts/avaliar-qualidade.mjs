@@ -97,13 +97,24 @@ export function carregarAnotacao(dados) {
   const duracaoMs =
     Number.isFinite(dados.duracaoMs) && dados.duracaoMs > 0 ? dados.duracaoMs : undefined;
   const eventos = Array.isArray(dados.eventos) ? dados.eventos : [];
+  const negativos = dados.negativos ?? [];
+  if (
+    !Array.isArray(negativos) ||
+    negativos.some((alvo) => typeof alvo !== "string" || alvo.trim() === "") ||
+    new Set(negativos).size !== negativos.length
+  ) {
+    throw new Error('"negativos" deve ser uma lista sem duplicatas de alvos categoria.classe');
+  }
   if (
     versaoEsquema === 2 &&
     dados.conjunto === "eval" &&
     eventos.length === 0 &&
-    dados.casoNegativo !== true
+    dados.casoNegativo !== true &&
+    negativos.length === 0
   ) {
-    throw new Error('anotacao EVAL sem eventos precisa declarar "casoNegativo": true');
+    throw new Error(
+      'anotacao EVAL sem eventos precisa declarar "casoNegativo": true ou "negativos" por classe'
+    );
   }
   if (versaoEsquema === 2 && dados.casoNegativo === true && eventos.length > 0) {
     throw new Error('"casoNegativo" nao pode coexistir com eventos positivos');
@@ -181,6 +192,7 @@ export function carregarAnotacao(dados) {
     versaoEsquema,
     conjunto: typeof dados.conjunto === "string" ? dados.conjunto : undefined,
     casoNegativo: dados.casoNegativo === true,
+    negativos,
     revisao,
     inicio: typeof dados.inicio === "string" ? dados.inicio : undefined,
     duracaoMs,

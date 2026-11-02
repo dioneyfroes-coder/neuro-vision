@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -38,7 +38,7 @@ async function montarConjunto({ minimo = 1, bytesTuning = "tuning" } = {}) {
   await salvarJson(path.join(evalDir, "manifest.json"), {
     versaoEsquema: 1,
     ocorrenciasMinimasPorClasse: minimo,
-    clipesNegativosMinimos: 2,
+    clipesNegativosMinimos: 3,
     classes: [{ categoria: "gesto", classe: "aceno" }],
   });
   await salvarJson(path.join(evalDir, "gesture-eval.json"), anotacao("gesture-eval.webm", [evento]));
@@ -48,7 +48,11 @@ async function montarConjunto({ minimo = 1, bytesTuning = "tuning" } = {}) {
   );
   await salvarJson(
     path.join(evalDir, "negative-two.json"),
-    anotacao("negative-two.webm", [], { casoNegativo: true })
+    anotacao("negative-two.webm", [], { negativos: ["gesto.aceno"] })
+  );
+  await salvarJson(
+    path.join(evalDir, "negative-three.json"),
+    anotacao("negative-three.webm", [], { negativos: ["gesto.aceno"] })
   );
   await salvarJson(path.join(tuningDir, "gesture-tuning.json"), {
     clip: "gesture-tuning.webm",
@@ -58,6 +62,7 @@ async function montarConjunto({ minimo = 1, bytesTuning = "tuning" } = {}) {
   await writeFile(path.join(videosDir, "gesture-eval.webm"), "eval");
   await writeFile(path.join(videosDir, "negative-one.webm"), "negative-one");
   await writeFile(path.join(videosDir, "negative-two.webm"), "negative-two");
+  await writeFile(path.join(videosDir, "negative-three.webm"), "negative-three");
   await writeFile(path.join(videosDir, "gesture-tuning.webm"), bytesTuning);
 
   return { raiz, tuningDir, videosDir };
@@ -70,9 +75,9 @@ describe("validarConjuntoEval", () => {
       const resultado = await validarConjuntoEval({ raiz: conjunto.raiz });
       expect(resultado.valido).toBe(true);
       expect(resultado.cobertura).toEqual([
-        { categoria: "gesto", classe: "aceno", ocorrencias: 1 },
+        { categoria: "gesto", classe: "aceno", ocorrencias: 1, negativos: 3 },
       ]);
-      expect(resultado.clipesNegativos).toBe(2);
+      expect(resultado.clipesNegativos).toBe(3);
     } finally {
       await rm(conjunto.raiz, { recursive: true, force: true });
     }
@@ -97,6 +102,31 @@ describe("validarConjuntoEval", () => {
       const resultado = await validarConjuntoEval({ raiz: conjunto.raiz });
       expect(resultado.valido).toBe(false);
       expect(resultado.erros).toContain("gesto.aceno: 1/3 ocorrencias");
+    } finally {
+      await rm(conjunto.raiz, { recursive: true, force: true });
+    }
+  });
+
+  it("rejeita alvo marcado como positivo e negativo no mesmo clipe", async () => {
+    const conjunto = await montarConjunto();
+    try {
+      const caminho = path.join(
+        conjunto.raiz,
+        "bench",
+        "clipes",
+        "eval",
+        "gesture-eval.json"
+      );
+      const anotacao = JSON.parse(await readFile(caminho, "utf8"));
+      anotacao.negativos = ["gesto.aceno"];
+      await writeFile(caminho, `${JSON.stringify(anotacao, null, 2)}\n`, "utf8");
+      const resultado = await validarConjuntoEval({ raiz: conjunto.raiz });
+      expect(resultado.valido).toBe(false);
+      expect(
+        resultado.erros.some((erro) =>
+          erro.includes("gesto.aceno nao pode ser positivo e negativo no mesmo clipe")
+        )
+      ).toBe(true);
     } finally {
       await rm(conjunto.raiz, { recursive: true, force: true });
     }

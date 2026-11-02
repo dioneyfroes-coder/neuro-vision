@@ -67,7 +67,13 @@ export async function validarConjuntoEval({
     !Number.isInteger(manifesto.clipesNegativosMinimos) ||
     manifesto.clipesNegativosMinimos < 1 ||
     !Array.isArray(manifesto.classes) ||
-    manifesto.classes.length === 0
+    manifesto.classes.length === 0 ||
+    manifesto.classes.some(
+      (item) =>
+        !item ||
+        typeof item.categoria !== "string" ||
+        typeof item.classe !== "string"
+    )
   ) {
     return {
       valido: false,
@@ -88,6 +94,9 @@ export async function validarConjuntoEval({
     }
   }
 
+  const alvosManifesto = new Set(
+    manifesto.classes.map(({ categoria, classe }) => `${categoria}.${classe}`)
+  );
   const hashesEval = new Set();
   for (const { arquivo, dados } of evals) {
     const relativo = path.join("bench", "clipes", "eval", arquivo);
@@ -105,6 +114,16 @@ export async function validarConjuntoEval({
     }
     if (dados.casoNegativo && dados.eventos.length > 0) {
       erros.push(`${relativo}: casoNegativo nao pode conter eventos positivos`);
+    }
+    for (const alvo of dados.negativos) {
+      if (!alvosManifesto.has(alvo)) {
+        erros.push(`${relativo}: alvo negativo fora do manifesto: ${alvo}`);
+        continue;
+      }
+      const [categoria, classe] = alvo.split(".");
+      if (dados.eventos.some((evento) => evento.categoria === categoria && evento.classe === classe)) {
+        erros.push(`${relativo}: ${alvo} nao pode ser positivo e negativo no mesmo clipe`);
+      }
     }
 
     for (const evento of dados.eventos) {
@@ -148,16 +167,20 @@ export async function validarConjuntoEval({
         ).length,
       0
     );
+    const negativos = evals.filter(
+      ({ dados }) =>
+        dados.casoNegativo || dados.negativos.includes(`${categoria}.${classe}`)
+    ).length;
     if (ocorrencias < manifesto.ocorrenciasMinimasPorClasse) {
       erros.push(
         `${categoria}.${classe}: ${ocorrencias}/${manifesto.ocorrenciasMinimasPorClasse} ocorrencias`
       );
     }
-    return { categoria, classe, ocorrencias };
+    return { categoria, classe, ocorrencias, negativos };
   });
 
   const clipesNegativos = evals.filter(
-    ({ dados }) => dados.casoNegativo && dados.eventos.length === 0
+    ({ dados }) => dados.casoNegativo || dados.negativos.length > 0
   ).length;
   if (clipesNegativos < manifesto.clipesNegativosMinimos) {
     erros.push(
@@ -178,7 +201,9 @@ async function main() {
   const resultado = await validarConjuntoEval();
   console.log(`EVAL: ${resultado.clipes ?? 0} clipes; negativos: ${resultado.clipesNegativos ?? 0}`);
   for (const item of resultado.cobertura) {
-    console.log(`  ${item.categoria}.${item.classe}: ${item.ocorrencias}`);
+    console.log(
+      `  ${item.categoria}.${item.classe}: ${item.ocorrencias} ocorrencias; ${item.negativos} negativos`
+    );
   }
   if (resultado.erros.length) {
     console.error("Fase 4 ainda incompleta:");

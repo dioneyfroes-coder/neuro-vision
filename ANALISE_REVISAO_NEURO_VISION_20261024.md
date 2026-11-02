@@ -282,7 +282,7 @@ Evitar usar o mesmo evento para objetos, mãos e corpo sem registrar a origem. T
 
 ### 4.1 Cobertura insuficiente para avaliar gestos e ações
 
-`bench/clipes/MATRIZ_COBERTURA.md` informa que apenas `webcam-mudanca.webm` está verificado no conjunto EVAL; é um clipe de 30 segundos com cena estática e um desaparecimento. Os demais vídeos listados incluem anotações pendentes ou rascunhos.
+`bench/clipes/MATRIZ_COBERTURA.md` registra anotações revisadas de saída de pessoa, deslocamento de objetos e negativos específicos para aceno. Ainda não há ocorrência positiva de aceno nem cobertura suficiente para interpretar ações textualmente.
 
 Esse material pode ajudar a validar um evento de aparição/desaparecimento e falsos positivos de cena, mas não permite concluir se o projeto reconhece bem:
 
@@ -350,13 +350,13 @@ Preparar clipes anotados por humanos, com pelo menos várias ocorrências de cad
 
 As anotações devem incluir início/fim, tipo de ação, qualidade da visibilidade, mão/corpo envolvido e se o evento é impossível de determinar. Avaliar separadamente gestos, postura, movimento de objeto, aparição/desaparecimento e interpretação textual.
 
-**Status:** em andamento. O esquema v2 e a exclusão explícita de eventos
-indeterminados já estão implementados, e a anotação revisada de
-`webcam-mudanca` foi migrada. O EVAL ainda contém apenas esse clipe; as demais
-classes e negativos precisam de revisão humana antes que a Fase 4 ou a promoção
-de variantes possa ser considerada concluída. `npm run validar:eval` mede a
-cobertura e o benchmark bloqueia rodadas EVAL sem o conjunto oficial validado.
-A matriz de cobertura registra os candidatos pendentes.
+**Status:** em andamento. O esquema v2 exclui eventos indeterminados das
+métricas e as anotações agora usam os três alvos escolhidos, com negativos
+específicos por classe. Os vídeos locais revisados não mostram aceno inequívoco;
+não foram inventadas ocorrências positivas. A classe de interpretação textual
+também não pode ser medida pelo fluxo atual sem verdade-base e saída comparável.
+`npm run validar:eval` mantém o gate fechado até a cobertura atingir os mínimos;
+a matriz detalha o estado e os candidatos.
 
 ### Fase 5 — Comparar A/B/C/D sem alterar outras variáveis
 

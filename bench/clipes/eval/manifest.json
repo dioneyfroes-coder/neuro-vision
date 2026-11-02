@@ -1,14 +1,10 @@
 {
   "versaoEsquema": 1,
   "ocorrenciasMinimasPorClasse": 3,
-  "clipesNegativosMinimos": 2,
+  "clipesNegativosMinimos": 3,
   "classes": [
     { "categoria": "gesto", "classe": "aceno" },
-    { "categoria": "postura", "classe": "em_pe" },
-    { "categoria": "movimento_corporal", "classe": "caminhando" },
     { "categoria": "movimento_objeto", "classe": "objeto_deslocado" },
-    { "categoria": "aparicao_desaparecimento", "classe": "pessoa_entrando" },
-    { "categoria": "aparicao_desaparecimento", "classe": "pessoa_saindo" },
     { "categoria": "interpretacao_textual", "classe": "acao_descrita" }
   ]
 }

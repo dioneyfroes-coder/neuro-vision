@@ -1,0 +1,52 @@
+{
+  "versaoEsquema": 2,
+  "clip": "fruit-and-vegetable-detection.mp4",
+  "conjunto": "eval",
+  "duracaoMs": 60611,
+  "revisao": {
+    "status": "revisada",
+    "metodo": "amostragem-manual-1fps"
+  },
+  "notas": "Frutas e vegetais atravessam uma esteira. Revisao visual em amostras de 1 fps; nao ha pessoas no quadro.",
+  "negativos": [
+    "gesto.aceno"
+  ],
+  "eventos": [
+    {
+      "tipo": "movimento",
+      "em": 7500,
+      "inicioMs": 5000,
+      "fimMs": 10000,
+      "categoria": "movimento_objeto",
+      "classe": "objeto_deslocado",
+      "visibilidade": "clara",
+      "parteEnvolvida": "objeto",
+      "determinavel": true,
+      "descricao": "vegetais deslocam-se pela esteira"
+    },
+    {
+      "tipo": "movimento",
+      "em": 19500,
+      "inicioMs": 17000,
+      "fimMs": 22000,
+      "categoria": "movimento_objeto",
+      "classe": "objeto_deslocado",
+      "visibilidade": "clara",
+      "parteEnvolvida": "objeto",
+      "determinavel": true,
+      "descricao": "frutas diferentes cruzam o campo de visao na esteira"
+    },
+    {
+      "tipo": "movimento",
+      "em": 33000,
+      "inicioMs": 30000,
+      "fimMs": 36000,
+      "categoria": "movimento_objeto",
+      "classe": "objeto_deslocado",
+      "visibilidade": "clara",
+      "parteEnvolvida": "objeto",
+      "determinavel": true,
+      "descricao": "um abacaxi e deslocado pela esteira"
+    }
+  ]
+}

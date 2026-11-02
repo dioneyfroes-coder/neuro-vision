@@ -1,0 +1,52 @@
+{
+  "versaoEsquema": 2,
+  "clip": "car-detection.mp4",
+  "conjunto": "eval",
+  "duracaoMs": 30160,
+  "revisao": {
+    "status": "revisada",
+    "metodo": "amostragem-manual-1fps"
+  },
+  "notas": "Vista superior de carros cruzando o estacionamento. Revisao visual em amostras de 1 fps; nao ha pessoas no quadro.",
+  "negativos": [
+    "gesto.aceno"
+  ],
+  "eventos": [
+    {
+      "tipo": "movimento",
+      "em": 7000,
+      "inicioMs": 5000,
+      "fimMs": 9000,
+      "categoria": "movimento_objeto",
+      "classe": "objeto_deslocado",
+      "visibilidade": "clara",
+      "parteEnvolvida": "objeto",
+      "determinavel": true,
+      "descricao": "um carro cruza a area observada"
+    },
+    {
+      "tipo": "movimento",
+      "em": 14500,
+      "inicioMs": 12000,
+      "fimMs": 17000,
+      "categoria": "movimento_objeto",
+      "classe": "objeto_deslocado",
+      "visibilidade": "clara",
+      "parteEnvolvida": "objeto",
+      "determinavel": true,
+      "descricao": "outro carro desloca-se pelo estacionamento"
+    },
+    {
+      "tipo": "movimento",
+      "em": 24500,
+      "inicioMs": 22000,
+      "fimMs": 27000,
+      "categoria": "movimento_objeto",
+      "classe": "objeto_deslocado",
+      "visibilidade": "clara",
+      "parteEnvolvida": "objeto",
+      "determinavel": true,
+      "descricao": "um carro atravessa o quadro e sai"
+    }
+  ]
+}

@@ -98,6 +98,7 @@ e mantenha a anotação junto do split correspondente (`bench/clipes/tuning` ou
   "inicio": "2026-10-11T12:00:00.000Z",
   "duracaoMs": 60000,
   "revisao": { "status": "revisada", "metodo": "quadro-a-quadro" },
+  "negativos": [],
   "notas": "Pessoa entra pela direita, atravessa a cena e sai pela esquerda.",
   "eventos": [
     {
@@ -124,7 +125,8 @@ e mantenha a anotação junto do split correspondente (`bench/clipes/tuning` ou
 | `inicio` | não | Instante ISO em que a captura começou. A base dos offsets `em` vem, por precedência: do sidecar `<eventos>.inicio` (gravado por `e2e/webcam.spec.ts`), deste campo, ou do primeiro evento detectado. |
 | `duracaoMs` | não | Duração do clipe em ms. Usada no cálculo de falsos positivos por minuto; se ausente, é derivada do intervalo entre os eventos. |
 | `revisao` | recomendado | Estado e método da revisão humana; `rascunho` nunca é verdade-base final. |
-| `casoNegativo` | obrigatório para EVAL v2 vazio | Declare `true` para comprovar que o clipe foi revisado e não contém eventos-alvo. |
+| `casoNegativo` | opcional | Declare `true` somente se o clipe inteiro não contém nenhum dos eventos-alvo do manifesto. |
+| `negativos` | opcional | Lista de alvos ausentes neste clipe, no formato `categoria.classe`; permite negativos por classe mesmo quando há eventos de outras classes. |
 | `notas` | não | Texto livre para contexto. |
 | `eventos` | sim | Lista de mudanças esperadas (pode ser vazia, para um clipe sem mudanças). |
 
@@ -147,10 +149,10 @@ Cada evento tem:
 - `descricao` (opcional): texto livre.
 
 O conjunto EVAL exige revisão humana e intervalos conferidos no vídeo. Um
-clipe sem eventos deve ter `eventos: []`, `casoNegativo: true` e ser descrito
-como negativo nas notas; um rascunho vazio não comprova ausência de eventos.
-A cobertura da Fase 4 ainda está incompleta: consulte a matriz antes de usar os
-resultados para promoção.
+clipe sem eventos precisa declarar `casoNegativo: true` ou pelo menos um alvo
+em `negativos`; um rascunho vazio não comprova ausência de eventos. Use
+`casoNegativo` apenas para negativos globais. Consulte a matriz: a cobertura da
+Fase 4 continua incompleta enquanto alguma classe-alvo não atingir os mínimos.
 
 ## Como a comparação funciona
 
