@@ -132,11 +132,10 @@ describe("montarRequisicaoChat", () => {
       prompt: "descreva",
       imagem: "AAAA",
       stream: false,
-      numPredict: 128,
     });
     expect(url).toBe("http://localhost:1234/v1/chat/completions");
     const json = JSON.parse(body);
-    expect(json.max_tokens).toBe(128);
+    expect(json).not.toHaveProperty("max_tokens");
     expect(json.temperature).toBe(0.2);
     expect(json.top_p).toBe(0.9);
     expect(json.messages[0].content).toEqual([

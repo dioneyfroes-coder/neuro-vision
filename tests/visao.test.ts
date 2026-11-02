@@ -14,10 +14,8 @@ import {
   montarPromptDescricao,
   montarPromptRoteiro,
   normalizarNomeModelo,
-  NUM_PREDICT_BASE,
-  NUM_PREDICT_DELTA,
-  NUM_PREDICT_PADRAO,
   MODELO_PADRAO,
+  PROMPT_ANALISE_PROFUNDA,
   PROMPT_DESCRICAO,
   PROMPT_ROTEIRO_BASE,
   PROMPT_ROTEIRO_DELTA,
@@ -47,13 +45,18 @@ describe("extrairBase64", () => {
 
 describe("prompts", () => {
   it("montarPromptDescricao devolve o prompt de descricao", () => {
-    expect(montarPromptDescricao()).toBe(PROMPT_DESCRICAO);
+    expect(montarPromptDescricao()).toBe(`${PROMPT_DESCRICAO}\n\n${PROMPT_ANALISE_PROFUNDA}`);
     expect(PROMPT_DESCRICAO).toContain("UMA foto");
+    expect(montarPromptDescricao()).toContain("analise visual completa");
   });
 
   it("montarPromptRoteiro escolhe base ou delta", () => {
-    expect(montarPromptRoteiro(true, "")).toBe(PROMPT_ROTEIRO_BASE);
-    expect(montarPromptRoteiro(false, "Pessoa de pe.")).toBe(PROMPT_ROTEIRO_DELTA);
+    expect(montarPromptRoteiro(true, "")).toBe(
+      `${PROMPT_ROTEIRO_BASE}\n\n${PROMPT_ANALISE_PROFUNDA}`
+    );
+    expect(montarPromptRoteiro(false, "Pessoa de pe.")).toBe(
+      `${PROMPT_ROTEIRO_DELTA}\n\n${PROMPT_ANALISE_PROFUNDA}`
+    );
     expect(PROMPT_ROTEIRO_BASE).toContain("PRIMEIRO");
   });
 });
@@ -93,11 +96,11 @@ describe("montagem da requisicao (via stream)", () => {
     const corpo = JSON.parse(String(init.body));
     expect(corpo.model).toBe("m");
     expect(corpo.messages[0].content).toEqual([
-      { type: "text", text: PROMPT_DESCRICAO },
+      { type: "text", text: montarPromptDescricao() },
       { type: "image_url", image_url: { url: "data:image/jpeg;base64,QkxPQ" } },
     ]);
     expect(corpo.stream).toBe(true);
-    expect(corpo.max_tokens).toBe(NUM_PREDICT_PADRAO);
+    expect(corpo).not.toHaveProperty("max_tokens");
     expect(corpo.temperature).toBe(0.2);
     expect(corpo.top_p).toBe(0.9);
   });
@@ -151,8 +154,9 @@ describe("montagem da requisicao (via stream)", () => {
     );
     corpo = JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body));
     texto = corpo.messages[0].content[0].text as string;
+    expect(corpo).not.toHaveProperty("max_tokens");
     // O prompt explicito ja traz o proprio bloco NSFW; nao duplica.
-    expect(texto).toBe("Prompt customizado do ciclo multiframe.");
+    expect(texto).toBe(`Prompt customizado do ciclo multiframe.\n\n${PROMPT_ANALISE_PROFUNDA}`);
   });
 });
 
@@ -215,7 +219,7 @@ describe("gerarDescricaoStream", () => {
     await expect(iterator.next()).rejects.toThrow(/derivou\/raciocinou sem produzir resposta/);
   });
 
-  it("aponta o limite de tokens quando o raciocinio foi truncado (finish_reason=length)", async () => {
+  it("aponta o limite de tokens do backend quando a resposta foi truncada", async () => {
     const corpo = sse(
       { model: "m", choices: [{ delta: { reasoning_content: "Pensando..." } }] },
       { model: "m", choices: [{ delta: {}, finish_reason: "length" }] }
@@ -575,16 +579,22 @@ describe("requisicao no modo roteiro", () => {
     return JSON.parse(String(init.body));
   }
 
-  it("frame base usa num_predict de base e prompt de base", async () => {
+  it("frame base pede analise profunda e nao fixa limite de tokens", async () => {
     const corpo = await corpoDaRequisicao({ base: true, roteiro: "" });
     // A imagem vai como bloco: o texto e o primeiro item do array de conteudo.
-    expect(corpo.messages[0].content[0]).toMatchObject({ type: "text", text: PROMPT_ROTEIRO_BASE });
-    expect(corpo.max_tokens).toBe(NUM_PREDICT_BASE);
+    expect(corpo.messages[0].content[0]).toMatchObject({
+      type: "text",
+      text: `${PROMPT_ROTEIRO_BASE}\n\n${PROMPT_ANALISE_PROFUNDA}`,
+    });
+    expect(corpo).not.toHaveProperty("max_tokens");
   });
 
-  it("delta usa num_predict reduzido e prompt de delta", async () => {
+  it("delta pede analise profunda sem reduzir a descricao a uma frase", async () => {
     const corpo = await corpoDaRequisicao({ base: false, roteiro: "Pessoa de pe." });
-    expect(corpo.messages[0].content[0]).toMatchObject({ type: "text", text: PROMPT_ROTEIRO_DELTA });
-    expect(corpo.max_tokens).toBe(NUM_PREDICT_DELTA);
+    expect(corpo.messages[0].content[0]).toMatchObject({
+      type: "text",
+      text: `${PROMPT_ROTEIRO_DELTA}\n\n${PROMPT_ANALISE_PROFUNDA}`,
+    });
+    expect(corpo).not.toHaveProperty("max_tokens");
   });
 });

@@ -112,7 +112,7 @@ export const env = {
     return str("NEURO_MODEL", "");
   },
   get NEURO_VISION_TIMEOUT_MS(): number {
-    return numPos("NEURO_VISION_TIMEOUT_MS", 90_000);
+    return numPos("NEURO_VISION_TIMEOUT_MS", 300_000);
   },
 
   // Traducao

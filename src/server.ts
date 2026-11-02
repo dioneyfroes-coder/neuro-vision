@@ -1365,7 +1365,7 @@ async function streamVisao(
   const primeiro = await iterador.next();
   if (primeiro.done) {
     throw new Error(
-      "O backend de visao retornou um stream vazio (nenhum texto). Verifique se o modelo suporta visao e aumente num_predict/max_tokens."
+      "O backend de visao retornou um stream vazio (nenhum texto). Verifique se o modelo aceita imagens e se o backend permite gerar texto."
     );
   }
 

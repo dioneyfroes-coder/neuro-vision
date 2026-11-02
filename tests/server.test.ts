@@ -40,12 +40,8 @@ import type { EntradaLog, EventoTemporalPersistido } from "../src/types";
 import {
   limparCacheModelo,
   MODELO_PADRAO,
-  NUM_PREDICT_BASE,
-  NUM_PREDICT_DELTA,
-  NUM_PREDICT_PADRAO,
-  PROMPT_DESCRICAO,
-  PROMPT_ROTEIRO_BASE,
-  PROMPT_ROTEIRO_DELTA,
+  montarPromptDescricao,
+  montarPromptRoteiro,
 } from "../src/visao";
 
 let tmpDir: string;
@@ -799,10 +795,10 @@ describe("createServer", () => {
       }[];
       // Cada foto e descrita do zero: a observacao anterior nao entra no prompt.
       expect(conteudo[0].type).toBe("text");
-      expect(conteudo[0].text).toBe(PROMPT_DESCRICAO);
+      expect(conteudo[0].text).toBe(montarPromptDescricao());
       expect(conteudo[1]).toMatchObject({ type: "image_url" });
       expect(corpoVisto.stream).toBe(true);
-      expect(corpoVisto.max_tokens).toBe(NUM_PREDICT_PADRAO);
+      expect(corpoVisto).not.toHaveProperty("max_tokens");
       expect(corpoVisto.temperature).toBe(0.2);
       expect(corpoVisto.top_p).toBe(0.9);
 
@@ -1046,8 +1042,8 @@ describe("createServer", () => {
       expect(doneBase.descricao).toBe("Pessoa de pe.");
       expect(doneBase.tipo).toBe("roteiro");
       expect(doneBase.papel).toBe("base");
-      expect(textoDoCorpo(corpos[0])).toBe(PROMPT_ROTEIRO_BASE);
-      expect(corpos[0].max_tokens).toBe(NUM_PREDICT_BASE);
+      expect(textoDoCorpo(corpos[0])).toBe(montarPromptRoteiro(true));
+      expect(corpos[0]).not.toHaveProperty("max_tokens");
 
       const resDelta = await post({ imagem: "QkxPQ", modo: "roteiro", base: false, roteiro: "Pessoa de pe." });
       expect(resDelta.status).toBe(200);
@@ -1055,8 +1051,8 @@ describe("createServer", () => {
       expect(doneDelta.descricao).toBe("A. B.");
       expect(doneDelta.tipo).toBe("roteiro");
       expect(doneDelta.papel).toBe("delta");
-      expect(textoDoCorpo(corpos[1])).toBe(PROMPT_ROTEIRO_DELTA);
-      expect(corpos[1].max_tokens).toBe(NUM_PREDICT_DELTA);
+      expect(textoDoCorpo(corpos[1])).toBe(montarPromptRoteiro(false));
+      expect(corpos[1]).not.toHaveProperty("max_tokens");
 
       const resInalterado = await post({
         imagem: "QkxPQ",

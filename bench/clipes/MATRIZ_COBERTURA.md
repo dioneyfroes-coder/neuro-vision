@@ -46,10 +46,9 @@ O E2E multiframe abre `/?benchmark=eval`, ativando a política experimental
 versionada de 1 s entre snapshots e interpretação a cada ciclo; a política
 operacional da interface permanece inalterada. As requisições multimodais
 registram os `frameIds` de origem em `visao.jsonl`, permitindo verificar o
-modelo realmente usado para cada variante. Se o modelo local exceder o timeout
-padrão de 90 s, defina `NEURO_VISION_TIMEOUT_MS=300000` antes de iniciar o E2E;
-o timeout maior é aplicado ao processo do servidor sem alterar o padrão da
-aplicação.
+modelo realmente usado para cada variante. O timeout do backend de visão é
+configurável por `NEURO_VISION_TIMEOUT_MS` (padrão de 300 s); ajuste-o se a
+inferência multimodal local exigir mais tempo.
 
 O `--anotacoes-dir` faz o harness procurar a anotação `<base>.json` primeiro no
 conjunto e depois ao lado do vídeo. O `--conjunto <nome>` registra qual conjunto

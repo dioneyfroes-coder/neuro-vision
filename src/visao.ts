@@ -37,6 +37,14 @@ export interface OpcoesGerarDescricao {
   nsfw?: MarcacaoNsfwLog[];
 }
 
+export const PROMPT_ANALISE_PROFUNDA =
+  "Analise cuidadosamente a imagem inteira antes de responder, incluindo primeiro plano e fundo. " +
+  "Descreva em detalhe as pessoas, objetos, aparencia, roupas, postura, acoes visiveis, " +
+  "interacoes, relacoes espaciais, texto legivel, iluminacao e elementos relevantes da cena. " +
+  "Considere tambem objetos pequenos, parcialmente ocultos ou sendo segurados. " +
+  "Diferencie observacao direta de incerteza; nao invente detalhes nem revele raciocinio interno. " +
+  "Nao reduza a resposta a uma legenda curta: forneca uma analise visual completa e especifica.";
+
 /**
  * Observacao independente: cada foto e descrita do zero, sem enviar a descricao
  * anterior. Alimentar o texto antigo faz um modelo pequeno "colar" a descricao
@@ -48,16 +56,16 @@ export const PROMPT_DESCRICAO =
   "Voce observa UMA foto da webcam, tirada agora. Descreva objetivamente o que aparece NESTA imagem: " +
   "pessoas, objetos (inclusive o que estiver sendo segurado ou mostrado), cores, postura e disposicao. " +
   "Baseie-se somente no que ve na imagem; nao cite fotos, descricoes ou momentos anteriores. " +
-  "Responda em portugues, no maximo 2 frases.";
+  "Responda em portugues.";
 
 export function montarPromptDescricao(): string {
-  return PROMPT_DESCRICAO;
+  return `${PROMPT_DESCRICAO}\n\n${PROMPT_ANALISE_PROFUNDA}`;
 }
 
 export const PROMPT_ROTEIRO_BASE =
-  "Voce ve o PRIMEIRO frame de uma webcam. Faca uma descricao profunda e detalhada da cena em " +
+  "Voce ve o PRIMEIRO frame de uma webcam. Descreva a cena em " +
   "portugues: pessoas, objetos, disposicao, cores, iluminacao, postura e possiveis acoes. " +
-  "Escreva de 3 a 4 frases objetivas, sem repetir ideias.";
+  "Baseie-se somente nos elementos visiveis.";
 
 /**
  * Delta do roteiro: continua sendo uma observacao independente da foto atual.
@@ -67,12 +75,12 @@ export const PROMPT_ROTEIRO_BASE =
  * o que esta na imagem, e o cliente decide se o beat repete o anterior.
  */
 export const PROMPT_ROTEIRO_DELTA =
-  "Voce observa UMA foto da webcam, tirada agora. Em 1 frase curta e concreta, diga o que ha NESTA " +
-  "imagem (pessoas, objetos, o que estiver sendo segurado ou mostrado). " +
+  "Voce observa UMA foto da webcam, tirada agora. Descreva o que ha NESTA imagem " +
+  "(pessoas, objetos, o que estiver sendo segurado ou mostrado). " +
   "Baseie-se somente no que ve agora; nao repita nem compare com fotos anteriores.";
 
 export function montarPromptRoteiro(base: boolean, _roteiro?: string): string {
-  return base ? PROMPT_ROTEIRO_BASE : PROMPT_ROTEIRO_DELTA;
+  return `${base ? PROMPT_ROTEIRO_BASE : PROMPT_ROTEIRO_DELTA}\n\n${PROMPT_ANALISE_PROFUNDA}`;
 }
 
 /**
@@ -258,7 +266,6 @@ export async function traduzirTexto(opcoes: OpcoesTraduzir): Promise<string> {
     modelo,
     prompt,
     stream: false,
-    numPredict: 256,
     amostragem: { temperature: 0, top_p: 0.9 },
   });
 
@@ -353,7 +360,6 @@ export async function forcarCarregamento(opcoes: OpcoesVisao = {}): Promise<numb
     modelo,
     prompt: "oi",
     stream: false,
-    numPredict: 1,
     amostragem: { temperature: 0 },
   });
   const resposta = await fetch(requisicao.url, {
@@ -380,15 +386,6 @@ export async function forcarCarregamento(opcoes: OpcoesVisao = {}): Promise<numb
   return Math.round(performance.now() - inicio);
 }
 
-// Teto de tokens gerados por analise. E um *teto*: modelos que terminam antes
-// (a maioria dos nao-pensantes) param no fim de frase e nao pagam nada por ele.
-// Os valores cobrem modelos de raciocinio, que gastam ~200-300 tokens pensando
-// antes de escrever a resposta — com teto pequeno o `content` sai vazio e a
-// analise falha mesmo o modelo estando correto.
-export const NUM_PREDICT_PADRAO = 768;
-export const NUM_PREDICT_BASE = 768;
-export const NUM_PREDICT_DELTA = 512;
-
 function montarCorpo(
   imagem: string | string[],
   opcoes: OpcoesGerarDescricao,
@@ -400,24 +397,22 @@ function montarCorpo(
   const promptBase =
     opcoes.prompt ??
     (roteiro ? montarPromptRoteiro(opcoes.base === true, opcoes.roteiro) : montarPromptDescricao());
+  const promptCompleto =
+    opcoes.prompt === undefined
+      ? promptBase
+      : `${promptBase}\n\n${PROMPT_ANALISE_PROFUNDA}`;
   // NSFW ativo: o bloco e anexado ao prompt padrao (um prompt explicito, como o
   // do ciclo multiframe, ja traz o proprio bloco e nao e duplicado).
   const prompt =
     opcoes.prompt === undefined && opcoes.nsfw !== undefined
-      ? `${promptBase}\n\n${blocoNsfwPrompt([{ indice: 1, marcacoes: opcoes.nsfw }])}`
-      : promptBase;
-  const numPredict = roteiro
-    ? opcoes.base === true
-      ? NUM_PREDICT_BASE
-      : NUM_PREDICT_DELTA
-    : NUM_PREDICT_PADRAO;
+      ? `${promptCompleto}\n\n${blocoNsfwPrompt([{ indice: 1, marcacoes: opcoes.nsfw }])}`
+      : promptCompleto;
   const requisicao = montarRequisicaoChat({
     backend,
     modelo,
     prompt,
     ...(Array.isArray(imagem) ? { imagens: imagem } : { imagem }),
     stream,
-    numPredict,
     amostragem: {
       temperature: 0.2,
       top_p: 0.9,
@@ -434,14 +429,14 @@ function lancarSeVazioSemResposta(
   if (vistoPensamento) {
     const dica =
       motivoFim === "length"
-        ? `o modelo gastou o limite de tokens (NUM_PREDICT_PADRAO=${NUM_PREDICT_PADRAO}) ` +
-          "raciocinando; aumente o limite ou use um modelo de visao nao-pensante (ex.: qwen2.5-vl)."
+        ? "o backend encerrou a geracao antes de produzir texto (finish_reason=length); " +
+          "verifique o limite de tokens e o contexto configurados no backend."
         : 'o backend ignorou o desligamento do "thinking"; use um modelo de visao nao-pensante (ex.: qwen2.5-vl).';
     throw new ErroVisao(`o modelo ${modelo} derivou/raciocinou sem produzir resposta: ${dica}`);
   }
   throw new ErroVisao(
     `o modelo ${modelo} nao retornou nenhum token de texto. ` +
-      "Verifique se o modelo carregado no LM Studio aceita imagens (e o `max_tokens`)."
+      "Verifique se o modelo carregado no backend aceita imagens e se a configuracao de saida permite gerar texto."
   );
 }
 
@@ -455,7 +450,7 @@ export async function* gerarDescricaoStream(
   imagem: string | string[],
   opcoes: OpcoesGerarDescricao = {}
 ): AsyncGenerator<string, ResumoDescricao, void> {
-  const timeoutMs = opcoes.timeoutMs ?? 90_000;
+  const timeoutMs = opcoes.timeoutMs ?? 300_000;
   const { modelo, requisicao } = montarCorpo(imagem, opcoes, true);
 
   const inicio = performance.now();

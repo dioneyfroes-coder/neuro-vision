@@ -130,8 +130,6 @@ export interface OpcoesRequisicao {
   stream: boolean;
   /** Opcoes de amostragem (`temperature`, `top_p`, ...). */
   amostragem?: Record<string, number>;
-  /** Limite de tokens da resposta. */
-  numPredict?: number;
 }
 
 export type FormatoImagens = "openai" | "ollama";
@@ -177,7 +175,6 @@ export function montarRequisicaoChat(opcoes: OpcoesRequisicao): Requisicao {
     temperature: opcoes.amostragem?.temperature ?? 0.2,
     top_p: opcoes.amostragem?.top_p ?? 0.9,
   };
-  if (opcoes.numPredict !== undefined) corpo.max_tokens = opcoes.numPredict;
   if (stream && formato !== "ollama") corpo.stream_options = { include_usage: true };
   return { url, headers, body: JSON.stringify(corpo) };
 }
