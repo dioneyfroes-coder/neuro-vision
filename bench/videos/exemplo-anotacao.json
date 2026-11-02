@@ -1,11 +1,50 @@
 {
+  "versaoEsquema": 2,
   "clip": "exemplo-sala-com-pessoa.mp4",
+  "conjunto": "tuning",
   "inicio": "2026-10-11T12:00:00.000Z",
   "duracaoMs": 60000,
+  "revisao": {
+    "status": "rascunho",
+    "metodo": "exemplo"
+  },
   "notas": "Exemplo de anotacao: pessoa entra pela direita, atravessa a cena e sai pela esquerda. Substitua pelo clipe real.",
   "eventos": [
-    { "tipo": "aparicao", "em": 5000, "descricao": "pessoa entra pela direita" },
-    { "tipo": "movimento", "em": 20000, "descricao": "pessoa atravessa a cena" },
-    { "tipo": "desaparecimento", "em": 40000, "descricao": "pessoa sai pela esquerda" }
+    {
+      "tipo": "aparicao",
+      "em": 5000,
+      "inicioMs": 5000,
+      "fimMs": 6500,
+      "categoria": "aparicao_desaparecimento",
+      "classe": "pessoa_entrando",
+      "visibilidade": "clara",
+      "parteEnvolvida": "corpo_inteiro",
+      "determinavel": true,
+      "descricao": "pessoa entra pela direita"
+    },
+    {
+      "tipo": "movimento",
+      "em": 20000,
+      "inicioMs": 15000,
+      "fimMs": 25000,
+      "categoria": "movimento_corporal",
+      "classe": "caminhando",
+      "visibilidade": "clara",
+      "parteEnvolvida": "corpo_inteiro",
+      "determinavel": true,
+      "descricao": "pessoa atravessa a cena"
+    },
+    {
+      "tipo": "desaparecimento",
+      "em": 40000,
+      "inicioMs": 39500,
+      "fimMs": 41000,
+      "categoria": "aparicao_desaparecimento",
+      "classe": "pessoa_saindo",
+      "visibilidade": "clara",
+      "parteEnvolvida": "corpo_inteiro",
+      "determinavel": true,
+      "descricao": "pessoa sai pela esquerda"
+    }
   ]
 }

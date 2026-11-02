@@ -350,6 +350,14 @@ Preparar clipes anotados por humanos, com pelo menos várias ocorrências de cad
 
 As anotações devem incluir início/fim, tipo de ação, qualidade da visibilidade, mão/corpo envolvido e se o evento é impossível de determinar. Avaliar separadamente gestos, postura, movimento de objeto, aparição/desaparecimento e interpretação textual.
 
+**Status:** em andamento. O esquema v2 e a exclusão explícita de eventos
+indeterminados já estão implementados, e a anotação revisada de
+`webcam-mudanca` foi migrada. O EVAL ainda contém apenas esse clipe; as demais
+classes e negativos precisam de revisão humana antes que a Fase 4 ou a promoção
+de variantes possa ser considerada concluída. `npm run validar:eval` mede a
+cobertura e o benchmark bloqueia rodadas EVAL sem o conjunto oficial validado.
+A matriz de cobertura registra os candidatos pendentes.
+
 ### Fase 5 — Comparar A/B/C/D sem alterar outras variáveis
 
 - Usar as mesmas gravações, anotações, modelo multimodal, prompt e hardware para todas as variantes.

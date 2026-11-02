@@ -74,6 +74,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { montarAmbiente } from "./benchmark.mjs";
+import { validarConjuntoEval } from "./validar-eval.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT_QUALIDADE = path.join(ROOT, "scripts", "avaliar-qualidade.mjs");
@@ -171,6 +172,7 @@ Opcoes:
   --etapas-isoladas        Acrescenta a secao "Etapas isoladas x ciclo
                            completo" (cada etapa local medida por si so).
   --conjunto <nome>        Registra o conjunto reservado usado (ex.: eval);
+                           eval exige o conjunto validado por npm run validar:eval
                            entra no relatorio e no comparativo.
   --min-f1 <0..1>          Gate de qualidade: F1 minimo (padrao: 0.5).
   --max-fp-min <n>         Gate de qualidade: FP/min maximo (padrao: 2).
@@ -1770,6 +1772,30 @@ async function main() {
 
   const variantes = VARIANTES_BENCHMARK.filter((v) => args.variantes.includes(v.letra));
   const modeloGlobal = args.modeloVisao ?? process.env.NEURO_MODELO_VISAO ?? "";
+
+  if (args.conjunto === "eval") {
+    const diretorioEval = path.resolve(ROOT, "bench", "clipes", "eval");
+    const diretorioVideos = path.resolve(ROOT, "bench", "videos");
+    if (
+      !args.anotacoesDir ||
+      path.resolve(ROOT, args.anotacoesDir) !== diretorioEval ||
+      path.resolve(ROOT, args.clipesDir) !== diretorioVideos ||
+      args.clipes.length > 0
+    ) {
+      console.error(
+        "ERRO: eval exige o conjunto completo de bench/videos e --anotacoes-dir bench/clipes/eval."
+      );
+      process.exitCode = 1;
+      return;
+    }
+    const gateEval = await validarConjuntoEval();
+    if (!gateEval.valido) {
+      console.error("ERRO: conjunto EVAL nao passou pelo gate da Fase 4:");
+      for (const erro of gateEval.erros) console.error(`  - ${erro}`);
+      process.exitCode = 1;
+      return;
+    }
+  }
 
   const clipes = await descobrirClipes(args.clipesDir, args.clipes, args.anotacoesDir);
   if (!clipes.length) {

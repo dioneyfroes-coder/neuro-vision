@@ -86,25 +86,45 @@ parar a sessão. Pesos e bibliotecas locais são necessários; prepare-os com
 
 ## Formato da anotação
 
+Anotações legadas continuam aceitas. Para o conjunto reservado, use a versão 2
+e mantenha a anotação junto do split correspondente (`bench/clipes/tuning` ou
+`bench/clipes/eval`):
+
 ```json
 {
+  "versaoEsquema": 2,
   "clip": "sala-com-pessoa.mp4",
+  "conjunto": "eval",
   "inicio": "2026-10-11T12:00:00.000Z",
   "duracaoMs": 60000,
+  "revisao": { "status": "revisada", "metodo": "quadro-a-quadro" },
   "notas": "Pessoa entra pela direita, atravessa a cena e sai pela esquerda.",
   "eventos": [
-    { "tipo": "aparicao", "em": 5000, "descricao": "pessoa entra pela direita" },
-    { "tipo": "movimento", "em": 20000 },
-    { "tipo": "desaparecimento", "em": 40000, "descricao": "pessoa sai" }
+    {
+      "tipo": "movimento",
+      "em": 20000,
+      "inicioMs": 15000,
+      "fimMs": 25000,
+      "categoria": "gesto",
+      "classe": "aceno",
+      "visibilidade": "clara",
+      "parteEnvolvida": "mao_direita",
+      "determinavel": true,
+      "descricao": "pessoa acena"
+    }
   ]
 }
 ```
 
 | Campo | Obrigatório | Descrição |
 |-------|-------------|-----------|
+| `versaoEsquema` | recomendado | Use `2` para anotações revisadas com os metadados desta fase. |
 | `clip` | não | Nome do arquivo de vídeo a que a anotação se refere. |
+| `conjunto` | recomendado | `tuning` ou `eval`; nunca use a mesma gravação nos dois splits. |
 | `inicio` | não | Instante ISO em que a captura começou. A base dos offsets `em` vem, por precedência: do sidecar `<eventos>.inicio` (gravado por `e2e/webcam.spec.ts`), deste campo, ou do primeiro evento detectado. |
 | `duracaoMs` | não | Duração do clipe em ms. Usada no cálculo de falsos positivos por minuto; se ausente, é derivada do intervalo entre os eventos. |
+| `revisao` | recomendado | Estado e método da revisão humana; `rascunho` nunca é verdade-base final. |
+| `casoNegativo` | obrigatório para EVAL v2 vazio | Declare `true` para comprovar que o clipe foi revisado e não contém eventos-alvo. |
 | `notas` | não | Texto livre para contexto. |
 | `eventos` | sim | Lista de mudanças esperadas (pode ser vazia, para um clipe sem mudanças). |
 
@@ -113,7 +133,24 @@ Cada evento tem:
 - `tipo`: `aparicao`, `desaparecimento`, `movimento`, `mudanca_de_cena`,
   `resumo` ou `qualquer` (casa com qualquer mudança detectada);
 - `em`: instante do evento em **ms desde o início da gravação** (`inicio`);
+- `inicioMs` / `fimMs`: limites do evento, em ms desde o início; `em` continua
+  sendo o ponto usado pela comparação de precisão/recall;
+- `categoria`: `gesto`, `postura`, `movimento_corporal`, `movimento_objeto`,
+  `aparicao_desaparecimento` ou `interpretacao_textual`;
+- `classe`: rótulo específico, como `aceno`, `caminhando` ou `pessoa_entrando`;
+- `visibilidade`: `clara`, `parcial`, `ocluida` ou
+  `impossivel_de_determinar`;
+- `parteEnvolvida`: mão, braço, tronco, corpo inteiro, objeto ou
+  `indeterminado`;
+- `determinavel`: use `false` para eventos que não podem ser julgados com
+  segurança; eles são contabilizados à parte e excluídos de precisão/recall;
 - `descricao` (opcional): texto livre.
+
+O conjunto EVAL exige revisão humana e intervalos conferidos no vídeo. Um
+clipe sem eventos deve ter `eventos: []`, `casoNegativo: true` e ser descrito
+como negativo nas notas; um rascunho vazio não comprova ausência de eventos.
+A cobertura da Fase 4 ainda está incompleta: consulte a matriz antes de usar os
+resultados para promoção.
 
 ## Como a comparação funciona
 

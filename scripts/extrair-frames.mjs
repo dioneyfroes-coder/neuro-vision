@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * Extrai quadros de um clipe `.webm` para JPEGs, para conferir o conteudo e
- * anotar os eventos esperados (Fase 7). Usa o Chromium do Playwright (nao
- * depende de ffmpeg).
+ * Extrai quadros de um clipe `.mp4` ou `.webm` para JPEGs, para conferir o
+ * conteudo e anotar os eventos esperados. Usa o Chromium do Playwright.
  *
  * Uso:
- *   node scripts/extrair-frames.mjs <clipe.webm> <dir-saida> [tempos-segundos]
+ *   node scripts/extrair-frames.mjs <clipe.mp4|webm> <dir-saida> [tempos-segundos]
  *
  * Exemplo:
- *   node scripts/extrair-frames.mjs bench/videos/webcam.webm bench/videos/frames 0.3,1.5,3
+ *   node scripts/extrair-frames.mjs bench/videos/webcam.mp4 bench/videos/frames 0.3,1.5,3
  */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -19,16 +18,27 @@ import { chromium } from "@playwright/test";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+export function tipoMimeVideo(caminho) {
+  const extensao = path.extname(caminho).toLowerCase();
+  const tipos = {
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+  };
+  const tipo = tipos[extensao];
+  if (!tipo) throw new Error(`formato de video nao suportado: ${extensao || "(sem extensao)"}`);
+  return tipo;
+}
+
 async function main() {
   const [clip, dirSaida = "bench/videos/frames", temposArg = "0.3,1.5,3.0,4.5"] = process.argv.slice(2);
   if (!clip) {
-    console.error("Uso: node scripts/extrair-frames.mjs <clipe.webm> [dir-saida] [tempos-segundos]");
+    console.error("Uso: node scripts/extrair-frames.mjs <clipe.mp4|webm> [dir-saida] [tempos-segundos]");
     process.exit(1);
   }
   const tempos = temposArg.split(",").map(Number).filter((n) => Number.isFinite(n));
 
   const bytes = await readFile(path.resolve(ROOT, clip));
-  const dataUrl = `data:video/webm;base64,${bytes.toString("base64")}`;
+  const dataUrl = `data:${tipoMimeVideo(clip)};base64,${bytes.toString("base64")}`;
 
   const browser = await chromium.launch();
   try {
@@ -42,13 +52,25 @@ async function main() {
         async ({ dataUrl, t }) => {
           const v = document.getElementById("v");
           if (v.src !== dataUrl) {
-            v.src = dataUrl;
-            await new Promise((r) => {
-              v.onloadeddata = r;
+            await new Promise((resolve, reject) => {
+              v.onloadeddata = resolve;
+              v.onerror = () =>
+                reject(
+                  new Error(
+                    `nao foi possivel decodificar o clipe: ${v.error?.message ?? "erro de midia"}`
+                  )
+                );
+              v.src = dataUrl;
             });
           }
-          await new Promise((r) => {
-            v.onseeked = r;
+          await new Promise((resolve, reject) => {
+            v.onseeked = resolve;
+            v.onerror = () =>
+              reject(
+                new Error(
+                  `falha ao buscar quadro em ${t}s: ${v.error?.message ?? "erro de midia"}`
+                )
+              );
             v.currentTime = Math.min(t, Math.max(0, (v.duration || t) - 0.05));
           });
           const c = document.createElement("canvas");

@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -669,5 +670,23 @@ describe("VARIANTES_BENCHMARK", () => {
     for (const v of VARIANTES_BENCHMARK) {
       if (v.dadosLocais) expect(v.percepcaoLocal).toBe(true);
     }
+  });
+});
+
+describe("gate do conjunto EVAL", () => {
+  it("recusa avaliar tuning como conjunto reservado", () => {
+    const resultado = spawnSync(
+      process.execPath,
+      [
+        "scripts/benchmark-variantes.mjs",
+        "--conjunto",
+        "eval",
+        "--anotacoes-dir",
+        "bench/clipes/tuning",
+      ],
+      { encoding: "utf8" }
+    );
+    expect(resultado.status).toBe(1);
+    expect(resultado.stderr).toContain("eval exige o conjunto completo");
   });
 });

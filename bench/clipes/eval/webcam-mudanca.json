@@ -1,8 +1,25 @@
 {
+  "versaoEsquema": 2,
   "clip": "webcam-mudanca.webm",
+  "conjunto": "eval",
   "duracaoMs": 30000,
+  "revisao": {
+    "status": "revisada",
+    "metodo": "quadro-a-quadro"
+  },
   "notas": "Webcam 640x480, ~30 s. Pessoa aparece desde o início até ~19,5 s e sai. A base dos 'em' vem do sidecar <eventos>.inicio (quando avaliado com clipe real). Esta é uma anotação validada e própria para avaliação (separada de tuning).",
   "eventos": [
-    { "tipo": "desaparecimento", "em": 19500, "descricao": "pessoa sai do quadro" }
+    {
+      "tipo": "desaparecimento",
+      "em": 19500,
+      "inicioMs": 19000,
+      "fimMs": 20000,
+      "categoria": "aparicao_desaparecimento",
+      "classe": "pessoa_saindo",
+      "visibilidade": "clara",
+      "parteEnvolvida": "corpo_inteiro",
+      "determinavel": true,
+      "descricao": "pessoa sai do quadro"
+    }
   ]
 }

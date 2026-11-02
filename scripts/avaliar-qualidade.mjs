@@ -8,6 +8,26 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Tipos de evento visual aceitos (ver `src/types.ts`). */
 const TIPOS = ["aparicao", "desaparecimento", "movimento", "mudanca_de_cena", "resumo"];
+const CATEGORIAS = [
+  "gesto",
+  "postura",
+  "movimento_corporal",
+  "movimento_objeto",
+  "aparicao_desaparecimento",
+  "interpretacao_textual",
+];
+const VISIBILIDADES = ["clara", "parcial", "ocluida", "impossivel_de_determinar"];
+const PARTES_ENVOLVIDAS = [
+  "mao_esquerda",
+  "mao_direita",
+  "ambas_as_maos",
+  "braco_esquerdo",
+  "braco_direito",
+  "tronco",
+  "corpo_inteiro",
+  "objeto",
+  "indeterminado",
+];
 
 /** Eventos que nao representam uma "mudanca" e por isso nao contam como falso positivo. */
 export const TIPOS_IGNORADOS_PADRAO = ["resumo"];
@@ -42,6 +62,8 @@ function arredondar(n, casas = 2) {
  *
  * `em` e o instante do evento em **ms desde o inicio da gravacao**. `tipo` pode
  * ser um dos tipos de `EventoVisual` ou `"qualquer"` (casa com qualquer mudanca).
+ * A versao 2 tambem guarda intervalos e metadados para avaliacao humana; os
+ * campos continuam opcionais para preservar as anotacoes legadas.
  *
  * A base dos offsets vem, por precedencia: do sidecar `<eventos>.inicio` (ISO
  * gravado junto ao JSONL ao avaliar um clipe real), do campo `inicio` da
@@ -51,7 +73,41 @@ export function carregarAnotacao(dados) {
   if (typeof dados !== "object" || dados === null || Array.isArray(dados)) {
     throw new Error("anotacao invalida: esperado um objeto JSON");
   }
+  const versaoEsquema = dados.versaoEsquema ?? 1;
+  if (versaoEsquema !== 1 && versaoEsquema !== 2) {
+    throw new Error(`versao de anotacao desconhecida: ${dados.versaoEsquema}`);
+  }
+  const revisao =
+    typeof dados.revisao === "object" && dados.revisao !== null && !Array.isArray(dados.revisao)
+      ? dados.revisao
+      : undefined;
+  if (versaoEsquema === 2) {
+    if (!["eval", "tuning"].includes(dados.conjunto)) {
+      throw new Error('anotacao v2 precisa de "conjunto" igual a eval ou tuning');
+    }
+    if (
+      !revisao ||
+      !["rascunho", "revisada"].includes(revisao.status) ||
+      typeof revisao.metodo !== "string" ||
+      revisao.metodo.trim() === ""
+    ) {
+      throw new Error('anotacao v2 precisa de "revisao.status" e "revisao.metodo"');
+    }
+  }
+  const duracaoMs =
+    Number.isFinite(dados.duracaoMs) && dados.duracaoMs > 0 ? dados.duracaoMs : undefined;
   const eventos = Array.isArray(dados.eventos) ? dados.eventos : [];
+  if (
+    versaoEsquema === 2 &&
+    dados.conjunto === "eval" &&
+    eventos.length === 0 &&
+    dados.casoNegativo !== true
+  ) {
+    throw new Error('anotacao EVAL sem eventos precisa declarar "casoNegativo": true');
+  }
+  if (versaoEsquema === 2 && dados.casoNegativo === true && eventos.length > 0) {
+    throw new Error('"casoNegativo" nao pode coexistir com eventos positivos');
+  }
   const normalizados = eventos.map((e, i) => {
     if (typeof e !== "object" || e === null || Array.isArray(e)) {
       throw new Error(`evento ${i} invalido: esperado um objeto`);
@@ -61,16 +117,73 @@ export function carregarAnotacao(dados) {
     if (tipo !== "qualquer" && !TIPOS.includes(tipo)) {
       throw new Error(`evento ${i} com tipo desconhecido: ${e.tipo}`);
     }
-    if (typeof e.em !== "number" || !Number.isFinite(e.em) || e.em < 0) {
-      throw new Error(`evento ${i} precisa de "em" (ms desde o inicio, >= 0)`);
+    const inicioMs = e.inicioMs ?? e.em;
+    const fimMs = e.fimMs ?? e.em ?? inicioMs;
+    const em = e.em ?? inicioMs;
+    for (const [campo, valor] of [
+      ["inicioMs", inicioMs],
+      ["fimMs", fimMs],
+      ["em", em],
+    ]) {
+      if (typeof valor !== "number" || !Number.isFinite(valor) || valor < 0) {
+        throw new Error(`evento ${i} precisa de "${campo}" em ms (>= 0)`);
+      }
     }
-    return { tipo, em: e.em, descricao: typeof e.descricao === "string" ? e.descricao : "" };
+    if (inicioMs > fimMs) {
+      throw new Error(`evento ${i} invalido: "inicioMs" deve ser <= "fimMs"`);
+    }
+    if (em < inicioMs || em > fimMs) {
+      throw new Error(`evento ${i} invalido: "em" deve estar dentro do intervalo`);
+    }
+    if (duracaoMs && fimMs > duracaoMs) {
+      throw new Error(`evento ${i} excede "duracaoMs"`);
+    }
+    if (e.categoria !== undefined && !CATEGORIAS.includes(e.categoria)) {
+      throw new Error(`evento ${i} com categoria desconhecida: ${e.categoria}`);
+    }
+    if (e.visibilidade !== undefined && !VISIBILIDADES.includes(e.visibilidade)) {
+      throw new Error(`evento ${i} com visibilidade desconhecida: ${e.visibilidade}`);
+    }
+    if (e.parteEnvolvida !== undefined && !PARTES_ENVOLVIDAS.includes(e.parteEnvolvida)) {
+      throw new Error(`evento ${i} com parte envolvida desconhecida: ${e.parteEnvolvida}`);
+    }
+    if (e.determinavel !== undefined && typeof e.determinavel !== "boolean") {
+      throw new Error(`evento ${i}: "determinavel" deve ser booleano`);
+    }
+    if (
+      versaoEsquema === 2 &&
+      (!Number.isFinite(e.inicioMs) ||
+        !Number.isFinite(e.fimMs) ||
+        !CATEGORIAS.includes(e.categoria) ||
+        typeof e.classe !== "string" ||
+        e.classe.trim() === "" ||
+        !VISIBILIDADES.includes(e.visibilidade) ||
+        !PARTES_ENVOLVIDAS.includes(e.parteEnvolvida) ||
+        typeof e.determinavel !== "boolean")
+    ) {
+      throw new Error(`evento ${i}: anotacao v2 precisa dos metadados humanos completos`);
+    }
+    return {
+      tipo,
+      em,
+      descricao: typeof e.descricao === "string" ? e.descricao : "",
+      ...(inicioMs !== em || e.inicioMs !== undefined ? { inicioMs } : {}),
+      ...(fimMs !== em || e.fimMs !== undefined ? { fimMs } : {}),
+      ...(e.categoria !== undefined ? { categoria: e.categoria } : {}),
+      ...(typeof e.classe === "string" ? { classe: e.classe } : {}),
+      ...(e.visibilidade !== undefined ? { visibilidade: e.visibilidade } : {}),
+      ...(e.parteEnvolvida !== undefined ? { parteEnvolvida: e.parteEnvolvida } : {}),
+      ...(e.determinavel !== undefined ? { determinavel: e.determinavel } : {}),
+    };
   });
   return {
     clip: typeof dados.clip === "string" ? dados.clip : "",
+    versaoEsquema,
+    conjunto: typeof dados.conjunto === "string" ? dados.conjunto : undefined,
+    casoNegativo: dados.casoNegativo === true,
+    revisao,
     inicio: typeof dados.inicio === "string" ? dados.inicio : undefined,
-    duracaoMs:
-      Number.isFinite(dados.duracaoMs) && dados.duracaoMs > 0 ? dados.duracaoMs : undefined,
+    duracaoMs,
     notas: typeof dados.notas === "string" ? dados.notas : "",
     eventos: normalizados,
   };
@@ -143,11 +256,12 @@ export function compararEventos({
 } = {}) {
   const ignoradosSet = new Set(ignorados);
   const candidatos = detectados.filter((d) => !ignoradosSet.has(d.tipo));
+  const avaliaveis = esperados.filter((e) => e.determinavel !== false);
 
   const usados = new Set();
   const correspondencias = [];
   const perdidos = [];
-  for (const esperado of esperados) {
+  for (const esperado of avaliaveis) {
     let melhorIndice = -1;
     let melhorDistancia = Infinity;
     for (let i = 0; i < candidatos.length; i++) {
@@ -177,10 +291,11 @@ export function compararEventos({
   const fp = falsosPositivos.length;
   const fn = perdidos.length;
   const duracaoEfetivaMs =
-    duracaoMs && duracaoMs > 0 ? duracaoMs : calcularDuracaoMs(esperados, candidatos);
+    duracaoMs && duracaoMs > 0 ? duracaoMs : calcularDuracaoMs(avaliaveis, candidatos);
 
   return {
-    esperados: esperados.length,
+    esperados: avaliaveis.length,
+    indeterminados: esperados.length - avaliaveis.length,
     detectados: candidatos.length,
     verdadeirosPositivos: tp,
     perdidos: fn,
@@ -213,6 +328,9 @@ export function formatarRelatorio(rel, { clip = "", toleranciaMs = 0 } = {}) {
     linhas.push("Perdidas:");
     for (const p of rel.perdidosDetalhe) {
       linhas.push(`  - ${p.tipo} @ ${p.em} ms${p.descricao ? ` (${p.descricao})` : ""}`);
+    }
+    if (rel.indeterminados) {
+      linhas.push(`Excluidos por indeterminacao: ${rel.indeterminados}`);
     }
   }
   if (rel.falsosPositivosDetalhe.length) {
