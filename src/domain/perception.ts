@@ -164,7 +164,14 @@ export type ResultadoOuIndisponivel<T> = T | ResultadoIndisponivel;
  */
 export type EstadoSubsistema = "ok" | "sem_resultado" | "indisponivel" | "nao_carregado";
 
-/** Telemetria de um subsistema num frame, pronta para o contexto/registro. */
+/**
+ * Telemetria de um subsistema num frame, pronta para o contexto/registro.
+ *
+ * Os campos de custo permitem separar **carga fria** (`tempoCargaMs`, uma vez
+ * por sessao), **inferencia aquecida** (`tempoInferenciaMs`, por frame) e
+ * **memoria** (`memoriaBytes`, amostrada pelo runtime quando disponivel). Um
+ * campo ausente significa "nao medido", nunca zero.
+ */
 export interface TelemetriaSubsistema {
   status: EstadoSubsistema;
   /** Modelo em uso, quando conhecido. */
@@ -175,4 +182,10 @@ export interface TelemetriaSubsistema {
   versao?: string;
   /** Motivo legivel quando `status === "indisponivel"`. */
   motivoFalha?: string;
+  /** Tempo da ultima carga do modelo (ms): custo frio, nao por frame. */
+  tempoCargaMs?: number;
+  /** Tempo da ultima inferencia bem-sucedida (ms): custo aquecido por frame. */
+  tempoInferenciaMs?: number;
+  /** Heap usado no momento da amostra (bytes), quando o runtime expoe. */
+  memoriaBytes?: number;
 }

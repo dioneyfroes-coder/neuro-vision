@@ -323,6 +323,59 @@ describe("CicloPercepcaoController", () => {
     expect(ctx.cameraEstado.encerradas).toBe(1);
   });
 
+  it("propaga a carga fria por modelo para as metricas do ciclo (P3.1)", async () => {
+    const ctx = montar({
+      configuracao: {
+        carregados: ["deteccao", "pose", "maos"],
+        falhas: [],
+        desativados: [],
+        status: {
+          deteccao: "carregado",
+          pose: "carregado",
+          maos: "carregado",
+          nsfw: "desativado",
+        },
+        carregamento: {
+          deteccao: {
+            status: "ok",
+            modelo: "yolov10n",
+            dispositivo: "wasm",
+            tempoCargaMs: 1200,
+            memoriaBytes: 2048,
+          },
+          pose: { status: "ok", modelo: "yolov8n-pose", tempoCargaMs: 300 },
+        },
+      },
+    });
+    await ctx.controle.iniciar();
+
+    expect(ctx.ciclos).toHaveLength(1);
+    const carga = ctx.ciclos[0].metricas.cargaModelos;
+    expect(carga?.subsistemas.deteccao).toMatchObject({
+      modelo: "yolov10n",
+      dispositivo: "wasm",
+      tempoCargaMs: 1200,
+      memoriaBytes: 2048,
+    });
+    expect(carga?.subsistemas.pose?.tempoCargaMs).toBe(300);
+    expect(carga?.totalMs).toBeGreaterThanOrEqual(0);
+    ctx.controle.parar();
+  });
+
+  it("mede a latencia entre ciclos a partir do fim do anterior", async () => {
+    const ctx = montar();
+    await ctx.controle.iniciar();
+
+    // O primeiro ciclo da sessao nao tem referencia anterior.
+    expect(ctx.ciclos[0].metricas.latenciaEntreCiclosMs).toBeUndefined();
+
+    await ctx.controle.executarCiclo();
+    expect(ctx.ciclos).toHaveLength(2);
+    expect(typeof ctx.ciclos[1].metricas.latenciaEntreCiclosMs).toBe("number");
+    expect(ctx.ciclos[1].metricas.latenciaEntreCiclosMs).toBeGreaterThanOrEqual(0);
+    ctx.controle.parar();
+  });
+
   it("sem nenhum subsistema carregado, falha antes de rodar", async () => {
     const ctx = montar({
       configuracao: { carregados: [], falhas: [{ subsistema: "pose", motivo: "modelo offline" }] },

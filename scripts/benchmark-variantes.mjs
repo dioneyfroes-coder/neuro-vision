@@ -441,8 +441,14 @@ const ETAPAS_MS = [
   "temporalMs",
   "multimodalMs",
   "persistenciaMs",
+  "percepcaoTotalMs",
+  "latenciaAteRespostaMultimodalMs",
+  "latenciaEntreCiclosMs",
   "totalMs",
 ];
+
+/** Subsistemas de percepcao usados nas metricas por ciclo (P3.1). */
+const SUBSISTEMAS_METRICA = ["deteccao", "pose", "maos", "nsfw"];
 
 /**
  * Etapas LOCAIS (nao incluem o multimodal remoto nem o total do ciclo). Serve
@@ -498,18 +504,111 @@ export function agregarMetricasCiclos(registros) {
     }
   }
 
+  // Custo aquecido por snapshot, por subsistema (P3.1). Cada ciclo contribui
+  // com a media das inferencias validas daquele subsistema; ausente nao vira 0.
+  const inferenciaPorSnapshot = {};
+  for (const subsistema of SUBSISTEMAS_METRICA) {
+    const valores = registros
+      .map((r) => Number(r?.metricas?.inferenciaPorSnapshotMs?.[subsistema]))
+      .filter((n) => Number.isFinite(n) && n >= 0);
+    if (!valores.length) continue;
+    inferenciaPorSnapshot[subsistema] = {
+      medianaMs: arredondar(mediana(valores)),
+      p95Ms: arredondar(percentil(valores, 0.95)),
+      maximoMs: arredondar(Math.max(...valores)),
+      amostras: valores.length,
+    };
+  }
+
+  // Memoria maxima observada por ciclo (heap do processo, quando exposto).
+  const memoria = registros
+    .map((r) => Number(r?.metricas?.memoriaMaximaBytes))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const memoriaMaxima = memoria.length
+    ? {
+        medianaBytes: arredondar(mediana(memoria)),
+        p95Bytes: arredondar(percentil(memoria, 0.95)),
+        maximoBytes: arredondar(Math.max(...memoria)),
+        amostras: memoria.length,
+      }
+    : null;
+
+  // Carga fria: o mesmo valor se repete em todos os ciclos da sessao, entao
+  // deduplicamos por `sessionId` para nao ponderar por quantidade de ciclos.
+  const cargasPorSessao = new Map();
+  for (const r of registros) {
+    const carga = r?.metricas?.cargaModelos;
+    if (!carga) continue;
+    const chave = typeof r.sessionId === "string" ? r.sessionId : r.cycleId;
+    if (!cargasPorSessao.has(chave)) cargasPorSessao.set(chave, carga);
+  }
+  const cargas = [...cargasPorSessao.values()];
+  const totaisCarga = cargas
+    .map((c) => Number(c?.totalMs))
+    .filter((n) => Number.isFinite(n) && n >= 0);
+  const subsistemasCarga = {};
+  for (const subsistema of SUBSISTEMAS_METRICA) {
+    const itens = cargas.map((c) => c?.subsistemas?.[subsistema]).filter(Boolean);
+    if (!itens.length) continue;
+    const tempos = itens
+      .map((t) => Number(t.tempoCargaMs))
+      .filter((n) => Number.isFinite(n) && n >= 0);
+    subsistemasCarga[subsistema] = {
+      modelo: itens.find((t) => t.modelo)?.modelo ?? null,
+      dispositivo: itens.find((t) => t.dispositivo)?.dispositivo ?? null,
+      versao: itens.find((t) => t.versao)?.versao ?? null,
+      status: itens[0]?.status ?? null,
+      tempoCargaMs: tempos.length
+        ? {
+            medianaMs: arredondar(mediana(tempos)),
+            p95Ms: arredondar(percentil(tempos, 0.95)),
+            maximoMs: arredondar(Math.max(...tempos)),
+            amostras: tempos.length,
+          }
+        : null,
+    };
+  }
+  const cargaModelos = cargas.length
+    ? {
+        sessoes: cargas.length,
+        totalMs: totaisCarga.length
+          ? {
+              medianaMs: arredondar(mediana(totaisCarga)),
+              p95Ms: arredondar(percentil(totaisCarga, 0.95)),
+              amostras: totaisCarga.length,
+            }
+          : null,
+        subsistemas: subsistemasCarga,
+      }
+    : null;
+
+  const ciclosCancelados = registros.filter((r) => r?.cancelado === true).length;
+  const ciclosCompletos = registros.filter(ehCicloConcluido).length;
+  const ciclosComSubsistemaIndisponivel = registros.filter(
+    (r) => Array.isArray(r?.subsistemasIndisponiveis) && r.subsistemasIndisponiveis.length > 0
+  ).length;
+
   const soma = (fn) => registros.reduce((acc, r) => acc + (fn(r) ?? 0), 0);
   return {
     ciclos: registros.length,
     /** Amostras validas para comparar: concluidos, nao cancelados. */
-    ciclosConcluidos: registros.filter(ehCicloConcluido).length,
+    ciclosConcluidos: ciclosCompletos,
+    /** Ciclos que chegaram ao fim com frames, `concluidoEm` e sem cancelamento. */
+    ciclosCompletos,
+    /** Ciclos que terminaram sem cancelamento, mas sem conclusao completa. */
+    ciclosIncompletos: registros.length - ciclosCompletos - ciclosCancelados,
     framesPorCiclo: arredondar(mediana(registros.map((r) => r.frameIds?.length ?? r.observacoes ?? 0).filter(Number.isFinite)), 1),
     observacoes: soma((r) => r.observacoes),
     eventosTemporais: soma((r) => r.eventosTemporais),
     ciclosComErro,
     errosPorEtapa,
-    cancelados: registros.filter((r) => r.cancelado === true).length,
+    cancelados: ciclosCancelados,
+    /** Ciclos com pelo menos um subsistema indisponivel em algum frame. */
+    ciclosComSubsistemaIndisponivel,
     subsistemasIndisponiveis: subsistemas,
+    inferenciaPorSnapshot,
+    memoriaMaxima,
+    cargaModelos,
     metricas,
   };
 }
@@ -930,8 +1029,12 @@ export function avaliarComparabilidade(resultados, opcoes = {}) {
       letra,
       ciclos: desempenhoValido?.ciclos ?? 0,
       ciclosConcluidos: concluidos,
+      ciclosCompletos: desempenhoValido?.ciclosCompletos ?? concluidos,
+      ciclosIncompletos: desempenhoValido?.ciclosIncompletos ?? 0,
       warmups: r.warmups ?? 0,
       cancelados: desempenhoValido?.cancelados ?? 0,
+      ciclosComSubsistemaIndisponivel:
+        desempenhoValido?.ciclosComSubsistemaIndisponivel ?? 0,
       modelos,
       qualidade: Boolean(r.qualidade?.consolidado),
       arquivoEventos: r.arquivoEventos ?? null,
@@ -1107,6 +1210,9 @@ function tabelaDesempenho(desempenho) {
     temporalMs: "temporal",
     multimodalMs: "multimodal",
     persistenciaMs: "persistência",
+    percepcaoTotalMs: "percepção total (4 snapshots)",
+    latenciaAteRespostaMultimodalMs: "até resposta multimodal",
+    latenciaEntreCiclosMs: "entre ciclos",
     totalMs: "TOTAL do ciclo",
   };
   for (const etapa of ETAPAS_MS) {
@@ -1122,13 +1228,81 @@ function tabelaDesempenho(desempenho) {
       `**concluídos: ${desempenho.ciclosConcluidos}** · observações: ${desempenho.observacoes} · eventos temporais: ${desempenho.eventosTemporais}`
   );
   linhas.push(
-    `- Ciclos com erro: **${desempenho.ciclosComErro}**${erros ? ` (${erros})` : ""} · cancelados: **${desempenho.cancelados}**`
+    `- Ciclos completos: **${desempenho.ciclosCompletos ?? desempenho.ciclosConcluidos}** · ` +
+      `incompletos: **${desempenho.ciclosIncompletos ?? 0}** · ` +
+      `cancelados: **${desempenho.cancelados}** · ` +
+      `com subsistema indisponível: **${desempenho.ciclosComSubsistemaIndisponivel ?? 0}**`
+  );
+  linhas.push(
+    `- Ciclos com erro: **${desempenho.ciclosComErro}**${erros ? ` (${erros})` : ""}`
   );
   const subs = Object.entries(desempenho.subsistemasIndisponiveis)
     .map(([s, q]) => `${s}: ${q}`)
     .join(", ");
   linhas.push(`- Subsistemas indisponíveis: ${subs || "nenhum"}`);
   linhas.push("");
+  linhas.push(...tabelaCustosDetalhados(desempenho));
+  return linhas;
+}
+
+/** Converte bytes em MB com uma casa, sem esconder ausencia de amostra. */
+function megabytes(bytes) {
+  return Number.isFinite(bytes) ? arredondar(bytes / (1024 * 1024), 1) : null;
+}
+
+/**
+ * Tabelas de custo separadas por regime (P3.1): inferencia aquecida por
+ * snapshot, carga fria por modelo e memoria maxima. Sao deliberadamente
+ * distintas do `totalMs`: misturar inicializacao, inferencia e espera de
+ * captura produz uma media sem significado.
+ */
+function tabelaCustosDetalhados(desempenho) {
+  const linhas = [];
+  const inferencia = Object.entries(desempenho.inferenciaPorSnapshot ?? {});
+  if (inferencia.length) {
+    linhas.push("**Custo aquecido de inferência por snapshot:**", "");
+    linhas.push(
+      "| Subsistema | Mediana (ms) | P95 (ms) | Máximo (ms) | Amostras |",
+      "|------------|-------------:|---------:|------------:|---------:|"
+    );
+    for (const [subsistema, m] of inferencia) {
+      linhas.push(
+        `| ${subsistema} | ${m.medianaMs ?? "—"} | ${m.p95Ms ?? "—"} | ${m.maximoMs ?? "—"} | ${m.amostras} |`
+      );
+    }
+    linhas.push("");
+  }
+
+  const memoria = desempenho.memoriaMaxima;
+  if (memoria?.amostras) {
+    linhas.push(
+      `- **Memória máxima (heap):** mediana ${megabytes(memoria.medianaBytes) ?? "—"} MB · ` +
+        `P95 ${megabytes(memoria.p95Bytes) ?? "—"} MB · pico ${megabytes(memoria.maximoBytes) ?? "—"} MB ` +
+        `(${memoria.amostras} amostra(s))`
+    );
+  }
+
+  const carga = desempenho.cargaModelos;
+  if (carga) {
+    linhas.push(
+      `- **Carga fria da sessão:** mediana ${carga.totalMs?.medianaMs ?? "—"} ms · ` +
+        `P95 ${carga.totalMs?.p95Ms ?? "—"} ms (${carga.totalMs?.amostras ?? 0} sessão(ões) medida(s))`
+    );
+    const subsistemas = Object.entries(carga.subsistemas ?? {});
+    if (subsistemas.length) {
+      linhas.push(
+        "",
+        "| Modelo (subsistema) | Carga mediana (ms) | P95 (ms) | Dispositivo | Versão |",
+        "|---------------------|-------------------:|---------:|-------------|--------|"
+      );
+      for (const [subsistema, c] of subsistemas) {
+        linhas.push(
+          `| ${subsistema}${c.modelo ? ` (${c.modelo})` : ""} | ${c.tempoCargaMs?.medianaMs ?? "—"} | ${c.tempoCargaMs?.p95Ms ?? "—"} | ${c.dispositivo ?? "—"} | ${c.versao ?? "—"} |`
+        );
+      }
+    }
+    linhas.push("");
+  }
   return linhas;
 }
 
@@ -1356,6 +1530,42 @@ function gerarComparativo({ variantes, resultados, clipes, modelo, verificacaoMo
     );
   }
   L.push("");
+
+  // Custos separados por regime (P3.1): cold start, inferencia aquecida por
+  // snapshot, conjunto de 4 snapshots, resposta multimodal, intervalo entre
+  // ciclos, memoria e cobertura de desfechos.
+  L.push("## Custos por regime e cobertura de ciclos (P3.1)", "");
+  L.push(
+    "| Variante | Percepção 4 snapshots med (ms) | Até multimodal med (ms) | Entre ciclos med (ms) | Memória pico (MB) | Completos | Incompletos | Cancelados | Subsistema indisponível |",
+    "|----------|------------------------------:|------------------------:|----------------------:|------------------:|----------:|------------:|-----------:|-------------------------:|"
+  );
+  for (const { variante, desempenhoAquecido, desempenho } of resultados) {
+    const valido = desempenhoAquecido ?? desempenho;
+    const m = valido?.metricas ?? {};
+    const memoria = valido?.memoriaMaxima;
+    L.push(
+      `| ${variante.letra} | ${m.percepcaoTotalMs?.medianaMs ?? "—"} | ${m.latenciaAteRespostaMultimodalMs?.medianaMs ?? "—"} | ${m.latenciaEntreCiclosMs?.medianaMs ?? "—"} | ${megabytes(memoria?.maximoBytes) ?? "—"} | ${valido?.ciclosCompletos ?? valido?.ciclosConcluidos ?? 0} | ${valido?.ciclosIncompletos ?? 0} | ${valido?.cancelados ?? 0} | ${valido?.ciclosComSubsistemaIndisponivel ?? 0} |`
+    );
+  }
+  L.push("");
+
+  const comCarga = resultados.filter((r) => (r.desempenhoAquecido ?? r.desempenho)?.cargaModelos);
+  if (comCarga.length) {
+    L.push("### Carga fria por modelo (fora das medianas de inferência)", "");
+    L.push(
+      "| Variante | Subsistema | Modelo | Carga mediana (ms) | P95 (ms) | Dispositivo | Versão |",
+      "|----------|------------|--------|-------------------:|---------:|-------------|--------|"
+    );
+    for (const { variante, desempenhoAquecido, desempenho } of comCarga) {
+      const carga = (desempenhoAquecido ?? desempenho).cargaModelos;
+      for (const [subsistema, c] of Object.entries(carga.subsistemas ?? {})) {
+        L.push(
+          `| ${variante.letra} | ${subsistema} | ${c.modelo ?? "—"} | ${c.tempoCargaMs?.medianaMs ?? "—"} | ${c.tempoCargaMs?.p95Ms ?? "—"} | ${c.dispositivo ?? "—"} | ${c.versao ?? "—"} |`
+        );
+      }
+    }
+    L.push("");
+  }
 
   // Etapas isoladas x ciclo completo (somente quando solicitado por variante).
   const comEtapas = resultados.filter((r) => r.etapasIsoladas);
@@ -1784,8 +1994,12 @@ async function main() {
         "detector local": (modelos?.deteccao ?? []).join(", ") || "-",
         ciclos: valido?.ciclos ?? 0,
         concluidos: valido?.ciclosConcluidos ?? 0,
+        incompletos: valido?.ciclosIncompletos ?? 0,
         warmups: warmups ?? 0,
         "cold start (ms)": coldStart?.metricas.totalMs.medianaMs ?? "-",
+        "percepcao 4 snapshots med (ms)": m.percepcaoTotalMs?.medianaMs ?? "-",
+        "ate multimodal med (ms)": m.latenciaAteRespostaMultimodalMs?.medianaMs ?? "-",
+        "entre ciclos med (ms)": m.latenciaEntreCiclosMs?.medianaMs ?? "-",
         "total med (ms)": m.totalMs?.medianaMs ?? "-",
         "total P95 (ms)": m.totalMs?.p95Ms ?? "-",
         "multimodal med (ms)": m.multimodalMs?.medianaMs ?? "-",
@@ -1796,6 +2010,7 @@ async function main() {
         "nao detectados": c ? c.eventosNaoDetectados : "-",
         erros: valido?.ciclosComErro ?? 0,
         cancelados: valido?.cancelados ?? 0,
+        "subs. indisponivel": valido?.ciclosComSubsistemaIndisponivel ?? 0,
         gate: args.semQualidade ? "-" : letrasPromoviveis.has(variante.letra) ? "promovivel" : "experimental",
       };
     })

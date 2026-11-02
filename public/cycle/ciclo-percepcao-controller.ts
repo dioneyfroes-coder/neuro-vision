@@ -1,5 +1,10 @@
 import type { Caixa, EntradaLog, EventoTemporalEnvio, EventoVisual } from "../../src/types";
-import type { PacoteCiclo, RegistroCiclo, ResultadoCiclo } from "../../src/domain/cycle";
+import type {
+  CargaModelosCiclo,
+  PacoteCiclo,
+  RegistroCiclo,
+  ResultadoCiclo,
+} from "../../src/domain/cycle";
 import type { ObservacaoFrame } from "../../src/domain/observation";
 import { criarCycleId, criarSessionId, uuid } from "../../src/domain/ids";
 import { estaIndisponivel } from "../../src/domain/perception";
@@ -156,6 +161,10 @@ export class CicloPercepcaoController implements ControladorCiclo {
   private ultimaDuracaoMsValor = 0;
   private ultimaCargaMsValor = 0;
   private ultimaPersistenciaMsValor = 0;
+  /** Carga fria dos modelos da sessao (P3.1); ausente na variante sem percepcao. */
+  private cargaModelosAtual: CargaModelosCiclo | undefined;
+  /** Fim monotonico do ultimo ciclo; base da latencia entre ciclos. */
+  private ultimoFimCicloMs: number | null = null;
   /** Politica do ciclo (Fase 4): pausa pos-ciclo e frequencia da interpretacao. */
   private readonly politicaCiclo: PoliticaCiclo;
   /**
@@ -214,6 +223,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
     this.cicloSeq = 0;
     this.eventosPersistidos.clear();
     this.memoriaTemporalPersistida.clear();
+    this.ultimoFimCicloMs = null;
     this.motorTemporal?.resetar();
     this.store.limpar();
   }
@@ -261,6 +271,8 @@ export class CicloPercepcaoController implements ControladorCiclo {
     this.ultimaDuracaoMsValor = 0;
     this.ultimaCargaMsValor = 0;
     this.ultimaPersistenciaMsValor = 0;
+    this.cargaModelosAtual = undefined;
+    this.ultimoFimCicloMs = null;
     this.sessaoId = criarSessionId();
     this.cicloSeq = 0;
     this.eventosPersistidos.clear();
@@ -294,6 +306,14 @@ export class CicloPercepcaoController implements ControladorCiclo {
           this.deps.obterModelosPercepcao()
         );
         this.ultimaCargaMsValor = Math.round(performance.now() - inicioCarga);
+        // Carga fria por modelo (P3.1): fica separada do custo aquecido de
+        // inferencia e e replicada em cada ciclo da sessao.
+        if (configuracao.carregamento) {
+          this.cargaModelosAtual = {
+            totalMs: this.ultimaCargaMsValor,
+            subsistemas: configuracao.carregamento,
+          };
+        }
 
         // Sem nenhum subsistema carregado nao ha evidencia possivel: falha.
         if (configuracao.carregados.length === 0) {
@@ -375,6 +395,14 @@ export class CicloPercepcaoController implements ControladorCiclo {
       },
       obterPolitica: () => aplicarPolitica(this.politicaCiclo),
       persistirCiclo: (registro) => this.deps.repositorio.gravarCiclo(registro),
+      obterCargaModelos: () => this.cargaModelosAtual,
+      obterLatenciaEntreCiclosMs: () =>
+        this.ultimoFimCicloMs === null
+          ? undefined
+          : Math.round(performance.now() - this.ultimoFimCicloMs),
+      registrarFimCiclo: (fimMs) => {
+        this.ultimoFimCicloMs = fimMs;
+      },
     };
   }
 

@@ -118,6 +118,20 @@ O harness ganhou três capacidades para a repetição do benchmark com dados rep
 - **Etapas isoladas × ciclo completo** (`--etapas-isoladas`): cada etapa local (captura, detecção, pose, mãos, temporal) é medida por si só e depois somada no ciclo, a partir das **mesmas métricas reais** de `logs/ciclos.jsonl` (não inventa números). Etapa sem amostra sai como "sem amostra", não como zero silencioso; expõe o que fica de fora (multimodal, persistência).
 - **Conjunto reservado** (`--conjunto <nome>`): registra qual conjunto de avaliação foi usado (ex.: `eval`), provando que as variantes rodaram sobre o mesmo conjunto reservado, separado do de ajuste (tuning).
 
+### Métricas separadas por regime (P3.1)
+
+O comparativo não usa uma única média total. Cada custo aparece no seu regime e a decisão considera **mediana e P95**, não a média:
+
+- **Carga fria por modelo:** `metricas.cargaModelos` é medida uma vez por sessão (`sessionId`), com `tempoCargaMs`, `modelo`, `dispositivo` e `versao` por subsistema — inclusive para uma carga que falhou (custo gasto até a falha). O agregador **deduplica por sessão**, para que uma sessão com muitos ciclos não pese mais que outra com poucos. Sai fora das medianas de inferência.
+- **Inferência aquecida por snapshot:** `metricas.inferenciaPorSnapshotMs.<subsistema>` traz a média das inferências válidas daquele subsistema no ciclo. O agregador reporta mediana, P95, máximo e número de amostras por subsistema; subsistema sem inferência válida fica **ausente**, não zero.
+- **Conjunto completo de snapshots:** `percepcaoTotalMs` mede o wall-clock do fim da captura ao fim da percepção, sem a espera proposital entre snapshots. É o custo de processar as 4 imagens antes do multimodal — diferente da soma das inferências isoladas.
+- **Até a resposta multimodal:** `latenciaAteRespostaMultimodalMs` vai do início do ciclo à resposta do modelo. Ciclo suprimido pela política ou com erro **não** recebe esse campo (ausência não é latência zero).
+- **Entre ciclos:** `latenciaEntreCiclosMs` mede do fim do ciclo anterior ao início deste. Ausente no primeiro ciclo da sessão; reiniciar a sessão limpa a base.
+- **Memória e runtime:** `memoriaMaximaBytes` é o pico de heap observado no ciclo, quando o ambiente expõe `performance.memory`; o relatório mostra mediana, P95 e pico em MB. Modelo, dispositivo e versão vêm da telemetria de carga e ficam registrados junto do custo.
+- **Desfechos explícitos:** o agregado conta **ciclos completos** (não cancelados, com frames e `concluidoEm`), **incompletos**, **cancelados** e **com subsistema indisponível**, além dos ciclos com erro por etapa. Um ciclo cancelado não entra nas medianas como se fosse uma amostra válida.
+
+No relatório de cada variante essas informações aparecem em tabelas próprias (custo aquecido por snapshot, carga fria por modelo, memória e desfechos); no comparativo há uma seção "Custos por regime e cobertura de ciclos (P3.1)". O `cold start total` continua sendo reportado à parte como referência de inicialização.
+
 **Gate de qualidade × latência** (itens 5 e 6 da Fase 5): o harness compara a **melhoria de qualidade** com o **aumento de latência** e decide se C/D podem ser promovidas a padrão ou devem permanecer **experimentais**. Critérios configuráveis (todos com padrão):
 
 | Opção | Padrão | Significado |

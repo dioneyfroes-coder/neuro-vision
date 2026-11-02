@@ -10,6 +10,7 @@ import type {
 import type { ObservacaoFrame } from "../../src/domain/observation";
 import { criarRegistroCiclo } from "../../src/domain/cycle";
 import type {
+  CargaModelosCiclo,
   ErroEtapa,
   MetricasCiclo,
   PacoteCiclo,
@@ -17,10 +18,12 @@ import type {
   RegistroCiclo,
   ResultadoCiclo,
   ResumoTemporal,
+  SubsistemaMetricaCiclo,
 } from "../../src/domain/cycle";
 import type { WebcamCapture } from "../capture/webcam-capture";
 import type { SnapshotCapturado, SnapshotStore } from "../capture/snapshot-store";
 import type { TelemetriaSubsistema } from "../../src/domain";
+import { amostrarMemoriaBytes } from "../perception/contracts";
 import type { SubsistemaPercepcao } from "../perception/local-perception-pipeline";
 import type { InterpretadorMultimodal } from "../interpretation/contracts";
 import type { MotorTemporal } from "../temporal/contracts";
@@ -130,6 +133,23 @@ export interface DependenciasCicloMultiframe {
    * `erros` como etapa `persistencia` e o resultado segue valido.
    */
   persistirCiclo?: (registro: RegistroCiclo) => Promise<void> | void;
+  /**
+   * Carga fria dos modelos da sessao (P3.1), opcional. Devolve o custo de
+   * inicializacao ja medido pelo controlador; nao e medido de novo por ciclo.
+   */
+  obterCargaModelos?: () => CargaModelosCiclo | undefined;
+  /**
+   * Latencia desde o fim do ciclo anterior ate agora (ms), opcional. O
+   * controlador calcula porque mantem o estado entre ciclos; ausente no
+   * primeiro ciclo da sessao.
+   */
+  obterLatenciaEntreCiclosMs?: () => number | undefined;
+  /**
+   * Registra o instante monotonico de fim do ciclo (sucesso, sem frame ou
+   * falha). O controlador usa esse valor como base da latencia entre ciclos e
+   * limpa o estado ao reiniciar a sessao.
+   */
+  registrarFimCiclo?: (fimMs: number) => void;
 }
 
 function cancelado(): ErroPercepcao {
@@ -221,7 +241,29 @@ export async function executarCicloMultiframe(
     maosAtivas: 0,
     objetosAtivos: 0,
   };
+  // Contexto de custo comum a todos os desfechos do ciclo (sucesso, sem frame
+  // ou falha): carga fria da sessao, intervalo desde o ciclo anterior e memoria.
+  const latenciaEntreCiclosMs = deps.obterLatenciaEntreCiclosMs?.();
+  const cargaModelos = deps.obterCargaModelos?.();
+  let memoriaMaximaBytes = amostrarMemoriaBytes();
+  const registrarMemoria = (bytes: number | undefined): void => {
+    if (bytes === undefined || !Number.isFinite(bytes)) return;
+    if (memoriaMaximaBytes === undefined || bytes > memoriaMaximaBytes) {
+      memoriaMaximaBytes = bytes;
+    }
+  };
   let metricas: MetricasCiclo = {};
+  if (
+    latenciaEntreCiclosMs !== undefined &&
+    Number.isFinite(latenciaEntreCiclosMs) &&
+    latenciaEntreCiclosMs >= 0
+  ) {
+    metricas.latenciaEntreCiclosMs = Math.round(latenciaEntreCiclosMs);
+  }
+  if (cargaModelos) metricas.cargaModelos = cargaModelos;
+  if (memoriaMaximaBytes !== undefined) {
+    metricas.memoriaMaximaBytes = memoriaMaximaBytes;
+  }
 
   try {
     if (sinal?.aborted) throw cancelado();
@@ -253,6 +295,7 @@ export async function executarCicloMultiframe(
             objetosAtivos: 0,
           },
           metricas: {
+            ...metricas,
             capturaMs,
             capturaConcluidaEm,
             concluidoEm,
@@ -276,6 +319,22 @@ export async function executarCicloMultiframe(
     let poseMs = 0;
     let maosMs = 0;
     let nsfwMs = 0;
+    // Custo aquecido por snapshot, separado por subsistema. So entra a
+    // inferencia que de fato rodou e entregou resultado (o pipeline ja zera o
+    // tempo quando o subsistema falhou/esta desativado).
+    const inferenciaSoma: Record<SubsistemaMetricaCiclo, number> = {
+      deteccao: 0,
+      pose: 0,
+      maos: 0,
+      nsfw: 0,
+    };
+    const inferenciaContagem: Record<SubsistemaMetricaCiclo, number> = {
+      deteccao: 0,
+      pose: 0,
+      maos: 0,
+      nsfw: 0,
+    };
+    const inicioPercepcao = agora();
 
     const processados = await mapearConcorrente(
       quadros,
@@ -310,6 +369,23 @@ export async function executarCicloMultiframe(
       maosMs += processamento.metricas.duracaoMaosMs ?? 0;
       nsfwMs += processamento.metricas.duracaoNsfwMs ?? 0;
 
+      // Telemetria por subsistema: acumula inferencia aquecida e memoria. O
+      // `tempoInferenciaMs` so existe quando a inferencia devolveu resultado
+      // valido; ausente nao vira zero na media.
+      const subsistemas = processamento.metricas.subsistemas;
+      if (subsistemas) {
+        for (const subsistema of ["deteccao", "pose", "maos", "nsfw"] as const) {
+          const telemetria = subsistemas[subsistema];
+          if (!telemetria) continue;
+          const inferencia = telemetria.tempoInferenciaMs;
+          if (inferencia !== undefined && Number.isFinite(inferencia) && inferencia >= 0) {
+            inferenciaSoma[subsistema] += inferencia;
+            inferenciaContagem[subsistema] += 1;
+          }
+          registrarMemoria(telemetria.memoriaBytes);
+        }
+      }
+
       observacoes.push(
         Object.freeze({
           sessionId: deps.sessaoId,
@@ -329,7 +405,25 @@ export async function executarCicloMultiframe(
         })
       );
     }
+    const percepcaoTotalMs = Math.round(agora() - inicioPercepcao);
     const percepcaoConcluidaEm = agoraIso();
+    registrarMemoria(amostrarMemoriaBytes());
+
+    const inferenciaPorSnapshotMs: Partial<Record<SubsistemaMetricaCiclo, number>> = {};
+    for (const subsistema of ["deteccao", "pose", "maos", "nsfw"] as const) {
+      if (inferenciaContagem[subsistema] > 0) {
+        inferenciaPorSnapshotMs[subsistema] = Math.round(
+          inferenciaSoma[subsistema] / inferenciaContagem[subsistema]
+        );
+      }
+    }
+    metricas.percepcaoTotalMs = percepcaoTotalMs;
+    if (Object.keys(inferenciaPorSnapshotMs).length > 0) {
+      metricas.inferenciaPorSnapshotMs = inferenciaPorSnapshotMs;
+    }
+    if (memoriaMaximaBytes !== undefined) {
+      metricas.memoriaMaximaBytes = memoriaMaximaBytes;
+    }
 
     // 2.5) Leitura temporal consolidada (motor com estado entre ciclos). Uma
     // falha do motor e isolada como etapa `temporal`: o ciclo segue com o
@@ -364,6 +458,7 @@ export async function executarCicloMultiframe(
       resumoTemporal,
       politica: deps.obterPolitica?.(),
       metricas: {
+        ...metricas,
         capturaMs,
         capturaConcluidaEm,
         percepcaoConcluidaEm,
@@ -399,7 +494,15 @@ export async function executarCicloMultiframe(
       const resultado = await deps.interpretador.interpretar(pacote, sinal);
       pacote.metricas.multimodalMs = resultado.duracaoMs;
       pacote.metricas.interpretacaoConcluidaEm = agoraIso();
+      // Latencia real ate a resposta multimodal: inclui captura, percepcao e a
+      // propria chamada remota. So existe quando houve resposta (nao suprimida
+      // pela politica e sem erro).
+      pacote.metricas.latenciaAteRespostaMultimodalMs = Math.round(agora() - inicioMs);
       interpretacao = resultado.resumo;
+    }
+    registrarMemoria(amostrarMemoriaBytes());
+    if (memoriaMaximaBytes !== undefined) {
+      pacote.metricas.memoriaMaximaBytes = memoriaMaximaBytes;
     }
     pacote.metricas.totalMs = Math.round(agora() - inicioMs);
 
@@ -432,6 +535,11 @@ export async function executarCicloMultiframe(
     // diagnostico do ciclo incompleto para que a falha nao se perca.
     deps.store.limpar();
     const concluidoEm = agoraIso();
+    registrarMemoria(amostrarMemoriaBytes());
+    const metricasFinais: MetricasCiclo = { ...metricas, concluidoEm };
+    if (memoriaMaximaBytes !== undefined) {
+      metricasFinais.memoriaMaximaBytes = memoriaMaximaBytes;
+    }
     await persistirDiagnostico(
       deps,
       {
@@ -443,7 +551,7 @@ export async function executarCicloMultiframe(
           observacoes: observacoesEnriquecidas,
           eventosTemporais: resumoTemporal.eventos,
           resumoTemporal,
-          metricas: { ...metricas, concluidoEm },
+          metricas: metricasFinais,
         },
         erros,
         cancelado: ehCancelamento(err) || sinal?.aborted === true,
@@ -451,5 +559,10 @@ export async function executarCicloMultiframe(
       erros
     );
     throw err;
+  } finally {
+    // Base da latencia entre ciclos. Roda tambem nos caminhos de "sem frame" e
+    // de falha/cancelamento, para que o proximo ciclo nao herde uma referencia
+    // antiga indefinidamente.
+    deps.registrarFimCiclo?.(agora());
   }
 }

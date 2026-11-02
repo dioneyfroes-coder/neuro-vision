@@ -159,11 +159,11 @@ export class PipelineLocal {
         duracaoMaosMs: maos.duracaoMs,
         duracaoNsfwMs,
         subsistemas: {
-          deteccao: this.telemetria(this.deps.detector, deteccao.resultado),
-          pose: this.telemetria(this.deps.pose, pose.resultado),
-          maos: this.telemetria(this.deps.maos, maos.resultado),
+          deteccao: this.telemetria(this.deps.detector, deteccao.resultado, deteccao.duracaoMs),
+          pose: this.telemetria(this.deps.pose, pose.resultado, pose.duracaoMs),
+          maos: this.telemetria(this.deps.maos, maos.resultado, maos.duracaoMs),
           ...(nsfw || this.deps.nsfw?.modelo
-            ? { nsfw: this.telemetria(this.deps.nsfw, nsfw) }
+            ? { nsfw: this.telemetria(this.deps.nsfw, nsfw, nsfwExecucao?.duracaoMs) }
             : {}),
         },
       },
@@ -177,7 +177,8 @@ export class PipelineLocal {
    */
   private telemetria<T>(
     porta: { metricas?: MetricasAdaptador } | undefined,
-    resultado: ResultadoOuIndisponivel<T> | undefined
+    resultado: ResultadoOuIndisponivel<T> | undefined,
+    duracaoInferenciaMs: number | undefined
   ): TelemetriaSubsistema {
     const metricas = porta?.metricas as MetricasAdaptador | undefined;
     const indisponivel = resultado && estaIndisponivel(resultado);
@@ -186,6 +187,10 @@ export class PipelineLocal {
         ? "indisponivel"
         : "ok"
       : (metricas?.status ?? "nao_carregado");
+    // Inferencia so entra quando o subsistema de fato rodou e entregou resultado:
+    // uma inferencia que falhou (ou um frame desativado) nao pode herdar o tempo
+    // da ultima inferencia valida do adaptador.
+    const inferenciaValida = resultado !== undefined && !indisponivel;
     return {
       status,
       modelo: metricas?.modelo,
@@ -194,6 +199,9 @@ export class PipelineLocal {
       motivoFalha: indisponivel
         ? (resultado as ResultadoIndisponivel).motivo
         : metricas?.motivoFalha,
+      tempoCargaMs: metricas?.tempoCargaMs,
+      tempoInferenciaMs: inferenciaValida ? duracaoInferenciaMs : undefined,
+      memoriaBytes: metricas?.memoriaBytes,
     };
   }
 
@@ -304,6 +312,12 @@ export interface ConfiguracaoParcial {
   desativados: SubsistemaPercepcao[];
   /** Status final por subsistema, para telemetria/diagnostico. */
   status: Record<SubsistemaPercepcao, "carregado" | "desativado" | "falhou">;
+  /**
+   * Telemetria da **carga fria** de cada subsistema que tentou carregar
+   * (`tempoCargaMs`, modelo, dispositivo, versao). Fica fora do custo por
+   * snapshot para nao misturar inicializacao com regime aquecido.
+   */
+  carregamento?: Partial<Record<SubsistemaPercepcao, TelemetriaSubsistema>>;
 }
 
 function habilitado(
@@ -332,7 +346,10 @@ export async function configurarSubsistemas(
   const efetiva: Required<HabilitacaoSubsistemas> = { ...HABILITACAO_PADRAO, ...habilitacao };
   const alvos: {
     subsistema: SubsistemaPercepcao;
-    porta?: { carregar(modelo: string, aoStatus?: (mensagem: string) => void): Promise<void> };
+    porta?: {
+      carregar(modelo: string, aoStatus?: (mensagem: string) => void): Promise<void>;
+      metricas?: MetricasAdaptador;
+    };
     modelo?: string;
   }[] = [
     { subsistema: "deteccao", porta: deps.detector, modelo: modelos.objetos },
@@ -346,6 +363,7 @@ export async function configurarSubsistemas(
   const carregados: SubsistemaPercepcao[] = [];
   const desativados: SubsistemaPercepcao[] = [];
   const falhas: ConfiguracaoParcial["falhas"] = [];
+  const carregamento: NonNullable<ConfiguracaoParcial["carregamento"]> = {};
   const status: ConfiguracaoParcial["status"] = {
     deteccao: "desativado",
     pose: "desativado",
@@ -372,8 +390,20 @@ export async function configurarSubsistemas(
       status[alvo.subsistema] = "falhou";
       aoStatus?.(`${alvo.subsistema} indisponivel: ${mensagemDe(err)}`);
     }
+    // Carga fria medida pelo adaptador (mesmo quando a carga falhou: o custo
+    // gasto ate a falha continua sendo um custo de inicializacao observado).
+    const metricas = alvo.porta.metricas;
+    carregamento[alvo.subsistema] = {
+      status: status[alvo.subsistema] === "carregado" ? "ok" : "indisponivel",
+      modelo: metricas?.modelo,
+      dispositivo: metricas?.dispositivo,
+      versao: metricas?.versao,
+      motivoFalha:
+        status[alvo.subsistema] === "carregado" ? undefined : metricas?.motivoFalha,
+      tempoCargaMs: metricas?.tempoCargaMs,
+      memoriaBytes: metricas?.memoriaBytes,
+    };
   }
 
-  return { carregados, falhas, desativados, status };
+  return { carregados, falhas, desativados, status, carregamento };
 }
-

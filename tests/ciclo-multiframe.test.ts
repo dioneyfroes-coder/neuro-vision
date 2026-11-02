@@ -527,4 +527,116 @@ describe("executarCicloMultiframe", () => {
     expect(resultado.pacote.observacoes).toHaveLength(1);
     expect(resultado.pacote.metricas.janelaCapturaMs).toBe(0);
   });
+
+  it("separa inferencia aquecida por snapshot do custo do conjunto (P3.1)", async () => {
+    const metricasPorFrame: Array<ProcessamentoFrame["metricas"]> = [
+      {
+        duracaoDeteccaoMs: 1,
+        duracaoPoseMs: 2,
+        duracaoMaosMs: 3,
+        subsistemas: {
+          deteccao: { status: "ok", tempoInferenciaMs: 10, memoriaBytes: 100 },
+          pose: { status: "ok", tempoInferenciaMs: 20 },
+          maos: { status: "indisponivel", motivoFalha: "mao nao detectada" },
+        },
+      },
+      {
+        duracaoDeteccaoMs: 1,
+        duracaoPoseMs: 2,
+        duracaoMaosMs: 3,
+        subsistemas: {
+          deteccao: { status: "ok", tempoInferenciaMs: 30, memoriaBytes: 300 },
+          pose: { status: "ok", tempoInferenciaMs: 40 },
+          maos: { status: "indisponivel", motivoFalha: "mao nao detectada" },
+        },
+      },
+      {
+        duracaoDeteccaoMs: 1,
+        duracaoPoseMs: 2,
+        duracaoMaosMs: 3,
+        subsistemas: {
+          deteccao: { status: "ok", tempoInferenciaMs: 50, memoriaBytes: 200 },
+          pose: { status: "ok", tempoInferenciaMs: 60 },
+          maos: { status: "indisponivel", motivoFalha: "mao nao detectada" },
+        },
+      },
+      {
+        duracaoDeteccaoMs: 1,
+        duracaoPoseMs: 2,
+        duracaoMaosMs: 3,
+        subsistemas: {
+          deteccao: { status: "ok", tempoInferenciaMs: 70, memoriaBytes: 250 },
+          pose: { status: "ok", tempoInferenciaMs: 80 },
+          maos: { status: "indisponivel", motivoFalha: "mao nao detectada" },
+        },
+      },
+    ];
+    let indice = 0;
+    const { deps } = montar({
+      processarFrame: async () => ({
+        ...processamento(),
+        metricas: metricasPorFrame[indice++],
+      }),
+    });
+    let relogio = 0;
+    deps.agora = () => (relogio += 5);
+    const registrarFim = vi.fn();
+    deps.registrarFimCiclo = registrarFim;
+
+    const resultado = await executarCicloMultiframe(deps);
+    const m = resultado.pacote.metricas;
+
+    // Media do custo aquecido por snapshot, por subsistema (10,30,50,70 -> 40;
+    // 20,40,60,80 -> 50). Maos nunca teve inferencia valida -> ausente, nao 0.
+    expect(m.inferenciaPorSnapshotMs).toEqual({ deteccao: 40, pose: 50 });
+    expect(m.percepcaoTotalMs).toBeGreaterThan(0);
+    expect(m.latenciaAteRespostaMultimodalMs).toBeGreaterThan(0);
+    expect(m.memoriaMaximaBytes).toBeGreaterThanOrEqual(300);
+    // O fim do ciclo e registrado uma vez para alimentar a proxima latencia.
+    expect(registrarFim).toHaveBeenCalledTimes(1);
+  });
+
+  it("propaga carga fria e latencia entre ciclos, mas nao inventa resposta suprimida", async () => {
+    const carga = {
+      totalMs: 1500,
+      subsistemas: {
+        deteccao: { status: "ok" as const, modelo: "yolo", tempoCargaMs: 1200 },
+      },
+    };
+    const { deps } = montar();
+    deps.obterCargaModelos = () => carga;
+    deps.obterLatenciaEntreCiclosMs = () => 700;
+
+    const resultado = await executarCicloMultiframe(deps);
+
+    expect(resultado.pacote.metricas.cargaModelos).toEqual(carga);
+    expect(resultado.pacote.metricas.latenciaEntreCiclosMs).toBe(700);
+    expect(resultado.pacote.metricas.percepcaoTotalMs).toBeTypeOf("number");
+
+    const suprimido = montar();
+    suprimido.deps.decidirInterpretacao = () => ({
+      interpretar: false,
+      motivo: "sem_evento_relevante",
+    });
+    const semResposta = await executarCicloMultiframe(suprimido.deps);
+    expect(semResposta.pacote.metricas.latenciaAteRespostaMultimodalMs).toBeUndefined();
+  });
+
+  it("registra o fim do ciclo tambem quando nao ha frame ou quando cancela", async () => {
+    const semFrame = montar({ fonte: fonteVazia() });
+    const registrarSemFrame = vi.fn();
+    semFrame.deps.registrarFimCiclo = registrarSemFrame;
+    await executarCicloMultiframe(semFrame.deps);
+    expect(registrarSemFrame).toHaveBeenCalledTimes(1);
+
+    const cancelado = montar();
+    const registrarCancelado = vi.fn();
+    cancelado.deps.registrarFimCiclo = registrarCancelado;
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      executarCicloMultiframe(cancelado.deps, controller.signal)
+    ).rejects.toSatisfy(ehCancelamento);
+    expect(registrarCancelado).toHaveBeenCalledTimes(1);
+  });
 });

@@ -241,6 +241,55 @@ describe("configurarSubsistemas — habilitacao explicita", () => {
     expect(configuracao.falhas).toEqual([{ subsistema: "pose", motivo: "pose quebrou" }]);
     expect(configuracao.status.pose).toBe("falhou");
   });
+
+  it("registra a carga fria de cada subsistema que tentou carregar (P3.1)", async () => {
+    const { deps } = depsFalsas();
+    Object.assign(deps.detector!.metricas, {
+      status: "ok",
+      modelo: "yolov10n",
+      dispositivo: "wasm",
+      versao: "1.0",
+      tempoCargaMs: 1234,
+      memoriaBytes: 4096,
+    });
+    const pose = deps.pose as {
+      metricas: MetricasAdaptador;
+      carregar: () => Promise<void>;
+    };
+    pose.metricas = {
+      status: "indisponivel",
+      motivoFalha: "modelo offline",
+      tempoCargaMs: 50,
+    };
+    pose.carregar = async () => {
+      throw new Error("modelo offline");
+    };
+
+    const configuracao = await configurarSubsistemas(
+      deps,
+      { objetos: "yolo", pose: "pose", maos: "maos" },
+      undefined,
+      { deteccao: true, pose: true, maos: false }
+    );
+
+    // Carregado: modelo/dispositivo/versao e custo frio medido.
+    expect(configuracao.carregamento?.deteccao).toMatchObject({
+      status: "ok",
+      modelo: "yolov10n",
+      dispositivo: "wasm",
+      versao: "1.0",
+      tempoCargaMs: 1234,
+      memoriaBytes: 4096,
+    });
+    // Falhou: o custo gasto ate a falha continua sendo carga observada.
+    expect(configuracao.carregamento?.pose).toMatchObject({
+      status: "indisponivel",
+      motivoFalha: "modelo offline",
+      tempoCargaMs: 50,
+    });
+    // Desativado nunca tentou carregar -> sem entrada de telemetria.
+    expect(configuracao.carregamento?.maos).toBeUndefined();
+  });
 });
 
 describe("geometria de keypoints (validacao deterministica, item 4)", () => {  const FIXTURES: { nome: string; entrada: SaidaPoseCru; esperado: ReturnType<typeof normalizarPoses> }[] =

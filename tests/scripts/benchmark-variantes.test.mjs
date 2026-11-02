@@ -114,6 +114,94 @@ describe("agregarMetricasCiclos", () => {
     expect(m.metricas.totalMs.amostras).toBe(1);
     expect(m.metricas.deteccaoMs.medianaMs).toBe(10);
   });
+
+  it("separa inferência por snapshot, memória, carga fria e desfechos (P3.1)", () => {
+    const carga = {
+      totalMs: 500,
+      subsistemas: {
+        deteccao: {
+          status: "ok",
+          modelo: "yolo",
+          dispositivo: "wasm",
+          tempoCargaMs: 400,
+        },
+      },
+    };
+    const registros = [
+      registro({
+        metricas: {
+          totalMs: 1000,
+          percepcaoTotalMs: 600,
+          latenciaAteRespostaMultimodalMs: 1200,
+          latenciaEntreCiclosMs: 450,
+          inferenciaPorSnapshotMs: { deteccao: 10, pose: 20 },
+          memoriaMaximaBytes: 1000,
+          cargaModelos: carga,
+        },
+      }),
+      registro({
+        cycleId: "c2",
+        metricas: {
+          totalMs: 1200,
+          percepcaoTotalMs: 800,
+          latenciaAteRespostaMultimodalMs: 1400,
+          latenciaEntreCiclosMs: 550,
+          inferenciaPorSnapshotMs: { deteccao: 30 },
+          memoriaMaximaBytes: 3000,
+          cargaModelos: carga,
+        },
+      }),
+      registro({
+        cycleId: "c3",
+        frameIds: [],
+        observacoes: 0,
+        eventosTemporais: 0,
+        cancelado: true,
+        metricas: {},
+      }),
+      registro({
+        cycleId: "c4",
+        frameIds: [],
+        observacoes: 0,
+        eventosTemporais: 0,
+        cancelado: false,
+        concluidoEm: undefined,
+        metricas: {},
+      }),
+    ];
+
+    const m = agregarMetricasCiclos(registros);
+
+    // Desfechos explicitos: um cancelado, um incompleto (sem frames/conclusao).
+    expect(m.ciclosCompletos).toBe(2);
+    expect(m.ciclosIncompletos).toBe(1);
+    expect(m.cancelados).toBe(1);
+    expect(m.ciclosComSubsistemaIndisponivel).toBe(0);
+
+    // Latencia: mediana e P95 dos novos campos (nao apenas totalMs).
+    expect(m.metricas.percepcaoTotalMs.medianaMs).toBe(700);
+    expect(m.metricas.latenciaAteRespostaMultimodalMs.p95Ms).toBeCloseTo(1390, 5);
+    expect(m.metricas.latenciaEntreCiclosMs.medianaMs).toBe(500);
+
+    // Inferencia aquecida por snapshot: so subsistemas com amostra.
+    expect(m.inferenciaPorSnapshot.deteccao).toMatchObject({ medianaMs: 20, amostras: 2 });
+    expect(m.inferenciaPorSnapshot.pose).toMatchObject({ medianaMs: 20, amostras: 1 });
+    expect(m.inferenciaPorSnapshot.maos).toBeUndefined();
+
+    // Memoria: pico observado, nao media.
+    expect(m.memoriaMaxima).toMatchObject({ medianaBytes: 2000, maximoBytes: 3000, amostras: 2 });
+
+    // Carga fria: deduplicada por sessao (mesmo custo em todos os ciclos).
+    expect(m.cargaModelos.sessoes).toBe(1);
+    expect(m.cargaModelos.subsistemas.deteccao).toMatchObject({
+      modelo: "yolo",
+      dispositivo: "wasm",
+    });
+    expect(m.cargaModelos.subsistemas.deteccao.tempoCargaMs).toMatchObject({
+      medianaMs: 400,
+      amostras: 1,
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import type { ObservacaoFrame } from "./observation";
-import type { ResultadoIndisponivel } from "./perception";
+import type { ResultadoIndisponivel, TelemetriaSubsistema } from "./perception";
 import { estaIndisponivel } from "./perception";
 import type { EventoTemporal } from "./temporal-event";
 
@@ -67,6 +67,24 @@ export interface ResumoTemporal {
   intervaloSemObservacaoMs?: number;
 }
 
+/** Alias do subsistema de percepcao usado nas metricas por ciclo. */
+export type SubsistemaMetricaCiclo = ResultadoIndisponivel["subsistema"];
+
+/**
+ * Carga fria dos modelos de percepcao, observada uma vez por sessao.
+ *
+ * Fica em cada registro de ciclo para que o custo de inicializacao nao se
+ * confunda com a inferencia aquecida: `tempoCargaMs` e o custo de carregar o
+ * modelo, enquanto `MetricasCiclo.inferenciaPorSnapshotMs` mede o regime
+ * aquecido. `subsistemas` so inclui quem tentou carregar (carregado ou falhou).
+ */
+export interface CargaModelosCiclo {
+  /** Tempo total de carregamento da sessao (ms), quando medido pelo controlador. */
+  totalMs?: number;
+  /** Telemetria de carga por subsistema (modelo, dispositivo, versao e custo). */
+  subsistemas: Partial<Record<SubsistemaMetricaCiclo, TelemetriaSubsistema>>;
+}
+
 /** Metricas por etapa de um ciclo (roteiro 5.7/7). */
 export interface MetricasCiclo {
   capturaMs?: number;
@@ -79,6 +97,37 @@ export interface MetricasCiclo {
   multimodalMs?: number;
   persistenciaMs?: number;
   totalMs?: number;
+  /**
+   * Custo wall-clock do processamento do conjunto completo de snapshots (fim da
+   * captura -> fim da percepcao), nao a soma das inferencias isoladas. Responde
+   * "quanto custou processar as 4 imagens antes do multimodal", sem contar a
+   * espera proposital entre capturas.
+   */
+  percepcaoTotalMs?: number;
+  /**
+   * Custo aquecido medio por snapshot, por subsistema (ms). Derivado das
+   * inferencias efetivamente executadas no ciclo; subsistema sem inferencia
+   * valida fica ausente em vez de virar zero.
+   */
+  inferenciaPorSnapshotMs?: Partial<Record<SubsistemaMetricaCiclo, number>>;
+  /**
+   * Inicio do ciclo ate a conclusao da resposta multimodal (ms). Ausente quando
+   * a interpretacao foi suprimida pela politica ou falhou.
+   */
+  latenciaAteRespostaMultimodalMs?: number;
+  /**
+   * Intervalo entre o fim do ciclo anterior e o inicio deste (ms). Inclui a
+   * pausa/agendamento; ausente no primeiro ciclo da sessao.
+   */
+  latenciaEntreCiclosMs?: number;
+  /**
+   * Maior heap observado durante o ciclo (bytes), quando o runtime expoe
+   * `performance.memory`. E uma amostra do processo, nao memoria exclusiva de
+   * um modelo.
+   */
+  memoriaMaximaBytes?: number;
+  /** Carga fria dos modelos da sessao (mesma em todos os ciclos). */
+  cargaModelos?: CargaModelosCiclo;
   /**
    * Timestamps ISO de **conclusao** de cada etapa (Fase 4, item 4). Permitem
    * reconstruir a linha do tempo real do ciclo, nao apenas a duracao agregada.

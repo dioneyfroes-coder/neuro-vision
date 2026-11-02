@@ -237,6 +237,41 @@ describe("PipelineLocal", () => {
     expect(detectar.mock.calls[0][1]).toEqual({ threshold: 0.42, percentage: false });
   });
 
+  it("propaga carga, inferência e memória sem herdar inferência inválida (P3.1)", async () => {
+    const detector = new DetectorFalso();
+    const pose = new PoseFalso([], "indisponivel");
+    const maos = new MaosFalso();
+    detector.metricas.status = "ok";
+    detector.metricas.modelo = "obj-teste";
+    detector.metricas.tempoCargaMs = 100;
+    detector.metricas.tempoInferenciaMs = 12;
+    detector.metricas.memoriaBytes = 2048;
+    // Pose devolveu `indisponivel`: o tempo da ultima inferencia valida do
+    // adaptador nao pode ser herdado por este frame.
+    pose.metricas.tempoCargaMs = 30;
+    pose.metricas.tempoInferenciaMs = 99;
+    maos.metricas.status = "ok";
+    maos.metricas.tempoInferenciaMs = 7;
+
+    const pipeline = new PipelineLocal({ detector, pose, maos });
+    const resultado = await pipeline.processarFrame(snapshot());
+
+    expect(resultado.metricas.subsistemas?.deteccao).toMatchObject({
+      status: "ok",
+      modelo: "obj-teste",
+      tempoCargaMs: 100,
+      memoriaBytes: 2048,
+    });
+    expect(resultado.metricas.subsistemas?.deteccao?.tempoInferenciaMs).toBe(
+      resultado.metricas.duracaoDeteccaoMs
+    );
+    expect(resultado.metricas.subsistemas?.pose).toMatchObject({ status: "indisponivel" });
+    expect(resultado.metricas.subsistemas?.pose?.tempoInferenciaMs).toBeUndefined();
+    expect(resultado.metricas.subsistemas?.maos?.tempoInferenciaMs).toBe(
+      resultado.metricas.duracaoMaosMs
+    );
+  });
+
   it("propaga cancelamento em vez de marcar indisponivel", async () => {
     const pipeline = new PipelineLocal({ detector: new DetectorFalso(), pose: new PoseFalso() });
     const controller = new AbortController();
