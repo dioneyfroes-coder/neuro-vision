@@ -5,7 +5,12 @@ import type {
   ProgressInfo,
   Tensor,
 } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1";
-import { baseModelosLocal, modelosDisponivel, moduloTransformers } from "./offline";
+import {
+  baseModelosLocal,
+  modelosDisponivel,
+  moduloTransformers,
+  VERSAO_TRANSFORMERS,
+} from "./offline";
 import { threadsWasm, webgpuDisponivel } from "./desempenho";
 
 /**
@@ -34,12 +39,18 @@ interface OpcoesModelo {
   dtype?: string;
 }
 
+type ModeloPoseCarregado = ((entrada: {
+  images: Tensor;
+}) => Promise<{ output0: Tensor }>) & {
+  dispose(): Promise<void>;
+};
+
 interface ModuloTransformers {
   AutoModel: {
     from_pretrained(
       modelo: string,
       opcoes?: OpcoesModelo
-    ): Promise<(entrada: { images: Tensor }) => Promise<{ output0: Tensor }>>;
+    ): Promise<ModeloPoseCarregado>;
   };
   AutoProcessor: {
     from_pretrained(
@@ -101,6 +112,12 @@ function mensagemDe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+function descartarTensor(tensor: Tensor | undefined): void {
+  // The pinned runtime exposes dispose(), although its CDN Tensor type omits it.
+  const descartavel = tensor as Tensor & { dispose?: () => void };
+  descartavel.dispose?.();
+}
+
 /** Cria o motor de pose do Transformers.js para o modelo informado. */
 export const criarMotorPoseTransformers: CriadorMotorPose = async (modelo, aoStatus) => {
   const idModelo = modelo || MODELO_POSE_PADRAO;
@@ -121,13 +138,12 @@ export const criarMotorPoseTransformers: CriadorMotorPose = async (modelo, aoSta
     });
   }
 
+  let model: ModeloPoseCarregado | null = null;
   try {
     const processor = modulo.AutoProcessor.from_pretrained(idModelo, {
       progress_callback: progresso,
     });
     let dispositivo: "webgpu" | "wasm" = "wasm";
-    let model: Awaited<ReturnType<ModuloTransformers["AutoModel"]["from_pretrained"]>> | null =
-      null;
     if (webgpuDisponivel()) {
       try {
         model = await modulo.AutoModel.from_pretrained(idModelo, {
@@ -148,35 +164,55 @@ export const criarMotorPoseTransformers: CriadorMotorPose = async (modelo, aoSta
       });
     }
     const processorPronto = await processor;
+    const modeloPronto = model;
 
     return {
       dispositivo,
-      versao: "3.8.1",
+      versao: VERSAO_TRANSFORMERS,
       async executar(imagem) {
         const crua = await modulo.RawImage.read(imagem);
         const { pixel_values } = await processorPronto(crua);
-        const { output0 } = await model({ images: pixel_values });
+        let output0: Tensor | undefined;
+        try {
+          ({ output0 } = await modeloPronto({ images: pixel_values }));
+          // `pixel_values` costuma vir com o lado maior redimensionado (ex.: 640).
+          const dims = pixel_values.dims;
+          const alturaEscalada = dims[dims.length - 2] || 1;
+          const larguraEscalada = dims[dims.length - 1] || 1;
 
-        // `pixel_values` costuma vir com o lado maior redimensionado (ex.: 640).
-        const dims = pixel_values.dims;
-        const alturaEscalada = dims[dims.length - 2] || 1;
-        const larguraEscalada = dims[dims.length - 1] || 1;
-
-        // output0: [1, 56, N] -> [N, 56]: 4 caixa + 1 score + 17 * 3 keypoints.
-        const linhas = output0[0].transpose(1, 0).tolist() as number[][];
-        const { pessoas } = interpretarLinhasYoloPose(
-          linhas,
-          { largura: larguraEscalada, altura: alturaEscalada },
-          { largura: crua.width, altura: crua.height }
-        );
-
-        return {
-          pessoas,
-          dimensoes: { largura: crua.width, altura: crua.height },
-        };
+          // output0: [1, 56, N] -> [N, 56]: 4 caixa + 1 score + 17 * 3 keypoints.
+          const transposta = output0[0].transpose(1, 0);
+          try {
+            const linhas = transposta.tolist() as number[][];
+            const { pessoas } = interpretarLinhasYoloPose(
+              linhas,
+              { largura: larguraEscalada, altura: alturaEscalada },
+              { largura: crua.width, altura: crua.height }
+            );
+            return {
+              pessoas,
+              dimensoes: { largura: crua.width, altura: crua.height },
+            };
+          } finally {
+            descartarTensor(transposta);
+          }
+        } finally {
+          descartarTensor(output0);
+          descartarTensor(pixel_values);
+        }
+      },
+      async encerrar() {
+        await modeloPronto.dispose();
       },
     };
   } catch (err) {
+    if (model) {
+      try {
+        await model.dispose();
+      } catch (erroLiberacao) {
+        aoStatus?.(`Falha ao liberar o modelo de pose: ${mensagemDe(erroLiberacao)}`);
+      }
+    }
     throw new ErroPercepcao("detector", `falha ao iniciar o estimador de pose: ${mensagemDe(err)}`, {
       cause: err,
     });

@@ -20,7 +20,7 @@ export interface MotorAtendido {
     imagem: string,
     opcoes?: { threshold?: number; percentage?: boolean }
   ): Promise<unknown>;
-  encerrar?(): void;
+  encerrar?(): void | Promise<void>;
 }
 
 function mensagemDe(err: unknown): string {
@@ -70,7 +70,7 @@ export function atenderWorker(motores: Partial<Record<MotorWorker, MotorAtendido
         percentage: requisicao.percentage,
       });
     }
-    motor.encerrar?.();
+    await motor.encerrar?.();
     return undefined;
   };
 

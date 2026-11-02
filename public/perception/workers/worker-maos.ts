@@ -1,4 +1,5 @@
 import { criarMotorGestosMediaPipe, MODELO_MAOS_PADRAO } from "../../gestos";
+import { VERSAO_MEDIAPIPE } from "../../offline";
 import type { MotorMaos } from "../adapters/hand-gesture.adapter";
 import { atenderWorker, type MotorAtendido } from "./atender";
 
@@ -21,6 +22,9 @@ const maos: MotorAtendido = {
   },
   get dispositivo() {
     return dispositivo;
+  },
+  get versao() {
+    return motor?.versao ?? VERSAO_MEDIAPIPE;
   },
   async carregar(idModelo, aoStatus) {
     modeloAtual = idModelo || MODELO_MAOS_PADRAO;

@@ -206,11 +206,13 @@ export class PipelineLocal {
   }
 
   /** Encerra os subsistemas (liberacao de recursos do adaptador). */
-  encerrar(): void {
-    this.deps.detector?.encerrar();
-    this.deps.pose?.encerrar();
-    this.deps.maos?.encerrar();
-    this.deps.nsfw?.encerrar();
+  async encerrar(): Promise<void> {
+    await Promise.all([
+      Promise.resolve().then(() => this.deps.detector?.encerrar()),
+      Promise.resolve().then(() => this.deps.pose?.encerrar()),
+      Promise.resolve().then(() => this.deps.maos?.encerrar()),
+      Promise.resolve().then(() => this.deps.nsfw?.encerrar()),
+    ]);
   }
 
   /**

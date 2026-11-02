@@ -164,6 +164,15 @@ export const env = {
   get E2E_WEBCAM_EVENTOS(): string {
     return str("E2E_WEBCAM_EVENTOS", "");
   },
+  get E2E_LOCAL_MODELS_CLIP(): string {
+    return str("E2E_LOCAL_MODELS_CLIP", "");
+  },
+  get E2E_LOCAL_MODELS_CHANNEL(): string {
+    return str("E2E_LOCAL_MODELS_CHANNEL", "");
+  },
+  get E2E_LOCAL_MODELS_REQUIRE_HAND(): boolean {
+    return bool("E2E_LOCAL_MODELS_REQUIRE_HAND", true);
+  },
 };
 
 export type Env = typeof env;

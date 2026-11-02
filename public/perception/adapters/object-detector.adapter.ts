@@ -3,6 +3,7 @@ import { DetectorYoloOnnx, type MotorDeteccao } from "../../yolo-onnx";
 import type { MetricasAdaptador, DetectorObjetos, EntradaAdaptador, OpcoesDeteccao } from "../contracts";
 import { amostrarMemoriaBytes, medirTempoInferencia } from "../contracts";
 import type { ResultadoDeteccaoLocal } from "../../../src/domain/perception";
+import { VERSAO_ONNXRUNTIME } from "../../offline";
 
 /**
  * Adaptador do detector de objetos (YOLO em ONNX, `onnxruntime-web`) para a
@@ -57,6 +58,7 @@ export class AdaptadorDetectorObjetos implements DetectorObjetos {
     this.metricasValor.memoriaBytes = amostrarMemoriaBytes() ?? this.metricasValor.memoriaBytes;
     this.metricasValor.modelo = this.interno.modelo ?? undefined;
     this.metricasValor.dispositivo = this.interno.dispositivo ?? undefined;
+    this.metricasValor.versao = VERSAO_ONNXRUNTIME;
     this.metricasValor.status = "ok";
     this.metricasValor.motivoFalha = undefined;
   }

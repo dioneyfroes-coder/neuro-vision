@@ -109,16 +109,19 @@ function cameraFalsa(opcoes: { falhaAoIniciar?: Error; semFrame?: boolean } = {}
 function percepcaoFalsa(configuracao?: ConfiguracaoParcial): {
   percepcao: PercepcaoMultiframe;
   modelosVistos: ModelosPercepcao[];
+  encerramentos: ReturnType<typeof vi.fn>;
 } {
   const modelosVistos: ModelosPercepcao[] = [];
+  const encerramentos = vi.fn();
   const percepcao: PercepcaoMultiframe = {
     processarFrame: async () => processamento(),
     configurar: async (_aoStatus, modelos) => {
       modelosVistos.push(modelos ?? {});
       return configuracao ?? { carregados: ["deteccao", "pose", "maos"], falhas: [] };
     },
+    encerrar: encerramentos,
   };
-  return { percepcao, modelosVistos };
+  return { percepcao, modelosVistos, encerramentos };
 }
 
 interface Contexto {
@@ -134,6 +137,7 @@ interface Contexto {
   resetes: ReturnType<typeof vi.fn>;
   cameraEstado: { iniciadas: number; encerradas: number };
   modelosVistos: ModelosPercepcao[];
+  encerramentosPercepcao: ReturnType<typeof vi.fn>;
   naoGravados: number;
   modosTemporais: string[];
   /** Quantas vezes a interpretacao multimodal foi efetivamente chamada. */
@@ -166,7 +170,7 @@ function montar(
     falhaAoIniciar: opcoes.falhaAoIniciar,
     semFrame: opcoes.semFrame,
   });
-  const { percepcao, modelosVistos } = percepcaoFalsa(opcoes.configuracao);
+  const { percepcao, modelosVistos, encerramentos } = percepcaoFalsa(opcoes.configuracao);
 
   const repositorio: RepositorioPercepcao = {
     gravarCiclo: async (registro) => {
@@ -284,6 +288,7 @@ function montar(
     resetes,
     cameraEstado: estado,
     modelosVistos,
+    encerramentosPercepcao: encerramentos,
     modosTemporais,
     get naoGravados() {
       return naoGravados;
@@ -656,6 +661,18 @@ describe("CicloPercepcaoController", () => {
     const ctx = montar({ politica: POLITICA_CICLO_BENCHMARK_ALVO });
     await ctx.controle.iniciar();
     expect(ctx.interpretacoes()).toBe(1);
+  });
+
+  it("libera os modelos depois que o ciclo em andamento termina", async () => {
+    const ctx = montar();
+    await ctx.controle.iniciar();
+
+    ctx.controle.parar();
+    await vi.waitFor(() => {
+      expect(ctx.encerramentosPercepcao).toHaveBeenCalledTimes(1);
+    });
+
+    expect(ctx.cameraEstado.encerradas).toBe(1);
     ctx.controle.parar();
   });
 

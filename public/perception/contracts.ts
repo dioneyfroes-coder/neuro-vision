@@ -110,7 +110,7 @@ export interface EstimadorPose {
   carregar(modelo: string, aoStatus?: (mensagem: string) => void): Promise<void>;
   /** Estima poses humanas num frame; falha vira `ResultadoIndisponivel`. */
   estimar(entrada: EntradaAdaptador): Promise<ResultadoOuIndisponivel<ResultadoPose>>;
-  encerrar(): void;
+  encerrar(): void | Promise<void>;
 }
 
 /** Porta do reconhecedor de maos/gestos (contrato; adaptador entra na Etapa 5). */

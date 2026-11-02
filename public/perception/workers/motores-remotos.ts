@@ -201,9 +201,9 @@ export const criarMotorPoseRemoto: CriadorMotorPose = async (modelo, aoStatus) =
           return motorLocal.executar(imagem);
         }
       },
-      encerrar() {
+      async encerrar() {
         remoto.encerrar();
-        local?.encerrar?.();
+        await local?.encerrar?.();
         local = null;
       },
     };

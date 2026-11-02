@@ -171,6 +171,39 @@ describe("executarCicloMultiframe", () => {
     expect(resultado.cancelado).toBe(false);
   });
 
+  it("persiste contagens da saida real sem confundir falha com resultado vazio", async () => {
+    const { deps } = montar({
+      processarFrame: async () => ({
+        deteccoes: {
+          deteccoes: [
+            { nome: "pessoa", rotulo: "person", score: 0.9, caixa: { xmin: 1, ymin: 2, xmax: 30, ymax: 40 } },
+          ],
+        },
+        pose: {
+          pessoas: [
+            { pontos: Array.from({ length: 17 }, () => ({ x: 0.5, y: 0.5 })) },
+            { pontos: Array.from({ length: 16 }, () => ({ x: 0.5, y: 0.5 })) },
+          ],
+        },
+        maos: {
+          maos: [
+            { lateralidade: "direita", landmarks: Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5 })) },
+            { lateralidade: "esquerda", landmarks: Array.from({ length: 20 }, () => ({ x: 0.5, y: 0.5 })) },
+          ],
+        },
+        metricas: {},
+      }),
+    });
+
+    const resultado = await executarCicloMultiframe(deps);
+
+    expect(resultado.pacote.metricas.resultadosPercepcao).toEqual({
+      deteccao: { quadrosValidos: 4, deteccoes: 4 },
+      pose: { quadrosValidos: 4, pessoas: 8, keypoints: 132, pessoasCom17Keypoints: 4 },
+      maos: { quadrosValidos: 4, maos: 8, landmarks: 164, maosCom21Landmarks: 4 },
+    });
+  });
+
   it("preserva a ordem dos frames ao processar depois da captura", async () => {
     const ordem: string[] = [];
     const { deps } = montar({

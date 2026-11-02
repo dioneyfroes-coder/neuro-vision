@@ -21,7 +21,9 @@ const pose: MotorAtendido = {
   get dispositivo() {
     return dispositivo;
   },
-  versao: "3.8.1",
+  get versao() {
+    return motor?.versao;
+  },
   async carregar(idModelo, aoStatus) {
     modeloAtual = idModelo || MODELO_POSE_PADRAO;
     motor = await criarMotorPoseTransformers(modeloAtual, aoStatus);
@@ -31,8 +33,8 @@ const pose: MotorAtendido = {
     if (!motor) throw new Error("motor de pose nao carregado neste worker");
     return motor.executar(imagem);
   },
-  encerrar() {
-    motor?.encerrar?.();
+  async encerrar() {
+    await motor?.encerrar?.();
     motor = null;
     modeloAtual = null;
     dispositivo = null;

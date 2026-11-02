@@ -93,6 +93,7 @@ export interface PercepcaoMultiframe {
     aoStatus?: (mensagem: string) => void,
     modelos?: ModelosPercepcao
   ): Promise<ConfiguracaoParcial>;
+  encerrar?(): void | Promise<void>;
 }
 
 export interface DependenciasCicloPercepcao {
@@ -615,6 +616,13 @@ export class CicloPercepcaoController implements ControladorCiclo {
     }
     this.store.limpar();
     this.deps.camera.encerrar();
+    void this.aguardarExecucao().then(async () => {
+      try {
+        await this.percepcao.encerrar?.();
+      } catch (err) {
+        this.status(`Falha ao liberar os modelos locais: ${(err as Error).message}`);
+      }
+    });
   }
 
   private falharInicializacao(mensagem: string): void {

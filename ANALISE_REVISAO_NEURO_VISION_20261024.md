@@ -336,6 +336,14 @@ O harness `scripts/benchmark-variantes.mjs` agrega métricas de etapas a partir 
 
 **Gate:** nenhum adaptador é considerado validado somente porque um mock passa no teste.
 
+**Status:** concluída com o E2E opt-in `e2e/local-models.spec.ts`. A execução no
+Chromium, usando `bench/videos/webcam-atual.webm` e os pesos/bibliotecas locais,
+confirmou inferência real nos três modelos, backends e versões registrados,
+latências frias/aquecidas, 17 keypoints por pessoa e 21 landmarks em cada mão
+observada. Testes também cobrem fallback do worker na carga/inferência e
+liberação assíncrona dos recursos de pose; a sessão encerra os workers da
+aplicação ao parar. Para reproduzir, veja `bench/videos/README.md`.
+
 ### Fase 4 — Ampliar o conjunto EVAL
 
 Preparar clipes anotados por humanos, com pelo menos várias ocorrências de cada classe que se deseja reconhecer e clipes negativos equivalentes. Separar os vídeos de tuning dos vídeos finais de avaliação; evitar que o mesmo vídeo usado para ajustar limiares também defina o resultado final.

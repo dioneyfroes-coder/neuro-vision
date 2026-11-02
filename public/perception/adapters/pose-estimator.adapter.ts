@@ -54,7 +54,7 @@ export interface MotorPose {
   /** Dispositivo usado na inferencia (ex.: `wasm`). */
   dispositivo?: string;
   /** Libera recursos do motor. Opcional: nem todo SDK mantem recursos retidos. */
-  encerrar?(): void;
+  encerrar?(): void | Promise<void>;
 }
 
 /** Fabrica do motor de pose; recebe o id do modelo e devolve o motor carregado. */
@@ -118,7 +118,7 @@ export class AdaptadorPose implements EstimadorPose {
     if (this.motor && this.modeloAtual === alvo) return;
     const inicio = performance.now();
     const novoMotor = await this.criarMotor(alvo, aoStatus ?? this.aoStatus);
-    this.trocarMotor(novoMotor, alvo);
+    await this.trocarMotor(novoMotor, alvo);
     this.metricas.tempoCargaMs = Math.round(performance.now() - inicio);
     this.metricas.memoriaBytes = amostrarMemoriaBytes() ?? this.metricas.memoriaBytes;
     this.metricas.modelo = alvo;
@@ -149,15 +149,16 @@ export class AdaptadorPose implements EstimadorPose {
   }
 
   /** Libera o motor e volta ao estado "nao carregado". */
-  encerrar(): void {
-    this.motor?.encerrar?.();
+  async encerrar(): Promise<void> {
+    const motor = this.motor;
     this.motor = null;
     this.modeloAtual = null;
     this.metricas.status = "nao_carregado";
+    await motor?.encerrar?.();
   }
 
-  private trocarMotor(novo: MotorPose, modelo: string): void {
-    if (this.motor && this.motor !== novo) this.motor.encerrar?.();
+  private async trocarMotor(novo: MotorPose, modelo: string): Promise<void> {
+    if (this.motor && this.motor !== novo) await this.motor.encerrar?.();
     this.motor = novo;
     this.modeloAtual = modelo;
     this.metricas.dispositivo = novo.dispositivo;

@@ -1,5 +1,5 @@
 import { ehCancelamento, ErroPercepcao } from "../../src/erros";
-import { indisponivel } from "../../src/domain/perception";
+import { estaIndisponivel, indisponivel } from "../../src/domain/perception";
 import type {
   ResultadoDeteccaoLocal,
   ResultadoMaos,
@@ -341,6 +341,11 @@ export async function executarCicloMultiframe(
       maos: 0,
       nsfw: 0,
     };
+    const resultadosPercepcao = {
+      deteccao: { quadrosValidos: 0, deteccoes: 0 },
+      pose: { quadrosValidos: 0, pessoas: 0, keypoints: 0, pessoasCom17Keypoints: 0 },
+      maos: { quadrosValidos: 0, maos: 0, landmarks: 0, maosCom21Landmarks: 0 },
+    };
     const inicioPercepcao = agora();
 
     const processados = await mapearConcorrente(
@@ -375,6 +380,31 @@ export async function executarCicloMultiframe(
       poseMs += processamento.metricas.duracaoPoseMs ?? 0;
       maosMs += processamento.metricas.duracaoMaosMs ?? 0;
       nsfwMs += processamento.metricas.duracaoNsfwMs ?? 0;
+
+      if (!estaIndisponivel(processamento.deteccoes)) {
+        resultadosPercepcao.deteccao.quadrosValidos += 1;
+        resultadosPercepcao.deteccao.deteccoes += processamento.deteccoes.deteccoes.length;
+      }
+      if (!estaIndisponivel(processamento.pose)) {
+        resultadosPercepcao.pose.quadrosValidos += 1;
+        resultadosPercepcao.pose.pessoas += processamento.pose.pessoas.length;
+        for (const pessoa of processamento.pose.pessoas) {
+          resultadosPercepcao.pose.keypoints += pessoa.pontos.length;
+          if (pessoa.pontos.length === 17) {
+            resultadosPercepcao.pose.pessoasCom17Keypoints += 1;
+          }
+        }
+      }
+      if (!estaIndisponivel(processamento.maos)) {
+        resultadosPercepcao.maos.quadrosValidos += 1;
+        resultadosPercepcao.maos.maos += processamento.maos.maos.length;
+        for (const mao of processamento.maos.maos) {
+          resultadosPercepcao.maos.landmarks += mao.landmarks.length;
+          if (mao.landmarks.length === 21) {
+            resultadosPercepcao.maos.maosCom21Landmarks += 1;
+          }
+        }
+      }
 
       // Telemetria por subsistema: acumula inferencia aquecida e memoria. O
       // `tempoInferenciaMs` so existe quando a inferencia devolveu resultado
@@ -425,6 +455,7 @@ export async function executarCicloMultiframe(
       }
     }
     metricas.percepcaoTotalMs = percepcaoTotalMs;
+    metricas.resultadosPercepcao = resultadosPercepcao;
     if (Object.keys(inferenciaPorSnapshotMs).length > 0) {
       metricas.inferenciaPorSnapshotMs = inferenciaPorSnapshotMs;
     }

@@ -77,7 +77,7 @@ export interface PercepcaoLocal {
     modelos?: ModelosPercepcao
   ): Promise<ConfiguracaoParcial>;
   /** Encerra os subsistemas. */
-  encerrar(): void;
+  encerrar(): Promise<void>;
 }
 
 /**

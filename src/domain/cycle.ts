@@ -85,6 +85,26 @@ export interface CargaModelosCiclo {
   subsistemas: Partial<Record<SubsistemaMetricaCiclo, TelemetriaSubsistema>>;
 }
 
+/** Contagens agregadas da saida real dos modelos locais durante o ciclo. */
+export interface EvidenciaPercepcaoCiclo {
+  deteccao: {
+    quadrosValidos: number;
+    deteccoes: number;
+  };
+  pose: {
+    quadrosValidos: number;
+    pessoas: number;
+    keypoints: number;
+    pessoasCom17Keypoints: number;
+  };
+  maos: {
+    quadrosValidos: number;
+    maos: number;
+    landmarks: number;
+    maosCom21Landmarks: number;
+  };
+}
+
 export interface LimitesContextoCiclo {
   maxImagens: number;
   maxEventos: number;
@@ -152,6 +172,8 @@ export interface MetricasCiclo {
    * valida fica ausente em vez de virar zero.
    */
   inferenciaPorSnapshotMs?: Partial<Record<SubsistemaMetricaCiclo, number>>;
+  /** Saida agregada dos modelos locais; falhas e subsistemas nao executados nao contam. */
+  resultadosPercepcao?: EvidenciaPercepcaoCiclo;
   /**
    * Inicio do ciclo ate a conclusao da resposta multimodal (ms). Ausente quando
    * a interpretacao foi suprimida pela politica ou falhou.

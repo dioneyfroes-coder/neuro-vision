@@ -16,6 +16,29 @@ política/rastreamento, que não depende de vídeo, roda de forma reproduzível 
 
 ## Como montar uma medição
 
+### Validar os modelos locais reais
+
+O spec `e2e/local-models.spec.ts` roda YOLOv10, YOLO Pose e MediaPipe no
+navegador, sem mock dos modelos e sem depender de um backend multimodal. Ele
+confere os arquivos servidos de `modelos/` e `vendor/`, backend/versão,
+inferência, keypoints COCO e a saída de 21 landmarks por mão. Por padrão, exige
+ao menos uma mão detectada; use um clipe curto com uma pessoa e a mão claramente
+visível.
+
+```powershell
+$env:E2E_LOCAL_MODELS_CLIP = "bench\videos\clipe-com-pessoa-e-mao.mp4"
+$env:E2E_LOCAL_MODELS_CHANNEL = "chrome" # opcional: Chrome instalado/WebGPU
+npx playwright test e2e/local-models.spec.ts --workers=1
+```
+
+O teste fica desativado sem `E2E_LOCAL_MODELS_CLIP`. Para um clipe destinado a
+validar apenas detecção/pose e inferência de mãos sem uma mão visível, defina
+`E2E_LOCAL_MODELS_REQUIRE_HAND=0`; nesse caso, o teste ainda valida 21 landmarks
+para toda mão que o modelo detectar, mas não prova que o modelo os emitiu.
+Quando executado, também verifica que os workers da aplicação são encerrados ao
+parar a sessão. Pesos e bibliotecas locais são necessários; prepare-os com
+`npm run preparar:offline`.
+
 1. Grave um clipe **curto** (10–60 s) com uma única mudança clara por vez — por
    exemplo, uma pessoa entrando e saindo de um escritório:
 

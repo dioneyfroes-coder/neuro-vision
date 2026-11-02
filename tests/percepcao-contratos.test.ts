@@ -85,12 +85,38 @@ describe("AdaptadorPose — idempotencia e encerramento", () => {
     const adaptador = new AdaptadorPose(criar);
 
     await adaptador.carregar("modelo-a");
-    adaptador.encerrar();
+    await adaptador.encerrar();
     expect(motor.encerrar).toHaveBeenCalledTimes(1);
     expect(adaptador.metricas.status).toBe("nao_carregado");
 
     await adaptador.carregar("modelo-a");
     expect(criar).toHaveBeenCalledTimes(2);
+  });
+
+  it("aguarda a liberacao assincrona do motor", async () => {
+    let liberar!: () => void;
+    const pendente = new Promise<void>((resolve) => {
+      liberar = resolve;
+    });
+    const encerrarMotor = vi.fn(async () => pendente);
+    const adaptador = new AdaptadorPose(async () => ({
+      ...fakeMotorPose(),
+      encerrar: encerrarMotor,
+    }));
+    await adaptador.carregar("modelo-pose");
+
+    let liberacaoConcluida = false;
+    const encerramento = adaptador.encerrar().then(() => {
+      liberacaoConcluida = true;
+    });
+    await Promise.resolve();
+    expect(encerrarMotor).toHaveBeenCalledOnce();
+    expect(liberacaoConcluida).toBe(false);
+
+    liberar();
+    await encerramento;
+    expect(liberacaoConcluida).toBe(true);
+    expect(adaptador.modelo).toBeNull();
   });
 
   it("estimar sem motor carregado devolve indisponivel (nunca lista vazia)", async () => {
