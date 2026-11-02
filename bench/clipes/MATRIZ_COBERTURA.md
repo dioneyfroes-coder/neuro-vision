@@ -22,6 +22,11 @@ node scripts/benchmark-variantes.mjs --clipes-dir bench/videos --anotacoes-dir b
 node scripts/benchmark-variantes.mjs --anotacoes-dir bench/clipes/eval --conjunto eval --warmups 1 --etapas-isoladas
 ```
 
+Na rodada EVAL, passe um arquivo de eventos diferente para cada variante e
+clipe, por exemplo `--eventos-B-car-detection.mp4 logs/B-car.jsonl`. Cada
+arquivo precisa acompanhar seu sidecar `.inicio`; reutilizar um arquivo entre
+clipes mistura as bases temporais e invalida a comparação.
+
 O `--anotacoes-dir` faz o harness procurar a anotação `<base>.json` primeiro no
 conjunto e depois ao lado do vídeo. O `--conjunto <nome>` registra qual conjunto
 reservado foi usado nos relatórios (protocolo e gate em

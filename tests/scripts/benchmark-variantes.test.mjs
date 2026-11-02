@@ -15,12 +15,28 @@ import {
   filtrarCiclosDaVariante,
   gravarRelatorioSeguro,
   identificarVarianteDoRegistro,
+  lerArgs,
   modelosDosFrames,
   resumoDoClipe,
   separarWarmupCiclos,
   verificarMesmoModelo,
   VARIANTES_BENCHMARK,
 } from "../../scripts/benchmark-variantes.mjs";
+
+describe("lerArgs — arquivos de eventos por clipe", () => {
+  it("associa cada caminho ao nome completo do clipe e à variante", () => {
+    const args = lerArgs([
+      "--eventos-B-car-detection.mp4",
+      "logs/B-car.jsonl",
+      "--eventos-C-fruit-and-vegetable-detection.mp4",
+      "logs/C-fruit.jsonl",
+    ]);
+    expect(args.eventosPorClipeVariante).toMatchObject({
+      B: { "car-detection.mp4": "logs/B-car.jsonl" },
+      C: { "fruit-and-vegetable-detection.mp4": "logs/C-fruit.jsonl" },
+    });
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Identificacao de variante pelos registros de ciclo
@@ -510,7 +526,16 @@ describe("avaliarComparabilidade", () => {
     return {
       variante: { letra },
       desempenho: { ciclos: 2, ciclosConcluidos: 2, cancelados: 0 },
-      qualidade: { consolidado: { f1: 0.8, precisao: 0.8, recall: 0.8, falsosPositivosPorMinuto: 0 } },
+      qualidade: {
+        consolidado: {
+          clipes: 5,
+          clipesEsperados: 5,
+          f1: 0.8,
+          precisao: 0.8,
+          recall: 0.8,
+          falsosPositivosPorMinuto: 0,
+        },
+      },
       arquivoEventos: `logs/eventos-${letra}.jsonl`,
       arquivoCiclos: "logs/ciclos.jsonl",
       registros: [{ sessionId: `sessao-variante-${L}`, cycleId: `c-${L}` }],
@@ -557,6 +582,19 @@ describe("avaliarComparabilidade", () => {
     expect(r.problemas.some((p) => p.includes("arquivo de eventos compartilhado"))).toBe(true);
   });
 
+  it("recusa reutilizar o mesmo arquivo de eventos para clipes diferentes", () => {
+    const resultados = quatro();
+    resultados[0] = resultadoComparavel("A", {
+      arquivosEventosPorClipe: [
+        { clipe: "car-detection.mp4", arquivo: "logs/a-car.jsonl" },
+        { clipe: "classroom.mp4", arquivo: "logs/a-car.jsonl" },
+      ],
+    });
+    const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo });
+    expect(r.conclusivo).toBe(false);
+    expect(r.problemas.some((p) => p.includes("mesmo arquivo de eventos reutilizado por varios clipes"))).toBe(true);
+  });
+
   it("recusa quando o mesmo ciclo aparece em duas variantes", () => {
     const resultados = quatro();
     resultados[2] = resultadoComparavel("C", {
@@ -598,6 +636,25 @@ describe("avaliarComparabilidade", () => {
     const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo });
     expect(r.conclusivo).toBe(false);
     expect(r.problemas.some((p) => p.includes("B: 1 movimento(s) sem classificacao de escopo"))).toBe(true);
+  });
+
+  it("recusa qualidade parcial quando faltam logs de alguns clipes EVAL", () => {
+    const resultados = quatro();
+    resultados[2] = resultadoComparavel("C", {
+      qualidade: {
+        consolidado: {
+          clipes: 4,
+          clipesEsperados: 5,
+          f1: 0.8,
+          precisao: 0.8,
+          recall: 0.8,
+          falsosPositivosPorMinuto: 0,
+        },
+      },
+    });
+    const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo });
+    expect(r.conclusivo).toBe(false);
+    expect(r.problemas.some((p) => p.includes("C: qualidade parcial: 4/5 clipe(s) avaliados"))).toBe(true);
   });
 
   it("com --sem-qualidade conclui apenas pelo desempenho (sem eventos/qualidade)", () => {

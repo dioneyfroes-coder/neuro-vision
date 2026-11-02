@@ -362,17 +362,19 @@ A matriz documenta clipes, revisão e limitações.
 ### Fase 5 — Comparar A/B/C/D sem alterar outras variáveis
 
 **Status:** protocolo reproduzível e cobertura EVAL no escopo reduzido estão
-prontos. A comparação A/B/C/D ainda exige logs novos das quatro variantes
-executadas sobre os mesmos clipes, com eventos que carreguem origem e rótulo do
-objeto. Os logs antigos não substituem essa rodada. Os resultados não poderão
-ser generalizados para acenos ou interpretação textual.
+prontos. O harness exige agora um arquivo de eventos e sidecar `.inicio` para
+cada combinação variante/clipe; logs ausentes, compartilhados ou sem metadados
+de objeto bloqueiam a conclusão. A comparação A/B/C/D ainda depende de uma
+rodada nova das quatro variantes nos mesmos cinco clipes. Os resultados não
+poderão ser generalizados para acenos ou interpretação textual.
 
-O preflight de 2026-11-02 validou os cinco clipes oficiais, mas encontrou zero
-ciclos identificáveis para A/B/C/D, nenhum arquivo de eventos separado por
-variante e nenhum modelo multimodal verificável nos ciclos. Portanto, não gerou
-relatório comparativo. A rodada continua pendente até haver logs novos e
-independentes por variante; movimentos sem metadados de origem/rótulo também
-impedem um veredito conclusivo.
+O preflight de 2026-11-02 validou os cinco clipes oficiais. Embora haja três
+ciclos recentes em `logs/ciclos.jsonl`, nenhum identifica A/B/C/D e nenhum dos
+seus `frameIds` tem modelo correspondente em `logs/visao.jsonl`; os eventos
+recentes também estão num arquivo compartilhado. Não foi possível concluir a
+comparação nem gerar relatório. A rodada continua pendente até haver ciclos e
+arquivos de eventos independentes por variante e clipe, com sidecars de início;
+movimentos sem metadados de origem/rótulo também impedem um veredito conclusivo.
 
 - Usar as mesmas gravações, anotações, modelo multimodal, prompt e hardware para todas as variantes.
 - Fazer warm-up separado e reportar cold start separadamente.

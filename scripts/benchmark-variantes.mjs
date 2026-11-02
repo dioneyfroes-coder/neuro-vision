@@ -159,6 +159,8 @@ Opcoes:
   --ciclos-<X> <arquivo>   Arquivo de ciclos exclusivo da variante X
   --eventos <arquivo>      JSONL de eventos (padrao: logs/eventos.jsonl)
   --eventos-<X> <arquivo>  Arquivo de eventos exclusivo da variante X
+  --eventos-<X>-<clipe> <arquivo>
+                            Eventos exclusivos da variante e do nome completo do clipe
   --sessao-<X> <trecho>    Filtra ciclos da variante X por sessionId/cycleId
   --visao <arquivo>        JSONL de observacoes para verificar o modelo
                            (padrao: logs/visao.jsonl)
@@ -203,7 +205,7 @@ Exemplos (PowerShell):
   node scripts/benchmark-variantes.mjs --conjunto eval --anotacoes-dir bench/clipes/eval --warmups 1 --etapas-isoladas
 `.trim();
 
-function lerArgs() {
+export function lerArgs(lista = process.argv.slice(2)) {
   const mapa = {
     clipesDir: "bench/videos",
     anotacoesDir: null,
@@ -228,6 +230,7 @@ function lerArgs() {
     },
     ciclosPorVariante: {},
     eventosPorVariante: {},
+    eventosPorClipeVariante: {},
     sessoesPorVariante: {},
     modeloPorVariante: {},
     semQualidade: false,
@@ -235,10 +238,18 @@ function lerArgs() {
     permitirInconclusivo: false,
     json: false,
   };
-  const lista = process.argv.slice(2);
   for (let i = 0; i < lista.length; i++) {
     const a = lista[i];
     const proximo = () => lista[++i] ?? "";
+
+    const eventosPorClipe = a.match(/^--eventos-([A-Da-d])-(.+)$/);
+    if (eventosPorClipe) {
+      const [, letra, clipe] = eventosPorClipe;
+      const L = letra.toUpperCase();
+      mapa.eventosPorClipeVariante[L] ??= {};
+      mapa.eventosPorClipeVariante[L][clipe] = proximo();
+      continue;
+    }
 
     // Opcoes por variante: `--ciclos-B`, `--eventos-D`, `--sessao-C`, `--modelo-B`...
     const porVariante = a.match(/^--(ciclos|eventos|sessao|modelo)-([A-Da-d])$/);
@@ -831,9 +842,14 @@ function pctCurto(n) {
  * `logs/eventos-<variante>.jsonl` > `logs/eventos-<id>.jsonl` > `--eventos` >
  * `logs/eventos.jsonl`.
  */
-export async function resolverArquivoEventos(variante, args) {
+export async function resolverArquivoEventos(variante, args, clipe) {
+  const especifico = clipe
+    ? args.eventosPorClipeVariante?.[variante.letra]?.[clipe]
+    : undefined;
   const candidatos = [
+    especifico,
     args.eventosPorVariante[variante.letra],
+    ...(clipe ? [] : Object.values(args.eventosPorClipeVariante?.[variante.letra] ?? {})),
     `logs/eventos-${variante.letra}.jsonl`,
     `logs/eventos-${variante.id}.jsonl`,
     args.eventos,
@@ -842,6 +858,14 @@ export async function resolverArquivoEventos(variante, args) {
     if (await existe(path.resolve(ROOT, c))) return c;
   }
   return null;
+}
+
+async function resolverArquivoEventosDoClipe(variante, clipe, args) {
+  if (args.conjunto === "eval") {
+    const caminho = args.eventosPorClipeVariante?.[variante.letra]?.[clipe];
+    return caminho && (await existe(path.resolve(ROOT, caminho))) ? caminho : null;
+  }
+  return resolverArquivoEventos(variante, args, clipe);
 }
 
 /** Resolve o arquivo de ciclos de uma variante (`--ciclos-X` > `--ciclos`). */
@@ -956,7 +980,7 @@ export function verificarMesmoModelo(resultados, modeloGlobal) {
  * vencedores.
  *
  * `resultados`: `{ variante, desempenho, qualidade, arquivoEventos,
- * arquivoCiclos, registros, sessaoExplicita, modelos }`.
+ * arquivosEventosPorClipe, arquivoCiclos, registros, sessaoExplicita, modelos }`.
  */
 export function avaliarComparabilidade(resultados, opcoes = {}) {
   const {
@@ -975,23 +999,40 @@ export function avaliarComparabilidade(resultados, opcoes = {}) {
     problemas.push("modelo multimodal nao registrado: use --modelo/--modelo-visao");
   }
 
-  // O mesmo arquivo de eventos aplicado a varias variantes repete as mesmas
-  // metricas de qualidade (foi o defeito do comparativo de 2026-10-18). So
-  // importa quando a qualidade entra na conclusao.
-  const donoDoEvento = new Map();
+  // Cada clipe precisa de seu proprio arquivo/base temporal; arquivos tambem
+  // nao podem ser compartilhados entre variantes na mesma comparacao.
+  const usoDosEventos = new Map();
   if (exigirQualidade) {
     for (const r of resultados) {
-      if (!r.arquivoEventos) continue;
-      const abs = path.resolve(ROOT, r.arquivoEventos);
-      const donos = donoDoEvento.get(abs) ?? [];
-      donos.push(r.variante.letra);
-      donoDoEvento.set(abs, donos);
+      const lista = r.arquivosEventosPorClipe?.length
+        ? r.arquivosEventosPorClipe
+        : r.arquivoEventos
+          ? [{ arquivo: r.arquivoEventos, clipe: null }]
+          : [];
+      const clipesPorArquivo = new Map();
+      for (const uso of lista) {
+        const abs = path.resolve(ROOT, uso.arquivo);
+        const registro = usoDosEventos.get(abs) ?? { variantes: new Set(), clipes: new Set() };
+        registro.variantes.add(r.variante.letra);
+        if (uso.clipe) registro.clipes.add(uso.clipe);
+        usoDosEventos.set(abs, registro);
+        const clipes = clipesPorArquivo.get(abs) ?? new Set();
+        if (uso.clipe) clipes.add(uso.clipe);
+        clipesPorArquivo.set(abs, clipes);
+      }
+      for (const [arquivo, clipes] of clipesPorArquivo) {
+        if (clipes.size > 1) {
+          problemas.push(
+            `${r.variante.letra}: mesmo arquivo de eventos reutilizado por varios clipes: ${path.relative(ROOT, arquivo)}`
+          );
+        }
+      }
     }
   }
-  for (const [arquivo, donos] of donoDoEvento) {
-    if (donos.length > 1) {
+  for (const [arquivo, uso] of usoDosEventos) {
+    if (uso.variantes.size > 1) {
       problemas.push(
-        `arquivo de eventos compartilhado por ${donos.join(", ")}: ${path.relative(ROOT, arquivo)} — a qualidade seria identica entre variantes; grave um arquivo por variante`
+        `arquivo de eventos compartilhado por ${[...uso.variantes].join(", ")}: ${path.relative(ROOT, arquivo)} — grave um arquivo por variante e clipe`
       );
     }
   }
@@ -1044,6 +1085,15 @@ export function avaliarComparabilidade(resultados, opcoes = {}) {
     }
     if (exigirQualidade && !r.qualidade?.consolidado) {
       problemasDaVariante.push("sem qualidade consolidada (anotacoes/eventos ausentes ou ilegiveis)");
+    }
+    if (
+      exigirQualidade &&
+      r.qualidade?.consolidado &&
+      r.qualidade.consolidado.clipes < (r.qualidade.consolidado.clipesEsperados ?? r.qualidade.consolidado.clipes)
+    ) {
+      problemasDaVariante.push(
+        `qualidade parcial: ${r.qualidade.consolidado.clipes}/${r.qualidade.consolidado.clipesEsperados} clipe(s) avaliados`
+      );
     }
     if (exigirQualidade && (r.qualidade?.consolidado?.semClassificacaoEscopo ?? 0) > 0) {
       problemasDaVariante.push(
@@ -1113,17 +1163,37 @@ export function executarQualidade({ anotacao, eventos, tolerancia, offset, ignor
   });
 }
 
-/** Avalia TODOS os clipes de uma variante contra o arquivo de eventos dela. */
-async function avaliarQualidadeDaVariante(variante, clipes, arquivoEventos, args) {
+/** Avalia cada clipe contra o arquivo de eventos correspondente à execução. */
+async function avaliarQualidadeDaVariante(variante, clipes, args) {
   const porClip = [];
   for (const clipe of clipes) {
     if (!clipe.anotacao) {
       porClip.push({ clipe: clipe.nome, pulado: true, motivo: "sem anotacao (<clipe>.json)" });
       continue;
     }
+    const eventosDoClipe = await resolverArquivoEventosDoClipe(variante, clipe.nome, args);
+    if (!eventosDoClipe) {
+      porClip.push({
+        clipe: clipe.nome,
+        pulado: true,
+        motivo: "sem arquivo de eventos para este clipe",
+      });
+      continue;
+    }
+    if (
+      args.conjunto === "eval" &&
+      !(await existe(path.resolve(ROOT, `${eventosDoClipe}.inicio`)))
+    ) {
+      porClip.push({
+        clipe: clipe.nome,
+        pulado: true,
+        motivo: "sem sidecar .inicio para alinhar a base temporal deste clipe",
+      });
+      continue;
+    }
     const r = await executarQualidade({
       anotacao: clipe.anotacao,
-      eventos: arquivoEventos,
+      eventos: eventosDoClipe,
       tolerancia: args.tolerancia,
       offset: args.offset,
       ignorados: args.ignorados,
@@ -1135,6 +1205,7 @@ async function avaliarQualidadeDaVariante(variante, clipes, arquivoEventos, args
     const d = r.dados;
     porClip.push({
       clipe: clipe.nome,
+      arquivoEventos: eventosDoClipe,
       precisao: d.precisao,
       recall: d.recall,
       f1: f1(d.precisao, d.recall),
@@ -1156,6 +1227,7 @@ async function avaliarQualidadeDaVariante(variante, clipes, arquivoEventos, args
 
   const avaliados = porClip.filter((p) => !p.pulado);
   if (!avaliados.length) return { porClip, consolidado: null };
+  const clipesEsperados = clipes.filter((clipe) => clipe.anotacao).length;
 
   // Consolidado por SOMA de TP/FP/FN (nao media de medias).
   const tp = avaliados.reduce((s, a) => s + (a.verdadeirosPositivos ?? 0), 0);
@@ -1173,6 +1245,7 @@ async function avaliarQualidadeDaVariante(variante, clipes, arquivoEventos, args
     porClip,
     consolidado: {
       clipes: avaliados.length,
+      clipesEsperados,
       precisao,
       recall,
       f1: f1(precisao, recall),
@@ -1344,23 +1417,23 @@ function tabelaCustosDetalhados(desempenho) {
 function tabelaQualidade(qualidade) {
   if (!qualidade || !qualidade.porClip?.length) return ["_Sem avaliação de qualidade (sem anotações ou sem arquivo de eventos)._", ""];
   const linhas = [
-    "| Clipe | Precisão | Recall | F1 | FP/min | Não detectados | Sem classificação | Dist. média casamento |",
-    "|-------|---------:|-------:|---:|-------:|---------------:|------------------:|----------------------:|",
+    "| Clipe | Eventos | Precisão | Recall | F1 | FP/min | Não detectados | Sem classificação | Dist. média casamento |",
+    "|-------|---------|---------:|-------:|---:|-------:|---------------:|------------------:|----------------------:|",
   ];
   for (const p of qualidade.porClip) {
     if (p.pulado) {
-      linhas.push(`| ${p.clipe} | pulado | pulado | pulado | pulado | pulado | pulado | ${p.motivo} |`);
+      linhas.push(`| ${p.clipe} | — | pulado | pulado | pulado | pulado | pulado | pulado | ${p.motivo} |`);
       continue;
     }
     linhas.push(
-      `| ${p.clipe} | ${pct(p.precisao)} | ${pct(p.recall)} | ${pct(p.f1)} | ${num(p.falsosPositivosPorMinuto)} | ${p.perdidos} | ${p.semClassificacaoEscopo} | ${p.distanciaMediaMs ?? "—"} ms |`
+      `| ${p.clipe} | \`${p.arquivoEventos}\` | ${pct(p.precisao)} | ${pct(p.recall)} | ${pct(p.f1)} | ${num(p.falsosPositivosPorMinuto)} | ${p.perdidos} | ${p.semClassificacaoEscopo} | ${p.distanciaMediaMs ?? "—"} ms |`
     );
   }
   linhas.push("");
   const c = qualidade.consolidado;
   if (c) {
     linhas.push(
-      `**Consolidado (${c.clipes} clipe(s))**: precisão ${pct(c.precisao)} · recall ${pct(c.recall)} · ` +
+      `**Consolidado (${c.clipes}/${c.clipesEsperados} clipe(s))**: precisão ${pct(c.precisao)} · recall ${pct(c.recall)} · ` +
         `F1 ${pct(c.f1)} · FP/min ${num(c.falsosPositivosPorMinuto)} · não detectados ${c.eventosNaoDetectados} · ` +
         `movimentos sem classificação de escopo ${c.semClassificacaoEscopo} · ` +
         `distância média de casamento ${c.distanciaMediaMs ?? "—"} ms`
@@ -1398,6 +1471,7 @@ function gerarRelatorioVariante({
   etapasIsoladas,
   qualidade,
   arquivoEventos,
+  arquivosEventosPorClipe,
   arquivoCiclos,
   modelos,
   modelo,
@@ -1424,7 +1498,11 @@ function gerarRelatorioVariante({
     `- **Modelo multimodal (registrado):** ${modelo || "(não informado — use --modelo-visao para registrar a versão usada)"}`,
     `- **Modelo multimodal (observado em visao.jsonl):** ${observados || "(sem campo `modelo` para os frames dos ciclos — não verificável)"}`,
     `- **Detector local (observado nos eventos):** ${deteccao || "(sem campo `modelo` nos eventos)"} — não é o modelo multimodal`,
-    `- **Ciclos:** \`${arquivoCiclos}\` · **Eventos:** \`${arquivoEventos ?? "(nenhum arquivo)"}\``,
+    `- **Ciclos:** \`${arquivoCiclos}\` · **Eventos:** ${
+      arquivosEventosPorClipe?.length
+        ? arquivosEventosPorClipe.map((uso) => `\`${uso.clipe}: ${uso.arquivo}\``).join(", ")
+        : `\`${arquivoEventos ?? "(nenhum arquivo)"}\``
+    }`,
     `- **Tolerância de casamento:** ${argsTolerancia} ms`,
     `- **Warm-up:** ${warmups} ciclo(s) concluído(s) excluído(s) das medianas (parâmetro \`--warmups\`)`,
     `- **Ambiente:** ${ambiente.cpu} · ${ambiente.nucleosLogicos} núcleos · ${arredondar(ambiente.memoriaTotalBytes / 1024 ** 3, 1)} GB RAM · ${ambiente.plataforma} · Node ${ambiente.node}`,
@@ -1900,12 +1978,29 @@ async function main() {
     // 2. Versao do modelo observada NESTA variante. `--modelo-visao` apenas
     //    registra a intencao; o campo `modelo` de visao.jsonl (por frameId do
     //    ciclo) prova o que rodou. O `modelo` dos eventos e o detector local.
-    const arquivoEventos = await resolverArquivoEventos(variante, args);
+    const arquivosEventosPorClipe = (
+      await Promise.all(
+        clipes.map(async (clipe) => ({
+          clipe: clipe.nome,
+          arquivo: await resolverArquivoEventosDoClipe(variante, clipe.nome, args),
+        }))
+      )
+    ).filter((uso) => uso.arquivo);
+    const arquivoEventos =
+      arquivosEventosPorClipe[0]?.arquivo ?? (await resolverArquivoEventos(variante, args));
     const frameIds = daVariante.flatMap((r) => (Array.isArray(r.frameIds) ? r.frameIds : []));
     const modelos = {
       visao: await modelosDosFrames(args.visao, frameIds),
       // Modelo do detector local: informativo, NAO entra na prova do multimodal.
-      deteccao: arquivoEventos ? await extrairModelosDoJsonl(arquivoEventos) : [],
+      deteccao: [
+        ...new Set(
+          (
+            await Promise.all(
+              arquivosEventosPorClipe.map((uso) => extrairModelosDoJsonl(uso.arquivo))
+            )
+          ).flat()
+        ),
+      ].sort(),
     };
     const resumoModelos = [
       modelos.visao.length ? `visao.jsonl [${modelos.visao.join(", ")}]` : null,
@@ -1926,8 +2021,10 @@ async function main() {
         );
         console.log("  qualidade: sem arquivo de eventos");
       } else {
-        console.log(`  qualidade: avaliando ${clipes.length} clipe(s) contra ${arquivoEventos}...`);
-        qualidade = await avaliarQualidadeDaVariante(variante, clipes, arquivoEventos, args);
+        console.log(
+          `  qualidade: avaliando ${clipes.length} clipe(s) com arquivos próprios por clipe quando configurados...`
+        );
+        qualidade = await avaliarQualidadeDaVariante(variante, clipes, args);
         const c = qualidade.consolidado;
         if (c) {
           console.log(
@@ -1949,6 +2046,7 @@ async function main() {
       etapasIsoladas,
       qualidade,
       arquivoEventos,
+      arquivosEventosPorClipe,
       arquivoCiclos,
       modelos,
       registros: daVariante,
@@ -1992,7 +2090,14 @@ async function main() {
   const gravados = [];
   if (!args.semRelatorio) {
     for (const result of resultados) {
-      const { variante, qualidade, arquivoEventos, arquivoCiclos, modelos } = result;
+      const {
+        variante,
+        qualidade,
+        arquivoEventos,
+        arquivosEventosPorClipe,
+        arquivoCiclos,
+        modelos,
+      } = result;
       const avisosDaVariante = [
         ...new Set([
           ...avisos.filter((a) => a.startsWith(`${variante.letra}:`)),
@@ -2008,6 +2113,7 @@ async function main() {
         etapasIsoladas: result.etapasIsoladas,
         qualidade,
         arquivoEventos,
+        arquivosEventosPorClipe,
         arquivoCiclos,
         modelos,
         modelo: args.modeloPorVariante[variante.letra] ?? modeloGlobal,
@@ -2133,6 +2239,7 @@ async function main() {
               etapasIsoladas,
               qualidade,
               arquivoEventos,
+              arquivosEventosPorClipe,
               arquivoCiclos,
               modelos,
               sessaoExplicita,
@@ -2148,6 +2255,7 @@ async function main() {
               sessaoExplicita,
               arquivoCiclos,
               arquivoEventos,
+              arquivosEventosPorClipe,
               modelos,
               desempenho,
               desempenhoAquecido,
