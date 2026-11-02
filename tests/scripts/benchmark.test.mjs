@@ -1,5 +1,63 @@
-import { describe, expect, it } from "vitest";
-import { agregarVisoes, inferenciasPorMinuto, montarAmbiente, segundosDeGeracao } from "../../scripts/benchmark.mjs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import {
+  agregarVisoes,
+  chamarGerar,
+  inferenciasPorMinuto,
+  montarAmbiente,
+  montarPromptVisao,
+  resolverImagens,
+  segundosDeGeracao,
+} from "../../scripts/benchmark.mjs";
+
+describe("benchmark de visao", () => {
+  it("pede analise profunda tambem para prompts customizados", () => {
+    const prompt = montarPromptVisao("Descreva a imagem.");
+    expect(prompt).toContain("Descreva a imagem.");
+    expect(prompt).toContain("Analise profundamente a imagem inteira");
+  });
+
+  it("nao envia um teto de tokens de saida ao backend", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ choices: [{ message: { content: "Resposta" } }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    try {
+      await chamarGerar("http://localhost:1234", "", "modelo-teste", {
+        prompt: montarPromptVisao(),
+        base64: "aW1hZ2Vt",
+        stream: false,
+        timeoutMs: 1000,
+      });
+
+      const [, init] = fetch.mock.calls[0];
+      const body = JSON.parse(String(init.body));
+      expect(body).not.toHaveProperty("max_tokens");
+      expect(body.messages[0].content[0].text).toContain("Analise profundamente a imagem inteira");
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it("omite imagens marcadas NSFW durante a descoberta automatica", async () => {
+    const diretorio = await mkdtemp(path.join(os.tmpdir(), "neuro-bench-"));
+    try {
+      await writeFile(path.join(diretorio, "cena.png"), "safe");
+      await writeFile(path.join(diretorio, "nsfw foto.png"), "sensitive");
+
+      const imagens = await resolverImagens([], [diretorio]);
+
+      expect(imagens.map((imagem) => imagem.nome)).toEqual(["cena.png"]);
+    } finally {
+      await rm(diretorio, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("segundosDeGeracao", () => {
   it("mede do primeiro token gerado ate o fim", () => {

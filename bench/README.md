@@ -12,6 +12,8 @@ backend de visão de forma **reproduzível** — sem depender dos snapshots da s
    3. `bench/imagens/` (este diretório);
    4. o snapshot mais recente em `logs/snapshots/`;
    5. uma imagem sintética 1×1 (fallback).
+   Arquivos cujo nome começa com `nsfw` são ignorados na descoberta automática;
+   passe-os explicitamente com `--image` para incluí-los.
 2. Todas as imagens do conjunto são medidas para o modelo, e o resultado de
    visão é a **mediana entre as imagens** (`visaoPorImagem` guarda cada uma).
 
@@ -37,7 +39,9 @@ futuras sejam comparáveis.
 ## Reprodutibilidade
 
 Cada execução registra, junto aos números, o **ambiente** (CPU, núcleos, RAM,
-plataforma, versão do Node), o **backend/modelo**, as **configurações**
-(`max_tokens`, iterações) e as **imagens usadas**. No modo `--json`, tudo isso
-sai em um objeto `ambiente` + `resultados`, pronto para versionar ao lado do
-hardware testado.
+plataforma, versão do Node), o **backend/modelo**, o timeout, as iterações e as
+**imagens usadas**. A análise de imagem pede inspeção visual aprofundada, e o
+cliente não define `max_tokens`; o limite de saída efetivo, se houver, depende
+do backend/modelo. Arquivos NSFW só são enviados se selecionados explicitamente
+com `--image`. No modo `--json`, isso sai em um objeto `ambiente` + `resultados`,
+pronto para versionar ao lado do hardware testado.

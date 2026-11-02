@@ -32,8 +32,13 @@ const BASE_URL_PADRAO = "http://localhost:1234";
 
 const PROMPT_TEXTO =
   "Escreva em portugues tres frases curtas descrevendo uma cena de escritorio com pessoas e objetos.";
-const PROMPT_VISAO =
-  "Voce observa um frame de uma webcam. Descreva em portugues, em no maximo 2 frases, o que aparece na cena, mencionando pessoas e objetos principais.";
+const PROMPT_ANALISE_PROFUNDA =
+  "Analise profundamente a imagem inteira: identifique pessoas e objetos visiveis, posicoes, relacoes espaciais e detalhes relevantes. Descreva somente o que a imagem sustenta e indique incertezas, sem inventar elementos.";
+export const PROMPT_VISAO = `Voce observa um frame de uma webcam.\n\n${PROMPT_ANALISE_PROFUNDA}`;
+
+export function montarPromptVisao(prompt) {
+  return prompt ? `${prompt}\n\n${PROMPT_ANALISE_PROFUNDA}` : PROMPT_VISAO;
+}
 
 // Imagem sintetica 1x1 (GIF) usada quando nao ha snapshot disponivel.
 const SVG_BASE = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
@@ -41,7 +46,7 @@ const SVG_BASE = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEA
 function lerArgs() {
   // 1024 da espaco para modelos de raciocinio ("thinking") escreverem a resposta:
   // com teto pequeno o `content` saiu vazio e o modelo pareceu nao responder.
-  const mapa = { model: [], image: [], iter: 3, timeout: 120000, numPredict: 1024 };
+  const mapa = { model: [], image: [], iter: 3, timeout: 300000 };
   const lista = process.argv.slice(2);
   for (let i = 0; i < lista.length; i++) {
     const a = lista[i];
@@ -53,7 +58,8 @@ function lerArgs() {
     else if (a === "--image") mapa.image.push(proximo());
     else if (a === "--images-dir") mapa.imagesDir = proximo();
     else if (a === "--prompt") mapa.prompt = proximo();
-    else if (a === "--num-predict") mapa.numPredict = Math.max(1, Number(proximo()) || 1);
+    else if (a === "--num-predict")
+      throw new Error("--num-predict foi removido; o limite de saida fica a cargo do backend/modelo.");
     else if (a === "--timeout") mapa.timeout = Math.max(1000, Number(proximo()) || 120000);
     else if (a === "--json") mapa.json = true;
   }
@@ -132,7 +138,7 @@ export async function resolverImagens(explicitas, dirs = []) {
   for (const pasta of dirs.filter(Boolean)) {
     const absoluta = path.resolve(ROOT, pasta);
     const arquivos = (await readdir(absoluta).catch(() => []))
-      .filter((f) => /\.(jpg|jpeg|png)$/i.test(f))
+      .filter((f) => /\.(jpg|jpeg|png)$/i.test(f) && !/^nsfw(?:[\s_-]|$)/i.test(f))
       .sort();
     if (arquivos.length) {
       return Promise.all(arquivos.map((f) => paraObjeto(path.join(pasta, f))));
@@ -258,7 +264,7 @@ async function garantirCarga(baseUrl, apiKey, modelo, timeoutMs) {
     return { jaCarregado: true, cargaMs: 0 };
   }
   const inicio = performance.now();
-  await chamarGerar(baseUrl, apiKey, modelo, { prompt: "oi", stream: false, numPredict: 1, timeoutMs });
+  await chamarGerar(baseUrl, apiKey, modelo, { prompt: "oi", stream: false, timeoutMs });
   const cargaMs = performance.now() - inicio;
   // So espera confirmacao em memoria se o backend permite consulta-la.
   if (await memoriaIntrospectavel(baseUrl, apiKey)) {
@@ -274,14 +280,13 @@ async function garantirCarga(baseUrl, apiKey, modelo, timeoutMs) {
 /** Estimativa grosseira de tokens quando o backend nao devolve `usage`. */
 const estimarTokens = (texto) => Math.max(1, Math.round(String(texto ?? "").length / 4));
 
-async function chamarGerar(baseUrl, apiKey, modelo, opcoes) {
+export async function chamarGerar(baseUrl, apiKey, modelo, opcoes) {
   const corpo = {
     model: modelo,
     messages: [{ role: "user", content: montarConteudo(opcoes.prompt, opcoes.base64) }],
     stream: Boolean(opcoes.stream),
     temperature: 0.2,
     top_p: 0.9,
-    max_tokens: opcoes.numPredict,
   };
   if (opcoes.stream) corpo.stream_options = { include_usage: true };
 
@@ -530,14 +535,14 @@ async function main() {
     );
   }
   const conjunto = imagens.length ? imagens : [{ nome: "sintetica-1x1", base64: SVG_BASE }];
-  const promptVisao = args.prompt ?? PROMPT_VISAO;
+  const promptVisao = montarPromptVisao(args.prompt);
   const ambiente = montarAmbiente();
 
   if (imagens.length) {
     console.log(`Conjunto fixo de imagens (${imagens.length}): ${imagens.map((i) => i.nome).join(", ")}`);
   }
   console.log(
-    `Backend: ${baseUrl} | modelos: ${modelos.length} | iteracoes: ${iter} | max_tokens: ${args.numPredict} | inicio: ${ambiente.dataHora}\n`
+    `Backend: ${baseUrl} | modelos: ${modelos.length} | iteracoes: ${iter} | sem teto de tokens de saida no app | inicio: ${ambiente.dataHora}\n`
   );
 
   const linhas = [];
@@ -567,7 +572,7 @@ async function main() {
       baseUrl,
       apiKey,
       modelo,
-      { prompt: PROMPT_TEXTO, numPredict: args.numPredict, timeoutMs: args.timeout },
+      { prompt: PROMPT_TEXTO, timeoutMs: args.timeout },
       iter,
       json
     );
@@ -586,7 +591,7 @@ async function main() {
         baseUrl,
         apiKey,
         modelo,
-        { prompt: promptVisao, base64: img.base64, numPredict: args.numPredict, timeoutMs: args.timeout },
+        { prompt: promptVisao, base64: img.base64, timeoutMs: args.timeout },
         iter,
         json,
         true,
@@ -637,7 +642,8 @@ async function main() {
           ambiente,
           baseUrl,
           iter,
-          numPredict: args.numPredict,
+          timeoutMs: args.timeout,
+          limiteTokensSaidaAplicacao: null,
           imagens: conjunto.map((i) => i.nome),
           resultados: linhas,
         },
