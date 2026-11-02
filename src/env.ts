@@ -167,8 +167,22 @@ export const env = {
   get E2E_WEBCAM_EVENTOS(): string {
     return str("E2E_WEBCAM_EVENTOS", "");
   },
+  get E2E_WEBCAM_MODEL(): string {
+    return str("E2E_WEBCAM_MODEL", "");
+  },
+  get E2E_WEBCAM_NSFW(): boolean {
+    return bool("E2E_WEBCAM_NSFW", false);
+  },
   get E2E_WEBCAM_MODE(): string {
     return str("E2E_WEBCAM_MODE", "deteccao");
+  },
+  get E2E_WEBCAM_THRESHOLD(): number {
+    const valor = process.env.E2E_WEBCAM_THRESHOLD;
+    return valor === undefined || valor === "" ? 0.5 : Number(valor);
+  },
+  get E2E_WEBCAM_DURATION_MS(): number {
+    const valor = process.env.E2E_WEBCAM_DURATION_MS;
+    return valor === undefined || valor === "" ? 0 : Number(valor);
   },
   get E2E_LOCAL_MODELS_CLIP(): string {
     return str("E2E_LOCAL_MODELS_CLIP", "");

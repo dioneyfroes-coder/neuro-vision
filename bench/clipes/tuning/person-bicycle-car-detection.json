@@ -1,0 +1,62 @@
+{
+  "versaoEsquema": 2,
+  "clip": "person-bicycle-car-detection.mp4",
+  "conjunto": "tuning",
+  "duracaoMs": 53916,
+  "revisao": {
+    "status": "rascunho",
+    "metodo": "amostragem visual a 1 fps; confirmar intervalos antes de conclusoes"
+  },
+  "negativos": [],
+  "notas": "RASCUNHO. Amostragem visual a 1 fps do clipe completo. Quatro intervalos candidatos de deslocamento de carros e bicicletas; os limites sao aproximados e precisam de confirmacao humana quadro a quadro. Nao usar como verdade-base final nem promover os resultados para EVAL.",
+  "eventos": [
+    {
+      "tipo": "movimento",
+      "em": 17000,
+      "inicioMs": 15000,
+      "fimMs": 20000,
+      "categoria": "movimento_objeto",
+      "classe": "objeto_deslocado",
+      "visibilidade": "clara",
+      "parteEnvolvida": "objeto",
+      "determinavel": true,
+      "descricao": "carro cruza o quadro"
+    },
+    {
+      "tipo": "movimento",
+      "em": 29000,
+      "inicioMs": 27000,
+      "fimMs": 31000,
+      "categoria": "movimento_objeto",
+      "classe": "objeto_deslocado",
+      "visibilidade": "clara",
+      "parteEnvolvida": "objeto",
+      "determinavel": true,
+      "descricao": "bicicleta cruza o quadro"
+    },
+    {
+      "tipo": "movimento",
+      "em": 49000,
+      "inicioMs": 47000,
+      "fimMs": 51000,
+      "categoria": "movimento_objeto",
+      "classe": "objeto_deslocado",
+      "visibilidade": "clara",
+      "parteEnvolvida": "objeto",
+      "determinavel": true,
+      "descricao": "bicicleta cruza o quadro"
+    },
+    {
+      "tipo": "movimento",
+      "em": 50000,
+      "inicioMs": 48000,
+      "fimMs": 53000,
+      "categoria": "movimento_objeto",
+      "classe": "objeto_deslocado",
+      "visibilidade": "clara",
+      "parteEnvolvida": "objeto",
+      "determinavel": true,
+      "descricao": "veiculo cruza o quadro"
+    }
+  ]
+}

@@ -64,11 +64,78 @@ parar a sessão. Pesos e bibliotecas locais são necessários; prepare-os com
    E2E_WEBCAM_CLIP=bench/videos/webcam-mudanca.webm
    E2E_WEBCAM_CHANNEL=chrome          # usa o Chrome instalado (WebGPU); sem ele, WASM/CPU
    E2E_WEBCAM_EVENTOS=logs/webcam-eventos.jsonl
+   E2E_WEBCAM_MODEL=gemma-4-e2b-uncensored-hauhaucs-aggressive # opcional
+   E2E_WEBCAM_NSFW=1                 # liga o classificador e envia marcacoes
+   E2E_WEBCAM_THRESHOLD=0.5            # pode ser variado em TUNING (0.1-0.9)
+   E2E_WEBCAM_DURATION_MS=0            # 0 = clipe todo; ou limite em ms
    ```
 
    ```bash
    npx playwright test e2e/webcam.spec.ts --workers=1
    ```
+
+### Comparar limiares no TUNING
+
+`E2E_WEBCAM_THRESHOLD` define o limiar do detector apenas na coleta E2E; o
+padrão da aplicação não muda. Registre uma execução separada por limiar e use
+sempre uma anotação TUNING revisada. O teste salva `<eventos>.config.json` com
+clipe, modo, limiar e janela da captura, além dos eventos e do sidecar temporal.
+`E2E_WEBCAM_DURATION_MS` limita o tempo reproduzido (0 = clipe inteiro), útil
+para amostras longas; quando o limite é atingido, a reprodução pausa e a sessão
+é encerrada após aguardar as requisições em andamento.
+`E2E_WEBCAM_MODEL` escolhe um modelo multimodal instalado e `E2E_WEBCAM_NSFW=1`
+ativa o classificador local NSFW. As respostas multimodais são salvas em
+`<eventos>.analises.jsonl`, incluindo modelo, descrição e marcacoes enviadas.
+
+```powershell
+$env:E2E_WEBCAM_CLIP = "bench\videos\person-bicycle-car-detection.mp4"
+$env:E2E_WEBCAM_MODE = "deteccao"
+$env:E2E_WEBCAM_THRESHOLD = "0.5"
+$env:E2E_WEBCAM_EVENTOS = "logs/fase6-tuning-pbc-t050.jsonl"
+npx playwright test e2e/webcam.spec.ts --workers=1
+npm run qualidade -- --anotacao bench/clipes/tuning/person-bicycle-car-detection.json --eventos logs/fase6-tuning-pbc-t050.jsonl --tolerancia 3000 --json
+```
+
+Repita com limiares/caminhos distintos (por exemplo, `0.3` e `0.7`). A
+anotação inicial desse clipe é um rascunho visual de amostragem 1 fps: confirme
+os intervalos quadro a quadro antes de usar recall como resultado. Não ajuste
+limiares com o conjunto EVAL.
+
+#### Resultado exploratório da Fase 6
+
+As coletas reais em `person-bicycle-car-detection.mp4` foram comparadas com
+quatro intervalos candidatos (dois carros e duas bicicletas), ainda em anotação
+rascunho e com tolerância de 3 s:
+
+| Limiar | TP/esperados | Perdidos | FP | Precisão | Recall | FP/min |
+|-------:|-------------:|--------:|---:|---------:|-------:|-------:|
+| 0,3 | 4/4 | 0 | 2 | 0,67 | 1,00 | 2,23 |
+| 0,5 | 4/4 | 0 | 1 | 0,80 | 1,00 | 1,11 |
+| 0,7 | 1/4 | 3 | 0 | 1,00 | 0,25 | 0,00 |
+
+Nesta amostra, reduzir de 0,5 para 0,3 não aumentou o recall e aumentou os
+falsos positivos; 0,7 perdeu três intervalos. Portanto, o limiar operacional
+permanece inalterado em 0,5. Os resultados são diagnósticos, não uma promoção
+de parâmetro: a verdade-base segue como rascunho, e uma bicicleta gerou eventos
+repetidos no mesmo intervalo.
+
+### Smoke local do classificador NSFW experimental
+
+Com os pesos locais exportados em `modelos/yolonsfw/`, o script pode inferir
+nas imagens e no vídeo cujos nomes começam com `nsfw` nas pastas ignoradas
+`bench/imagens/` e `bench/videos/`. Vídeos são amostrados em cinco instantes
+uniformes por padrão; resultados são diagnósticos de execução, não métricas de
+precisão/recall, até que exista anotação humana para cada arquivo.
+
+```powershell
+node scripts/verificar-yolo-nsfw.mjs erax_nsfw_yolo11n --fixtures-nsfw --amostras 5
+```
+
+Na execução exploratória da Fase 6, o smoke processou três imagens e cinco
+quadros do vídeo; encontrou duas marcações em uma imagem e nenhuma nos demais
+quadros. Como não há anotação humana dos arquivos, isso confirma apenas que o
+caminho local de inferência e a validação de saída funcionam — não mede a
+precisão ou o recall do classificador.
 
    O modelo real é pesado (ver `bench/BASELINE.md`): em WASM/CPU leva ~24 s por
    inferência e, com WebGPU, ~5–6 s. A cadência de amostragem resultante define a

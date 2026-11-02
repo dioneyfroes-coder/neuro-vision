@@ -19,8 +19,8 @@
  */
 
 import { createServer } from "node:http";
-import { createReadStream, existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { createReadStream, existsSync, statSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
@@ -29,15 +29,104 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST_ORT = path.join(ROOT, "node_modules", "onnxruntime-web", "dist");
 const DIR_PESOS = path.join(ROOT, "modelos", "yolonsfw");
 
+const MIME_ENTRADAS = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+};
+const EXTENSOES_VIDEO = new Set([".mp4", ".webm"]);
 const MIME = {
   ".mjs": "application/javascript",
   ".js": "application/javascript",
   ".wasm": "application/wasm",
   ".onnx": "application/octet-stream",
   ".json": "application/json",
-  ".jpg": "image/jpeg",
+  ...MIME_ENTRADAS,
   ".html": "text/html; charset=utf-8",
 };
+
+export function obterMimeEntrada(caminho) {
+  return MIME_ENTRADAS[path.extname(caminho).toLowerCase()];
+}
+
+export function validarAmostras(valor) {
+  const amostras = Number(valor);
+  if (!Number.isInteger(amostras) || amostras < 1 || amostras > 30) {
+    throw new Error("--amostras precisa ser um inteiro entre 1 e 30");
+  }
+  return amostras;
+}
+
+export function parsearArgumentos(argumentos) {
+  const config = {
+    modelo: "erax_nsfw_yolo11n",
+    entradas: [],
+    limiar: 0.5,
+    amostras: 5,
+    fixturesNsfw: false,
+    ajuda: false,
+  };
+  let i = 0;
+  if (argumentos[0] && !argumentos[0].startsWith("-")) {
+    config.modelo = argumentos[0];
+    i = 1;
+  }
+  let limiarDefinido = false;
+  for (; i < argumentos.length; i += 1) {
+    const argumento = argumentos[i];
+    if (argumento === "--help" || argumento === "-h") {
+      config.ajuda = true;
+    } else if (argumento === "--fixtures-nsfw") {
+      config.fixturesNsfw = true;
+    } else if (argumento === "--amostras") {
+      const valor = argumentos[++i];
+      if (valor === undefined) throw new Error("--amostras precisa de um valor");
+      config.amostras = validarAmostras(valor);
+    } else if (argumento === "--limiar") {
+      const valor = Number(argumentos[++i]);
+      if (!Number.isFinite(valor) || valor < 0 || valor > 1) {
+        throw new Error("--limiar precisa estar entre 0 e 1");
+      }
+      config.limiar = valor;
+      limiarDefinido = true;
+    } else if (argumento.startsWith("-")) {
+      throw new Error(`opcao desconhecida: ${argumento}`);
+    } else if (Number.isFinite(Number(argumento))) {
+      const valor = Number(argumento);
+      if (limiarDefinido || valor < 0 || valor > 1) {
+        throw new Error("limiar posicional duplicado ou fora do intervalo [0,1]");
+      }
+      config.limiar = valor;
+      limiarDefinido = true;
+    } else {
+      config.entradas.push(argumento);
+    }
+  }
+  return config;
+}
+
+async function descobrirFixturesNsfw() {
+  const diretorios = ["bench/imagens", "bench/videos"];
+  const entradas = [];
+  for (const diretorio of diretorios) {
+    const caminho = path.resolve(ROOT, diretorio);
+    const arquivos = await readdir(caminho, { withFileTypes: true });
+    entradas.push(
+      ...arquivos
+        .filter(
+          (arquivo) =>
+            arquivo.isFile() &&
+            /^nsfw/i.test(arquivo.name) &&
+            obterMimeEntrada(arquivo.name)
+        )
+        .map((arquivo) => path.join(caminho, arquivo.name))
+    );
+  }
+  return entradas.sort((a, b) => a.localeCompare(b));
+}
 
 /**
  * Pagina que espelha o pre-pos-processamento de `public/nsfw-onnx.ts`.
@@ -89,49 +178,76 @@ const PAGINA = `<!doctype html>
     return saida;
   }
 
-  window.__iniciar = async (rotulos, limiar) => {
-    const img = new Image();
-    img.src = "/frame.jpg";
-    await img.decode();
-    const largura = img.naturalWidth;
-    const altura = img.naturalHeight;
-
+  window.__iniciar = async (rotulos, limiar, entradas, amostras) => {
     const canvas = typeof OffscreenCanvas !== "undefined"
       ? new OffscreenCanvas(LADO, LADO)
       : Object.assign(document.createElement("canvas"), { width: LADO, height: LADO });
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(img, 0, 0, LADO, LADO);
-    const dados = paraTensor(ctx.getImageData(0, 0, LADO, LADO).data);
 
-    const t0 = performance.now();
+    const inicioCarga = performance.now();
     const sessao = await ort.InferenceSession.create("/modelo.onnx", {
       executionProviders: ["wasm"],
     });
-    const msCarga = Math.round(performance.now() - t0);
-
-    const t1 = performance.now();
-    const feeds = {};
-    feeds[sessao.inputNames[0]] = new ort.Tensor("float32", dados, [1, 3, LADO, LADO]);
-    const resultado = await sessao.run(feeds);
-    const msInferencia = Math.round(performance.now() - t1);
-
-    const tensor = resultado[sessao.outputNames[0]];
+    const msCarga = Math.round(performance.now() - inicioCarga);
+    async function inferir(origem, largura, altura, emSegundos) {
+      ctx.drawImage(origem, 0, 0, LADO, LADO);
+      const dados = paraTensor(ctx.getImageData(0, 0, LADO, LADO).data);
+      const feeds = {};
+      feeds[sessao.inputNames[0]] = new ort.Tensor("float32", dados, [1, 3, LADO, LADO]);
+      const inicio = performance.now();
+      const resultado = await sessao.run(feeds);
+      const msInferencia = Math.round(performance.now() - inicio);
+      const tensor = resultado[sessao.outputNames[0]];
+      return {
+        emSegundos,
+        largura,
+        altura,
+        msInferencia,
+        dims: Array.from(tensor.dims),
+        deteccoes: interpretar(tensor.data, tensor.dims, limiar, largura, altura, rotulos),
+      };
+    }
+    const resultados = [];
+    for (const entrada of entradas) {
+      const frames = [];
+      if (entrada.video) {
+        const video = document.createElement("video");
+        video.muted = true;
+        video.preload = "auto";
+        video.src = entrada.url;
+        await new Promise((resolve, reject) => {
+          video.onloadedmetadata = resolve;
+          video.onerror = () => reject(new Error("nao foi possivel decodificar " + entrada.nome));
+        });
+        const quantidade = Math.min(amostras, Math.max(1, Math.floor(video.duration)));
+        for (let i = 0; i < quantidade; i += 1) {
+          const emSegundos = (video.duration * (i + 1)) / (quantidade + 1);
+          await new Promise((resolve, reject) => {
+            video.onseeked = resolve;
+            video.onerror = () => reject(new Error("falha ao buscar quadro de " + entrada.nome));
+            video.currentTime = emSegundos;
+          });
+          frames.push(await inferir(video, video.videoWidth, video.videoHeight, emSegundos));
+        }
+      } else {
+        const img = new Image();
+        img.src = entrada.url;
+        await img.decode();
+        frames.push(await inferir(img, img.naturalWidth, img.naturalHeight, null));
+      }
+      resultados.push({ nome: entrada.nome, frames });
+    }
     return {
-      largura,
-      altura,
       msCarga,
-      msInferencia,
-      dims: Array.from(tensor.dims),
-      deteccoes: interpretar(tensor.data, tensor.dims, limiar, largura, altura, rotulos),
+      resultados,
     };
   };
   window.__carregada = true;
 </script>`;
 
-async function servir(porta, modelo, sidecar, frame) {
+async function servir(porta, modelo, entradas) {
   const html = Buffer.from(PAGINA, "utf8");
   const pesos = await readFile(modelo);
-  const jpg = await readFile(frame);
   const servidor = createServer((req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
     if (url.pathname === "/") {
@@ -144,9 +260,18 @@ async function servir(porta, modelo, sidecar, frame) {
       res.end(pesos);
       return;
     }
-    if (url.pathname === "/frame.jpg") {
-      res.writeHead(200, { "content-type": MIME[".jpg"], "content-length": jpg.length });
-      res.end(jpg);
+    const indiceEntrada = url.pathname.match(/^\/entrada\/(\d+)$/);
+    if (indiceEntrada) {
+      const entrada = entradas[Number(indiceEntrada[1])];
+      if (!entrada) {
+        res.writeHead(404).end();
+        return;
+      }
+      res.writeHead(200, {
+        "content-type": obterMimeEntrada(entrada),
+        "content-length": statSync(entrada).size,
+      });
+      createReadStream(entrada).pipe(res);
       return;
     }
     if (url.pathname.startsWith("/ort/")) {
@@ -168,12 +293,25 @@ async function servir(porta, modelo, sidecar, frame) {
 }
 
 async function main() {
-  const [modeloArg = "erax_nsfw_yolo11n", frameArg = "bench/videos/frames/frame-1.jpg", limiarArg = "0.5"] =
-    process.argv.slice(2);
-  const chave = modeloArg.replace(/\.onnx$/i, "");
+  const config = parsearArgumentos(process.argv.slice(2));
+  if (config.ajuda) {
+    console.log(
+      "Uso: node scripts/verificar-yolo-nsfw.mjs [modelo] [imagem|video ...] [limiar] [--amostras N] [--fixtures-nsfw]"
+    );
+    return;
+  }
+  const chave = path.basename(config.modelo).replace(/\.onnx$/i, "");
+  if (!/^[\w.-]+$/i.test(chave)) throw new Error("nome de modelo invalido");
   const modelo = path.join(DIR_PESOS, `${chave}.onnx`);
   const sidecar = `${modelo}.json`;
-  const frame = path.resolve(ROOT, frameArg);
+  const entradasArg =
+    config.fixturesNsfw
+      ? [...config.entradas, ...(await descobrirFixturesNsfw())]
+      : config.entradas.length
+        ? config.entradas
+        : ["bench/videos/frames/frame-1.jpg"];
+  if (!entradasArg.length) throw new Error("nenhuma fixture NSFW encontrada");
+  const entradas = entradasArg.map((arquivo) => path.resolve(ROOT, arquivo));
 
   if (!existsSync(modelo)) {
     console.error(`Modelo nao encontrado: ${path.relative(ROOT, modelo)}`);
@@ -185,12 +323,9 @@ async function main() {
     console.error("Reexporte com: node scripts/exportar-yolo-nsfw.mjs");
     process.exit(1);
   }
-  if (!existsSync(frame)) {
-    console.error(`Frame nao encontrado: ${frameArg}`);
-    console.error(
-      "Gere com: node scripts/extrair-frames.mjs bench/videos/webcam-mudanca.webm bench/videos/frames 1.0"
-    );
-    process.exit(1);
+  for (const [indice, entrada] of entradas.entries()) {
+    if (!existsSync(entrada)) throw new Error(`arquivo nao encontrado: ${entradasArg[indice]}`);
+    if (!obterMimeEntrada(entrada)) throw new Error(`formato nao suportado: ${entradasArg[indice]}`);
   }
 
   const rotulos = JSON.parse(await readFile(sidecar, "utf8")).classes;
@@ -199,7 +334,7 @@ async function main() {
     process.exit(1);
   }
 
-  const servidor = await servir(0, modelo, sidecar, frame);
+  const servidor = await servir(0, modelo, entradas);
   const porta = servidor.address().port;
   const navegador = await chromium.launch();
   try {
@@ -209,8 +344,26 @@ async function main() {
     await pagina.goto(`http://127.0.0.1:${porta}/`);
     await pagina.waitForFunction(() => window.__carregada === true, null, { timeout: 60_000 });
     const r = await pagina.evaluate(
-      ([rotulos, limiar]) => window.__iniciar(rotulos, limiar),
-      [rotulos, Number(limiarArg)]
+      ([rotulos, limiar, arquivos, amostras]) =>
+        window.__iniciar(
+          rotulos,
+          limiar,
+          arquivos.map((arquivo, indice) => ({
+            nome: arquivo.nome,
+            url: `/entrada/${indice}`,
+            video: arquivo.video,
+          })),
+          amostras
+        ),
+      [
+        rotulos,
+        config.limiar,
+        entradas.map((arquivo) => ({
+          nome: path.relative(ROOT, arquivo),
+          video: EXTENSOES_VIDEO.has(path.extname(arquivo).toLowerCase()),
+        })),
+        config.amostras,
+      ]
     );
 
     if (errosDePagina.length) {
@@ -219,24 +372,39 @@ async function main() {
     }
 
     console.log(`Modelo: ${chave}.onnx | classes: ${rotulos.join(", ")}`);
-    console.log(`Frame: ${frameArg} (${r.largura}x${r.altura}) | saida dims=${r.dims.join("x")}`);
-    console.log(`Carga: ${r.msCarga} ms | Inferencia: ${r.msInferencia} ms (WASM)`);
-    console.log(`Deteccoes (limiar ${limiarArg}): ${r.deteccoes.length}`);
-    for (const d of r.deteccoes) {
-      const w = Math.round(d.xmax - d.xmin);
-      const h = Math.round(d.ymax - d.ymin);
+    console.log(`Carga: ${r.msCarga} ms | limiar: ${config.limiar} | execucao: WASM`);
+    const quadros = r.resultados.flatMap((entrada) =>
+      entrada.frames.map((frame) => ({ ...frame, nome: entrada.nome }))
+    );
+    for (const entrada of r.resultados) {
+      const deteccoes = entrada.frames.flatMap((frame) => frame.deteccoes);
+      const resumo = Object.entries(
+        deteccoes.reduce((contagem, deteccao) => {
+          contagem[deteccao.label] = (contagem[deteccao.label] ?? 0) + 1;
+          return contagem;
+        }, {})
+      )
+        .map(([rotulo, quantidade]) => `${rotulo}:${quantidade}`)
+        .join(", ");
       console.log(
-        `  ${d.label.padEnd(14)} ${d.score.toFixed(3)}  x=${d.xmin} y=${d.ymin} w=${w} h=${h}`
+        `${entrada.nome}: ${entrada.frames.length} quadro(s), ${deteccoes.length} marcacao(oes)` +
+          (resumo ? ` (${resumo})` : " (nenhuma marcacao)")
       );
     }
 
-    const formaInvalida = r.dims.length < 2 || r.dims[r.dims.length - 1] !== 6;
-    const fora = r.deteccoes.some(
-      (d) => d.xmin < 0 || d.ymin < 0 || d.xmax > r.largura || d.ymax > r.altura
+    const formaInvalida = quadros.find(
+      (frame) => frame.dims.length < 2 || frame.dims[frame.dims.length - 1] !== 6
     );
-    const rotuloDesconhecido = r.deteccoes.some((d) => /^classe /.test(d.label));
+    const fora = quadros.some((frame) =>
+      frame.deteccoes.some(
+        (d) => d.xmin < 0 || d.ymin < 0 || d.xmax > frame.largura || d.ymax > frame.altura
+      )
+    );
+    const rotuloDesconhecido = quadros.some((frame) =>
+      frame.deteccoes.some((d) => /^classe /.test(d.label))
+    );
     if (formaInvalida) {
-      console.error(`FALHA: saida com forma inesperada (${r.dims.join("x")}).`);
+      console.error(`FALHA: saida com forma inesperada (${formaInvalida.dims.join("x")}).`);
       process.exit(1);
     }
     if (fora) {
@@ -254,7 +422,13 @@ async function main() {
   }
 }
 
-main().catch((erro) => {
-  console.error(erro);
-  process.exit(1);
-});
+const caminhoDoModulo = fileURLToPath(import.meta.url);
+const executadoDiretamente =
+  Boolean(process.argv[1]) && path.resolve(process.argv[1]) === caminhoDoModulo;
+
+if (executadoDiretamente) {
+  main().catch((erro) => {
+    console.error(erro);
+    process.exit(1);
+  });
+}

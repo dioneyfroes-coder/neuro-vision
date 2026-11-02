@@ -91,6 +91,7 @@ validados ou promovidos por estes resultados.
 | `face-demographics-walking.mp4` | 61 s | ação contínua (caminhada) | `tuning/face-demographics-walking.json` | 📝 rascunho |
 | `store-aisle-detection.mp4` | 65 s | oclusões (corredor) | `tuning/store-aisle-detection.json` | 📝 rascunho |
 | `worker-zone-detection.mp4` | 76 s | oclusões, iluminação industrial | `tuning/worker-zone-detection.json` | 📝 rascunho |
+| `person-bicycle-car-detection.mp4` | 54 s | deslocamento de veículos e bicicletas | `tuning/person-bicycle-car-detection.json` | 📝 rascunho; amostragem 1 fps |
 
 ## Outros cenários fora do escopo EVAL atual
 
@@ -123,9 +124,11 @@ validados ou promovidos por estes resultados.
   cobertura, revisão humana e separação dos splits.
 - Eventos impossíveis de julgar ficam anotados com `determinavel: false`; o
   comparador os reporta à parte e não os trata como perdas.
-- **Rascunho** = `eventos: []` + `notas` iniciando com "RASCUNHO": significa
-  "sem evento esperado anotado ainda" — serve para medir FP/min no tuning,
-  **não** para recall. Promover a eval só após revisão humana quadro a quadro.
+- **Rascunho** = `revisao.status: "rascunho"` + `notas` iniciando com
+  "RASCUNHO": os eventos podem estar vazios ou conter candidatos provisórios.
+  Sem eventos esperados, serve apenas para medir FP/min; candidatos não revisados
+  não são verdade-base de recall. Promover a eval só após revisão humana quadro
+  a quadro.
 - Negativos EVAL v2 exigem revisão concluída e são registrados como
   `casoNegativo` (ausência global) ou em `negativos` (ausência de alvos específicos).
 - A base temporal `em` dos clipes de webcam vem do sidecar `<eventos>.inicio`

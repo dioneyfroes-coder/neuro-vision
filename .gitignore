@@ -3,8 +3,11 @@ dist/
 public/app.js
 public/workers/
 logs/*.jsonl
+logs/*.jsonl.config.json
 logs/*.inicio
 logs/snapshots/
+logs/nsfw-smoke-result.txt
+logs/nsfw-eventos-1min-result.txt
 .env
 .DS_Store
 test-results/
