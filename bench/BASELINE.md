@@ -79,6 +79,33 @@ Resultado da avaliação (WebGPU, 4 análises sobre os 30 s):
 | Falsos positivos/min | 0 |
 | Latência da saída detectada | ~3,4 s (após o instante real) |
 
+## Benchmark multimodal atual (2026-11-02)
+
+Coleta realizada no mesmo hardware acima, com o LM Studio em
+`http://127.0.0.1:1235`, usando as imagens sintéticas fixas de 640×480 e
+1280×720. Cada modelo executou três repetições por imagem, com timeout de 300 s
+e sem teto de tokens de saída definido pelo aplicativo. Todos os seis pedidos
+de visão por modelo produziram conteúdo. O Qwen já estava carregado; o Gemma
+precisou de aproximadamente 30,9 s para carregar.
+
+| Modelo | 1ª resposta mediana | Visão total mediana | Geração | Prefill | Inferências/min estimadas | Respostas |
+|--------|--------------------:|--------------------:|--------:|--------:|--------------------------:|----------:|
+| `qwen2.5-vl-3b-instruct` | 92 ms | 3.658 ms | 57,9 tok/s | 9.163 tok/s | 10,0 | 6/6 |
+| `gemma-4-e2b-uncensored-hauhaucs-aggressive` | 12.280 ms | 19.251 ms | 43,3 tok/s | 1.242,4 tok/s | 2,1 | 6/6 |
+
+O tempo total de visão por resolução foi 5.090 ms (1280×720) e 2.225 ms
+(640×480) para Qwen; para Gemma, 19.845 ms e 18.656 ms, respectivamente.
+Esses valores são um baseline de inferência multimodal em imagens sintéticas,
+não uma medição de qualidade de eventos nem uma previsão de latência em vídeo
+real. A primeira resposta do Gemma também inclui seu longo prefill/início de
+geração; mantenha esse comportamento separado do tempo de geração ao comparar
+modelos.
+
+O relatório integral, com ambiente, parâmetros e resultados por repetição, está
+em [`baseline-visao-20261102.json`](./baseline-visao-20261102.json). Esta coleta
+estabelece o baseline multimodal inicial da Fase 7; não substitui a avaliação
+de qualidade EVAL nem conclui a otimização de desempenho.
+
 Os falsos positivos foram rótulos instáveis do detector (`gravata`, `forno`) e uma
 `mudanca_de_cena` espúria. A variância entre execuções é alta (em 640×480 o
 detector troca de rótulo), então trate estes números como ordem de grandeza.
