@@ -538,12 +538,14 @@ async function main() {
   const promptVisao = montarPromptVisao(args.prompt);
   const ambiente = montarAmbiente();
 
-  if (imagens.length) {
+  if (!json && imagens.length) {
     console.log(`Conjunto fixo de imagens (${imagens.length}): ${imagens.map((i) => i.nome).join(", ")}`);
   }
-  console.log(
-    `Backend: ${baseUrl} | modelos: ${modelos.length} | iteracoes: ${iter} | sem teto de tokens de saida no app | inicio: ${ambiente.dataHora}\n`
-  );
+  if (!json) {
+    console.log(
+      `Backend: ${baseUrl} | modelos: ${modelos.length} | iteracoes: ${iter} | sem teto de tokens de saida no app | inicio: ${ambiente.dataHora}\n`
+    );
+  }
 
   const linhas = [];
 
