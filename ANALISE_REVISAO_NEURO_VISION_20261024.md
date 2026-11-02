@@ -360,6 +360,16 @@ a matriz detalha o estado e os candidatos.
 
 ### Fase 5 — Comparar A/B/C/D sem alterar outras variáveis
 
+**Status:** o protocolo reproduzível (warm-up, cold start, etapas isoladas e
+gate qualidade × latência) e seus testes já estão implementados. A rodada
+comparativa atual permanece bloqueada pelo gate da Fase 4: faltam três
+ocorrências positivas de `gesto.aceno` e três de
+`interpretacao_textual.acao_descrita`. A tentativa oficial em 2026-11-02 foi
+recusada antes de iniciar as variantes e não gerou relatórios. Os logs antigos
+não substituem uma rodada sobre o EVAL validado. Não contornar o gate com
+`--sem-qualidade` ou `--permitir-inconclusivo`; retomar a comparação quando a
+cobertura e as saídas textuais comparáveis estiverem disponíveis.
+
 - Usar as mesmas gravações, anotações, modelo multimodal, prompt e hardware para todas as variantes.
 - Fazer warm-up separado e reportar cold start separadamente.
 - Medir ciclos completados; variantes canceladas não devem fornecer métricas de qualidade como se tivessem executado o ciclo inteiro.
