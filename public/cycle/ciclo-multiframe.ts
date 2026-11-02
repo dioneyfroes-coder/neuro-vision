@@ -11,6 +11,7 @@ import type { ObservacaoFrame } from "../../src/domain/observation";
 import { criarRegistroCiclo } from "../../src/domain/cycle";
 import type {
   CargaModelosCiclo,
+  ConfiguracaoCiclo,
   ErroEtapa,
   MetricasCiclo,
   PacoteCiclo,
@@ -127,6 +128,8 @@ export interface DependenciasCicloMultiframe {
   ) => { interpretar: boolean; motivo?: MotivoSupressaoInterpretacao };
   /** Politica efetiva a registrar no ciclo (Fase 4/P1.4). */
   obterPolitica?: () => PoliticaCicloAplicada;
+  /** Variante e parametros efetivos do pipeline para reprodutibilidade (P3.2). */
+  obterConfiguracaoCiclo?: () => ConfiguracaoCiclo;
   /**
    * Persiste o diagnostico do ciclo (Etapa 8), opcional. A falha de gravacao
    * **nao** derruba o ciclo nem se confunde com falha de inferencia: entra em
@@ -227,6 +230,8 @@ export async function executarCicloMultiframe(
   const cycleId = deps.proximoCycleId();
   const iniciadoEm = agoraIso();
   const inicioMs = agora();
+  const politica = deps.obterPolitica?.();
+  const configuracao = deps.obterConfiguracaoCiclo?.();
 
   const erros: ErroEtapa[] = [];
   // Declarado fora do try para que o diagnostico de um ciclo incompleto
@@ -294,6 +299,8 @@ export async function executarCicloMultiframe(
             maosAtivas: 0,
             objetosAtivos: 0,
           },
+          politica,
+          configuracao,
           metricas: {
             ...metricas,
             capturaMs,
@@ -456,7 +463,8 @@ export async function executarCicloMultiframe(
       observacoes: observacoesEnriquecidas,
       eventosTemporais: resumoTemporal.eventos,
       resumoTemporal,
-      politica: deps.obterPolitica?.(),
+      politica,
+      configuracao,
       metricas: {
         ...metricas,
         capturaMs,
@@ -494,6 +502,10 @@ export async function executarCicloMultiframe(
       const resultado = await deps.interpretador.interpretar(pacote, sinal);
       pacote.metricas.multimodalMs = resultado.duracaoMs;
       pacote.metricas.interpretacaoConcluidaEm = agoraIso();
+      if (configuracao) {
+        configuracao.modeloMultimodalEfetivo =
+          resultado.modelo ?? deps.interpretador.modelo ?? undefined;
+      }
       // Latencia real ate a resposta multimodal: inclui captura, percepcao e a
       // propria chamada remota. So existe quando houve resposta (nao suprimida
       // pela politica e sem erro).
@@ -551,6 +563,8 @@ export async function executarCicloMultiframe(
           observacoes: observacoesEnriquecidas,
           eventosTemporais: resumoTemporal.eventos,
           resumoTemporal,
+          politica,
+          configuracao,
           metricas: metricasFinais,
         },
         erros,

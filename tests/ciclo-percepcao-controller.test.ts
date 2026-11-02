@@ -231,6 +231,28 @@ function montar(
     },
     criarInterpretador: () => ({
       modelo: "modelo-teste",
+      diagnostico: {
+        modeloSolicitado: "modelo-teste",
+        incluirDadosLocais: true,
+        limites: {
+          maxImagens: 4,
+          maxEventos: 20,
+          maxPontosPorFrame: 6,
+          decimais: 2,
+          maxBytesContexto: 16_000,
+        },
+        serializacao: {
+          decimais: 2,
+          landmarksCompletos: false,
+          geometriaMao: true,
+          confiancaMinimaKeypoint: 0.3,
+          maxKeypointsPorPessoa: 17,
+          confiancaMinimaDeteccao: 0,
+          maxDeteccoesPorFrame: 20,
+          maxPessoasPorFrame: 8,
+          maxMaosPorFrame: 8,
+        },
+      },
       interpretar: async (): Promise<ResultadoInterpretacao> => {
         interpretacoes += 1;
         return {
@@ -287,6 +309,19 @@ describe("CicloPercepcaoController", () => {
     expect(ctx.ciclos).toHaveLength(1);
     expect(ctx.ciclos[0].observacoes).toBe(2);
     expect(ctx.ciclos[0].frameIds).toHaveLength(2);
+    expect(ctx.ciclos[0].configuracao).toMatchObject({
+      varianteId: "completa",
+      quantidadeSnapshotsConfigurada: 2,
+      intervaloEntreSnapshotsMs: 0,
+      intervaloAgendamentoMs: 4000,
+      modeloMultimodalEfetivo: "modelo-teste",
+      interpretador: {
+        modeloSolicitado: "modelo-teste",
+        incluirDadosLocais: true,
+        limites: { maxBytesContexto: 16_000 },
+        serializacao: { landmarksCompletos: false },
+      },
+    });
 
     // As caixas do ultimo frame foram desenhadas.
     const caixas = primeiro(ctx.eventos, "desenhar_caixas");

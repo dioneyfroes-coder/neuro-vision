@@ -290,6 +290,21 @@ describe("executarCicloMultiframe", () => {
   it("persiste o diagnostico de um ciclo cancelado antes de propagar", async () => {
     const { deps, store } = montar();
     const registros: RegistroCiclo[] = [];
+    deps.obterPolitica = () => ({
+      id: "benchmark-500ms",
+      finalidade: "benchmark",
+      referencia: "500ms",
+      intervaloEntreSnapshotsMs: 500,
+      quantidadeSnapshots: 4,
+      janelaNominalMs: 1500,
+      pausaAposCicloMs: 0,
+      interpretacao: "a_cada_ciclo",
+    });
+    deps.obterConfiguracaoCiclo = () => ({
+      varianteId: "completa",
+      quantidadeSnapshotsConfigurada: 4,
+      intervaloEntreSnapshotsMs: 500,
+    });
     deps.persistirCiclo = (registro) => {
       registros.push(registro);
     };
@@ -304,6 +319,12 @@ describe("executarCicloMultiframe", () => {
       sessionId: "sess0001",
       cycleId: "sess0001-c1",
       cancelado: true,
+      politica: { id: "benchmark-500ms" },
+      configuracao: {
+        varianteId: "completa",
+        quantidadeSnapshotsConfigurada: 4,
+        intervaloEntreSnapshotsMs: 500,
+      },
     });
   });
 

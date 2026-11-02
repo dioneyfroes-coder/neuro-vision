@@ -132,6 +132,10 @@ O comparativo não usa uma única média total. Cada custo aparece no seu regime
 
 No relatório de cada variante essas informações aparecem em tabelas próprias (custo aquecido por snapshot, carga fria por modelo, memória e desfechos); no comparativo há uma seção "Custos por regime e cobertura de ciclos (P3.1)". O `cold start total` continua sendo reportado à parte como referência de inicialização.
 
+### Configuração registrada por ciclo (P3.2)
+
+Cada `RegistroCiclo` agora preserva `configuracao.varianteId`, a quantidade/intervalo de snapshots configurados, o intervalo do agendador, o modelo multimodal solicitado e o efetivamente reportado, além dos limites e opções de serialização do contexto. O campo `politica` contém a frequência de interpretação e a pausa pós-ciclo; `metricas.interpretacaoSuprimida` guarda o motivo da supressão. A carga local em `metricas.cargaModelos` registra modelo, versão, dispositivo/runtime e estado de cada subsistema carregado, e `observacoes`/`frameIds` representam os frames realmente processados. Valores de configuração e observações efetivas ficam separados para que um benchmark não misture ciclos com setups diferentes.
+
 **Gate de qualidade × latência** (itens 5 e 6 da Fase 5): o harness compara a **melhoria de qualidade** com o **aumento de latência** e decide se C/D podem ser promovidas a padrão ou devem permanecer **experimentais**. Critérios configuráveis (todos com padrão):
 
 | Opção | Padrão | Significado |

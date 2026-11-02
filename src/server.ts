@@ -520,6 +520,10 @@ export function montarRegistroCiclo(payload: unknown): RegistroCiclo | null {
     typeof p.politica === "object" && p.politica !== null
       ? (p.politica as RegistroCiclo["politica"])
       : undefined;
+  const configuracao =
+    typeof p.configuracao === "object" && p.configuracao !== null
+      ? (p.configuracao as RegistroCiclo["configuracao"])
+      : undefined;
   return {
     sessionId: p.sessionId,
     cycleId: p.cycleId,
@@ -533,6 +537,7 @@ export function montarRegistroCiclo(payload: unknown): RegistroCiclo | null {
     metricas,
     interpretacao: typeof p.interpretacao === "string" ? p.interpretacao : undefined,
     politica,
+    configuracao,
     cancelado: p.cancelado === true,
     registroEm: typeof p.registroEm === "string" ? p.registroEm : new Date().toISOString(),
   };

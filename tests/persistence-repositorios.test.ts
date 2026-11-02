@@ -221,6 +221,35 @@ describe("rotas de ciclos", () => {
       interpretacao: "a_cada_ciclo" as const,
     };
     registro.politica = politica;
+    registro.configuracao = {
+      varianteId: "completa",
+      quantidadeSnapshotsConfigurada: 4,
+      intervaloEntreSnapshotsMs: 1000,
+      intervaloAgendamentoMs: 5000,
+      modeloMultimodalEfetivo: "vision-model",
+      interpretador: {
+        modeloSolicitado: "vision-model",
+        incluirDadosLocais: true,
+        limites: {
+          maxImagens: 4,
+          maxEventos: 20,
+          maxPontosPorFrame: 6,
+          decimais: 2,
+          maxBytesContexto: 16_000,
+        },
+        serializacao: {
+          decimais: 2,
+          landmarksCompletos: false,
+          geometriaMao: true,
+          confiancaMinimaKeypoint: 0.3,
+          maxKeypointsPorPessoa: 17,
+          confiancaMinimaDeteccao: 0,
+          maxDeteccoesPorFrame: 20,
+          maxPessoasPorFrame: 8,
+          maxMaosPorFrame: 8,
+        },
+      },
+    };
 
     await comServidor({ logFile, ciclosFile, publicDir: tmpDir }, async (base) => {
       const post = await fetch(`${base}/api/ciclos`, {
@@ -237,6 +266,7 @@ describe("rotas de ciclos", () => {
         cycleId: "sessao-1-c1",
         frameIds: ["f1"],
         politica,
+        configuracao: registro.configuracao,
       });
 
       const del = await fetch(`${base}/api/ciclos`, { method: "DELETE" });

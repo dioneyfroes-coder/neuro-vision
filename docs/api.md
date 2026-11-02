@@ -15,7 +15,7 @@ Referência completa da API HTTP, formato das entradas, retenção de snapshots 
 | `GET` | `/api/eventos?limit=100` | Lista os eventos mais recentes (mais novo primeiro, limite máx. 500). Consultas por `tipo` (CSV, ex. `?tipo=aparicao,movimento`), `objetoId` e janela temporal (`desde`/`ate`, epoch ms ou ISO) respondem **o que mudou**, **quando** e as **evidências** (cada evento traz `confianca` e `snapshot`). Os filtros incidem sobre os eventos mais recentes dentro de `limit`. |
 | `DELETE` | `/api/eventos` | Limpa os eventos estruturados e remove os snapshots que ficaram órfãos. |
 | `POST` | `/api/operacional` | Grava um registro operacional (falha/métrica) que **não** é acontecimento visual. |
-| `POST` | `/api/ciclos` | Grava o diagnóstico de um ciclo (`RegistroCiclo`): métricas por etapa, erros, subsistemas indisponíveis e IDs de sessão/ciclo/frames. Um ciclo incompleto também é registrável. |
+| `POST` | `/api/ciclos` | Grava o diagnóstico de um ciclo (`RegistroCiclo`): métricas, configuração efetiva da variante/captura/interpretador, política, erros, subsistemas indisponíveis e IDs de sessão/ciclo/frames. Ciclos incompletos também preservam essa configuração. |
 | `GET` | `/api/ciclos?limit=100` | Lista os diagnósticos de ciclo mais recentes (limite máx. 500). |
 | `DELETE` | `/api/ciclos` | Limpa os diagnósticos de ciclo persistidos. |
 | `GET` | `/api/contexto` | Reidrata um contexto curto do estado recente (`{ resumo, roteiro, ultimaDescricao, entradas, eventos }`) com janela por `maxEntradas`/`maxEventos`/`maxCaracteres`. |

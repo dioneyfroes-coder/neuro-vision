@@ -1,4 +1,7 @@
-import type { PacoteCiclo } from "../../src/domain/cycle";
+import type {
+  ConfiguracaoInterpretadorCiclo,
+  PacoteCiclo,
+} from "../../src/domain/cycle";
 import type { ResultadoInterpretacao } from "../../src/domain/interpretation";
 
 /**
@@ -12,6 +15,8 @@ import type { ResultadoInterpretacao } from "../../src/domain/interpretation";
 export interface InterpretadorMultimodal {
   /** Modelo de visao em uso, quando conhecido. */
   readonly modelo: string | null;
+  /** Configuracao que sera aplicada ao contexto, quando exposta pelo adaptador. */
+  readonly diagnostico?: ConfiguracaoInterpretadorCiclo;
   /** Interpreta o pacote do ciclo; cancelavel por `AbortSignal`. */
   interpretar(
     pacote: PacoteCiclo,

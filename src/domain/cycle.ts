@@ -85,6 +85,48 @@ export interface CargaModelosCiclo {
   subsistemas: Partial<Record<SubsistemaMetricaCiclo, TelemetriaSubsistema>>;
 }
 
+export interface LimitesContextoCiclo {
+  maxImagens: number;
+  maxEventos: number;
+  maxPontosPorFrame: number;
+  decimais: number;
+  maxBytesContexto: number;
+}
+
+export interface OpcoesSerializacaoContextoCiclo {
+  decimais: number;
+  landmarksCompletos: boolean;
+  geometriaMao: boolean;
+  confiancaMinimaKeypoint: number;
+  maxKeypointsPorPessoa: number;
+  confiancaMinimaDeteccao: number;
+  maxDeteccoesPorFrame: number;
+  maxPessoasPorFrame: number;
+  maxMaosPorFrame: number;
+}
+
+/** Configuracao efetiva do interpretador para tornar o ciclo reproduzivel. */
+export interface ConfiguracaoInterpretadorCiclo {
+  modeloSolicitado?: string;
+  incluirDadosLocais: boolean;
+  limites: LimitesContextoCiclo;
+  serializacao: OpcoesSerializacaoContextoCiclo;
+}
+
+/**
+ * Configuracao do pipeline efetivamente usada. `politica` segue separada pois
+ * tambem registra a frequencia de interpretacao e a pausa pos-ciclo.
+ */
+export interface ConfiguracaoCiclo {
+  varianteId: string;
+  quantidadeSnapshotsConfigurada: number;
+  intervaloEntreSnapshotsMs: number;
+  /** Intervalo do agendador entre ciclos, conforme configurado na interface. */
+  intervaloAgendamentoMs?: number;
+  modeloMultimodalEfetivo?: string;
+  interpretador?: ConfiguracaoInterpretadorCiclo;
+}
+
 /** Metricas por etapa de um ciclo (roteiro 5.7/7). */
 export interface MetricasCiclo {
   capturaMs?: number;
@@ -164,6 +206,8 @@ export interface PacoteCiclo {
   resumoTemporal: ResumoTemporal;
   /** Politica efetivamente aplicada no ciclo (ausente em chamadas legadas). */
   politica?: PoliticaCicloAplicada;
+  /** Variante e configuracao efetiva do pipeline, quando fornecidas. */
+  configuracao?: ConfiguracaoCiclo;
   metricas: MetricasCiclo;
 }
 
@@ -213,6 +257,8 @@ export interface RegistroCiclo {
    * ciclos sem confundir janelas/frequencias diferentes.
    */
   politica?: PoliticaCicloAplicada;
+  /** Variante e configuracao efetiva do pipeline, quando fornecidas. */
+  configuracao?: ConfiguracaoCiclo;
   cancelado: boolean;
   /** Instante ISO em que o registro foi gravado. */
   registroEm: string;
@@ -243,6 +289,7 @@ export function criarRegistroCiclo(
     metricas: pacote.metricas,
     interpretacao: resultado.interpretacao,
     politica: pacote.politica,
+    configuracao: pacote.configuracao,
     cancelado: resultado.cancelado,
     registroEm: opcoes.registroEm ?? new Date().toISOString(),
   };

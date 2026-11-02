@@ -1,6 +1,7 @@
 import type { Caixa, EntradaLog, EventoTemporalEnvio, EventoVisual } from "../../src/types";
 import type {
   CargaModelosCiclo,
+  ConfiguracaoCiclo,
   PacoteCiclo,
   RegistroCiclo,
   ResultadoCiclo,
@@ -141,6 +142,7 @@ function caixasDe(
 export class CicloPercepcaoController implements ControladorCiclo {
   private readonly agendador: AgendadorAnalise;
   private readonly captura: WebcamCapture;
+  private readonly configuracaoCaptura: ConfigCaptura;
   private readonly store: SnapshotStore;
   private readonly percepcao: PercepcaoMultiframe;
   private readonly processarInativo: ProcessarFrameLocal = criarProcessadorInativo();
@@ -175,11 +177,12 @@ export class CicloPercepcaoController implements ControladorCiclo {
 
   constructor(private readonly deps: DependenciasCicloPercepcao) {
     const config = deps.configuracaoCaptura ?? CONFIG_CAPTURA_PADRAO;
+    this.configuracaoCaptura = { ...config };
     this.politicaCiclo = deps.politicaCiclo ?? POLITICA_CICLO_BENCHMARK_ALVO;
     this.percepcao = deps.criarPercepcao();
     this.motorTemporal = this.criarMotorTemporal();
     this.store = new SnapshotStore({ maxQuadros: config.quadros });
-    this.captura = new WebcamCapture(deps.camera, config, deps.dependenciasCaptura);
+    this.captura = new WebcamCapture(deps.camera, this.configuracaoCaptura, deps.dependenciasCaptura);
     this.agendador = new AgendadorAnalise({
       executar: () => this.executarCiclo(),
       obterIntervaloMs: deps.obterIntervaloMs,
@@ -394,6 +397,15 @@ export class CicloPercepcaoController implements ControladorCiclo {
         return { interpretar: decisao.interpretar, motivo: decisao.motivo };
       },
       obterPolitica: () => aplicarPolitica(this.politicaCiclo),
+      obterConfiguracaoCiclo: (): ConfiguracaoCiclo => ({
+        varianteId: this.variante().id,
+        quantidadeSnapshotsConfigurada: this.configuracaoCaptura.quadros,
+        intervaloEntreSnapshotsMs: this.configuracaoCaptura.intervaloMs,
+        intervaloAgendamentoMs: this.deps.obterIntervaloMs(),
+        ...(this.interpretadorAtual?.diagnostico
+          ? { interpretador: this.interpretadorAtual.diagnostico }
+          : {}),
+      }),
       persistirCiclo: (registro) => this.deps.repositorio.gravarCiclo(registro),
       obterCargaModelos: () => this.cargaModelosAtual,
       obterLatenciaEntreCiclosMs: () =>

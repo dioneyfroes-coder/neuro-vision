@@ -237,6 +237,23 @@ describe("normalizarInterpretacao", () => {
 });
 
 describe("InterpretadorCiclo", () => {
+  it("expõe a configuração efetiva de modelo e limites do contexto", () => {
+    const interpreter = new InterpretadorCiclo({
+      modelo: () => "modelo-configurado",
+      limites: { maxImagens: 2, maxBytesContexto: 8000 },
+      incluirDadosLocais: false,
+      serializacao: { landmarksCompletos: true, maxMaosPorFrame: 3 },
+      enviar: async () => ({ texto: "ok" }),
+    });
+
+    expect(interpreter.diagnostico).toMatchObject({
+      modeloSolicitado: "modelo-configurado",
+      incluirDadosLocais: false,
+      limites: { maxImagens: 2, maxBytesContexto: 8000 },
+      serializacao: { landmarksCompletos: true, maxMaosPorFrame: 3 },
+    });
+  });
+
   it("envia as imagens na ordem correta e devolve resultado normalizado", async () => {
     const o1: ObservacaoFrame = { ...OBS_BASE, frameId: "f1", capturadoEmMs: 0, imagem: "img1" };
     const o2: ObservacaoFrame = { ...OBS_BASE, frameId: "f2", capturadoEmMs: 100, imagem: "img2" };

@@ -1,5 +1,8 @@
 import type { InterpretadorMultimodal } from "./contracts";
-import type { PacoteCiclo } from "../../src/domain/cycle";
+import type {
+  ConfiguracaoInterpretadorCiclo,
+  PacoteCiclo,
+} from "../../src/domain/cycle";
 import type { ResultadoInterpretacao } from "../../src/domain/interpretation";
 import {
   montarContextoCiclo,
@@ -7,7 +10,11 @@ import {
   type LimitesContexto,
   LIMITES_CONTEXTO_PADRAO,
 } from "./contexto";
-import { validarReferencias, type OpcoesSerializacao } from "./esquema";
+import {
+  OPCOES_SERIALIZACAO_PADRAO,
+  validarReferencias,
+  type OpcoesSerializacao,
+} from "./esquema";
 import { montarPromptInterpretacao } from "./prompt";
 import { normalizarInterpretacao } from "./normalizar";
 
@@ -90,6 +97,19 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
 
   get modelo(): string | null {
     return this.obterModelo();
+  }
+
+  get diagnostico(): ConfiguracaoInterpretadorCiclo {
+    return {
+      modeloSolicitado: this.obterModelo() ?? undefined,
+      incluirDadosLocais: this.incluirDadosLocais,
+      limites: { ...this.limites },
+      serializacao: {
+        ...OPCOES_SERIALIZACAO_PADRAO,
+        decimais: this.limites.decimais,
+        ...this.serializacao,
+      },
+    };
   }
 
   async interpretar(pacote: PacoteCiclo, sinal?: AbortSignal): Promise<ResultadoInterpretacao> {
