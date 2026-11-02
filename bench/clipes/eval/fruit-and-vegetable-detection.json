@@ -8,9 +8,6 @@
     "metodo": "amostragem-manual-1fps"
   },
   "notas": "Frutas e vegetais atravessam uma esteira. Revisao visual em amostras de 1 fps; nao ha pessoas no quadro.",
-  "negativos": [
-    "gesto.aceno"
-  ],
   "eventos": [
     {
       "tipo": "movimento",

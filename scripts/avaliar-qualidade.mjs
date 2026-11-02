@@ -210,7 +210,19 @@ export function parsearEventos(texto) {
     try {
       const evt = JSON.parse(limpa);
       if (typeof evt?.timestamp !== "string" || typeof evt?.tipo !== "string") continue;
-      eventos.push({ tipo: evt.tipo, timestamp: evt.timestamp, descricao: evt.descricao ?? "" });
+      eventos.push({
+        tipo: evt.tipo,
+        timestamp: evt.timestamp,
+        descricao: evt.descricao ?? "",
+        ...(typeof evt.rotuloObjeto === "string" ? { rotuloObjeto: evt.rotuloObjeto } : {}),
+        ...(Array.isArray(evt.origensSinal)
+          ? {
+              origensSinal: evt.origensSinal.filter((origem) =>
+                ["objetos", "pose", "maos", "cena", "movimento"].includes(origem)
+              ),
+            }
+          : {}),
+      });
     } catch {
       // linha corrompida: ignora
     }
@@ -257,18 +269,46 @@ function calcularDuracaoMs(esperados, detectados) {
  *
  * Recebe listas ja com `em` (ms) numerico. Para cada evento esperado procura a
  * deteccao de **tipo compativel** mais proxima dentro da tolerancia; cada
- * deteccao so pode casar uma vez. O casamento e "melhor-esforco" e deterministico.
+ * deteccao so pode casar uma vez. O escopo de objeto exige origem e rotulo
+ * conhecidos para nao confundir movimento de pessoa com objeto deslocado.
  */
 export function compararEventos({
   esperados = [],
   detectados = [],
+  escopoClasse,
   toleranciaMs = 3000,
   ignorados = TIPOS_IGNORADOS_PADRAO,
   duracaoMs,
 } = {}) {
   const ignoradosSet = new Set(ignorados);
-  const candidatos = detectados.filter((d) => !ignoradosSet.has(d.tipo));
-  const avaliaveis = esperados.filter((e) => e.determinavel !== false);
+  const escopoDeObjeto = escopoClasse === "movimento_objeto.objeto_deslocado";
+  const movimentos = escopoDeObjeto
+    ? detectados.filter((d) => d.tipo === "movimento" && !ignoradosSet.has(d.tipo))
+    : [];
+  const classificadosNoEscopo = movimentos.filter(
+    (d) =>
+      d.origensSinal?.includes("objetos") &&
+      typeof d.rotuloObjeto === "string" &&
+      d.rotuloObjeto.trim().length > 0
+  );
+  const semClassificacaoEscopo = movimentos.length - classificadosNoEscopo.length;
+  const movimentosPessoaExcluidos = classificadosNoEscopo.filter((d) =>
+    ["person", "pessoa"].includes(d.rotuloObjeto.trim().toLowerCase())
+  ).length;
+  const candidatos = detectados.filter((d) => {
+    if (ignoradosSet.has(d.tipo)) return false;
+    if (!escopoDeObjeto) return true;
+    return (
+      classificadosNoEscopo.includes(d) &&
+      !["person", "pessoa"].includes(d.rotuloObjeto.trim().toLowerCase())
+    );
+  });
+  const noEscopo = esperados.filter(
+    (e) =>
+      escopoClasse !== "movimento_objeto.objeto_deslocado" ||
+      (e.categoria === "movimento_objeto" && e.classe === "objeto_deslocado")
+  );
+  const avaliaveis = noEscopo.filter((e) => e.determinavel !== false);
 
   const usados = new Set();
   const correspondencias = [];
@@ -307,7 +347,11 @@ export function compararEventos({
 
   return {
     esperados: avaliaveis.length,
-    indeterminados: esperados.length - avaliaveis.length,
+    indeterminados: noEscopo.length - avaliaveis.length,
+    foraEscopo: esperados.length - noEscopo.length,
+    escopoClasse,
+    semClassificacaoEscopo,
+    movimentosPessoaExcluidos,
     detectados: candidatos.length,
     verdadeirosPositivos: tp,
     perdidos: fn,
@@ -336,6 +380,13 @@ export function formatarRelatorio(rel, { clip = "", toleranciaMs = 0 } = {}) {
     `Verdadeiros positivos: ${rel.verdadeirosPositivos} | perdidos: ${rel.perdidos} | falsos positivos: ${rel.falsosPositivos}`,
     `Precisao: ${pct(rel.precisao)} | recall: ${pct(rel.recall)} | falsos positivos/min: ${arredondar(rel.falsosPositivosPorMinuto, 2)}`,
   ];
+  if (rel.foraEscopo > 0) linhas.push(`Fora do escopo avaliado: ${rel.foraEscopo}`);
+  if (rel.semClassificacaoEscopo > 0) {
+    linhas.push(`Movimentos sem classificação de escopo: ${rel.semClassificacaoEscopo}`);
+  }
+  if (rel.movimentosPessoaExcluidos > 0) {
+    linhas.push(`Movimentos de pessoa excluídos: ${rel.movimentosPessoaExcluidos}`);
+  }
   if (rel.perdidosDetalhe.length) {
     linhas.push("Perdidas:");
     for (const p of rel.perdidosDetalhe) {
@@ -390,9 +441,19 @@ async function main() {
     .map((e) => ({ ...e, em: Date.parse(e.timestamp) - baseMs + args.offset }))
     .filter((e) => Number.isFinite(e.em));
 
+  const escopoClasse =
+    anotacao.negativos.includes("movimento_objeto.objeto_deslocado") ||
+    anotacao.eventos.some(
+      (evento) =>
+        evento.categoria === "movimento_objeto" &&
+        evento.classe === "objeto_deslocado"
+    )
+      ? "movimento_objeto.objeto_deslocado"
+      : undefined;
   const rel = compararEventos({
     esperados: anotacao.eventos,
     detectados,
+    escopoClasse,
     toleranciaMs: args.tolerancia,
     ignorados: args.ignorados ?? TIPOS_IGNORADOS_PADRAO,
     duracaoMs: anotacao.duracaoMs,

@@ -530,6 +530,7 @@ describe("CicloPercepcaoController", () => {
       ...confirmado,
       eventoId: "evt-mov",
       tipo: "movimento_objeto",
+      rotuloObjeto: "bottle",
       descricao: "caneca se desloca para a direita",
     };
     const candidato: EventoTemporal = {
@@ -571,6 +572,7 @@ describe("CicloPercepcaoController", () => {
         descricao: "caneca se desloca para a direita",
         origem: "rastreador",
         origensSinal: ["objetos"],
+        rotuloObjeto: "bottle",
       })
     );
     expect(ctx.eventosVisuais[0].idempotencyKey).toBeTruthy();

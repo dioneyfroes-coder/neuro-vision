@@ -127,6 +127,8 @@ export interface EventoVisual {
   tipo: TipoEventoVisual;
   /** Objeto rastreado relacionado, quando aplicavel. */
   objetoId?: string;
+  /** Rotulo original do detector para distinguir movimento de pessoas e objetos. */
+  rotuloObjeto?: string;
   descricao: string;
   confianca?: number;
   origem: OrigemEvento;

@@ -39,6 +39,57 @@ describe("compararEventos", () => {
     expect(r.falsosPositivosPorMinuto).toBe(0);
   });
 
+  it("avalia deslocamento de objetos sem confundir movimento de pessoa", () => {
+    const r = compararEventos({
+      esperados: [
+        ev("movimento", 5000, {
+          categoria: "movimento_objeto",
+          classe: "objeto_deslocado",
+        }),
+        ev("desaparecimento", 7000, {
+          categoria: "aparicao_desaparecimento",
+          classe: "pessoa_saindo",
+        }),
+      ],
+      detectados: [
+        ev("movimento", 5100, { origensSinal: ["objetos"], rotuloObjeto: "bottle" }),
+        ev("movimento", 5200, { origensSinal: ["objetos"], rotuloObjeto: "person" }),
+        ev("movimento", 5300, { origensSinal: ["pose"], rotuloObjeto: "bottle" }),
+        ev("movimento", 5400),
+        ev("desaparecimento", 7100, { origensSinal: ["objetos"], rotuloObjeto: "person" }),
+      ],
+      escopoClasse: "movimento_objeto.objeto_deslocado",
+      duracaoMs: 10000,
+    });
+    expect(r.escopoClasse).toBe("movimento_objeto.objeto_deslocado");
+    expect(r.esperados).toBe(1);
+    expect(r.foraEscopo).toBe(1);
+    expect(r.indeterminados).toBe(0);
+    expect(r.detectados).toBe(1);
+    expect(r.semClassificacaoEscopo).toBe(2);
+    expect(r.movimentosPessoaExcluidos).toBe(1);
+    expect(r.verdadeirosPositivos).toBe(1);
+    expect(r.falsosPositivos).toBe(0);
+    expect(r.perdidos).toBe(0);
+  });
+
+  it("conta objeto deslocado sem anotacao como falso positivo no escopo", () => {
+    const r = compararEventos({
+      esperados: [],
+      detectados: [
+        ev("movimento", 1000, { origensSinal: ["objetos"], rotuloObjeto: "chair" }),
+        ev("movimento", 2000, { origensSinal: ["objetos"], rotuloObjeto: "person" }),
+      ],
+      escopoClasse: "movimento_objeto.objeto_deslocado",
+      duracaoMs: 60000,
+    });
+    expect(r.detectados).toBe(1);
+    expect(r.falsosPositivos).toBe(1);
+    expect(r.precisao).toBe(0);
+    expect(r.semClassificacaoEscopo).toBe(0);
+    expect(r.movimentosPessoaExcluidos).toBe(1);
+  });
+
   it("conta deteccao sem mudanca esperada como falso positivo por minuto", () => {
     const r = compararEventos({
       esperados: [],
@@ -276,7 +327,13 @@ describe("resolverBaseMs", () => {
 describe("parsearEventos", () => {
   it("le JSONL e ignora linhas corrompidas ou incompletas", () => {
     const texto = [
-      JSON.stringify({ timestamp: "2026-01-01T00:00:00.000Z", tipo: "aparicao", descricao: "x" }),
+      JSON.stringify({
+        timestamp: "2026-01-01T00:00:00.000Z",
+        tipo: "aparicao",
+        descricao: "x",
+        rotuloObjeto: "person",
+        origensSinal: ["objetos"],
+      }),
       "linha corrompida",
       JSON.stringify({ tipo: "sem-timestamp" }),
       "",
@@ -285,6 +342,7 @@ describe("parsearEventos", () => {
     const r = parsearEventos(texto);
     expect(r).toHaveLength(2);
     expect(r[0].descricao).toBe("x");
+    expect(r[0]).toMatchObject({ rotuloObjeto: "person", origensSinal: ["objetos"] });
     expect(r[1].tipo).toBe("movimento");
   });
 });

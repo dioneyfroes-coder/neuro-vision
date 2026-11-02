@@ -255,13 +255,14 @@ export class RastreadorObjetos {
       timestamp,
       tipo,
       objetoId: objeto.id,
+      rotuloObjeto: objeto.rotulo,
       descricao,
       confianca,
       origem: "rastreador",
+      origensSinal: ["objetos"],
       snapshot: contexto.snapshot,
       modelo: contexto.modelo,
       sessaoId: contexto.sessaoId ?? this.sessaoId,
     };
   }
 }
-

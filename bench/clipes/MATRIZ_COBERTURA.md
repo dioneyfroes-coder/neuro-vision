@@ -28,26 +28,29 @@ reservado foi usado nos relatórios (protocolo e gate em
 [`../DECISAO_ARQUITETURAL_2026-10-21.md`](../DECISAO_ARQUITETURAL_2026-10-21.md)).
 Quando `--conjunto eval` é usado, o harness exige o diretório EVAL oficial e
 bloqueia a rodada se `validar:eval` não comprovar a cobertura e a separação.
+Nesse modo, processa somente os vídeos anotados no diretório EVAL oficial; não
+herda sidecars de tuning ao lado dos vídeos.
 
-## Conjunto EVAL (anotações revisadas; gate ainda incompleto)
+## Conjunto EVAL (escopo reduzido aprovado; cobertura validada)
 
 | Clipe | Duração | Cobertura | Anotação | Status |
 |-------|--------:|-----------|----------|--------|
-| `webcam-mudanca.webm` | 30 s | pessoa sai do quadro | `eval/webcam-mudanca.json` | ✅ verificada (v2) |
-| `fruit-and-vegetable-detection.mp4` | 61 s | objetos atravessam esteira; negativo de aceno | `eval/fruit-and-vegetable-detection.json` | ✅ revisada por amostragem de 1 fps |
-| `car-detection.mp4` | 30 s | carros cruzam o quadro; negativo de aceno | `eval/car-detection.json` | ✅ revisada por amostragem de 1 fps |
-| `bolt-detection.mp4` | 30 s | negativo de aceno (sem pessoas no quadro) | `eval/bolt-detection.json` | ✅ revisada por amostragem de 1 fps |
+| `webcam-mudanca.webm` | 30 s | pessoa sai; negativo de movimento de objeto | `eval/webcam-mudanca.json` | ✅ verificada (v2) |
+| `fruit-and-vegetable-detection.mp4` | 61 s | objetos atravessam esteira | `eval/fruit-and-vegetable-detection.json` | ✅ revisada por amostragem de 1 fps |
+| `car-detection.mp4` | 30 s | carros cruzam o quadro | `eval/car-detection.json` | ✅ revisada por amostragem de 1 fps |
+| `classroom.mp4` | 33 s | pessoas se movem; negativo de movimento de objeto | `eval/classroom.json` | ✅ revisada por amostragem de 1 fps |
+| `head-pose-face-detection-female.mp4` | 135 s | movimentos de cabeça; negativo de movimento de objeto | `eval/head-pose-face-detection-female.json` | ✅ vídeo completo revisado a 1 fps |
 
-As amostras revisadas não contêm aceno inequívoco; não foi criada ocorrência
-positiva dessa classe. A interpretação textual ainda precisa de verdade-base e
-de uma saída correspondente no comparador. Os eventos de movimento nos clipes
-acima foram anotados por amostragem, não quadro a quadro.
+Os eventos positivos de objetos foram anotados por amostragem, não quadro a
+quadro. O comparador restrito a este alvo só considera detecções `movimento`
+com origem `objetos` e rótulo do detector diferente de pessoa; eventos sem
+rótulo não são tratados como prova de movimento de objeto.
 
-**Fase 4 em andamento:** o manifesto exige as três classes escolhidas, três
-ocorrências por classe e três clipes com cobertura negativa. `negativos`
-registra alvos ausentes individualmente; `casoNegativo` continua reservado a
-clipes sem nenhum alvo. O gate deve continuar falhando enquanto aceno positivo
-e interpretação textual não tiverem ocorrências suficientes.
+**Fase 4 concluída em escopo reduzido, conforme autorizado pelo usuário:** o
+manifesto cobre apenas `movimento_objeto.objeto_deslocado`, com três
+ocorrências mínimas e três clipes negativos revisados. Aceno e interpretação
+textual ficam explicitamente fora desta avaliação e não podem ser considerados
+validados ou promovidos por estes resultados.
 
 ## Conjunto TUNING (rascunhos + limiares)
 
@@ -60,7 +63,7 @@ e interpretação textual não tiverem ocorrências suficientes.
 | `store-aisle-detection.mp4` | 65 s | oclusões (corredor) | `tuning/store-aisle-detection.json` | 📝 rascunho |
 | `worker-zone-detection.mp4` | 76 s | oclusões, iluminação industrial | `tuning/worker-zone-detection.json` | 📝 rascunho |
 
-## Cobertura mínima exigida × estado
+## Outros cenários fora do escopo EVAL atual
 
 | Cenário | Clipe | Conjunto | Estado |
 |---------|-------|----------|--------|
@@ -86,9 +89,9 @@ e interpretação textual não tiverem ocorrências suficientes.
   (`gesto`, `postura`, `movimento_corporal`, `movimento_objeto`,
   `aparicao_desaparecimento`, `interpretacao_textual`), classe, visibilidade,
   parte envolvida e `determinavel`.
-- `eval/manifest.json` fixa três classes-alvo com três ocorrências mínimas
-  cada e três clipes negativos; `npm run validar:eval` verifica a cobertura,
-  revisão humana e separação dos splits.
+- `eval/manifest.json` fixa a classe de movimento de objeto com três
+  ocorrências mínimas e três clipes negativos; `npm run validar:eval` verifica
+  cobertura, revisão humana e separação dos splits.
 - Eventos impossíveis de julgar ficam anotados com `determinavel: false`; o
   comparador os reporta à parte e não os trata como perdas.
 - **Rascunho** = `eventos: []` + `notas` iniciando com "RASCUNHO": significa

@@ -144,6 +144,16 @@ describe("montarEvento", () => {
     });
     expect(evento?.origensSinal).toEqual(["objetos"]);
   });
+
+  it("preserva o rotulo da entidade rastreada", () => {
+    const evento = montarEvento({
+      tipo: "movimento",
+      origem: "rastreador",
+      descricao: "garrafa se desloca",
+      rotuloObjeto: "bottle",
+    });
+    expect(evento?.rotuloObjeto).toBe("bottle");
+  });
 });
 
 describe("filtrarEventos", () => {

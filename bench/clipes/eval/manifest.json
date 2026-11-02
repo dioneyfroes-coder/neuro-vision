@@ -3,8 +3,6 @@
   "ocorrenciasMinimasPorClasse": 3,
   "clipesNegativosMinimos": 3,
   "classes": [
-    { "categoria": "gesto", "classe": "aceno" },
-    { "categoria": "movimento_objeto", "classe": "objeto_deslocado" },
-    { "categoria": "interpretacao_textual", "classe": "acao_descrita" }
+    { "categoria": "movimento_objeto", "classe": "objeto_deslocado" }
   ]
 }

@@ -62,6 +62,7 @@ export function montarEvento(payload: unknown): EventoVisual | null {
     timestamp: typeof p.timestamp === "string" ? p.timestamp : new Date().toISOString(),
     tipo: p.tipo as EventoVisual["tipo"],
     objetoId: typeof p.objetoId === "string" ? p.objetoId : undefined,
+    rotuloObjeto: typeof p.rotuloObjeto === "string" ? p.rotuloObjeto : undefined,
     descricao: p.descricao,
     confianca: typeof p.confianca === "number" && Number.isFinite(p.confianca) ? p.confianca : undefined,
     origem: origem as EventoVisual["origem"],

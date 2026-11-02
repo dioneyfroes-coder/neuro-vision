@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -9,6 +9,7 @@ import {
   agregarMetricasCiclos,
   avaliarComparabilidade,
   avaliarGateQualidade,
+  descobrirClipes,
   ehCicloConcluido,
   extrairModelosDoJsonl,
   filtrarCiclosDaVariante,
@@ -589,6 +590,16 @@ describe("avaliarComparabilidade", () => {
     expect(r.problemas.some((p) => p.includes("D: sem qualidade consolidada"))).toBe(true);
   });
 
+  it("recusa qualidade com movimentos sem classificação de escopo", () => {
+    const resultados = quatro();
+    resultados[1] = resultadoComparavel("B", {
+      qualidade: { consolidado: { f1: 0.8, semClassificacaoEscopo: 1 } },
+    });
+    const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo });
+    expect(r.conclusivo).toBe(false);
+    expect(r.problemas.some((p) => p.includes("B: 1 movimento(s) sem classificacao de escopo"))).toBe(true);
+  });
+
   it("com --sem-qualidade conclui apenas pelo desempenho (sem eventos/qualidade)", () => {
     const resultados = quatro().map((r) => ({ ...r, arquivoEventos: null, qualidade: null }));
     const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo, exigirQualidade: false });
@@ -669,6 +680,34 @@ describe("VARIANTES_BENCHMARK", () => {
     expect(por.D).toMatchObject({ imagens: 4, dadosLocais: true, temporal: "ampliado" });
     for (const v of VARIANTES_BENCHMARK) {
       if (v.dadosLocais) expect(v.percepcaoLocal).toBe(true);
+    }
+  });
+});
+
+describe("descobrirClipes", () => {
+  it("limita EVAL as anotacoes oficiais e nao herda sidecar de tuning", async () => {
+    const raiz = await mkdtemp(path.join(tmpdir(), "neuro-eval-clipes-"));
+    const videos = path.join(raiz, "videos");
+    const evalDir = path.join(raiz, "eval");
+    try {
+      await Promise.all([
+        mkdir(videos, { recursive: true }),
+        mkdir(evalDir, { recursive: true }),
+      ]);
+      await Promise.all([
+        writeFile(path.join(videos, "eval-clip.mp4"), "eval"),
+        writeFile(path.join(videos, "tuning-clip.mp4"), "tuning"),
+        writeFile(path.join(videos, "tuning-clip.json"), JSON.stringify({ clip: "tuning-clip.mp4" })),
+        writeFile(path.join(evalDir, "manifest.json"), "{}"),
+        writeFile(path.join(evalDir, "eval-clip.json"), JSON.stringify({ clip: "eval-clip.mp4" })),
+      ]);
+
+      const clipes = await descobrirClipes(videos, [], evalDir, true);
+      expect(clipes.map(({ nome, anotacao }) => ({ nome, anotacao }))).toEqual([
+        { nome: "eval-clip.mp4", anotacao: path.relative(process.cwd(), path.join(evalDir, "eval-clip.json")) },
+      ]);
+    } finally {
+      await rm(raiz, { recursive: true, force: true });
     }
   });
 });

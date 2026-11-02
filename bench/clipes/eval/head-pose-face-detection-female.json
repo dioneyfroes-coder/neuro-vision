@@ -1,0 +1,15 @@
+{
+  "versaoEsquema": 2,
+  "clip": "head-pose-face-detection-female.mp4",
+  "conjunto": "eval",
+  "duracaoMs": 134583,
+  "revisao": {
+    "status": "revisada",
+    "metodo": "amostragem-manual-1fps"
+  },
+  "notas": "Video completo revisado em amostras de 1 fps. A pessoa realiza movimentos de cabeca e expressao facial; nao ha objetos externos deslocados.",
+  "negativos": [
+    "movimento_objeto.objeto_deslocado"
+  ],
+  "eventos": []
+}

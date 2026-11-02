@@ -8,9 +8,6 @@
     "metodo": "amostragem-manual-1fps"
   },
   "notas": "Vista superior de carros cruzando o estacionamento. Revisao visual em amostras de 1 fps; nao ha pessoas no quadro.",
-  "negativos": [
-    "gesto.aceno"
-  ],
   "eventos": [
     {
       "tipo": "movimento",

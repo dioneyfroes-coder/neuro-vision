@@ -361,11 +361,21 @@ export async function resumoDoClipe(caminho) {
  * informado — permite conjuntos tuning/eval com os videos em outro lugar) e
  * depois ao lado do video (`<clipe>.json`).
  */
-export async function descobrirClipes(dir, explicitos = [], anotacoesDir = null) {
+export async function descobrirClipes(
+  dir,
+  explicitos = [],
+  anotacoesDir = null,
+  somenteAnotacoesOficiais = false
+) {
+  if (somenteAnotacoesOficiais && !anotacoesDir) {
+    throw new Error("conjunto EVAL requer diretorio de anotacoes oficial");
+  }
   const acharAnotacao = async (abs, base) => {
     const candidatos = [];
     if (anotacoesDir) candidatos.push(path.resolve(ROOT, anotacoesDir, `${base}.json`));
-    candidatos.push(`${abs.slice(0, abs.length - path.extname(abs).length)}.json`);
+    if (!somenteAnotacoesOficiais) {
+      candidatos.push(`${abs.slice(0, abs.length - path.extname(abs).length)}.json`);
+    }
     for (const c of candidatos) {
       if (await existe(c)) return path.relative(ROOT, c);
     }
@@ -386,8 +396,20 @@ export async function descobrirClipes(dir, explicitos = [], anotacoesDir = null)
   if (explicitos.length) return Promise.all(explicitos.map(paraPar));
 
   const absoluta = path.resolve(ROOT, dir);
+  const anotacoesOficiais = somenteAnotacoesOficiais
+    ? new Set(
+        (await readdir(path.resolve(ROOT, anotacoesDir)))
+          .filter((arquivo) => arquivo.endsWith(".json") && arquivo !== "manifest.json")
+          .map((arquivo) => arquivo.slice(0, -".json".length))
+      )
+    : null;
   const arquivos = (await readdir(absoluta).catch(() => []))
     .filter((f) => EXTENSOES_VIDEO.test(f))
+    .filter(
+      (f) =>
+        !anotacoesOficiais ||
+        anotacoesOficiais.has(f.slice(0, f.lastIndexOf(".")))
+    )
     .sort();
   return Promise.all(arquivos.map((f) => paraPar(path.join(dir, f))));
 }
@@ -1023,6 +1045,11 @@ export function avaliarComparabilidade(resultados, opcoes = {}) {
     if (exigirQualidade && !r.qualidade?.consolidado) {
       problemasDaVariante.push("sem qualidade consolidada (anotacoes/eventos ausentes ou ilegiveis)");
     }
+    if (exigirQualidade && (r.qualidade?.consolidado?.semClassificacaoEscopo ?? 0) > 0) {
+      problemasDaVariante.push(
+        `${r.qualidade.consolidado.semClassificacaoEscopo} movimento(s) sem classificacao de escopo`
+      );
+    }
 
     if (problemasDaVariante.length) {
       problemas.push(...problemasDaVariante.map((p) => `${letra}: ${p}`));
@@ -1112,6 +1139,7 @@ async function avaliarQualidadeDaVariante(variante, clipes, arquivoEventos, args
       recall: d.recall,
       f1: f1(d.precisao, d.recall),
       falsosPositivosPorMinuto: d.falsosPositivosPorMinuto,
+      semClassificacaoEscopo: d.semClassificacaoEscopo ?? 0,
       verdadeirosPositivos: d.verdadeirosPositivos,
       falsosPositivos: d.falsosPositivos,
       perdidos: d.perdidos,
@@ -1134,6 +1162,10 @@ async function avaliarQualidadeDaVariante(variante, clipes, arquivoEventos, args
   const fp = avaliados.reduce((s, a) => s + (a.falsosPositivos ?? 0), 0);
   const fn = avaliados.reduce((s, a) => s + (a.perdidos ?? 0), 0);
   const duracaoMs = avaliados.reduce((s, a) => s + (a.duracaoMs ?? 0), 0);
+  const semClassificacaoEscopo = avaliados.reduce(
+    (s, a) => s + (a.semClassificacaoEscopo ?? 0),
+    0
+  );
   const precisao = tp + fp > 0 ? tp / (tp + fp) : 1;
   const recall = tp + fn > 0 ? tp / (tp + fn) : 1;
   const distancias = avaliados.map((a) => a.distanciaMediaMs).filter(Number.isFinite);
@@ -1145,6 +1177,7 @@ async function avaliarQualidadeDaVariante(variante, clipes, arquivoEventos, args
       recall,
       f1: f1(precisao, recall),
       falsosPositivosPorMinuto: duracaoMs > 0 ? fp / (duracaoMs / 60_000) : 0,
+      semClassificacaoEscopo,
       verdadeirosPositivos: tp,
       falsosPositivos: fp,
       eventosNaoDetectados: fn,
@@ -1311,16 +1344,16 @@ function tabelaCustosDetalhados(desempenho) {
 function tabelaQualidade(qualidade) {
   if (!qualidade || !qualidade.porClip?.length) return ["_Sem avaliação de qualidade (sem anotações ou sem arquivo de eventos)._", ""];
   const linhas = [
-    "| Clipe | Precisão | Recall | F1 | FP/min | Não detectados | Dist. média casamento |",
-    "|-------|---------:|-------:|---:|-------:|---------------:|----------------------:|",
+    "| Clipe | Precisão | Recall | F1 | FP/min | Não detectados | Sem classificação | Dist. média casamento |",
+    "|-------|---------:|-------:|---:|-------:|---------------:|------------------:|----------------------:|",
   ];
   for (const p of qualidade.porClip) {
     if (p.pulado) {
-      linhas.push(`| ${p.clipe} | pulado | pulado | pulado | pulado | pulado | ${p.motivo} |`);
+      linhas.push(`| ${p.clipe} | pulado | pulado | pulado | pulado | pulado | pulado | ${p.motivo} |`);
       continue;
     }
     linhas.push(
-      `| ${p.clipe} | ${pct(p.precisao)} | ${pct(p.recall)} | ${pct(p.f1)} | ${num(p.falsosPositivosPorMinuto)} | ${p.perdidos} | ${p.distanciaMediaMs ?? "—"} ms |`
+      `| ${p.clipe} | ${pct(p.precisao)} | ${pct(p.recall)} | ${pct(p.f1)} | ${num(p.falsosPositivosPorMinuto)} | ${p.perdidos} | ${p.semClassificacaoEscopo} | ${p.distanciaMediaMs ?? "—"} ms |`
     );
   }
   linhas.push("");
@@ -1329,6 +1362,7 @@ function tabelaQualidade(qualidade) {
     linhas.push(
       `**Consolidado (${c.clipes} clipe(s))**: precisão ${pct(c.precisao)} · recall ${pct(c.recall)} · ` +
         `F1 ${pct(c.f1)} · FP/min ${num(c.falsosPositivosPorMinuto)} · não detectados ${c.eventosNaoDetectados} · ` +
+        `movimentos sem classificação de escopo ${c.semClassificacaoEscopo} · ` +
         `distância média de casamento ${c.distanciaMediaMs ?? "—"} ms`
     );
     linhas.push("");
@@ -1797,7 +1831,12 @@ async function main() {
     }
   }
 
-  const clipes = await descobrirClipes(args.clipesDir, args.clipes, args.anotacoesDir);
+  const clipes = await descobrirClipes(
+    args.clipesDir,
+    args.clipes,
+    args.anotacoesDir,
+    args.conjunto === "eval"
+  );
   if (!clipes.length) {
     console.error(
       `ERRO: nenhum clipe encontrado em ${args.clipesDir || args.clipes.join(", ")}. Use --clipes-dir ou --clipes.`

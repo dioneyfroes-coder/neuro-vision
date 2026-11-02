@@ -1,0 +1,15 @@
+{
+  "versaoEsquema": 2,
+  "clip": "classroom.mp4",
+  "conjunto": "eval",
+  "duracaoMs": 32800,
+  "revisao": {
+    "status": "revisada",
+    "metodo": "amostragem-manual-1fps"
+  },
+  "notas": "Sala de aula com pessoas sentando e levantando. Mesas e objetos do ambiente permanecem no lugar; negativo especifico para deslocamento de objetos.",
+  "negativos": [
+    "movimento_objeto.objeto_deslocado"
+  ],
+  "eventos": []
+}

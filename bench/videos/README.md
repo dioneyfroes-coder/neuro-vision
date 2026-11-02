@@ -151,8 +151,13 @@ Cada evento tem:
 O conjunto EVAL exige revisão humana e intervalos conferidos no vídeo. Um
 clipe sem eventos precisa declarar `casoNegativo: true` ou pelo menos um alvo
 em `negativos`; um rascunho vazio não comprova ausência de eventos. Use
-`casoNegativo` apenas para negativos globais. Consulte a matriz: a cobertura da
-Fase 4 continua incompleta enquanto alguma classe-alvo não atingir os mínimos.
+`casoNegativo` apenas para negativos globais. Consulte a matriz para saber o
+escopo e os mínimos vigentes.
+
+No escopo atual de movimento de objetos, a qualidade considera apenas eventos
+`movimento` com `origensSinal` contendo `objetos` e `rotuloObjeto` do detector
+preenchido e diferente de `person`/`pessoa`. Sem esses campos, o evento não
+comprova nem refuta deslocamento de objeto.
 
 ## Como a comparação funciona
 
@@ -161,6 +166,9 @@ Fase 4 continua incompleta enquanto alguma classe-alvo não atingir os mínimos.
 - Para cada evento **esperado**, o script procura a detecção de **tipo
   compatível** mais próxima dentro da **tolerância** (`--tolerancia`, padrão
   3000 ms). Cada detecção só pode casar uma vez.
+- No escopo EVAL atual, apenas o alvo `movimento_objeto.objeto_deslocado` é
+  comparado; movimentos de pessoas e eventos sem rótulo do detector ficam fora
+  da métrica desse alvo.
 - Detecção que não casa com nenhum evento esperado conta como **falso positivo**.
 - Evento esperado sem detecção correspondente conta como **mudança perdida**.
 - `--offset <ms>` desloca as detecções em relação à anotação, útil quando o

@@ -51,6 +51,8 @@ export interface EventoTemporal {
   ultimaObservacaoEm?: string;
   /** Entidade associada (objeto, pessoa ou mao rastreada), quando houver. */
   entidadeId?: string;
+  /** Rotulo do detector da entidade associada, quando for um objeto rastreado. */
+  rotuloObjeto?: string;
   /** Descricao legivel em portugues. */
   descricao: string;
   /** Confianca em [0,1] agregada dos sinais. */

@@ -72,6 +72,8 @@ describe("RastreadorObjetos", () => {
     expect(f2.eventos.map((e) => e.tipo)).toEqual(["movimento"]);
     expect(f2.eventos[0].objetoId).toMatch(/^obj-/);
     expect(f2.eventos[0].origem).toBe("rastreador");
+    expect(f2.eventos[0].rotuloObjeto).toBe("person");
+    expect(f2.eventos[0].origensSinal).toEqual(["objetos"]);
   });
 
   it("deteccao ausente por um frame nao gera desaparecimento nem nova aparicao", () => {

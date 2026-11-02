@@ -282,7 +282,7 @@ Evitar usar o mesmo evento para objetos, mãos e corpo sem registrar a origem. T
 
 ### 4.1 Cobertura insuficiente para avaliar gestos e ações
 
-`bench/clipes/MATRIZ_COBERTURA.md` registra anotações revisadas de saída de pessoa, deslocamento de objetos e negativos específicos para aceno. Ainda não há ocorrência positiva de aceno nem cobertura suficiente para interpretar ações textualmente.
+O conjunto atual, descrito em `bench/clipes/MATRIZ_COBERTURA.md`, foi aprovado em escopo reduzido para deslocamento de objetos. Ele não valida acenos nem interpretação textual; essas classes continuam sem exemplos positivos e permanecem fora das conclusões do benchmark.
 
 Esse material pode ajudar a validar um evento de aparição/desaparecimento e falsos positivos de cena, mas não permite concluir se o projeto reconhece bem:
 
@@ -350,25 +350,29 @@ Preparar clipes anotados por humanos, com pelo menos várias ocorrências de cad
 
 As anotações devem incluir início/fim, tipo de ação, qualidade da visibilidade, mão/corpo envolvido e se o evento é impossível de determinar. Avaliar separadamente gestos, postura, movimento de objeto, aparição/desaparecimento e interpretação textual.
 
-**Status:** em andamento. O esquema v2 exclui eventos indeterminados das
-métricas e as anotações agora usam os três alvos escolhidos, com negativos
-específicos por classe. Os vídeos locais revisados não mostram aceno inequívoco;
-não foram inventadas ocorrências positivas. A classe de interpretação textual
-também não pode ser medida pelo fluxo atual sem verdade-base e saída comparável.
-`npm run validar:eval` mantém o gate fechado até a cobertura atingir os mínimos;
-a matriz detalha o estado e os candidatos.
+**Status:** concluída em escopo reduzido, autorizado pelo usuário em 2026-11-02.
+O manifesto agora avalia somente `movimento_objeto.objeto_deslocado`, com seis
+ocorrências positivas e três clipes negativos revisados. Aceno e interpretação
+textual permanecem fora do escopo e não são considerados validados. O comparador
+usa a origem semântica e o rótulo do detector para não confundir movimento de
+pessoa com deslocamento de objeto; movimentos sem esses metadados são reportados
+e bloqueiam a conclusão comparativa, em vez de serem silenciosamente ignorados.
+A matriz documenta clipes, revisão e limitações.
 
 ### Fase 5 — Comparar A/B/C/D sem alterar outras variáveis
 
-**Status:** o protocolo reproduzível (warm-up, cold start, etapas isoladas e
-gate qualidade × latência) e seus testes já estão implementados. A rodada
-comparativa atual permanece bloqueada pelo gate da Fase 4: faltam três
-ocorrências positivas de `gesto.aceno` e três de
-`interpretacao_textual.acao_descrita`. A tentativa oficial em 2026-11-02 foi
-recusada antes de iniciar as variantes e não gerou relatórios. Os logs antigos
-não substituem uma rodada sobre o EVAL validado. Não contornar o gate com
-`--sem-qualidade` ou `--permitir-inconclusivo`; retomar a comparação quando a
-cobertura e as saídas textuais comparáveis estiverem disponíveis.
+**Status:** protocolo reproduzível e cobertura EVAL no escopo reduzido estão
+prontos. A comparação A/B/C/D ainda exige logs novos das quatro variantes
+executadas sobre os mesmos clipes, com eventos que carreguem origem e rótulo do
+objeto. Os logs antigos não substituem essa rodada. Os resultados não poderão
+ser generalizados para acenos ou interpretação textual.
+
+O preflight de 2026-11-02 validou os cinco clipes oficiais, mas encontrou zero
+ciclos identificáveis para A/B/C/D, nenhum arquivo de eventos separado por
+variante e nenhum modelo multimodal verificável nos ciclos. Portanto, não gerou
+relatório comparativo. A rodada continua pendente até haver logs novos e
+independentes por variante; movimentos sem metadados de origem/rótulo também
+impedem um veredito conclusivo.
 
 - Usar as mesmas gravações, anotações, modelo multimodal, prompt e hardware para todas as variantes.
 - Fazer warm-up separado e reportar cold start separadamente.

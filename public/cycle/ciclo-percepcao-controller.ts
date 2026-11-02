@@ -535,6 +535,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
         timestamp: evt.inicioEm,
         tipo: evt.tipo === "movimento_objeto" ? "movimento" : evt.tipo,
         objetoId: evt.entidadeId,
+        rotuloObjeto: evt.rotuloObjeto,
         descricao: evt.descricao,
         confianca: evt.confianca,
         origem: "rastreador",

@@ -472,6 +472,7 @@ export class MotorTemporalImpl implements MotorTemporal {
       ultimaEvidenciaEm: ev.timestamp,
       ultimaObservacaoEm: ev.timestamp,
       entidadeId: ev.objetoId,
+      rotuloObjeto: ev.rotuloObjeto,
       descricao: ev.descricao,
       confianca: ev.confianca,
       origens: [origem],

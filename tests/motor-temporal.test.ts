@@ -845,6 +845,7 @@ describe("MotorTemporalImpl — objetos e cena", () => {
     const aparicao = todos.find((e) => e.tipo === "aparicao");
     expect(aparicao).toBeDefined();
     expect(aparicao?.origens).toEqual(["objetos"]);
+    expect(aparicao?.rotuloObjeto).toBe("person");
     expect(aparicao?.frameIds.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -865,6 +866,7 @@ describe("MotorTemporalImpl — objetos e cena", () => {
     const movimento = eventos.find((e) => e.tipo === "movimento_objeto");
     expect(movimento).toBeDefined();
     expect(movimento?.origens).toEqual(["objetos"]);
+    expect(movimento?.rotuloObjeto).toBe("cup");
     expect(eventos.some((e) => e.tipo === "movimento_corporal")).toBe(false);
   });
 
