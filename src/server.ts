@@ -48,6 +48,11 @@ import {
 } from "./persistence/repositorio-eventos";
 export { eventoJaRegistrado, marcarEventoRegistrado } from "./persistence/repositorio-eventos";
 import {
+  gravarEventoTemporal,
+  lerEventosTemporais as lerEventosTemporaisRepo,
+  limparEventosTemporais as limparEventosTemporaisRepo,
+} from "./persistence/repositorio-eventos-temporais";
+import {
   gravarOperacional,
   lerOperacional as lerOperacionalRepo,
 } from "./persistence/repositorio-operacional";
@@ -59,6 +64,7 @@ import {
 import type {
   Caixa,
   EntradaLog,
+  EventoTemporalPersistido,
   EventoVisual,
   MarcacaoNsfwLog,
   MotivoAnalise,
@@ -66,6 +72,11 @@ import type {
   TipoEntrada,
   TipoEventoVisual,
 } from "./types";
+import type {
+  EstadoEventoTemporal,
+  OrigemSinalTemporal,
+  TipoEventoTemporal,
+} from "./domain/temporal-event";
 import { normalizarCaixaNsfw } from "./nsfw-prompt";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -87,6 +98,8 @@ export const MODELOS_DIR = path.join(ROOT, "modelos");
 export const LOG_DIR = path.join(ROOT, "logs");
 export const LOG_FILE = path.join(LOG_DIR, "visao.jsonl");
 export const EVENTOS_FILE = path.join(LOG_DIR, "eventos.jsonl");
+/** Memoria pesquisavel de gestos/posturas, separada dos fatos visuais (P2.6). */
+export const EVENTOS_TEMPORAIS_FILE = path.join(LOG_DIR, "eventos-temporais.jsonl");
 export const OPERACIONAL_FILE = path.join(LOG_DIR, "operacional.jsonl");
 export const CICLOS_FILE = path.join(LOG_DIR, "ciclos.jsonl");
 import { env } from "./env";
@@ -396,6 +409,29 @@ export async function limparEventos(filePath: string = EVENTOS_FILE): Promise<vo
   await limparEventosRepo(filePath);
 }
 
+/** Grava uma atualizacao de evento temporal de gesto/postura (P2.6). */
+export async function appendEventoTemporal(
+  evento: EventoTemporalPersistido,
+  filePath: string = EVENTOS_TEMPORAIS_FILE
+): Promise<void> {
+  await gravarEventoTemporal(evento, filePath, LOG_MAX_BYTES);
+}
+
+/** Le as atualizacoes de eventos temporais mais recentes (mais recente primeiro). */
+export async function lerEventosTemporais(
+  filePath: string = EVENTOS_TEMPORAIS_FILE,
+  limit = 100
+): Promise<EventoTemporalPersistido[]> {
+  return lerEventosTemporaisRepo(filePath, limit);
+}
+
+/** Esvazia a memoria de gestos/posturas. */
+export async function limparEventosTemporais(
+  filePath: string = EVENTOS_TEMPORAIS_FILE
+): Promise<void> {
+  await limparEventosTemporaisRepo(filePath);
+}
+
 export async function appendOperacional(
   registro: RegistroOperacional,
   filePath: string = OPERACIONAL_FILE
@@ -433,6 +469,29 @@ export async function limparCiclosPersistidos(filePath: string = CICLOS_FILE): P
 
 type SubsistemaIndisponivel = RegistroCiclo["subsistemasIndisponiveis"][number];
 const SUBSISTEMAS_VALIDOS: SubsistemaIndisponivel[] = ["deteccao", "pose", "maos", "nsfw"];
+
+/**
+ * Tipos que entram na memoria pesquisavel de gestos/posturas (P2.6). Ficam
+ * fora de `eventos.jsonl` de proposito: o stream legado continua restrito a
+ * fatos visuais (`aparicao`/`desaparecimento`/`mudanca_de_cena`).
+ */
+export const TIPOS_EVENTO_TEMPORAL_PERSISTIDOS: TipoEventoTemporal[] = [
+  "gesto_detectado",
+  "braco_levantado",
+  "movimento_corporal",
+];
+const ESTADOS_EVENTO_TEMPORAL_PERSISTIDOS: EstadoEventoTemporal[] = [
+  "confirmado",
+  "encerrado",
+  "incerto",
+];
+const ORIGENS_SINAL_TEMPORAL: OrigemSinalTemporal[] = [
+  "objetos",
+  "pose",
+  "maos",
+  "cena",
+  "movimento",
+];
 
 /**
  * Normaliza o corpo de `POST /api/ciclos` em um `RegistroCiclo`. O registro
@@ -476,6 +535,64 @@ export function montarRegistroCiclo(payload: unknown): RegistroCiclo | null {
     politica,
     cancelado: p.cancelado === true,
     registroEm: typeof p.registroEm === "string" ? p.registroEm : new Date().toISOString(),
+  };
+}
+
+/**
+ * Normaliza o corpo de `POST /api/eventos-temporais` em um registro
+ * persistivel. So aceita os tipos de gesto/postura/movimento corporal e os
+ * estados finais/incertos; `candidato` nunca vira memoria.
+ */
+export function montarEventoTemporal(payload: unknown): EventoTemporalPersistido | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.eventoId !== "string" || !p.eventoId) return null;
+  if (typeof p.sessionId !== "string" || !p.sessionId) return null;
+  if (!TIPOS_EVENTO_TEMPORAL_PERSISTIDOS.includes(p.tipo as TipoEventoTemporal)) return null;
+  if (typeof p.inicioEm !== "string" || !p.inicioEm) return null;
+  if (typeof p.descricao !== "string" || !p.descricao) return null;
+  if (!ESTADOS_EVENTO_TEMPORAL_PERSISTIDOS.includes(p.estado as EstadoEventoTemporal)) {
+    return null;
+  }
+  if (typeof p.idempotencyKey !== "string" || !p.idempotencyKey) return null;
+
+  const frameIds = Array.isArray(p.frameIds)
+    ? p.frameIds.filter((id): id is string => typeof id === "string")
+    : [];
+  const origens = Array.isArray(p.origens)
+    ? p.origens.filter((origem): origem is OrigemSinalTemporal =>
+        ORIGENS_SINAL_TEMPORAL.includes(origem as OrigemSinalTemporal)
+      )
+    : [];
+  const confianca =
+    typeof p.confianca === "number" && Number.isFinite(p.confianca) ? p.confianca : undefined;
+  const intervalo =
+    typeof p.intervaloSemObservacaoMs === "number" &&
+    Number.isFinite(p.intervaloSemObservacaoMs)
+      ? p.intervaloSemObservacaoMs
+      : undefined;
+
+  return {
+    eventoId: p.eventoId,
+    sessionId: p.sessionId,
+    cycleId: typeof p.cycleId === "string" ? p.cycleId : undefined,
+    tipo: p.tipo as TipoEventoTemporal,
+    inicioEm: p.inicioEm,
+    fimEm: typeof p.fimEm === "string" ? p.fimEm : undefined,
+    ultimaEvidenciaEm:
+      typeof p.ultimaEvidenciaEm === "string" ? p.ultimaEvidenciaEm : undefined,
+    ultimaObservacaoEm:
+      typeof p.ultimaObservacaoEm === "string" ? p.ultimaObservacaoEm : undefined,
+    entidadeId: typeof p.entidadeId === "string" ? p.entidadeId : undefined,
+    descricao: p.descricao,
+    confianca,
+    origens,
+    frameIds,
+    estado: p.estado as EstadoEventoTemporal,
+    intervaloSemObservacaoMs: intervalo,
+    idempotencyKey: p.idempotencyKey,
+    registradoEm:
+      typeof p.registradoEm === "string" ? p.registradoEm : new Date().toISOString(),
   };
 }
 
@@ -1097,6 +1214,103 @@ async function handleClearCiclos(res: ServerResponse, ciclosFile: string): Promi
   }
 }
 
+/**
+ * `POST /api/eventos-temporais` — grava uma atualizacao de gesto/postura/
+ * movimento corporal. Stream separado de `eventos.jsonl` (P2.6).
+ */
+async function handleEventosTemporais(
+  req: IncomingMessage,
+  res: ServerResponse,
+  eventosTemporaisFile: string
+): Promise<void> {
+  try {
+    const raw = await readBody(req, BODY_MAX_BYTES);
+    const payload: unknown = JSON.parse(raw || "{}");
+    const evento = montarEventoTemporal(payload);
+    if (!evento) {
+      sendJson(res, 400, {
+        ok: false,
+        erro:
+          "evento temporal invalido: exige eventoId, sessionId, tipo de gesto/postura, " +
+          "inicioEm, descricao, estado (confirmado/encerrado/incerto) e idempotencyKey",
+      });
+      return;
+    }
+    // A fila do cliente pode reenviar apos falha transitoria: a chave estavel
+    // evita duplicar a mesma atualizacao no stream append-only.
+    if (eventoJaRegistrado(eventosTemporaisFile, evento.idempotencyKey)) {
+      sendJson(res, 200, { ok: true, evento, duplicado: true });
+      return;
+    }
+    await appendEventoTemporal(evento, eventosTemporaisFile);
+    marcarEventoRegistrado(eventosTemporaisFile, evento.idempotencyKey);
+    sendJson(res, 200, { ok: true, evento });
+  } catch (err) {
+    sendJson(res, 400, { ok: false, erro: (err as Error).message });
+  }
+}
+
+/** `GET /api/eventos-temporais` — consulta a memoria de gestos/posturas. */
+async function handleListEventosTemporais(
+  req: IncomingMessage,
+  res: ServerResponse,
+  eventosTemporaisFile: string
+): Promise<void> {
+  try {
+    const url = new URL(req.url ?? "/api/eventos-temporais", "http://localhost");
+    const limitParam = Number(url.searchParams.get("limit"));
+    const limite =
+      Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 500) : 100;
+    const tipos = new Set(
+      (url.searchParams.get("tipo") ?? "")
+        .split(",")
+        .map((t) => t.trim())
+        .filter((t): t is TipoEventoTemporal =>
+          TIPOS_EVENTO_TEMPORAL_PERSISTIDOS.includes(t as TipoEventoTemporal)
+        )
+    );
+    const estados = new Set(
+      (url.searchParams.get("estado") ?? "")
+        .split(",")
+        .map((e) => e.trim())
+        .filter((e): e is EstadoEventoTemporal =>
+          ESTADOS_EVENTO_TEMPORAL_PERSISTIDOS.includes(e as EstadoEventoTemporal)
+        )
+    );
+    const entidadeId = url.searchParams.get("entidadeId")?.trim() || undefined;
+    const desdeMs = parsearInstante(url.searchParams.get("desde"));
+    const ateMs = parsearInstante(url.searchParams.get("ate"));
+
+    const eventos = (await lerEventosTemporais(eventosTemporaisFile, limite)).filter((evt) => {
+      if (tipos.size > 0 && !tipos.has(evt.tipo)) return false;
+      if (estados.size > 0 && !estados.has(evt.estado)) return false;
+      if (entidadeId && evt.entidadeId !== entidadeId) return false;
+      const inicio = Date.parse(evt.inicioEm);
+      if (desdeMs !== undefined && Number.isFinite(inicio) && inicio < desdeMs) return false;
+      if (ateMs !== undefined && Number.isFinite(inicio) && inicio > ateMs) return false;
+      return true;
+    });
+    sendJson(res, 200, { ok: true, total: eventos.length, eventos });
+  } catch (err) {
+    logEvent("error", "listar_eventos_temporais_falhou", { erro: (err as Error).message });
+    sendJson(res, 500, { ok: false, erro: (err as Error).message });
+  }
+}
+
+/** `DELETE /api/eventos-temporais` — esvazia a memoria de gestos/posturas. */
+async function handleClearEventosTemporais(
+  res: ServerResponse,
+  eventosTemporaisFile: string
+): Promise<void> {
+  try {
+    await limparEventosTemporais(eventosTemporaisFile);
+    sendJson(res, 200, { ok: true });
+  } catch (err) {
+    logEvent("error", "limpar_eventos_temporais_falhou", { erro: (err as Error).message });
+    sendJson(res, 500, { ok: false, erro: (err as Error).message });
+  }
+}
+
 async function streamVisao(
   res: ServerResponse,
   imagem: string | string[],
@@ -1321,14 +1535,17 @@ async function handleClearLogs(
   logFile: string,
   snapDir: string,
   eventosFile: string,
-  ciclosFile: string
+  ciclosFile: string,
+  eventosTemporaisFile: string
 ): Promise<void> {
   try {
-    // "Limpar historico" apaga os dados persistidos: observacoes, eventos,
-    // diagnosticos de ciclo e os snapshots que ficaram orfaos. Nao mexe no
-    // estado temporal em memoria do cliente — esse reset e uma acao separada.
+    // "Limpar historico" apaga os dados persistidos: observacoes, eventos
+    // visuais, memoria de gestos/posturas, diagnosticos de ciclo e os snapshots
+    // que ficaram orfaos. Nao mexe no estado temporal em memoria do cliente —
+    // esse reset e uma acao separada.
     await limparLog(logFile);
     await limparEventos(eventosFile);
+    await limparEventosTemporais(eventosTemporaisFile);
     await limparCiclosPersistidos(ciclosFile);
     // Sem historico nem eventos, todos os snapshots ficam orfaos: a limpeza os
     // remove de imediato, mantendo o uso de disco limitado pela politica.
@@ -1582,6 +1799,11 @@ export interface ServerConfig {
   apiKey?: string;
   /** Arquivo de eventos estruturados. Padrao: `eventos.jsonl` ao lado do log. */
   eventosFile?: string;
+  /**
+   * Arquivo da memoria de gestos/posturas (P2.6). Padrao:
+   * `eventos-temporais.jsonl` ao lado do log.
+   */
+  eventosTemporaisFile?: string;
   /** Arquivo de registros operacionais. Padrao: `operacional.jsonl` ao lado do log. */
   operacionalFile?: string;
   /** Arquivo de diagnosticos de ciclo. Padrao: `ciclos.jsonl` ao lado do log. */
@@ -1599,6 +1821,8 @@ export function createServer(config: ServerConfig = {}): http.Server {
   const snapDir = config.snapDir ?? SNAP_DIR;
   const publicDir = config.publicDir ?? PUBLIC_DIR;
   const eventosFile = config.eventosFile ?? path.join(path.dirname(logFile), "eventos.jsonl");
+  const eventosTemporaisFile =
+    config.eventosTemporaisFile ?? path.join(path.dirname(logFile), "eventos-temporais.jsonl");
   const operacionalFile =
     config.operacionalFile ?? path.join(path.dirname(logFile), "operacional.jsonl");
   const ciclosFile = config.ciclosFile ?? path.join(path.dirname(logFile), "ciclos.jsonl");
@@ -1639,6 +1863,18 @@ export function createServer(config: ServerConfig = {}): http.Server {
       void handleClearEventos(res, eventosFile, snapDir, logFile);
       return;
     }
+    if (req.method === "POST" && pathname === "/api/eventos-temporais") {
+      void handleEventosTemporais(req, res, eventosTemporaisFile);
+      return;
+    }
+    if (req.method === "GET" && pathname === "/api/eventos-temporais") {
+      void handleListEventosTemporais(req, res, eventosTemporaisFile);
+      return;
+    }
+    if (req.method === "DELETE" && pathname === "/api/eventos-temporais") {
+      void handleClearEventosTemporais(res, eventosTemporaisFile);
+      return;
+    }
     if (req.method === "POST" && url === "/api/operacional") {
       void handleOperacional(req, res, operacionalFile);
       return;
@@ -1669,7 +1905,7 @@ export function createServer(config: ServerConfig = {}): http.Server {
       return;
     }
     if (req.method === "DELETE" && pathname === "/api/logs") {
-      void handleClearLogs(res, logFile, snapDir, eventosFile, ciclosFile);
+      void handleClearLogs(res, logFile, snapDir, eventosFile, ciclosFile, eventosTemporaisFile);
       return;
     }
     if (req.method === "GET" && pathname === "/api/health") {

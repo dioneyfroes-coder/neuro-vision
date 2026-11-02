@@ -27,7 +27,7 @@ export async function lerEventos(filePath: string, limit: number): Promise<Event
 export async function limparEventos(filePath: string): Promise<void> {
   await limparJsonl(filePath);
   // Arquivo zerado: as chaves de idempotencia antigas deixam de valer.
-  eventosIdempotentes.delete(filePath);
+  esquecerEventosRegistrados(filePath);
 }
 
 /**
@@ -41,6 +41,14 @@ const IDEMPOTENTES_MAX = 2000;
 /** Indica se a chave de idempotencia ja foi processada para este arquivo. */
 export function eventoJaRegistrado(filePath: string, chave: string): boolean {
   return eventosIdempotentes.get(filePath)?.has(chave) ?? false;
+}
+
+/**
+ * Esquece as chaves de idempotencia de um arquivo (chamado quando o stream e
+ * esvaziado: sem registros, as chaves antigas nao devem bloquear reenvios).
+ */
+export function esquecerEventosRegistrados(filePath: string): void {
+  eventosIdempotentes.delete(filePath);
 }
 
 /** Marca a chave como processada, descartando as mais antigas no limite. */

@@ -16,7 +16,7 @@ import { CONFIG_CAPTURA_PADRAO } from "../public/capture/webcam-capture";
 import type { TarefaPersistencia } from "../public/persistencia";
 import type { RegistroCiclo } from "../src/domain/cycle";
 import type { ResultadoInterpretacao } from "../src/domain/interpretation";
-import type { EntradaLog, EventoVisual } from "../src/types";
+import type { EntradaLog, EventoTemporalEnvio, EventoVisual } from "../src/types";
 import type { EventoTemporal } from "../src/domain/temporal-event";
 import type { PoliticaCiclo } from "../public/cycle/politica-ciclo";
 import {
@@ -127,6 +127,7 @@ interface Contexto {
   ciclos: RegistroCiclo[];
   entradas: EntradaLog[];
   eventosVisuais: EventoVisual[];
+  eventosTemporaisMemoria: EventoTemporalEnvio[];
   operacionais: Array<{ nivel?: string; origem?: string; mensagem: string }>;
   tarefas: TarefaPersistencia[];
   motorTemporal: MotorTemporal;
@@ -156,6 +157,7 @@ function montar(
   const ciclos: RegistroCiclo[] = [];
   const entradas: EntradaLog[] = [];
   const eventosVisuais: EventoVisual[] = [];
+  const eventosTemporaisMemoria: EventoTemporalEnvio[] = [];
   const operacionais: Array<{ nivel?: string; origem?: string; mensagem: string }> = [];
   const tarefas: TarefaPersistencia[] = [];
   let naoGravados = 0;
@@ -175,6 +177,9 @@ function montar(
     },
     gravarEvento: async (evento) => {
       eventosVisuais.push(evento);
+    },
+    gravarEventoTemporal: async (evento) => {
+      eventosTemporaisMemoria.push(evento);
     },
     gravarOperacional: async (registro) => {
       operacionais.push(registro);
@@ -250,6 +255,7 @@ function montar(
     ciclos,
     entradas,
     eventosVisuais,
+    eventosTemporaisMemoria,
     operacionais,
     tarefas,
     motorTemporal,
@@ -462,6 +468,82 @@ describe("CicloPercepcaoController", () => {
     // A identidade que reaparece no proximo ciclo nao duplica no arquivo.
     await ctx.controle.executarCiclo();
     expect(ctx.tarefas.filter((t) => t.descricao.startsWith("evento:multiframe:"))).toHaveLength(1);
+    ctx.controle.parar();
+  });
+
+  it("persiste gestos/posturas no stream temporal e ignora candidatos", async () => {
+    const base: EventoTemporal = {
+      eventoId: "evt-g1",
+      sessionId: "s",
+      tipo: "gesto_detectado",
+      inicioEm: "2026-11-02T10:00:00.000Z",
+      ultimaEvidenciaEm: "2026-11-02T10:00:01.000Z",
+      ultimaObservacaoEm: "2026-11-02T10:00:01.200Z",
+      entidadeId: "p1",
+      descricao: "mao levantada",
+      confianca: 0.9,
+      origens: ["pose"],
+      frameIds: ["f1", "f2"],
+      estado: "confirmado",
+    };
+    const gestoConfirmado = base;
+    const gestoCandidato: EventoTemporal = {
+      ...base,
+      eventoId: "evt-g2",
+      estado: "candidato",
+    };
+    const bracoIncerto: EventoTemporal = {
+      ...base,
+      eventoId: "evt-g3",
+      tipo: "braco_levantado",
+      estado: "incerto",
+      fimEm: "2026-11-02T10:00:01.000Z",
+      intervaloSemObservacaoMs: 2500,
+    };
+    const movimentoEncerrado: EventoTemporal = {
+      ...base,
+      eventoId: "evt-g4",
+      tipo: "movimento_corporal",
+      estado: "encerrado",
+      fimEm: "2026-11-02T10:00:02.000Z",
+    };
+    const ctx = montar({
+      eventosTemporais: [gestoConfirmado, gestoCandidato, bracoIncerto, movimentoEncerrado],
+    });
+    await ctx.controle.iniciar();
+
+    const agendados = () => ctx.tarefas.filter((t) => t.descricao.startsWith("memoria:"));
+    // Confirmado, incerto e encerrado entram; candidato nunca vira memoria.
+    expect(agendados()).toHaveLength(3);
+    await Promise.all(ctx.tarefas.map((t) => t.executar()));
+    expect(ctx.eventosTemporaisMemoria.map((e) => e.eventoId).sort()).toEqual([
+      "evt-g1",
+      "evt-g3",
+      "evt-g4",
+    ]);
+    // Os gestos nao poluem o stream de fatos visuais.
+    expect(ctx.eventosVisuais).toHaveLength(0);
+
+    const incerto = ctx.eventosTemporaisMemoria.find((e) => e.eventoId === "evt-g3");
+    expect(incerto).toMatchObject({
+      tipo: "braco_levantado",
+      estado: "incerto",
+      intervaloSemObservacaoMs: 2500,
+      ultimaEvidenciaEm: "2026-11-02T10:00:01.000Z",
+      ultimaObservacaoEm: "2026-11-02T10:00:01.200Z",
+      entidadeId: "p1",
+      frameIds: ["f1", "f2"],
+      idempotencyKey: "evt-g3:incerto",
+    });
+
+    // O mesmo estado nao duplica no proximo ciclo.
+    await ctx.controle.executarCiclo();
+    expect(agendados()).toHaveLength(3);
+
+    // Reiniciar a sessao limpa a deduplicacao em memoria.
+    ctx.controle.reiniciarSessao();
+    await ctx.controle.executarCiclo();
+    expect(agendados()).toHaveLength(6);
     ctx.controle.parar();
   });
 

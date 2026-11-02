@@ -28,10 +28,20 @@ Quando o cliente cancela uma análise, ele encerra a leitura do stream e o servi
 
 Nos modos multiframe (variantes B/C/D da Etapa 9), quem produz eventos é o **motor temporal dentro de cada ciclo de 4 frames** (`public/cycle/ciclo-multiframe.ts` → `RegistroCiclo.eventosTemporais`). A chamada multimodal segue a **política do ciclo** (`public/cycle/politica-ciclo.ts`), sem a política de cooldown/teto do modo Eventos; os ciclos são sequenciais (um em voo por vez) e o próximo só começa após o anterior + `max(MARGEM_RESERVA_MS, pausaAposCiclo)`. No controlador (`persistirEventosTemporais`), os eventos confirmados do tipo `aparicao`, `desaparecimento` e `mudanca_de_cena` são gravados em `eventos.jsonl` **uma única vez por identidade** — um `EventoTemporal` é atualizado entre ciclos, então a gravação usa o `eventoId` como chave deduplicada e `timestamp = inicioEm` (o instante real do acontecimento, não o fim da confirmação):
 
-- Só estados **`confirmado`/`encerrado`** viram arquivo; `candidato`/`incerto` nunca — a mesma regra de evidência do modo Eventos. Um evento interrompido por **período cego** (lacuna de observação entre ciclos) fica `incerto` e não é gravado: o motor encerra na última evidência positiva sem presumir continuidade (ver `arquitetura.md` → *Semântica temporal*).
-- Tipos sem equivalente visual (`gesto_detectado`, `braco_levantado`, `movimento_corporal`) ficam apenas no diagnóstico do ciclo e no contexto da interpretação — no schema `contexto-1` cada evento vai com `eventoId`, `tipo`, `inicioEm`/`fimEm`, `status`, `trackId`, `confianca`, `evidencias` (frameIds) e `gapMs` quando interrompido por lacuna.
+- Só estados **`confirmado`/`encerrado`** viram arquivo visual; `candidato`/`incerto` nunca neste stream — a mesma regra de evidência do modo Eventos. Um evento interrompido por **período cego** (lacuna de observação entre ciclos) fica `incerto` e não é gravado em `eventos.jsonl`: o motor encerra na última evidência positiva sem presumir continuidade (ver `arquitetura.md` → *Semântica temporal*).
+- Tipos sem equivalente visual (`gesto_detectado`, `braco_levantado`, `movimento_corporal`) **não** entram em `eventos.jsonl`; eles vão para a memória temporal própria (abaixo).
 - `origem` = `rastreador`, `frameId` = último frame da evidência; o `RegistroCiclo` relaciona o `cycleId` aos mesmos `frameIds`.
 - A variante B **não tem percepção local** e portanto não emite eventos — só interpretação multimodal.
+
+## Memória temporal de gestos e postura (P2.6)
+
+Gestos, braço levantado e movimento corporal têm identidade estável e passam por atualizações (`confirmado` → `encerrado`, ou `incerto` quando uma lacuna interrompe a observação). Misturá-los em `eventos.jsonl` mudaria a semântica dos fatos visuais sem um contrato de migração; por isso eles vivem em um **stream append-only separado**, `logs/eventos-temporais.jsonl`, exposto por `/api/eventos-temporais`.
+
+- **O que entra:** `gesto_detectado`, `braco_levantado` e `movimento_corporal` nos estados `confirmado`, `encerrado` e `incerto`. `candidato` nunca vira memória; outros tipos temporais (fatos visuais) continuam no stream legado.
+- **Uma linha por `eventoId:estado`:** o controlador mantém essa chave em memória durante a sessão e a usa como `idempotencyKey`; reenvios da fila e repetições do mesmo estado no ciclo seguinte não duplicam a atualização. Reiniciar a sessão limpa a deduplicação local.
+- **Identidade e evidências:** cada linha guarda `eventoId`, `sessionId`, `cycleId`, `tipo`, `inicioEm`, `fimEm`, `entidadeId`, `origem(ns)`, `frameIds`, `confianca`, `descricao` e `registradoEm` (instante em que o servidor aceitou a atualização).
+- **Incerteza explícita:** um evento `incerto` carrega `intervaloSemObservacaoMs` e mantém `ultimaEvidenciaEm` separado de `ultimaObservacaoEm`. Isso distingue **o sinal parou** de **a observação parou**; ausência de observação não é tratada como ausência física.
+- **Consulta:** `GET /api/eventos-temporais` aceita `limit`, `tipo` (CSV), `estado` (CSV, inclui `incerto`), `entidadeId`, `desde` e `ate`. `DELETE /api/eventos-temporais` esvazia o stream e invalida as chaves de idempotência. `DELETE /api/logs` também o limpa, junto com observações, eventos visuais e ciclos.
 
 ## Consulta ao histórico
 

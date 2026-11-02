@@ -1,4 +1,5 @@
-import type { EntradaLog, EventoVisual, MarcacaoNsfwLog, MotivoAnalise, TipoEventoVisual } from "../src/types";
+import type { EntradaLog, EventoTemporalEnvio, EventoTemporalPersistido, EventoVisual, MarcacaoNsfwLog, MotivoAnalise, TipoEventoVisual } from "../src/types";
+import type { EstadoEventoTemporal, TipoEventoTemporal } from "../src/domain/temporal-event";
 import type { RegistroCiclo } from "../src/domain/cycle";
 import { ErroPercepcao } from "../src/erros";
 
@@ -164,6 +165,61 @@ export async function listarEventos(
   }
   if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
   const dados = (await resposta.json()) as { eventos?: EventoVisual[] };
+  return dados.eventos ?? [];
+}
+
+/**
+ * `POST /api/eventos-temporais` — persiste uma atualizacao de gesto/postura/
+ * movimento corporal no stream temporal, separado dos fatos visuais.
+ */
+export async function gravarEventoTemporal(evento: EventoTemporalEnvio): Promise<void> {
+  let resposta: Response;
+  try {
+    resposta = await fetch("/api/eventos-temporais", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(evento),
+    });
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao gravar evento temporal", { cause: err });
+  }
+  await exigirRespostaOk(resposta, "Falha ao gravar evento temporal");
+}
+
+/** Filtros de consulta a memoria temporal (`GET /api/eventos-temporais`). */
+export interface FiltrosEventosTemporais {
+  /** Tipos aceitos; vazio/omisso = todos. */
+  tipos?: TipoEventoTemporal[];
+  /** Estados aceitos (`confirmado`, `encerrado`, `incerto`). */
+  estados?: EstadoEventoTemporal[];
+  /** Somente eventos desta entidade rastreada. */
+  entidadeId?: string;
+  /** Inicio da janela (epoch ms, inclusive). */
+  desde?: number;
+  /** Fim da janela (epoch ms, inclusive). */
+  ate?: number;
+}
+
+/** `GET /api/eventos-temporais` — lista a memoria de gestos/posturas. */
+export async function listarEventosTemporais(
+  limite = 100,
+  filtros: FiltrosEventosTemporais = {}
+): Promise<EventoTemporalPersistido[]> {
+  const params = new URLSearchParams({ limit: String(limite) });
+  if (filtros.tipos?.length) params.set("tipo", filtros.tipos.join(","));
+  if (filtros.estados?.length) params.set("estado", filtros.estados.join(","));
+  if (filtros.entidadeId) params.set("entidadeId", filtros.entidadeId);
+  if (filtros.desde !== undefined) params.set("desde", String(filtros.desde));
+  if (filtros.ate !== undefined) params.set("ate", String(filtros.ate));
+
+  let resposta: Response;
+  try {
+    resposta = await fetch(`/api/eventos-temporais?${params.toString()}`);
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao ler os eventos temporais", { cause: err });
+  }
+  if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
+  const dados = (await resposta.json()) as { eventos?: EventoTemporalPersistido[] };
   return dados.eventos ?? [];
 }
 

@@ -1,3 +1,5 @@
+import type { EventoTemporal } from "./domain/temporal-event";
+
 export interface Caixa {
   xmin: number;
   ymin: number;
@@ -137,3 +139,26 @@ export interface EventoVisual {
   /** Identificador do frame que gerou este evento (reutilizado para deduplicar snapshots). */
   frameId?: string;
 }
+
+/**
+ * Evento temporal de gesto/postura/movimento corporal persistido em stream
+ * proprio (`eventos-temporais.jsonl`).
+ *
+ * Diferente de `EventoVisual`, que representa um fato visual unico, um
+ * `EventoTemporal` tem identidade estavel e pode ser atualizado entre ciclos
+ * (`confirmado` -> `encerrado`, ou `incerto` quando uma lacuna interrompe a
+ * observacao). O stream guarda as atualizacoes por identidade + estado, em vez
+ * de duplicar o evento a cada frame.
+ */
+export interface EventoTemporalPersistido extends EventoTemporal {
+  /** Chave estavel para o reenvio idempotente da fila do cliente. */
+  idempotencyKey: string;
+  /** Instante em que o registro foi aceito pelo servidor (nao o inicio do evento). */
+  registradoEm: string;
+}
+
+/**
+ * Payload do cliente para `POST /api/eventos-temporais`: o instante de registro
+ * e atribuido pelo servidor, nao pelo cliente.
+ */
+export type EventoTemporalEnvio = Omit<EventoTemporalPersistido, "registradoEm">;

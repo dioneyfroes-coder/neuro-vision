@@ -205,6 +205,7 @@ const controladorPercepcao = new CicloPercepcaoController({
     gravarCiclo: api.gravarCiclo,
     gravarEntrada: api.gravarEntrada,
     gravarEvento: api.gravarEvento,
+    gravarEventoTemporal: api.gravarEventoTemporal,
     gravarOperacional: api.gravarOperacional,
   },
   fila: filaPersistencia,

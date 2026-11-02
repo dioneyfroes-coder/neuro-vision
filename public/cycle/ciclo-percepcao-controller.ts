@@ -1,4 +1,4 @@
-import type { Caixa, EntradaLog, EventoVisual } from "../../src/types";
+import type { Caixa, EntradaLog, EventoTemporalEnvio, EventoVisual } from "../../src/types";
 import type { PacoteCiclo, RegistroCiclo, ResultadoCiclo } from "../../src/domain/cycle";
 import type { ObservacaoFrame } from "../../src/domain/observation";
 import { criarCycleId, criarSessionId, uuid } from "../../src/domain/ids";
@@ -62,6 +62,11 @@ export interface RepositorioPercepcao {
   gravarEntrada(entrada: EntradaLog): Promise<void>;
   /** Evento estruturado confirmado pelo motor temporal (mesmo arquivo dos demais modos). */
   gravarEvento(evento: EventoVisual): Promise<void>;
+  /**
+   * Atualizacao de gesto/postura/movimento corporal no stream temporal
+   * (P2.6), separado de `eventos.jsonl`.
+   */
+  gravarEventoTemporal(evento: EventoTemporalEnvio): Promise<void>;
   gravarOperacional(registro: {
     nivel?: "info" | "aviso" | "erro";
     origem?: string;
@@ -140,6 +145,12 @@ export class CicloPercepcaoController implements ControladorCiclo {
   private cicloSeq = 0;
   /** Eventos temporais ja gravados nesta sessao (identidade unica por evento). */
   private readonly eventosPersistidos = new Set<string>();
+  /**
+   * Atualizacoes de gesto/postura ja gravadas nesta sessao, por
+   * `eventoId:estado` (um evento pode passar por `confirmado` e `encerrado`;
+   * `incerto` tambem e memoria, mas `candidato` nunca e).
+   */
+  private readonly memoriaTemporalPersistida = new Set<string>();
   private rodando = false;
   private abortador: AbortController | null = null;
   private ultimaDuracaoMsValor = 0;
@@ -202,6 +213,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
     this.sessaoId = criarSessionId();
     this.cicloSeq = 0;
     this.eventosPersistidos.clear();
+    this.memoriaTemporalPersistida.clear();
     this.motorTemporal?.resetar();
     this.store.limpar();
   }
@@ -252,6 +264,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
     this.sessaoId = criarSessionId();
     this.cicloSeq = 0;
     this.eventosPersistidos.clear();
+    this.memoriaTemporalPersistida.clear();
     this.motorTemporal?.resetar();
     this.store.limpar();
 
@@ -395,6 +408,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
     // temporais e o diagnostico continuam sendo persistidos.
     if (pacote.metricas.interpretacaoSuprimida) {
       this.persistirEventosTemporais(pacote);
+      this.persistirMemoriaTemporal(pacote);
       this.status(
         this.resumoStatus(pacote.cycleId, undefined, pacote.metricas.totalMs) +
           ` (interpretacao suprimida: ${pacote.metricas.interpretacaoSuprimida})`
@@ -418,6 +432,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
     const item = this.deps.aoUi({ tipo: "exibir_entrada", entrada });
     this.persistirEntrada(entrada, item);
     this.persistirEventosTemporais(pacote);
+    this.persistirMemoriaTemporal(pacote);
     this.status(this.resumoStatus(pacote.cycleId, resumo, pacote.metricas.totalMs));
   }
 
@@ -449,8 +464,8 @@ export class CicloPercepcaoController implements ControladorCiclo {
    *   confirmacao) — e o que o casamento da avaliacao usa.
    *
    * Tipos sem equivalente em `EventoVisual` (`gesto_detectado`,
-   * `braco_levantado`, `movimento_corporal`) ficam apenas no diagnostico do
-   * ciclo (`RegistroCiclo.eventosTemporais`) e no contexto da interpretacao.
+   * `braco_levantado`, `movimento_corporal`) nao entram neste stream: vao para
+   * a memoria temporal propria em `persistirMemoriaTemporal`.
    */
   private persistirEventosTemporais(pacote: PacoteCiclo): void {
     for (const evt of pacote.eventosTemporais) {
@@ -486,6 +501,60 @@ export class CicloPercepcaoController implements ControladorCiclo {
         descricao: `evento:multiframe:${evt.tipo}`,
         payload: evento,
         executar: () => this.deps.repositorio.gravarEvento(evento),
+      });
+    }
+  }
+
+  /**
+   * Persiste a memoria pesquisavel de gestos/posturas/movimento corporal no
+   * stream temporal (`eventos-temporais.jsonl`), separado dos fatos visuais.
+   *
+   * - so `gesto_detectado`, `braco_levantado` e `movimento_corporal` entram;
+   * - `candidato` nunca vira memoria; `confirmado`, `encerrado` e `incerto`
+   *   entram, cada um uma unica vez por `eventoId:estado`;
+   * - `incerto` preserva `intervaloSemObservacaoMs`, para distinguir "o sinal
+   *   parou" de "a observacao parou";
+   * - a chave de idempotencia e estavel (`eventoId:estado`), entao uma
+   *   retentativa da fila nao duplica a atualizacao no servidor.
+   */
+  private persistirMemoriaTemporal(pacote: PacoteCiclo): void {
+    for (const evt of pacote.eventosTemporais) {
+      if (
+        evt.tipo !== "gesto_detectado" &&
+        evt.tipo !== "braco_levantado" &&
+        evt.tipo !== "movimento_corporal"
+      ) {
+        continue;
+      }
+      if (evt.estado !== "confirmado" && evt.estado !== "encerrado" && evt.estado !== "incerto") {
+        continue;
+      }
+      const chave = `${evt.eventoId}:${evt.estado}`;
+      if (this.memoriaTemporalPersistida.has(chave)) continue;
+      this.memoriaTemporalPersistida.add(chave);
+
+      const evento: EventoTemporalEnvio = {
+        eventoId: evt.eventoId,
+        sessionId: evt.sessionId,
+        cycleId: evt.cycleId,
+        tipo: evt.tipo,
+        inicioEm: evt.inicioEm,
+        fimEm: evt.fimEm,
+        ultimaEvidenciaEm: evt.ultimaEvidenciaEm,
+        ultimaObservacaoEm: evt.ultimaObservacaoEm,
+        entidadeId: evt.entidadeId,
+        descricao: evt.descricao,
+        confianca: evt.confianca,
+        origens: evt.origens,
+        frameIds: evt.frameIds,
+        estado: evt.estado,
+        intervaloSemObservacaoMs: evt.intervaloSemObservacaoMs,
+        idempotencyKey: chave,
+      };
+      this.deps.fila.agendar({
+        descricao: `memoria:${evt.tipo}:${evt.estado}`,
+        payload: evento,
+        executar: () => this.deps.repositorio.gravarEventoTemporal(evento),
       });
     }
   }
