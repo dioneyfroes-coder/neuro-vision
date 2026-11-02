@@ -205,6 +205,13 @@ export function interpretarChat(json: unknown): ResultadoChat {
   if (!json || typeof json !== "object") return {};
   const obj = json as Record<string, unknown>;
   if (typeof obj.error === "string") return { erro: obj.error };
+  if (obj.error && typeof obj.error === "object") {
+    const erro = obj.error as Record<string, unknown>;
+    if (typeof erro.message === "string") return { erro: erro.message };
+  }
+  if (typeof obj.message === "string" && obj.error !== undefined) {
+    return { erro: obj.message };
+  }
 
   const escolhas = Array.isArray(obj.choices) ? (obj.choices as Record<string, unknown>[]) : [];
   const primeira = escolhas[0] ?? {};

@@ -328,6 +328,7 @@ describe("InterpretadorCiclo", () => {
 
     expect(requisicao).not.toBeNull();
     expect(requisicao!.imagens).toEqual(["img1"]);
+    expect(requisicao!.frameIds).toEqual(["f1"]);
     expect(requisicao!.contexto.frames[0].deteccoes).toEqual([]);
     expect(requisicao!.contexto.frames[0].pessoas).toEqual([]);
     expect(requisicao!.contexto.frames[0].maos).toEqual([]);

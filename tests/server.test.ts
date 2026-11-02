@@ -110,6 +110,10 @@ describe("montarEntrada", () => {
     expect(montarEntrada({}).capturadoEm).toBeUndefined();
   });
 
+  it("preserva os frameIds associados a inferencia multimodal", () => {
+    expect(montarEntrada({ frameIds: ["f1", "f2"] }).frameIds).toEqual(["f1", "f2"]);
+  });
+
   it("reconhece roteiro e preserva papel, ms e tokens", () => {
     const entrada = montarEntrada({
       tipo: "roteiro",
@@ -319,11 +323,15 @@ describe("seguranca de rede", () => {
     expect(validarPayloadLog({ resumo: 1 })).toContain("resumo");
     expect(validarPayloadLog({ objetos: [], resumo: "ok" })).toBeNull();
     expect(validarPayloadLog({ resumo: "ok", capturadoEm: 42 })).toContain("capturadoEm");
+    expect(validarPayloadLog({ resumo: "ok", frameIds: ["f1", "f2"] })).toBeNull();
+    expect(validarPayloadLog({ resumo: "ok", frameIds: "f1" })).toContain("frameIds");
     expect(validarPayloadLog({ resumo: "ok", nsfw: "x" })).toContain("nsfw");
     expect(validarPayloadLog({ resumo: "ok", nsfw: [] })).toBeNull();
 
     expect(validarPayloadVisao({ imagem: 42 })).toContain("imagem");
     expect(validarPayloadVisao({ imagem: "QkxPQ" })).toBeNull();
+    expect(validarPayloadVisao({ imagem: "QkxPQ", frameIds: ["f1", "f2"] })).toBeNull();
+    expect(validarPayloadVisao({ imagem: "QkxPQ", frameIds: "f1" })).toContain("frameIds");
     expect(validarPayloadVisao({ imagem: "QkxPQ", capturadoEm: false })).toContain("capturadoEm");
     expect(validarPayloadVisao({ imagem: "QkxPQ", nsfw: {} })).toContain("nsfw");
     expect(validarPayloadVisao({ imagem: "QkxPQ", nsfw: [] })).toBeNull();
@@ -770,6 +778,8 @@ describe("createServer", () => {
         body: JSON.stringify({
           imagem: "data:image/jpeg;base64,QkxPQ",
           anterior: "Uma pessoa no sofa.",
+          capturadoEm: "2026-11-02T19:00:00.000Z",
+          frameIds: ["frame-a", "frame-b"],
         }),
       });
       expect(res.status).toBe(200);
@@ -803,6 +813,8 @@ describe("createServer", () => {
         modelo: "qwen2.5-vl-3b-instruct",
         objetos: [],
         tipo: "descricao",
+        capturadoEm: "2026-11-02T19:00:00.000Z",
+        frameIds: ["frame-a", "frame-b"],
       });
     } finally {
       server.close();
@@ -1112,6 +1124,51 @@ describe("createServer", () => {
       expect(res.status).toBe(502);
     } finally {
       server.close();
+    }
+  });
+
+  it("POST /api/visao usa o timeout multimodal configurado", async () => {
+    const timeoutAnterior = process.env.NEURO_VISION_TIMEOUT_MS;
+    process.env.NEURO_VISION_TIMEOUT_MS = "20";
+    let sinalRecebido: AbortSignal | undefined;
+    let server: ReturnType<typeof createServer> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/v1/chat/completions")) {
+          const signal = init?.signal;
+          if (!signal) throw new Error("signal de timeout ausente");
+          sinalRecebido = signal;
+          return new Promise<Response>((_resolve, reject) => {
+            const abort = () => reject(signal.reason);
+            if (signal.aborted) abort();
+            else signal.addEventListener("abort", abort, { once: true });
+          });
+        }
+        return realFetch(input, init);
+      })
+    );
+
+    try {
+      server = createServer({ publicDir: tmpDir });
+      await new Promise<void>((resolve) => server?.listen(0, resolve));
+      const { port } = server.address() as AddressInfo;
+      const inicio = Date.now();
+      const res = await fetch(`http://127.0.0.1:${port}/api/visao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imagem: "QkxPQ", modelo: "m" }),
+      });
+
+      expect(res.status).toBe(500);
+      expect((await res.json()).erro).toContain("tempo esgotado");
+      expect(sinalRecebido).toBeInstanceOf(AbortSignal);
+      expect(Date.now() - inicio).toBeLessThan(1500);
+    } finally {
+      server?.close();
+      if (timeoutAnterior === undefined) delete process.env.NEURO_VISION_TIMEOUT_MS;
+      else process.env.NEURO_VISION_TIMEOUT_MS = timeoutAnterior;
     }
   });
 

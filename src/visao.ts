@@ -486,6 +486,19 @@ export async function* gerarDescricaoStream(
   let pensou = false;
   let motivoFim: string | undefined;
 
+  const processarLinha = (linha: string): string | undefined => {
+    const evt = interpretarLinha(linha);
+    if (!evt) return undefined;
+    if (evt.erro) throw new ErroVisao(evt.erro);
+    if (evt.modelo) modeloFinal = evt.modelo;
+    if (evt.texto) emitiuTexto = true;
+    if (evt.pensou) pensou = true;
+    if (evt.motivoFim) motivoFim = evt.motivoFim;
+    if (evt.tokens !== undefined) tokens = evt.tokens;
+    if (evt.done) duracaoMs = evt.duracaoMs ?? Math.round(performance.now() - inicio);
+    return evt.texto;
+  };
+
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -495,22 +508,13 @@ export async function* gerarDescricaoStream(
       while ((idx = buffer.indexOf("\n")) >= 0) {
         const linha = buffer.slice(0, idx);
         buffer = buffer.slice(idx + 1);
-        const evt = interpretarLinha(linha);
-        if (!evt) continue;
-        if (evt.erro) throw new ErroVisao(evt.erro);
-        if (evt.modelo) modeloFinal = evt.modelo;
-        if (evt.texto) {
-          emitiuTexto = true;
-          yield evt.texto;
-        }
-        if (evt.pensou) pensou = true;
-        if (evt.motivoFim) motivoFim = evt.motivoFim;
-        if (evt.tokens !== undefined) tokens = evt.tokens;
-        if (evt.done) {
-          duracaoMs = evt.duracaoMs ?? Math.round(performance.now() - inicio);
-        }
+        const texto = processarLinha(linha);
+        if (texto) yield texto;
       }
     }
+    buffer += decoder.decode();
+    const textoFinal = processarLinha(buffer);
+    if (textoFinal) yield textoFinal;
   } finally {
     reader.releaseLock();
   }

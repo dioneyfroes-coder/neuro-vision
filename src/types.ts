@@ -65,6 +65,8 @@ export interface EntradaLog {
   sessaoId?: string;
   /** Identificador do frame que gerou esta entrada (reutilizado para deduplicar snapshots). */
   frameId?: string;
+  /** IDs dos frames enviados juntos a uma inferencia multimodal. */
+  frameIds?: string[];
   /**
    * Marcacoes do classificador NSFW experimental, com caixas normalizadas.
    * Presente apenas quando o subsistema rodou nesta analise (lista vazia =

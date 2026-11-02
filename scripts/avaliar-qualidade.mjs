@@ -66,8 +66,9 @@ function arredondar(n, casas = 2) {
  * campos continuam opcionais para preservar as anotacoes legadas.
  *
  * A base dos offsets vem, por precedencia: do sidecar `<eventos>.inicio` (ISO
- * gravado junto ao JSONL ao avaliar um clipe real), do campo `inicio` da
- * anotacao, ou do timestamp detectado mais antigo.
+ * gravado junto ao JSONL; sidecars legados podem substituir `.jsonl` por
+ * `.inicio`), do campo `inicio` da anotacao, ou do timestamp detectado mais
+ * antigo.
  */
 export function carregarAnotacao(dados) {
   if (typeof dados !== "object" || dados === null || Array.isArray(dados)) {
@@ -252,6 +253,18 @@ export function resolverBaseMs({ inicio, inicioSidecar, timestamps = [] } = {}) 
   return validos.length ? Math.min(...validos) : 0;
 }
 
+export async function lerInicioSidecarEventos(caminhoEventos) {
+  const candidatos = [
+    `${caminhoEventos}.inicio`,
+    caminhoEventos.replace(/\.jsonl$/i, ".inicio"),
+  ];
+  for (const candidato of new Set(candidatos)) {
+    const texto = await readFile(candidato, "utf8").catch(() => undefined);
+    if (texto !== undefined) return texto.trim();
+  }
+  return undefined;
+}
+
 function taxa(numerador, denominador) {
   if (denominador <= 0) return 1;
   return numerador / denominador;
@@ -427,11 +440,8 @@ async function main() {
   }
 
   const brutos = parsearEventos(texto);
-  // O clipe real deixa um sidecar `<eventos>.inicio` com o instante em que o
-  // clipe comecou a tocar; ele define a base para os offsets `em`.
-  const inicioSidecar = await readFile(`${caminhoEventos}.inicio`, "utf8")
-    .then((t) => t.trim())
-    .catch(() => undefined);
+  // Sidecars antigos substituiam `.jsonl` por `.inicio`; ambos os formatos sao aceitos.
+  const inicioSidecar = await lerInicioSidecarEventos(caminhoEventos);
   const baseMs = resolverBaseMs({
     inicio: anotacao.inicio,
     inicioSidecar,

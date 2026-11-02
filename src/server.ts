@@ -372,6 +372,9 @@ export function montarEntrada(payload: unknown): EntradaLog {
     motivo: normalizarMotivo(p.motivo),
     sessaoId: typeof p.sessaoId === "string" ? p.sessaoId : undefined,
     frameId: typeof p.frameId === "string" ? p.frameId : undefined,
+    frameIds: Array.isArray(p.frameIds)
+      ? p.frameIds.filter((id): id is string => typeof id === "string")
+      : undefined,
     nsfw: normalizarMarcacoesNsfw(p.nsfw),
   };
 }
@@ -669,6 +672,8 @@ export function validarPayloadLog(payload: unknown): string | null {
     campoTipoTexto(p.modelo, "modelo") ??
     campoTipoTexto(p.capturadoEm, "capturadoEm");
   if (texto) return texto;
+  const erroFrameIds = validarListaFrameIds(p.frameIds);
+  if (erroFrameIds) return erroFrameIds;
   return validarSnapshot(p.snapshot);
 }
 
@@ -682,6 +687,16 @@ function validarListaImagens(valor: unknown): string | null {
     if (typeof item !== "string" || item.length === 0) {
       return `campo 'imagens[${i}]' deve ser texto (data URL)`;
     }
+  }
+  return null;
+}
+
+/** Valida os IDs de frames associados à inferência multimodal. */
+function validarListaFrameIds(valor: unknown): string | null {
+  if (valor === undefined || valor === null) return null;
+  if (!Array.isArray(valor)) return "campo 'frameIds' deve ser uma lista";
+  if (valor.some((id) => typeof id !== "string" || id.length === 0)) {
+    return "cada item de 'frameIds' deve ser texto não vazio";
   }
   return null;
 }
@@ -702,6 +717,8 @@ export function validarPayloadVisao(payload: unknown): string | null {
   if (texto) return texto;
   const erroImagens = validarListaImagens(p.imagens);
   if (erroImagens) return erroImagens;
+  const erroFrameIds = validarListaFrameIds(p.frameIds);
+  if (erroFrameIds) return erroFrameIds;
   if (p.nsfw !== undefined && !Array.isArray(p.nsfw)) {
     return "campo 'nsfw' deve ser uma lista";
   }
@@ -1322,6 +1339,7 @@ async function streamVisao(
   opcoes: {
     modelo?: string;
     baseUrl?: string;
+    timeoutMs?: number;
     anterior?: string;
     prompt?: string;
     modo?: ModoAnalise;
@@ -1329,6 +1347,7 @@ async function streamVisao(
     base?: boolean;
     motivo?: MotivoAnalise;
     capturadoEm?: string;
+    frameIds?: string[];
     /** Marcacoes NSFW normalizadas; `undefined` = subsistema desligado. */
     nsfw?: MarcacaoNsfwLog[];
     apiKey?: string;
@@ -1391,6 +1410,12 @@ async function streamVisao(
       tipo,
       papel,
       capturadoEm: opcoes.capturadoEm,
+      ...(opcoes.frameIds?.length
+        ? {
+            frameIds: opcoes.frameIds,
+            ...(opcoes.frameIds.length === 1 ? { frameId: opcoes.frameIds[0] } : {}),
+          }
+        : {}),
       ms: resumo.duracaoMs,
       tokens: resumo.tokens,
       motivo: opcoes.motivo,
@@ -1481,6 +1506,7 @@ async function handleVisao(
       {
         modelo: escolha.modelo,
         baseUrl: config.backendUrl,
+        timeoutMs: env.NEURO_VISION_TIMEOUT_MS,
         apiKey: config.apiKey,
         anterior: typeof p.anterior === "string" ? p.anterior : undefined,
         prompt: typeof p.prompt === "string" && p.prompt.trim() ? p.prompt : undefined,
@@ -1489,6 +1515,9 @@ async function handleVisao(
         base: p.base === true,
         motivo: normalizarMotivo(p.motivo),
         capturadoEm: typeof p.capturadoEm === "string" ? p.capturadoEm : undefined,
+        frameIds: Array.isArray(p.frameIds)
+          ? p.frameIds.filter((id): id is string => typeof id === "string")
+          : undefined,
         nsfw: normalizarMarcacoesNsfw(p.nsfw),
       },
       config.logFile ?? LOG_FILE,

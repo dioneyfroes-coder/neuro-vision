@@ -24,8 +24,32 @@ node scripts/benchmark-variantes.mjs --anotacoes-dir bench/clipes/eval --conjunt
 
 Na rodada EVAL, passe um arquivo de eventos diferente para cada variante e
 clipe, por exemplo `--eventos-B-car-detection.mp4 logs/B-car.jsonl`. Cada
-arquivo precisa acompanhar seu sidecar `.inicio`; reutilizar um arquivo entre
-clipes mistura as bases temporais e invalida a comparação.
+arquivo precisa acompanhar seu sidecar `.jsonl.inicio` (por exemplo,
+`logs/B-car.jsonl.inicio`); o harness ainda reconhece o formato legado
+`logs/B-car.inicio`. Reutilizar um arquivo entre clipes mistura as bases
+temporais e invalida a comparação.
+
+A variante A usa o modo de frame único `eventos`. Para cada clipe, execute
+`e2e/webcam.spec.ts` com `E2E_WEBCAM_MODE=eventos`, o caminho do vídeo em
+`E2E_WEBCAM_CLIP` e um caminho próprio em `E2E_WEBCAM_EVENTOS`. O teste grava o
+JSONL de eventos, o sidecar `<eventos>.jsonl.inicio` e
+`<eventos>.ciclos.jsonl`; uma anotação
+negativa pode legitimamente produzir zero eventos ou ciclos. O teste prepara o
+modelo via `/api/visao/preparar`, aquece o detector fora da sessão medida e
+reinicia a política de cooldown antes de tocar o clipe. A captura A usa os
+mesmos limites de largura e qualidade JPEG das variantes multiframe.
+Para fornecer os ciclos ao harness, consolide os cinco JSONL de ciclos
+de cada variante em um arquivo por variante e passe-o em `--ciclos-A`
+(analogamente para B/C/D).
+
+O E2E multiframe abre `/?benchmark=eval`, ativando a política experimental
+versionada de 1 s entre snapshots e interpretação a cada ciclo; a política
+operacional da interface permanece inalterada. As requisições multimodais
+registram os `frameIds` de origem em `visao.jsonl`, permitindo verificar o
+modelo realmente usado para cada variante. Se o modelo local exceder o timeout
+padrão de 90 s, defina `NEURO_VISION_TIMEOUT_MS=300000` antes de iniciar o E2E;
+o timeout maior é aplicado ao processo do servidor sem alterar o padrão da
+aplicação.
 
 O `--anotacoes-dir` faz o harness procurar a anotação `<base>.json` primeiro no
 conjunto e depois ao lado do vídeo. O `--conjunto <nome>` registra qual conjunto

@@ -29,6 +29,7 @@ import { env } from "../src/env";
  *   $env:E2E_WEBCAM_CHANNEL = "chrome"        # opcional: Chrome instalado (WebGPU)
  *   $env:E2E_WEBCAM_EVENTOS = "logs/e2e-multiframe.jsonl"  # prefixo dos arquivos
  *   npx playwright test e2e/webcam-multiframe.spec.ts --workers=1
+ * O teste abre `/?benchmark=eval`: política de 1 s e interpretação em todo ciclo.
  */
 
 const CLIP = env.E2E_WEBCAM_CLIP || undefined;
@@ -50,7 +51,13 @@ const MODOS = [
 ] as const;
 
 type PayloadEvento = { tipo?: string; timestamp?: string; descricao?: string };
-type PayloadLog = { resumo?: string; timestamp?: string; modelo?: string };
+type PayloadLog = {
+  resumo?: string;
+  timestamp?: string;
+  capturadoEm?: string;
+  modelo?: string;
+  frameId?: string;
+};
 type PayloadCiclo = {
   sessionId?: string;
   cycleId?: string;
@@ -155,7 +162,7 @@ for (const { id, letra } of MODOS) {
       }
     });
 
-    await page.goto("/");
+    await page.goto("/?benchmark=eval");
     // O isolamento entre origens (COOP/COEP) e o que habilita SharedArrayBuffer
     // e o WASM multithread. Se os headers sumirem, o teste falha aqui em vez de
     // apenas ficar mais lento sem ninguem perceber.
@@ -180,8 +187,8 @@ for (const { id, letra } of MODOS) {
     // variantes usam o MESMA versão (o modelo efetivo do backend), que o
     // `app.ts` registra no campo `modelo` via `infoVisao.modelo` — é o que a
     // verificação de `--modelo-visao` confere em logs/visao.jsonl.
-    // Intervalo entre ciclos de 1 s (seletor #interval). A janela do ciclo tem
-    // 4 snapshots a 500 ms; o agendador respeita o piso de margem entre ciclos.
+    // Intervalo entre ciclos de 1 s (seletor #interval); a política de EVAL
+    // coleta 4 snapshots a 1 s e interpreta cada ciclo.
     await page.locator("#interval").evaluate((el) => {
       const input = el as HTMLInputElement;
       input.value = "1";
@@ -191,7 +198,7 @@ for (const { id, letra } of MODOS) {
     // 1) Clipe parado no 1o quadro: espera o modelo carregar e o primeiro ciclo
     //    terminar (status "Ciclo <id>: ..."). So entao o clipe comeca a tocar.
     await page.locator("#start").click();
-    await expect(page.locator("#status")).toContainText("Ciclo ", { timeout: 300_000 });
+    await expect(page.locator("#status")).toContainText("Ciclo ", { timeout: 600_000 });
 
     // 2) Zera os buffers e toca o clipe do inicio; `inicio` e a base temporal.
     eventos.length = 0;
@@ -205,31 +212,57 @@ for (const { id, letra } of MODOS) {
       return Number.isFinite(d) && d && d > 0 ? Math.ceil(d * 1000) : 30_000;
     });
 
-    // 3) Espera o clipe inteiro passar e os ciclos lentos terminarem. No
-    //    hardware de referencia um ciclo leva ~37 s (B) e ~95-140 s (C/D com
-    //    deteccao em CPU), e a janela antiga (15 s / teto 180 s) parava o teste
-    //    com o ciclo em voo — `stop` cancelava e a variante nao concluia nada
-    //    pos-clipe (ver bench/RELATORIO_SMOKE_MULTIFRAME_2026-10-19.md).
-    //    Agora: estabilidade de 180 s sem novos ciclos e teto de 300 s.
+    // 3) Aguarda o clipe e ao menos um ciclo completo cujos quatro snapshots
+    //    pertencem ao intervalo reproduzido. Ciclos iniciados no quadro final
+    //    congelado não são evidência do clipe.
     await page.waitForTimeout(duracaoMs + 2000);
-    let estavelDesde = Date.now();
-    let vista = ciclos.length;
     const limite = Date.now() + 300_000;
-    while (Date.now() < limite) {
+    const inicioMs = Date.parse(inicio);
+    const fimClipeMs = inicioMs + duracaoMs;
+    const cicloCapturadoNoClipe = (c: PayloadCiclo): boolean => {
+      const iniciadoMs = c.iniciadoEm ? Date.parse(c.iniciadoEm) : NaN;
+      const ultimoFrameId = c.frameIds?.[c.frameIds.length - 1];
+      const entradaUltimoFrame = entradas.find((e) => e.frameId === ultimoFrameId);
+      const ultimoFrameMs = entradaUltimoFrame?.capturadoEm
+        ? Date.parse(entradaUltimoFrame.capturadoEm)
+        : NaN;
+      return (
+        c.frameIds?.length === 4 &&
+        Number.isFinite(iniciadoMs) &&
+        iniciadoMs >= inicioMs &&
+        Number.isFinite(ultimoFrameMs) &&
+        ultimoFrameMs >= iniciadoMs &&
+        ultimoFrameMs <= fimClipeMs
+      );
+    };
+    const cicloCompletoDoClipe = (c: PayloadCiclo): boolean =>
+      cicloCapturadoNoClipe(c) &&
+      c.cancelado !== true &&
+      c.observacoes === 4 &&
+      Number.isFinite(c.metricas?.totalMs) &&
+      Number.isFinite(c.metricas?.multimodalMs) &&
+      typeof c.interpretacao === "string" &&
+      c.interpretacao.trim().length > 0 &&
+      typeof c.concluidoEm === "string";
+    while (Date.now() < limite && !ciclos.some(cicloCompletoDoClipe)) {
       await page.waitForTimeout(2000);
-      if (ciclos.length > vista) {
-        vista = ciclos.length;
-        estavelDesde = Date.now();
-      } else if (Date.now() - estavelDesde >= 180_000) {
-        break;
-      }
     }
 
     await page.locator("#stop").click();
     await expect(page.locator("#start")).toBeEnabled();
 
+    const ciclosDoClipe = ciclos.filter(cicloCapturadoNoClipe);
+    const entradasDoClipe = entradas.filter((e) => {
+      const capturadoMs = e.capturadoEm ? Date.parse(e.capturadoEm) : NaN;
+      return Number.isFinite(capturadoMs) && capturadoMs >= inicioMs && capturadoMs <= fimClipeMs;
+    });
+    const eventosDoClipe = eventos.filter((e) => {
+      const timestampMs = e.timestamp ? Date.parse(e.timestamp) : NaN;
+      return Number.isFinite(timestampMs) && timestampMs >= inicioMs && timestampMs <= fimClipeMs;
+    });
+
     expect(
-      ciclos.length,
+      ciclosDoClipe.length,
       "nenhum ciclo foi persistido (POST /api/ciclos nao chegou — o modo multiframe nao rodou?)"
     ).toBeGreaterThan(0);
 
@@ -238,7 +271,7 @@ for (const { id, letra } of MODOS) {
     // multimodal nao vazia e as metricas do ciclo preenchidas. Assim o E2E
     // falha quando o stop cancela o unico ciclo em voo (o defeito do smoke de
     // 2026-10-19) em vez de passar com zero ciclos concluidos.
-    const concluidos = ciclos.filter((c) => c.cancelado !== true);
+    const concluidos = ciclosDoClipe.filter((c) => c.cancelado !== true);
     const completos = concluidos.filter(
       (c) =>
         (c.frameIds?.length ?? 0) === 4 &&
@@ -255,7 +288,7 @@ for (const { id, letra } of MODOS) {
             Number.isFinite(c.metricas?.maosMs) &&
             Number.isFinite(c.metricas?.temporalMs)))
     );
-    const resumo = ciclos
+    const resumo = ciclosDoClipe
       .map(
         (c) =>
           `${c.cycleId ?? "?"}: cancelado=${c.cancelado === true} obs=${c.observacoes ?? 0} ` +
@@ -285,19 +318,19 @@ for (const { id, letra } of MODOS) {
     const raiz = path.join(dir, `${path.basename(destino)}-${id}`);
     const gravaJsonl = (arq: string, linhas: unknown[]) =>
       writeFile(arq, linhas.map((l) => JSON.stringify(l)).join("\n") + "\n");
-    await gravaJsonl(`${raiz}.jsonl`, eventos);
-    await gravaJsonl(`${raiz}.log.jsonl`, entradas);
-    await gravaJsonl(`${raiz}.ciclos.jsonl`, ciclos);
-    await writeFile(`${raiz}.inicio`, `${inicio}\n`);
+    await gravaJsonl(`${raiz}.jsonl`, eventosDoClipe);
+    await gravaJsonl(`${raiz}.log.jsonl`, entradasDoClipe);
+    await gravaJsonl(`${raiz}.ciclos.jsonl`, ciclosDoClipe);
+    await writeFile(`${raiz}.jsonl.inicio`, `${inicio}\n`);
 
     const base = Date.parse(inicio);
     const em = (ts?: string): number => (ts ? Math.round(Date.parse(ts) - base) : -1);
-    const modelos = [...new Set(entradas.map((e) => e.modelo).filter(Boolean))];
+    const modelos = [...new Set(entradasDoClipe.map((e) => e.modelo).filter(Boolean))];
     console.log(`modo ${id} (variante ${letra}) — inicio: ${inicio}`);
     console.log(
-      `Ciclos persistidos: ${ciclos.length} | concluidos: ${concluidos.length} | completos: ${completos.length}`
+      `Ciclos do clipe: ${ciclosDoClipe.length} | concluidos: ${concluidos.length} | completos: ${completos.length}`
     );
-    for (const c of ciclos) {
+    for (const c of ciclosDoClipe) {
       const total = c.metricas?.totalMs;
       console.log(
         `  +${em(c.iniciadoEm)}ms  ciclo ${c.cycleId ?? "?"} — obs=${c.observacoes ?? 0} eventos=${c.eventosTemporais ?? 0}` +
@@ -305,8 +338,8 @@ for (const { id, letra } of MODOS) {
           `${c.erros?.length ? ` erros=[${c.erros.map((e) => e.etapa).join(", ")}]` : ""}`
       );
     }
-    console.log(`Entradas (IA local): ${entradas.length} | modelos: ${modelos.join(", ") || "(nenhum)"}`);
-    console.log(`Eventos: ${eventos.length}`);
+    console.log(`Entradas (IA local): ${entradasDoClipe.length} | modelos: ${modelos.join(", ") || "(nenhum)"}`);
+    console.log(`Eventos: ${eventosDoClipe.length}`);
     console.log(`Salvos em ${raiz}.{jsonl,log.jsonl,ciclos.jsonl}`);
     console.log(
       `Benchmark: node scripts/benchmark-variantes.mjs --ciclos-${letra} ${raiz}.ciclos.jsonl --variantes ${letra}`

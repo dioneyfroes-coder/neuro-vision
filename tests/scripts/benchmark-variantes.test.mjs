@@ -17,6 +17,7 @@ import {
   identificarVarianteDoRegistro,
   lerArgs,
   modelosDosFrames,
+  resolverSidecarInicioEventos,
   resumoDoClipe,
   separarWarmupCiclos,
   verificarMesmoModelo,
@@ -53,6 +54,25 @@ describe("identificarVarianteDoRegistro", () => {
     expect(identificarVarianteDoRegistro({ sessionId: "baseline-webcam", cycleId: "c1" })).toBe("A");
     expect(identificarVarianteDoRegistro({ sessionId: "qualquer-coisa", cycleId: "c1" })).toBeNull();
     expect(identificarVarianteDoRegistro(null)).toBeNull();
+  });
+
+  it("prioriza a variante efetiva gravada na configuração do ciclo", () => {
+    expect(identificarVarianteDoRegistro({
+      sessionId: "sessao-random",
+      configuracao: { varianteId: "sequencia" },
+    })).toBe("B");
+    expect(identificarVarianteDoRegistro({
+      sessionId: "sessao-random",
+      configuracao: { varianteId: "fundida" },
+    })).toBe("C");
+    expect(identificarVarianteDoRegistro({
+      sessionId: "sessao-random",
+      configuracao: { varianteId: "completa" },
+    })).toBe("D");
+    expect(identificarVarianteDoRegistro({
+      sessionId: "sessao-random",
+      configuracao: { varianteId: "baseline" },
+    })).toBe("A");
   });
 
   it("filtra registros por sessao explicita quando informada", () => {
@@ -425,6 +445,7 @@ describe("extrairModelosDoJsonl / modelosDosFrames", () => {
         JSON.stringify({ frameId: "f-b1", modelo: "qwen2.5-vl-3b-instruct" }),
         JSON.stringify({ frameId: "f-b2", modelo: "qwen2.5-vl-3b-instruct" }),
         JSON.stringify({ frameId: "f-d1", modelo: "gemma-3n-e4b" }),
+        JSON.stringify({ frameIds: ["f-a1", "f-a2"], modelo: "qwen2.5-vl-3b-instruct" }),
         JSON.stringify({ frameId: "f-sem-modelo" }),
         "lixo {",
       ].join("\n"),
@@ -432,6 +453,7 @@ describe("extrairModelosDoJsonl / modelosDosFrames", () => {
     );
     expect(await modelosDosFrames(visao, ["f-b1", "f-b2"])).toEqual(["qwen2.5-vl-3b-instruct"]);
     expect(await modelosDosFrames(visao, ["f-d1"])).toEqual(["gemma-3n-e4b"]);
+    expect(await modelosDosFrames(visao, ["f-a2"])).toEqual(["qwen2.5-vl-3b-instruct"]);
     expect(await modelosDosFrames(visao, ["f-inexistente"])).toEqual([]);
     expect(await modelosDosFrames(visao, [])).toEqual([]);
     expect(await modelosDosFrames(path.join(dir, "nao-existe.jsonl"), ["f-b1"])).toEqual([]);
@@ -763,6 +785,25 @@ describe("descobrirClipes", () => {
       expect(clipes.map(({ nome, anotacao }) => ({ nome, anotacao }))).toEqual([
         { nome: "eval-clip.mp4", anotacao: path.relative(process.cwd(), path.join(evalDir, "eval-clip.json")) },
       ]);
+    } finally {
+      await rm(raiz, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("resolverSidecarInicioEventos", () => {
+  it("aceita o formato canonico e o formato legado dos sidecars", async () => {
+    const raiz = await mkdtemp(path.join(tmpdir(), "neuro-sidecar-"));
+    try {
+      const eventos = path.join(raiz, "eventos.jsonl");
+      const canonico = `${eventos}.inicio`;
+      await writeFile(canonico, "2026-10-11T14:49:51.315Z\n");
+      expect(await resolverSidecarInicioEventos(eventos)).toBe(canonico);
+
+      await rm(canonico);
+      const legado = eventos.replace(/\.jsonl$/i, ".inicio");
+      await writeFile(legado, "2026-10-11T14:49:51.315Z\n");
+      expect(await resolverSidecarInicioEventos(eventos)).toBe(legado);
     } finally {
       await rm(raiz, { recursive: true, force: true });
     }

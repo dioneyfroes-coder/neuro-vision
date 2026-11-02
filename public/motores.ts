@@ -60,6 +60,8 @@ export interface OpcoesMotorVisao {
   motivo?: MotivoAnalise;
   /** Marcacoes NSFW do frame (caixas normalizadas); `undefined` = desligado. */
   nsfw?: MarcacaoNsfwLog[];
+  /** Frames que originaram a inferencia multimodal. */
+  frameIds?: string[];
 }
 
 /** Motor de descricao/roteiro via backend de visao, atras da interface comum. */
@@ -88,7 +90,12 @@ export class MotorVisao implements MotorPercepcao {
     aoProgresso?: (parcial: string) => void
   ): Promise<ResultadoPercepcao | null> {
     const inicio = performance.now();
-    const payload: PayloadVisao = { imagem: entrada.imagem, snapshot: entrada.snapshot };
+    const payload: PayloadVisao = {
+      imagem: entrada.imagem,
+      snapshot: entrada.snapshot,
+      ...(entrada.capturadoEm ? { capturadoEm: entrada.capturadoEm } : {}),
+      ...(this.opcoes.frameIds?.length ? { frameIds: this.opcoes.frameIds } : {}),
+    };
     if (this.opcoes.modelo) payload.modelo = this.opcoes.modelo;
     if (this.opcoes.modo === "roteiro") {
       payload.modo = "roteiro";

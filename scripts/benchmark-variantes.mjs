@@ -147,7 +147,7 @@ Uso: node scripts/benchmark-variantes.mjs [opcoes]
 
 Compara as variantes A/B/C/D sobre o MESMO conjunto de clipes e registra a
 versao do modelo multimodal usada por cada uma (verificada em logs/visao.jsonl
-pelo frameId dos ciclos). O campo "modelo" dos eventos e o detector local e nao
+pelos frameIds dos ciclos). O campo "modelo" dos eventos e o detector local e nao
 conta como modelo multimodal.
 
 Opcoes:
@@ -350,6 +350,18 @@ async function existe(caminho) {
   );
 }
 
+export async function resolverSidecarInicioEventos(arquivoEventos) {
+  const candidatos = [
+    `${arquivoEventos}.inicio`,
+    arquivoEventos.replace(/\.jsonl$/i, ".inicio"),
+  ];
+  for (const candidato of new Set(candidatos)) {
+    const absoluto = path.resolve(ROOT, candidato);
+    if (await existe(absoluto)) return absoluto;
+  }
+  return undefined;
+}
+
 const EXTENSOES_VIDEO = /\.(mp4|webm|mkv|avi|mov)$/i;
 
 /**
@@ -445,11 +457,22 @@ export async function lerCiclos(caminho) {
 }
 
 /**
- * Identifica a variante de um registro de ciclo pelo `sessionId` (heuristica;
- * o id do modo multiframe tambem vale). B/C são checados antes de D porque o
- * id de D ("percepcao") e substring dos outros.
+ * Identifica a variante pelo id persistido na configuracao do ciclo,
+ * recorrendo ao `sessionId` apenas para registros legados. B/C sao checados
+ * antes de D na heuristica porque "percepcao" tambem aparece nos ids B/C.
  */
 export function identificarVarianteDoRegistro(registro) {
+  const idsConfiguracao = {
+    baseline: "A",
+    deteccao: "A",
+    eventos: "A",
+    sequencia: "B",
+    fundida: "C",
+    completa: "D",
+  };
+  const configurada = idsConfiguracao[registro?.configuracao?.varianteId];
+  if (configurada) return configurada;
+
   const texto = `${registro?.sessionId ?? ""} ${registro?.cycleId ?? ""}`.toLowerCase();
   const ordem = ["B", "C", "D", "A"];
   for (const letra of ordem) {
@@ -903,9 +926,9 @@ export async function extrairModelosDoJsonl(caminho) {
 
 /**
  * Modelos citados nas observacoes (`logs/visao.jsonl`, campo `modelo`) dos
- * frames de uma variante. Como `RegistroCiclo.frameIds` liga cada ciclo aos
- * frames que o compuseram, isto prova com que modelo os ciclos da variante
- * realmente rodaram (o `--modelo-visao` apenas REGISTRA; isto VERIFICA).
+ * frames de uma variante. A inferencia registra `frameIds` no log e
+ * `RegistroCiclo.frameIds` identifica os frames que o compuseram; isto prova
+ * qual modelo os ciclos realmente usaram (`--modelo-visao` apenas REGISTRA).
  */
 export async function modelosDosFrames(caminhoVisao, frameIds) {
   const alvo = new Set((frameIds ?? []).filter((f) => typeof f === "string" && f));
@@ -919,7 +942,15 @@ export async function modelosDosFrames(caminhoVisao, frameIds) {
     if (!limpa) continue;
     try {
       const reg = JSON.parse(limpa);
-      if (reg?.frameId && alvo.has(reg.frameId) && typeof reg.modelo === "string" && reg.modelo.trim()) {
+      const frameIds = [
+        ...(typeof reg?.frameId === "string" ? [reg.frameId] : []),
+        ...(Array.isArray(reg?.frameIds) ? reg.frameIds : []),
+      ];
+      if (
+        frameIds.some((frameId) => alvo.has(frameId)) &&
+        typeof reg?.modelo === "string" &&
+        reg.modelo.trim()
+      ) {
         modelos.add(reg.modelo.trim());
       }
     } catch {
@@ -1180,10 +1211,7 @@ async function avaliarQualidadeDaVariante(variante, clipes, args) {
       });
       continue;
     }
-    if (
-      args.conjunto === "eval" &&
-      !(await existe(path.resolve(ROOT, `${eventosDoClipe}.inicio`)))
-    ) {
+    if (args.conjunto === "eval" && !(await resolverSidecarInicioEventos(eventosDoClipe))) {
       porClip.push({
         clipe: clipe.nome,
         pulado: true,

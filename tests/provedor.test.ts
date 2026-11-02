@@ -225,6 +225,15 @@ describe("interpretarChat", () => {
   it("devolve o erro informado pelo backend", () => {
     expect(interpretarChat({ error: "modelo inexistente" }).erro).toBe("modelo inexistente");
   });
+
+  it("devolve erros estruturados do backend multimodal", () => {
+    expect(
+      interpretarChat({
+        error: { message: "failed to process mtmd chunk", type: "server_error" },
+        message: "Engine protocol predict stream returned an error",
+      }).erro
+    ).toBe("failed to process mtmd chunk");
+  });
 });
 
 describe("interpretarLinha", () => {

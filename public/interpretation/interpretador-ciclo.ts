@@ -24,6 +24,7 @@ import { normalizarInterpretacao } from "./normalizar";
  */
 export interface RequisicaoMultimodal {
   imagens: string[];
+  frameIds: string[];
   prompt: string;
   contexto: ContextoCicloSerializavel;
   modelo?: string;
@@ -123,6 +124,7 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
     const resposta = await this.enviar(
       {
         imagens,
+        frameIds: contexto.frames.map((frame) => frame.frameId),
         prompt,
         contexto,
         modelo: modelo ?? undefined,

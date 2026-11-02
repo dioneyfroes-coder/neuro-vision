@@ -1,8 +1,12 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   carregarAnotacao,
   compararEventos,
   formatarRelatorio,
+  lerInicioSidecarEventos,
   parsearEventos,
   resolverBaseMs,
   TIPOS_IGNORADOS_PADRAO,
@@ -321,6 +325,27 @@ describe("resolverBaseMs", () => {
   it("retorna 0 sem base e sem timestamps validos", () => {
     expect(resolverBaseMs({})).toBe(0);
     expect(resolverBaseMs({ timestamps: ["invalido"] })).toBe(0);
+  });
+});
+
+describe("lerInicioSidecarEventos", () => {
+  it("le os formatos canonico e legado do sidecar", async () => {
+    const raiz = await mkdtemp(path.join(tmpdir(), "neuro-inicio-"));
+    try {
+      const eventos = path.join(raiz, "eventos.jsonl");
+      const canonico = `${eventos}.inicio`;
+      const inicioCanonico = "2026-10-11T14:49:51.315Z";
+      await writeFile(canonico, `${inicioCanonico}\n`);
+      expect(await lerInicioSidecarEventos(eventos)).toBe(inicioCanonico);
+
+      await rm(canonico);
+      const legado = eventos.replace(/\.jsonl$/i, ".inicio");
+      const inicioLegado = "2026-10-11T14:50:00.000Z";
+      await writeFile(legado, `${inicioLegado}\n`);
+      expect(await lerInicioSidecarEventos(eventos)).toBe(inicioLegado);
+    } finally {
+      await rm(raiz, { recursive: true, force: true });
+    }
   });
 });
 

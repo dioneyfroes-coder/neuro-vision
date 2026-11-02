@@ -144,12 +144,16 @@ describe("MotorVisao", () => {
     const motor = new MotorVisao({ modo: "descricao", anterior: "before" });
 
     const resultado = await motor.analisar(
-      { imagem: "b64" },
+      { imagem: "b64", capturadoEm: "2026-11-02T19:00:00.000Z" },
       new AbortController().signal
     );
 
     expect(api.descreverFrame).toHaveBeenCalledWith(
-      { imagem: "b64", anterior: "before" },
+      {
+        imagem: "b64",
+        capturadoEm: "2026-11-02T19:00:00.000Z",
+        anterior: "before",
+      },
       expect.any(AbortSignal),
       undefined
     );

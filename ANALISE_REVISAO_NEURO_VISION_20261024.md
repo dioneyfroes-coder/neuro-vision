@@ -361,26 +361,39 @@ A matriz documenta clipes, revisão e limitações.
 
 ### Fase 5 — Comparar A/B/C/D sem alterar outras variáveis
 
-**Status:** protocolo reproduzível e cobertura EVAL no escopo reduzido estão
-prontos. O harness exige agora um arquivo de eventos e sidecar `.inicio` para
-cada combinação variante/clipe; logs ausentes, compartilhados ou sem metadados
-de objeto bloqueiam a conclusão. A comparação A/B/C/D ainda depende de uma
-rodada nova das quatro variantes nos mesmos cinco clipes. Os resultados não
-poderão ser generalizados para acenos ou interpretação textual.
+**Status:** rodada A/B/C/D comparável concluída em 2026-11-02. O comparativo
+validou cinco clipes idênticos, arquivos de eventos separados por variante e
+clipe, ciclos concluídos e o mesmo modelo multimodal
+`qwen2.5-vl-3b-instruct`. O harness aceita sidecars canônicos
+`<eventos>.jsonl.inicio` e os nomes legados que substituem `.jsonl` por
+`.inicio`; as próximas coletas gravam o formato canônico.
 
-O preflight de 2026-11-02 validou os cinco clipes oficiais. Embora haja três
-ciclos recentes em `logs/ciclos.jsonl`, nenhum identifica A/B/C/D e nenhum dos
-seus `frameIds` tem modelo correspondente em `logs/visao.jsonl`; os eventos
-recentes também estão num arquivo compartilhado. Não foi possível concluir a
-comparação nem gerar relatório. A rodada continua pendente até haver ciclos e
-arquivos de eventos independentes por variante e clipe, com sidecars de início;
-movimentos sem metadados de origem/rótulo também impedem um veredito conclusivo.
+| Variante | Ciclos concluídos | Mediana total | Precisão | Recall | F1 | FP/min | Eventos perdidos |
+|----------|------------------:|--------------:|---------:|-------:|---:|-------:|-----------------:|
+| A | 18 | 4.573 ms | 0% | 0% | 0% | 0,21 | 6 |
+| B | 7 | 33.901 ms | 100% | 0% | 0% | 0 | 6 |
+| C | 5 | 68.625 ms | 100% | 0% | 0% | 0 | 6 |
+| D | 5 | 72.067 ms | 100% | 0% | 0% | 0 | 6 |
 
-- Usar as mesmas gravações, anotações, modelo multimodal, prompt e hardware para todas as variantes.
-- Fazer warm-up separado e reportar cold start separadamente.
-- Medir ciclos completados; variantes canceladas não devem fornecer métricas de qualidade como se tivessem executado o ciclo inteiro.
-- Relatar precisão, recall, F1, falsos positivos por minuto, latência mediana/P95, RAM, uso de GPU e falhas por subsistema.
-- Aplicar os critérios de promoção antes da rodada; não ajustá-los depois de ver o resultado.
+O benchmark E2E descarta seu aquecimento antes de gravar os ciclos; por isso
+nenhum ciclo adicional foi excluído pelo parâmetro `--warmups`. A precisão de
+100% em B/C/D não representa acertos: essas variantes não produziram
+verdadeiros positivos no escopo avaliado, e o recall permaneceu em 0%.
+
+**Decisão:** os dados permitem uma comparação válida, mas todas as variantes
+falham o critério de qualidade (F1 mínimo de 50%); B/C/D também excedem o teto
+de latência relativa. Nenhuma variante é promovida a padrão. O comparativo e os
+relatórios individuais estão em
+[`bench/COMPARATIVO_A_B_C_D_20261102.md`](./bench/COMPARATIVO_A_B_C_D_20261102.md)
+e `bench/RELATORIO_VARIANTE_{A,B,C,D}_20261102.md`. Este resultado é restrito
+a `movimento_objeto.objeto_deslocado`; não valida acenos nem interpretação
+textual. O próximo trabalho deve investigar a falta de recall usando o conjunto
+de tuning, sem alterar os critérios depois de observar este resultado.
+
+As rodadas preliminares descritas durante a implementação foram inconclusivas
+por falta de ciclos identificáveis, modelo verificável ou logs de eventos
+separados. Elas foram substituídas pelo comparativo acima; os smoke tests
+anteriores continuam sendo apenas evidência de integração, não de qualidade.
 
 ## 6. Testes de regressão que eu adicionaria
 

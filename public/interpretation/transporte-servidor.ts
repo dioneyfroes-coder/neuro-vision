@@ -17,6 +17,7 @@ export function criarTransporteServidor(): EnviarMultimodal {
     const { evento, parcial } = await descreverFrame(
       {
         imagens: requisicao.imagens,
+        frameIds: requisicao.frameIds,
         prompt: requisicao.prompt,
         modelo: requisicao.modelo,
         modo: "descricao",

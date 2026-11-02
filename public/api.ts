@@ -41,6 +41,8 @@ export interface PayloadVisao {
   imagem?: string;
   /** Varias imagens, na ordem em que devem ser interpretadas (ciclo multiframe). */
   imagens?: string[];
+  /** Frames que originaram as imagens; vinculam a inferencia aos ciclos no log. */
+  frameIds?: string[];
   /** Prompt explicito, substituindo o padrao do servidor. */
   prompt?: string;
   snapshot?: string;

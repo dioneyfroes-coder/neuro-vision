@@ -184,6 +184,26 @@ describe("gerarDescricaoStream", () => {
     expect(resultado.value).toMatchObject({ modelo: "m", tokens: 7 });
   });
 
+  it("processa a ultima linha SSE quando o stream termina sem quebra de linha", async () => {
+    const corpo = `data: ${JSON.stringify({
+      model: "m",
+      choices: [{ delta: { content: "Uma pessoa." }, finish_reason: "stop" }],
+      usage: { completion_tokens: 7 },
+    })}`;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, body: new Response(corpo).body }));
+
+    const iterator = gerarDescricaoStream("data:image/jpeg;base64,QkxPQ", {
+      baseUrl: "http://localhost:1234",
+      modelo: "m",
+    });
+
+    await expect(iterator.next()).resolves.toEqual({ done: false, value: "Uma pessoa." });
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: true,
+      value: { modelo: "m", tokens: 7 },
+    });
+  });
+
   it("lanca erro quando o modelo so deriva (thinking) sem emitir texto", async () => {
     const corpo = sse(
       { model: "m", choices: [{ delta: { reasoning_content: "Vamos analisar..." } }] },

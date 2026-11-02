@@ -9,6 +9,7 @@ import { PoliticaAnalise, comMotivo, rotuloMotivo } from "../../src/politica-ana
 import { criarSessionId, uuid } from "../../src/domain/ids";
 import { normalizarMarcacoesNsfw, resumirMarcacoesNsfw } from "../../src/nsfw-prompt";
 import { AgendadorAnalise } from "../scheduler";
+import { CONFIG_CAPTURA_PADRAO } from "../capture/webcam-capture";
 import type { FilaPersistencia } from "../persistencia";
 import type { DefinicaoModo } from "../modos";
 import type { OpcoesMotorVisao } from "../motores";
@@ -73,7 +74,8 @@ export interface CameraCaptura {
   capturarFrame(maxWidth?: number): string | null;
   capturarQuadro(
     maxWidth?: number,
-    larguraThumb?: number
+    larguraThumb?: number,
+    qualidade?: number
   ): { imagem: string; thumb: string } | null;
   assinaturaDeCena(grade?: number): number[] | null;
 }
@@ -522,6 +524,7 @@ export class CycleController implements ControladorCiclo {
     const motor = this.deps.criarMotorVisao({
       modo: ehRoteiro ? "roteiro" : "descricao",
       modelo: this.deps.obterModeloVisao(),
+      ...(this.frameIdAtual ? { frameIds: [this.frameIdAtual] } : {}),
       roteiro: ehRoteiro ? this.roteiroBeats.slice(-8).join(" ").slice(0, 1200) : undefined,
       base: ehRoteiro ? this.roteiroPrimeiro : undefined,
       anterior: ehRoteiro ? undefined : this.ultimaDescricao,
@@ -670,7 +673,11 @@ export class CycleController implements ControladorCiclo {
 
     const capturadoMs = performance.now();
     const capturadoEm = new Date().toISOString();
-    const captura = camera.capturarQuadro(0, 240);
+    const captura = camera.capturarQuadro(
+      CONFIG_CAPTURA_PADRAO.maxLargura,
+      CONFIG_CAPTURA_PADRAO.larguraThumb,
+      CONFIG_CAPTURA_PADRAO.qualidadeJpeg
+    );
     if (captura === null) return;
     const assinatura = camera.assinaturaDeCena();
 

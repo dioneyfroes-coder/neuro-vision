@@ -111,6 +111,9 @@ export const env = {
   get NEURO_MODEL(): string {
     return str("NEURO_MODEL", "");
   },
+  get NEURO_VISION_TIMEOUT_MS(): number {
+    return numPos("NEURO_VISION_TIMEOUT_MS", 90_000);
+  },
 
   // Traducao
   get NEURO_TRANSLATE_ENABLED(): boolean {
@@ -163,6 +166,9 @@ export const env = {
   },
   get E2E_WEBCAM_EVENTOS(): string {
     return str("E2E_WEBCAM_EVENTOS", "");
+  },
+  get E2E_WEBCAM_MODE(): string {
+    return str("E2E_WEBCAM_MODE", "deteccao");
   },
   get E2E_LOCAL_MODELS_CLIP(): string {
     return str("E2E_LOCAL_MODELS_CLIP", "");
