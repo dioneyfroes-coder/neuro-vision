@@ -532,6 +532,9 @@ export async function executarCicloMultiframe(
     } else {
       const resultado = await deps.interpretador.interpretar(pacote, sinal);
       pacote.metricas.multimodalMs = resultado.duracaoMs;
+      if (resultado.contextoMultimodal) {
+        pacote.metricas.contextoMultimodal = resultado.contextoMultimodal;
+      }
       pacote.metricas.interpretacaoConcluidaEm = agoraIso();
       if (configuracao) {
         configuracao.modeloMultimodalEfetivo =

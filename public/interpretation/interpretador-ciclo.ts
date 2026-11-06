@@ -5,6 +5,7 @@ import type {
 } from "../../src/domain/cycle";
 import type { ResultadoInterpretacao } from "../../src/domain/interpretation";
 import {
+  diagnosticarContexto,
   montarContextoCiclo,
   type ContextoCicloSerializavel,
   type LimitesContexto,
@@ -134,7 +135,13 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
     const duracaoMs = resposta.duracaoMs ?? Math.round(this.agora() - inicio);
     const resultado = normalizarInterpretacao(resposta.texto, resposta.modelo ?? modelo ?? undefined);
     const validado = this.validarEvidencias(contexto, resultado);
-    return { ...validado, duracaoMs };
+    // Fase 3, item 5: o chamador registra nas metricas se/como o contexto foi
+    // compactado, permitindo medir a frequencia real de truncamento.
+    return {
+      ...validado,
+      duracaoMs,
+      contextoMultimodal: diagnosticarContexto(contexto, this.limites.maxBytesContexto),
+    };
   }
 
   /**

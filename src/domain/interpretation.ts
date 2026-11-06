@@ -4,6 +4,33 @@
  * O interpretador recebe o pacote do ciclo; ele nunca captura uma imagem nova.
  */
 
+/** Grupo de evidencia removido do contexto para respeitar o teto de bytes. */
+export interface GrupoRemovidoContexto {
+  /** Nome estavel do grupo (ex.: `keypoints`, `eventos_nao_confirmados`). */
+  grupo: string;
+  /** Quantidade de itens removidos do grupo. */
+  removidos: number;
+}
+
+/**
+ * Diagnostico do contexto efetivamente enviado ao modelo (Fase 3).
+ *
+ * Registra se houve compactacao, quanto do payload foi medido e quais grupos
+ * foram podados. Fica nas metricas do ciclo para que a frequencia real de
+ * truncamento seja auditavel a partir de `ciclos.jsonl`.
+ */
+export interface DiagnosticoContextoMultimodal {
+  /** Bytes UTF-8 do contexto enviado (inclui o proprio registro de truncamento). */
+  bytes: number;
+  /** Teto configurado para o contexto, em bytes UTF-8. */
+  maxBytes: number;
+  /** `true` quando alguma reducao foi aplicada. */
+  truncado: boolean;
+  /** `true` quando o payload continuou acima do teto apos todas as reducoes. */
+  excedeuTeto: boolean;
+  gruposRemovidos: GrupoRemovidoContexto[];
+}
+
 /** Acao interpretada com seu intervalo temporal aproximado. */
 export interface AcaoInterpretada {
   descricao: string;
@@ -42,4 +69,6 @@ export interface ResultadoInterpretacao {
   duracaoMs?: number;
   /** Texto bruto quando a saida estruturada nao foi possivel validar. */
   bruto?: string;
+  /** Compactacao do contexto enviado (tamanho, grupos podados e teto). */
+  contextoMultimodal?: DiagnosticoContextoMultimodal;
 }

@@ -2,6 +2,7 @@ import type { ObservacaoFrame } from "./observation";
 import type { ResultadoIndisponivel, TelemetriaSubsistema } from "./perception";
 import { estaIndisponivel } from "./perception";
 import type { DiagnosticoSinalTemporal, EventoTemporal } from "./temporal-event";
+import type { DiagnosticoContextoMultimodal } from "./interpretation";
 
 /** Finalidade declarada da politica do ciclo. */
 export type FinalidadePoliticaCiclo = "operacional" | "benchmark";
@@ -180,6 +181,12 @@ export interface MetricasCiclo {
   inferenciaPorSnapshotMs?: Partial<Record<SubsistemaMetricaCiclo, number>>;
   /** Saida agregada dos modelos locais; falhas e subsistemas nao executados nao contam. */
   resultadosPercepcao?: EvidenciaPercepcaoCiclo;
+  /**
+   * Compactacao do contexto multimodal enviado neste ciclo (Fase 3): bytes,
+   * teto, se houve truncamento e quais grupos foram podados. A frequencia de
+   * truncamento e a fracao de ciclos interpretados com `truncado: true`.
+   */
+  contextoMultimodal?: DiagnosticoContextoMultimodal;
   /**
    * Inicio do ciclo ate a conclusao da resposta multimodal (ms). Ausente quando
    * a interpretacao foi suprimida pela politica ou falhou.

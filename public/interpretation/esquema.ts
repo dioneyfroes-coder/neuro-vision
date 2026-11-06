@@ -3,6 +3,8 @@ import {
   estaIndisponivel,
   type Caixa,
   type GeometriaMao,
+  type GrupoRemovidoContexto,
+  type MotivoEncerramentoEvento,
   type ObservacaoFrame,
   type PessoaPose,
   type PontoCorporal,
@@ -60,6 +62,22 @@ export const NOMES_KEYPOINTS_COCO: readonly string[] = [
   "joelho_direito",
   "tornozelo_esquerdo",
   "tornozelo_direito",
+];
+
+/**
+ * Keypoints que sustentam postura/gesto e nunca sao descartados na compactacao
+ * por bytes: ombros, cotovelos, pulsos e quadris. Membros inferiores/perifericos
+ * podem ser podados antes destes (Fase 3, item 3).
+ */
+export const KEYPOINTS_ESSENCIAIS: readonly string[] = [
+  "ombro_esquerdo",
+  "ombro_direito",
+  "cotovelo_esquerdo",
+  "cotovelo_direito",
+  "punho_esquerdo",
+  "punho_direito",
+  "quadril_esquerdo",
+  "quadril_direito",
 ];
 
 /** Caixa normalizada em [0, 1] (relativa as dimensoes do frame). */
@@ -203,6 +221,42 @@ export interface EventoTemporalSerializavel {
   evidencias: string[];
   /** Lacuna de observacao (ms) que interrompeu o evento, quando houver. */
   gapMs?: number;
+  /** Por que o evento terminou (sem sinal, troca, oclusao, periodo cego). */
+  motivoEncerramento?: MotivoEncerramentoEvento;
+  /** `false` quando a continuidade temporal nao pode ser validada. */
+  continuidadeValida?: boolean;
+  /**
+   * Evidencias textuais do motor (ex.: `geometria:todos`, `velocidadeY:-0.5/s`).
+   * Separadas de `evidencias` (IDs de frames) para nao misturar tipos.
+   */
+  evidenciasTextuais?: string[];
+}
+
+/** Grupo de evidencia podado do contexto, com contagem do que saiu. */
+export type GrupoTruncamento =
+  | "landmarks_mao"
+  | "keypoints"
+  | "movimento"
+  | "evidencias_eventos"
+  | "eventos_nao_confirmados"
+  | "deteccoes"
+  | "pessoas"
+  | "maos";
+
+/** Registro explicito de compactacao do contexto (Fase 3, item 4). */
+export interface TruncamentoContexto {
+  /** Sempre `true`; a presenca do campo ja indica que houve reducao. */
+  ocorreu: true;
+  /** Teto aplicado, em bytes UTF-8. */
+  maxBytes: number;
+  /** Bytes do payload completo antes de qualquer reducao. */
+  bytesAntes: number;
+  /** Bytes apos as reducoes, medidos antes de incluir este proprio registro. */
+  bytesDepois: number;
+  /** Grupos removidos/compactados e quantos itens sairam de cada um. */
+  gruposRemovidos: GrupoRemovidoContexto[];
+  /** `true` quando o payload continuou acima do teto apos todas as reducoes. */
+  excedeuTeto: boolean;
 }
 
 /** Inferencia textual do modelo, separada da evidencia observada (item 7). */
@@ -249,6 +303,12 @@ export interface ContextoCicloSerializavel {
   };
   /** Subsistemas indisponiveis (sinalizacao de falha != ausencia). */
   indisponibilidades: string[];
+  /**
+   * Registro explicito de compactacao: presente quando qualquer grupo foi
+   * podado, mesmo que o payload final caiba no teto. Ausente quando nada foi
+   * removido. `bytesDepois` e medido antes de incluir este proprio registro.
+   */
+  truncamento?: TruncamentoContexto;
   /**
    * Registro explicito de que o contexto continuou acima do teto mesmo apos
    * todas as reducoes. Ausente quando o payload coube (com ou sem reducoes).
@@ -608,11 +668,18 @@ export interface ReferenciasValidadas {
   invalidas: string[];
 }
 
-/** Conjunto de IDs reais (frameIds e eventoIds) do contexto. */
+/**
+ * Conjunto de IDs reais do contexto: frameIds enviados, eventoIds e frames de
+ * evidencia citados pelos eventos. Incluir a evidencia do evento preserva a
+ * ligacao mesmo quando o frame nao esta entre as imagens amostradas.
+ */
 export function idsReais(contexto: ContextoCicloSerializavel): Set<string> {
   const ids = new Set<string>();
   for (const frame of contexto.frames) ids.add(frame.frameId);
-  for (const evento of contexto.eventosTemporais) ids.add(evento.eventoId);
+  for (const evento of contexto.eventosTemporais) {
+    ids.add(evento.eventoId);
+    for (const evidencia of evento.evidencias) ids.add(evidencia);
+  }
   return ids;
 }
 

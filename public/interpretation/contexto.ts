@@ -1,5 +1,6 @@
 import { estaIndisponivel } from "../../src/domain";
 import type {
+  DiagnosticoContextoMultimodal,
   ObservacaoFrame,
   PacoteCiclo,
   ResultadoOuIndisponivel,
@@ -8,6 +9,7 @@ import {
   arredondar,
   calcularMovimento,
   estadoSubsistema,
+  KEYPOINTS_ESSENCIAIS,
   serializarDeteccoes,
   serializarMaos,
   serializarNsfw,
@@ -16,6 +18,7 @@ import {
   VERSAO_ESQUEMA_CONTEXTO,
   type ContextoCicloSerializavel,
   type EventoTemporalSerializavel,
+  type GrupoTruncamento,
   type ObservacaoLocalSerializavel,
   type OpcoesSerializacao,
 } from "./esquema";
@@ -252,6 +255,15 @@ function serializarEvento(
   if (evento.intervaloSemObservacaoMs !== undefined) {
     serializado.gapMs = evento.intervaloSemObservacaoMs;
   }
+  if (evento.motivoEncerramento !== undefined) {
+    serializado.motivoEncerramento = evento.motivoEncerramento;
+  }
+  if (evento.continuidadeValida !== undefined) {
+    serializado.continuidadeValida = evento.continuidadeValida;
+  }
+  if (evento.evidencias !== undefined && evento.evidencias.length > 0) {
+    serializado.evidenciasTextuais = evento.evidencias.slice(0, 8);
+  }
   return serializado;
 }
 
@@ -286,65 +298,217 @@ function coletarIndisponibilidades(observacoes: ObservacaoFrame[]): string[] {
   return [...vistos];
 }
 
+/** Quantidade minima de evidencia textual de um evento preservada na compactacao. */
+const MIN_EVIDENCIAS_EVENTO = 1;
+/** Evidencias de frame mantidas por evento antes de uma poda mais agressiva. */
+const MAX_EVIDENCIAS_EVENTO = 4;
+/**
+ * Margem reservada para o proprio registro `truncamento`, para que registrar a
+ * poda nao empurre o payload de volta acima do teto.
+ */
+const RESERVA_TRUNCAMENTO_BYTES = 320;
+
 /**
  * Reduz o contexto ate caber no teto, sem quebrar a correspondencia entre
- * frame e imagem. Ordem de descarte (do mais caro/menos critico ao essencial):
- * 1. landmarks completos de mao; 2. keypoints alem dos essenciais; 3. movimento;
- * 4. eventos temporais; 5. deteccoes/pessoas restantes. `frameId`, timestamp,
- * `versao`, o estado do subsistema e as **marcacoes NSFW** nunca sao removidos:
- * quando o classificador esta ativo, a informacao +18 e evidencia essencial.
+ * frame e imagem. O criterio e **preservar a evidencia que sustenta uma
+ * afirmacao** (Fase 3):
  *
- * O teto e medido em **bytes UTF-8** (`TextEncoder`), nao em unidades de string.
- * Se o payload continuar acima do teto apos todas as reducoes, o proprio
- * contexto registra `limiteContexto` com `excedeu: true` — nunca falha em
+ * 1. compacta landmarks de mao (mantendo gesto e geometria);
+ * 2. reduz keypoints nao essenciais, preservando ombros, cotovelos, pulsos e
+ *    quadris de cada pessoa;
+ * 3. remove movimento (derivavel das posicoes);
+ * 4. compacta evidencias de frames dos eventos, mantendo ao menos uma por
+ *    evento (nunca ha perda silenciosa da unica evidencia);
+ * 5. remove eventos nao confirmados (`candidato`/`incerto`); eventos
+ *    `confirmado`/`encerrado` sao preservados;
+ * 6. reduz deteccoes/pessoas/maos, priorizando maos com gesto ou geometria.
+ *
+ * `frameId`, timestamp, `versao`, o estado do subsistema, as **marcacoes NSFW**
+ * e os eventos confirmados nunca sao removidos: quando o classificador esta
+ * ativo, a informacao +18 e evidencia essencial. O teto e medido em **bytes
+ * UTF-8** (`TextEncoder`), nao em unidades de string.
+ *
+ * Sempre que ha reducao, `contexto.truncamento` registra os grupos podados e as
+ * contagens. Se o payload continuar acima do teto apos todas as reducoes, o
+ * contexto tambem registra `limiteContexto` com `excedeu: true` — nunca falha em
  * silencio.
  */
 function limitarPorBytes(contexto: ContextoCicloSerializavel, maxBytes: number): void {
-  if (tamanhoBytesUtf8(contexto) <= maxBytes) return;
+  const bytesAntes = tamanhoBytesUtf8(contexto);
+  if (bytesAntes <= maxBytes) return;
 
-  // 1. Landmarks de mao: mantem apenas os pontas/articulacoes compactas.
+  const remocoes = new Map<GrupoTruncamento, number>();
+  const registrar = (grupo: GrupoTruncamento, removidos: number): void => {
+    if (removidos <= 0) return;
+    remocoes.set(grupo, (remocoes.get(grupo) ?? 0) + removidos);
+  };
+  // A reserva evita que o proprio metadado de truncamento estoure o teto.
+  const cabe = (): boolean => tamanhoBytesUtf8(contexto) <= maxBytes - RESERVA_TRUNCAMENTO_BYTES;
+
+  // 1. Landmarks de mao: mantem apenas pontas/articulacoes compactas. O gesto e
+  // a geometria (calculada sobre os 21 pontos brutos) permanecem intactos.
+  let removidos = 0;
   for (const frame of contexto.frames) {
     for (const mao of frame.maos) {
       if (mao.landmarks.length > 6) {
+        removidos += mao.landmarks.length - 6;
         mao.landmarks = mao.landmarks.slice(0, 6);
         // O registro deixa de representar os 21 landmarks.
         mao.landmarksCompletos = false;
       }
     }
   }
-  if (tamanhoBytesUtf8(contexto) <= maxBytes) return;
+  registrar("landmarks_mao", removidos);
+  if (cabe()) return finalizar();
 
-  // 2. Keypoints: mantem apenas os mais confiaveis por pessoa.
+  // 2. Keypoints: preserva os essenciais (ombros, cotovelos, pulsos, quadris) e
+  // completa com os demais mais confiaveis ate o limite compacto.
+  const essenciais = new Set(KEYPOINTS_ESSENCIAIS);
+  removidos = 0;
   for (const frame of contexto.frames) {
     for (const pessoa of frame.pessoas) {
-      if (pessoa.keypoints.length > 6) pessoa.keypoints = pessoa.keypoints.slice(0, 6);
+      const pontosEssenciais = pessoa.keypoints.filter((k) => essenciais.has(k.nome));
+      const outros = pessoa.keypoints.filter((k) => !essenciais.has(k.nome));
+      const limiteOutros = Math.max(0, 6 - pontosEssenciais.length);
+      const manter = new Set([...pontosEssenciais, ...outros.slice(0, limiteOutros)]);
+      const reduzidos = pessoa.keypoints.filter((k) => manter.has(k));
+      removidos += pessoa.keypoints.length - reduzidos.length;
+      pessoa.keypoints = reduzidos;
     }
   }
-  if (tamanhoBytesUtf8(contexto) <= maxBytes) return;
+  registrar("keypoints", removidos);
+  if (cabe()) return finalizar();
 
   // 3. Movimento (derivavel de posicoes; menos critico que a evidencia bruta).
-  for (const frame of contexto.frames) frame.movimento = [];
-  if (tamanhoBytesUtf8(contexto) <= maxBytes) return;
-
-  // 4. Eventos temporais.
-  contexto.eventosTemporais = [];
-  if (tamanhoBytesUtf8(contexto) <= maxBytes) return;
-
-  // 5. Deteccoes menos confiaveis primeiro; depois pessoas/maos alem da primeira.
-  // As marcacoes NSFW ficam intactas de proposito: sao a evidencia +18 que o
-  // modelo precisa para descrever o conteudo sem omitir.
+  removidos = 0;
   for (const frame of contexto.frames) {
-    frame.deteccoes = frame.deteccoes.slice(0, 3);
-    frame.pessoas = frame.pessoas.slice(0, 2);
-    frame.maos = frame.maos.slice(0, 2);
+    removidos += frame.movimento.length;
+    frame.movimento = [];
   }
+  registrar("movimento", removidos);
+  if (cabe()) return finalizar();
 
-  const final = tamanhoBytesUtf8(contexto);
-  if (final > maxBytes) {
-    // Registro explicito: o teto nao foi alcancavel sem remover evidencia
-    // essencial. O campo nao entra na medicao de `bytes` (medido antes dele).
-    contexto.limiteContexto = { maxBytes, bytes: final, excedeu: true };
+  // 4. Evidencias de frames dos eventos: preserva a primeira e as mais recentes,
+  // nunca abaixo de uma evidencia por evento.
+  removidos = 0;
+  for (const evento of contexto.eventosTemporais) {
+    if (evento.evidencias.length > MAX_EVIDENCIAS_EVENTO) {
+      const manter = Math.max(MIN_EVIDENCIAS_EVENTO, MAX_EVIDENCIAS_EVENTO - 1);
+      const primeira = evento.evidencias[0];
+      const ultimas = evento.evidencias.slice(-manter);
+      const reduzidas = [...new Set([primeira, ...ultimas])];
+      removidos += evento.evidencias.length - reduzidas.length;
+      evento.evidencias = reduzidas;
+    }
   }
+  registrar("evidencias_eventos", removidos);
+  if (cabe()) return finalizar();
+
+  // 5. Eventos nao confirmados: candidato/incerto sao hipoteses; confirmado e
+  // encerrado continuam preservados como evidencia do que foi observado.
+  const naoPreservados = contexto.eventosTemporais.filter(
+    (evento) => evento.status !== "confirmado" && evento.status !== "encerrado"
+  ).length;
+  if (naoPreservados > 0) {
+    contexto.eventosTemporais = contexto.eventosTemporais.filter(
+      (evento) => evento.status === "confirmado" || evento.status === "encerrado"
+    );
+    registrar("eventos_nao_confirmados", naoPreservados);
+  }
+  if (cabe()) return finalizar();
+
+  // 6. Deteccoes/pessoas/maos. Maos com gesto ou geometria tem prioridade: sao a
+  // evidencia direta de configuracao de dedos/gesto.
+  let removidosDeteccoes = 0;
+  let removidosPessoas = 0;
+  let removidosMaos = 0;
+  for (const frame of contexto.frames) {
+    removidosDeteccoes += Math.max(0, frame.deteccoes.length - 3);
+    frame.deteccoes = frame.deteccoes.slice(0, 3);
+    removidosPessoas += Math.max(0, frame.pessoas.length - 2);
+    frame.pessoas = frame.pessoas.slice(0, 2);
+    const maosPriorizadas = [
+      ...frame.maos.filter((mao) => mao.gesto || mao.geometria),
+      ...frame.maos.filter((mao) => !mao.gesto && !mao.geometria),
+    ];
+    removidosMaos += Math.max(0, maosPriorizadas.length - 2);
+    frame.maos = maosPriorizadas.slice(0, 2);
+  }
+  registrar("deteccoes", removidosDeteccoes);
+  registrar("pessoas", removidosPessoas);
+  registrar("maos", removidosMaos);
+  if (cabe()) return finalizar();
+
+  // 7. Ultimo passo nao destrutivo: mantem uma deteccao/pessoa/mao por frame,
+  // ainda priorizando maos com gesto/geometria.
+  removidosDeteccoes = 0;
+  removidosPessoas = 0;
+  removidosMaos = 0;
+  for (const frame of contexto.frames) {
+    removidosDeteccoes += Math.max(0, frame.deteccoes.length - 1);
+    frame.deteccoes = frame.deteccoes.slice(0, 1);
+    removidosPessoas += Math.max(0, frame.pessoas.length - 1);
+    frame.pessoas = frame.pessoas.slice(0, 1);
+    removidosMaos += Math.max(0, frame.maos.length - 1);
+    frame.maos = frame.maos.slice(0, 1);
+  }
+  registrar("deteccoes", removidosDeteccoes);
+  registrar("pessoas", removidosPessoas);
+  registrar("maos", removidosMaos);
+  finalizar();
+
+  function finalizar(): void {
+    if (remocoes.size === 0) {
+      // Sem grupos podaveis, o teto pode ainda ser inalcancavel (payload minimo
+      // maior que o limite). Registra explicitamente em vez de falhar em silencio.
+      const bytes = tamanhoBytesUtf8(contexto);
+      if (bytes > maxBytes) {
+        contexto.limiteContexto = { maxBytes, bytes, excedeu: true };
+      }
+      return;
+    }
+    const bytesDepois = tamanhoBytesUtf8(contexto);
+    const gruposRemovidos = [...remocoes.entries()].map(([grupo, total]) => ({
+      grupo,
+      removidos: total,
+    }));
+    contexto.truncamento = {
+      ocorreu: true,
+      maxBytes,
+      bytesAntes,
+      bytesDepois,
+      gruposRemovidos,
+      excedeuTeto: bytesDepois > maxBytes,
+    };
+    const bytesComRegistro = tamanhoBytesUtf8(contexto);
+    const excedeu = bytesComRegistro > maxBytes;
+    contexto.truncamento.excedeuTeto = excedeu;
+    if (excedeu) {
+      // O campo nao entra na medicao de `bytes` (medido antes dele).
+      contexto.limiteContexto = { maxBytes, bytes: bytesComRegistro, excedeu: true };
+    }
+  }
+}
+
+/**
+ * Diagnostico de compactacao do contexto enviado, derivado do proprio payload.
+ *
+ * Usado pelas metricas do ciclo para medir a frequencia real de truncamento
+ * (Fase 3, item 5) sem depender de logs internos do montador.
+ */
+export function diagnosticarContexto(
+  contexto: ContextoCicloSerializavel,
+  maxBytesConfigurado?: number
+): DiagnosticoContextoMultimodal {
+  const truncamento = contexto.truncamento;
+  const limite = contexto.limiteContexto;
+  return {
+    bytes: tamanhoBytesUtf8(contexto),
+    maxBytes: truncamento?.maxBytes ?? limite?.maxBytes ?? maxBytesConfigurado ?? 0,
+    truncado: Boolean(truncamento?.ocorreu),
+    excedeuTeto: Boolean(truncamento?.excedeuTeto ?? limite?.excedeu),
+    gruposRemovidos: truncamento?.gruposRemovidos.map((grupo) => ({ ...grupo })) ?? [],
+  };
 }
 
 /**

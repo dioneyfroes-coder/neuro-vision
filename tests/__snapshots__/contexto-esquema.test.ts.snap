@@ -1,0 +1,348 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Fase 3 — compactacao preserva a evidencia > snapshot do payload multimodal 1`] = `
+{
+  "contexto": {
+    "cycleId": "s1-c1",
+    "eventosTemporais": [
+      {
+        "continuidadeValida": true,
+        "descricao": "Evento de teste",
+        "eventoId": "e-snapshot",
+        "evidencias": [
+          "f1",
+        ],
+        "evidenciasTextuais": [
+          "geometria:todos",
+        ],
+        "fimEm": "2026-10-17T12:00:00.500Z",
+        "inicioEm": "2026-10-17T12:00:00.000Z",
+        "motivoEncerramento": "sem_sinal",
+        "status": "encerrado",
+        "tipo": "gesto_detectado",
+      },
+    ],
+    "frames": [
+      {
+        "capturadoEm": "2026-10-17T12:00:00.000Z",
+        "deteccoes": [
+          {
+            "caixa": {
+              "xmax": 0.55,
+              "xmin": 0.05,
+              "ymax": 0.55,
+              "ymin": 0.05,
+            },
+            "label": "pessoa",
+            "rotulo": "person",
+            "score": 0.8,
+          },
+        ],
+        "frameId": "f1",
+        "indice": 1,
+        "maos": [
+          {
+            "geometria": {
+              "configuracao": "todos",
+              "dedos": [
+                {
+                  "angulos": [
+                    180,
+                    180,
+                  ],
+                  "estado": "estendido",
+                  "estendido": true,
+                  "nome": "polegar",
+                },
+                {
+                  "angulos": [
+                    180,
+                    180,
+                  ],
+                  "estado": "estendido",
+                  "estendido": true,
+                  "nome": "indicador",
+                },
+                {
+                  "angulos": [
+                    180,
+                    180,
+                  ],
+                  "estado": "estendido",
+                  "estendido": true,
+                  "nome": "medio",
+                },
+                {
+                  "angulos": [
+                    180,
+                    180,
+                  ],
+                  "estado": "estendido",
+                  "estendido": true,
+                  "nome": "anular",
+                },
+                {
+                  "angulos": [
+                    180,
+                    180,
+                  ],
+                  "estado": "estendido",
+                  "estendido": true,
+                  "nome": "mindinho",
+                },
+              ],
+              "dedosDesconhecidos": [],
+              "dedosDobrados": [],
+              "dedosEstendidos": [
+                "polegar",
+                "indicador",
+                "medio",
+                "anular",
+                "mindinho",
+              ],
+              "limiarExtensaoGraus": 150,
+              "totalDedosConhecidos": 5,
+              "totalEstendidos": 5,
+            },
+            "gesto": {
+              "confianca": 0.77,
+              "nome": "polegar_para_cima",
+            },
+            "indice": 1,
+            "landmarks": [
+              {
+                "nome": "landmark_0",
+                "x": 0.5,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_1",
+                "x": 0.5,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_2",
+                "x": 0.5,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_3",
+                "x": 0.5,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_4",
+                "x": 0.5,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_5",
+                "x": 0.51,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_6",
+                "x": 0.51,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_7",
+                "x": 0.51,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_8",
+                "x": 0.51,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_9",
+                "x": 0.51,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_10",
+                "x": 0.51,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_11",
+                "x": 0.51,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_12",
+                "x": 0.51,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_13",
+                "x": 0.51,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_14",
+                "x": 0.51,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_15",
+                "x": 0.52,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_16",
+                "x": 0.52,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_17",
+                "x": 0.52,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_18",
+                "x": 0.52,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_19",
+                "x": 0.52,
+                "y": 0.6,
+              },
+              {
+                "nome": "landmark_20",
+                "x": 0.52,
+                "y": 0.6,
+              },
+            ],
+            "landmarksCompletos": true,
+            "lateralidade": "direita",
+            "trackId": "mao-1",
+          },
+        ],
+        "movimento": [],
+        "offsetMs": 0,
+        "pessoas": [
+          {
+            "confianca": 0.9,
+            "indice": 1,
+            "keypoints": [
+              {
+                "confianca": 0.95,
+                "nome": "nariz",
+                "x": 0.2,
+                "y": 0.3,
+              },
+              {
+                "confianca": 0.9,
+                "nome": "olho_esquerdo",
+                "x": 0.21,
+                "y": 0.31,
+              },
+              {
+                "confianca": 0.85,
+                "nome": "olho_direito",
+                "x": 0.22,
+                "y": 0.32,
+              },
+              {
+                "confianca": 0.8,
+                "nome": "orelha_esquerda",
+                "x": 0.23,
+                "y": 0.33,
+              },
+              {
+                "confianca": 0.75,
+                "nome": "orelha_direita",
+                "x": 0.24,
+                "y": 0.34,
+              },
+              {
+                "confianca": 0.7,
+                "nome": "ombro_esquerdo",
+                "x": 0.25,
+                "y": 0.35,
+              },
+              {
+                "confianca": 0.65,
+                "nome": "ombro_direito",
+                "x": 0.26,
+                "y": 0.36,
+              },
+              {
+                "confianca": 0.6,
+                "nome": "cotovelo_esquerdo",
+                "x": 0.27,
+                "y": 0.37,
+              },
+              {
+                "confianca": 0.55,
+                "nome": "cotovelo_direito",
+                "x": 0.28,
+                "y": 0.38,
+              },
+              {
+                "confianca": 0.5,
+                "nome": "punho_esquerdo",
+                "x": 0.29,
+                "y": 0.39,
+              },
+              {
+                "confianca": 0.45,
+                "nome": "punho_direito",
+                "x": 0.3,
+                "y": 0.4,
+              },
+              {
+                "confianca": 0.4,
+                "nome": "quadril_esquerdo",
+                "x": 0.31,
+                "y": 0.41,
+              },
+              {
+                "confianca": 0.35,
+                "nome": "quadril_direito",
+                "x": 0.32,
+                "y": 0.42,
+              },
+            ],
+            "trackId": "pes-1",
+          },
+        ],
+        "subsistemas": {
+          "deteccao": {
+            "modelo": "yolov10n",
+            "status": "ok",
+          },
+          "maos": {
+            "modelo": "mediapipe",
+            "status": "ok",
+          },
+          "pose": {
+            "modelo": "yolov8n-pose",
+            "status": "ok",
+          },
+        },
+        "versao": "contexto-1",
+      },
+    ],
+    "indisponibilidades": [],
+    "iniciadoEm": "2026-10-17T12:00:00.000Z",
+    "janelaMs": 0,
+    "resumoTemporal": {
+      "houveIntervaloSemObservacao": false,
+      "intervaloSemObservacaoMs": undefined,
+      "maosAtivas": 0,
+      "objetosAtivos": 0,
+      "pessoasAtivas": 1,
+      "tracksAtivos": 1,
+    },
+    "sessionId": "s1",
+    "versao": "contexto-1",
+  },
+  "imagens": [
+    "img1",
+  ],
+}
+`;

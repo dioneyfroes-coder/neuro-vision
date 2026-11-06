@@ -155,6 +155,8 @@ function montar(
     eventosTemporais?: EventoTemporal[];
     /** Politica do ciclo (Fase 4); padrao do controlador: `POLITICA_CICLO_BENCHMARK_ALVO`. */
     politica?: PoliticaCiclo;
+    /** Diagnostico de compactacao devolvido pelo interpretador falso. */
+    contextoMultimodal?: ResultadoInterpretacao["contextoMultimodal"];
   } = {}
 ): Contexto {
   const eventos: EventoUi[] = [];
@@ -266,6 +268,9 @@ function montar(
           incertezas: [],
           contradicoes: [],
           duracaoMs: 10,
+          ...(opcoes.contextoMultimodal
+            ? { contextoMultimodal: opcoes.contextoMultimodal }
+            : {}),
         };
       },
     }),
@@ -351,6 +356,43 @@ describe("CicloPercepcaoController", () => {
     ctx.controle.parar();
     expect(primeiro(ctx.eventos, "parado")).toBeTruthy();
     expect(ctx.cameraEstado.encerradas).toBe(1);
+  });
+
+  it("registra o truncamento do contexto e mede sua frequencia nos ciclos reais", async () => {
+    const ctx = montar({
+      contextoMultimodal: {
+        bytes: 1400,
+        maxBytes: 1000,
+        truncado: true,
+        excedeuTeto: true,
+        gruposRemovidos: [
+          { grupo: "keypoints", removidos: 6 },
+          { grupo: "movimento", removidos: 2 },
+        ],
+      },
+    });
+    await ctx.controle.iniciar();
+
+    expect(ctx.ciclos[0].metricas.contextoMultimodal).toMatchObject({
+      truncado: true,
+      excedeuTeto: true,
+      gruposRemovidos: expect.arrayContaining([
+        { grupo: "keypoints", removidos: 6 },
+      ]),
+    });
+    expect(ctx.controle.contagemTruncamentoContexto).toEqual({
+      interpretados: 1,
+      truncados: 1,
+    });
+    expect(ctx.controle.taxaTruncamentoContexto).toBe(1);
+
+    await ctx.controle.executarCiclo();
+    expect(ctx.controle.contagemTruncamentoContexto).toEqual({
+      interpretados: 2,
+      truncados: 2,
+    });
+    expect(ctx.controle.taxaTruncamentoContexto).toBe(1);
+    ctx.controle.parar();
   });
 
   it("falha ao acessar a camera impede a sessao sem rodar ciclos", async () => {

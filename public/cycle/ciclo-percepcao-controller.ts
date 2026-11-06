@@ -164,6 +164,10 @@ export class CicloPercepcaoController implements ControladorCiclo {
   private ultimaDuracaoMsValor = 0;
   private ultimaCargaMsValor = 0;
   private ultimaPersistenciaMsValor = 0;
+  /** Ciclos com interpretacao multimodal efetiva (base da taxa de truncamento). */
+  private ciclosInterpretados = 0;
+  /** Ciclos em que o contexto multimodal precisou ser compactado (Fase 3). */
+  private ciclosComTruncamento = 0;
   /** Carga fria dos modelos da sessao (P3.1); ausente na variante sem percepcao. */
   private cargaModelosAtual: CargaModelosCiclo | undefined;
   /** Fim monotonico do ultimo ciclo; base da latencia entre ciclos. */
@@ -207,6 +211,22 @@ export class CicloPercepcaoController implements ControladorCiclo {
     return this.ultimaPersistenciaMsValor;
   }
 
+  /**
+   * Fracao de ciclos interpretados cujo contexto precisou de compactacao
+   * (Fase 3, item 5). `undefined` enquanto nao houve interpretacao. O mesmo
+   * diagnostico fica em `metricas.contextoMultimodal` de cada `RegistroCiclo`.
+   */
+  get taxaTruncamentoContexto(): number | undefined {
+    return this.ciclosInterpretados === 0
+      ? undefined
+      : this.ciclosComTruncamento / this.ciclosInterpretados;
+  }
+
+  /** Contagem absoluta de ciclos interpretados e de ciclos com truncamento. */
+  get contagemTruncamentoContexto(): { interpretados: number; truncados: number } {
+    return { interpretados: this.ciclosInterpretados, truncados: this.ciclosComTruncamento };
+  }
+
   get agendamentoExecutando(): boolean {
     return this.agendador.estaExecutando;
   }
@@ -228,6 +248,8 @@ export class CicloPercepcaoController implements ControladorCiclo {
     this.eventosPersistidos.clear();
     this.memoriaTemporalPersistida.clear();
     this.ultimoFimCicloMs = null;
+    this.ciclosInterpretados = 0;
+    this.ciclosComTruncamento = 0;
     this.motorTemporal?.resetar();
     this.store.limpar();
   }
@@ -281,6 +303,8 @@ export class CicloPercepcaoController implements ControladorCiclo {
     this.cicloSeq = 0;
     this.eventosPersistidos.clear();
     this.memoriaTemporalPersistida.clear();
+    this.ciclosInterpretados = 0;
+    this.ciclosComTruncamento = 0;
     this.motorTemporal?.resetar();
     this.store.limpar();
 
@@ -428,6 +452,11 @@ export class CicloPercepcaoController implements ControladorCiclo {
     const { pacote } = resultado;
     this.ultimaDuracaoMsValor = pacote.metricas.totalMs ?? 0;
     this.ultimaPersistenciaMsValor = pacote.metricas.persistenciaMs ?? 0;
+    const contextoMultimodal = pacote.metricas.contextoMultimodal;
+    if (contextoMultimodal) {
+      this.ciclosInterpretados += 1;
+      if (contextoMultimodal.truncado) this.ciclosComTruncamento += 1;
+    }
 
     const ultima = pacote.observacoes[pacote.observacoes.length - 1];
     if (!ultima) {

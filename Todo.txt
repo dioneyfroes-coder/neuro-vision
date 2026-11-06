@@ -25,14 +25,14 @@ FASE 2 - Melhorar o motor temporal para acoes humanas [CONCLUIDA]
 [x] Criar testes temporais para velocidade, transicoes, gestos, lateralidade, oclusao e encerramento.
 GATE FASE 2: cada evento registra entidade, inicio/fim, origem da evidencia, confianca, continuidade valida e motivo de encerramento.
 
-FASE 3 - Melhorar o contrato multimodal
-[ ] Explicar no prompt dedosEstendidos, totalEstendidos e configuracao; descrever os angulos como estimativas locais 2D.
-[ ] Informar ao VLM que dados locais podem falhar; pedir que divergencias e casos inconclusivos sejam tratados como incerteza.
-[ ] Ao reduzir contexto, preservar ombros, cotovelos, pulsos e quadris, alem de gestos e eventos temporais confirmados.
-[ ] Registrar no payload que houve truncamento e quais grupos foram removidos.
-[ ] Medir e registrar a frequencia de truncamento em ciclos reais.
-[ ] Preservar a ligacao entre imagens, resultados estruturados e frameId.
-[ ] Adicionar testes de snapshot do payload e de truncamento sem perda silenciosa da unica evidencia de um evento.
+FASE 3 - Melhorar o contrato multimodal [CONCLUIDA]
+[x] Explicar no prompt dedosEstendidos, totalEstendidos e configuracao; descrever os angulos como estimativas locais 2D.
+[x] Informar ao VLM que dados locais podem falhar; pedir que divergencias e casos inconclusivos sejam tratados como incerteza.
+[x] Ao reduzir contexto, preservar ombros, cotovelos, pulsos e quadris, alem de gestos e eventos temporais confirmados.
+[x] Registrar no payload que houve truncamento e quais grupos foram removidos.
+[x] Medir e registrar a frequencia de truncamento em ciclos reais.
+[x] Preservar a ligacao entre imagens, resultados estruturados e frameId.
+[x] Adicionar testes de snapshot do payload e de truncamento sem perda silenciosa da unica evidencia de um evento.
 GATE FASE 3: o payload contem todas as evidencias necessarias ou declara explicitamente o que foi podado.
 
 FASE 4 - Validar benchmark para os objetivos do projeto

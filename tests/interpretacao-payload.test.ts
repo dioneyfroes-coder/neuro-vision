@@ -197,6 +197,78 @@ describe("montarPromptInterpretacao", () => {
     expect(prompt).toContain("nsfw=[");
   });
 
+  it("explica a geometria dos dedos e os limites das estimativas locais 2D", () => {
+    const { contexto } = montarContextoCiclo({ ...PACOTE, observacoes: [OBS_BASE] });
+    const prompt = montarPromptInterpretacao(contexto);
+    expect(prompt).toContain("dedosEstendidos");
+    expect(prompt).toContain("totalEstendidos");
+    expect(prompt).toContain("configuracao");
+    expect(prompt).toMatch(/estimativas locais 2D/i);
+    expect(prompt).toMatch(/nao sao medidas clinicas nem 3D/i);
+  });
+
+  it("instrui o modelo a tratar falhas locais, divergencias e casos inconclusivos como incerteza", () => {
+    const { contexto } = montarContextoCiclo({ ...PACOTE, observacoes: [OBS_BASE] });
+    const prompt = montarPromptInterpretacao(contexto);
+    expect(prompt).toMatch(/dados locais podem falhar|podem falhar ou vir incompletos/i);
+    expect(prompt).toMatch(/divergir|divergencia/i);
+    expect(prompt).toMatch(/inconclusiv/i);
+    expect(prompt).toContain("incertezas");
+  });
+
+  it("avisa explicitamente quando o contexto foi compactado e quais grupos saíram", () => {
+    const deteccoes = Array.from({ length: 20 }, (_, i) => ({
+      nome: `objeto-${i}`,
+      rotulo: `object-${i}`,
+      score: 0.9,
+      caixa: { xmin: 0, ymin: 0, xmax: 10, ymax: 10 },
+    }));
+    const obs = Array.from({ length: 4 }, (_, i) => ({
+      ...OBS_BASE,
+      frameId: `f${i}`,
+      capturadoEmMs: i * 100,
+      imagem: `img${i}`,
+      deteccoes: { deteccoes, dimensoes: { largura: 100, altura: 100 } },
+    }));
+    const pacote = { ...PACOTE, observacoes: obs };
+    const completo = montarContextoCiclo(pacote).contexto;
+    const bytesCompletos = new TextEncoder().encode(JSON.stringify(completo)).length;
+    const { contexto } = montarContextoCiclo(pacote, {
+      maxBytesContexto: bytesCompletos - 400,
+    });
+    expect(contexto.truncamento?.ocorreu).toBe(true);
+    const prompt = montarPromptInterpretacao(contexto);
+    expect(prompt).toContain("contexto local foi compactado");
+    expect(prompt).toContain("Grupos podados:");
+    expect(prompt).toContain(contexto.truncamento!.gruposRemovidos[0].grupo);
+  });
+
+  it("inclui motivo de encerramento, continuidade e evidencias textuais dos eventos", () => {
+    const evento: EventoTemporal = {
+      eventoId: "ev-fim",
+      sessionId: "s1",
+      tipo: "transicao_acao",
+      inicioEm: "2026-10-17T12:00:00.000Z",
+      fimEm: "2026-10-17T12:00:00.500Z",
+      descricao: "Transicao concluida",
+      origens: ["movimento"],
+      frameIds: ["f1"],
+      estado: "encerrado",
+      motivoEncerramento: "sem_sinal",
+      continuidadeValida: false,
+      evidencias: ["velocidadeY:-0.6/s"],
+    };
+    const { contexto } = montarContextoCiclo({
+      ...PACOTE,
+      observacoes: [OBS_BASE],
+      eventosTemporais: [evento],
+    });
+    const prompt = montarPromptInterpretacao(contexto);
+    expect(prompt).toContain("motivoEncerramento sem_sinal");
+    expect(prompt).toContain("continuidadeValida false");
+    expect(prompt).toContain("velocidadeY:-0.6/s");
+  });
+
   it("sem dados locais (variante B) o prompt marca subsistemas como nao_carregado", () => {
     const o1: ObservacaoFrame = { ...OBS_BASE, frameId: "f1", capturadoEmMs: 0, imagem: "img1" };
     const pacote: PacoteCiclo = { ...PACOTE, observacoes: [o1] };
@@ -282,6 +354,13 @@ describe("InterpretadorCiclo", () => {
     expect(res.evidencias).toEqual(["f1", "f2"]);
     expect(res.duracaoMs).toBe(50);
     expect(res.modelo).toBe("m");
+    // Diagnostico de compactacao disponivel para as metricas do ciclo.
+    expect(res.contextoMultimodal).toMatchObject({
+      maxBytes: 16_000,
+      truncado: false,
+      excedeuTeto: false,
+      gruposRemovidos: [],
+    });
   });
 
   it("usa 'parcial' como texto no transporte e o interpretador normaliza", async () => {

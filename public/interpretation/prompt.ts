@@ -49,10 +49,24 @@ export function montarPromptInterpretacao(contexto: ContextoCicloSerializavel): 
         (e.ultimaEvidenciaEm ? `, ultimaEvidencia ${e.ultimaEvidenciaEm}` : "") +
         (e.ultimaObservacaoEm ? `, ultimaObservacao ${e.ultimaObservacaoEm}` : "") +
         (e.gapMs !== undefined ? `, gap ${e.gapMs}ms sem observacao` : "") +
+        (e.motivoEncerramento ? `, motivoEncerramento ${e.motivoEncerramento}` : "") +
+        (e.continuidadeValida !== undefined
+          ? `, continuidadeValida ${e.continuidadeValida}`
+          : "") +
         (e.evidencias.length ? `, frames=${e.evidencias.join(",")}` : "") +
+        (e.evidenciasTextuais?.length
+          ? `, evidencias=${e.evidenciasTextuais.join("|")}`
+          : "") +
         ")"
     )
     .join("\n");
+
+  const truncamento = contexto.truncamento;
+  const gruposPodados = truncamento?.gruposRemovidos.length
+    ? truncamento.gruposRemovidos
+        .map((grupo) => `${grupo.grupo} (${grupo.removidos})`)
+        .join(", ")
+    : "nenhum";
 
   // Subsistema NSFW ativo em qualquer frame: o bloco vale para todas as
   // imagens, mesmo que o detector nao tenha marcado aquele frame especifico.
@@ -76,13 +90,38 @@ export function montarPromptInterpretacao(contexto: ContextoCicloSerializavel): 
         ? ` (${contexto.resumoTemporal.intervaloSemObservacaoMs}ms sem observacao)`
         : ""),
     `Indisponibilidades: ${contexto.indisponibilidades.length ? contexto.indisponibilidades.join("; ") : "nenhuma"}`,
-    ...(contexto.limiteContexto?.excedeu
+    ...(truncamento?.ocorreu
       ? [
-          `Atencao: o contexto local excedeu o teto de ${contexto.limiteContexto.maxBytes} bytes UTF-8 ` +
-            `(${contexto.limiteContexto.bytes} bytes apos as reducoes) e nao pode ser encaixado por completo. ` +
-            "Dados ausentes podem ter sido removidos por limite de tamanho, nao por ausencia observada.",
+          `Atencao: o contexto local foi compactado para caber no teto de ${truncamento.maxBytes} bytes UTF-8 ` +
+            `(${truncamento.bytesAntes} -> ${truncamento.bytesDepois} bytes antes do registro). ` +
+            `Grupos podados: ${gruposPodados}. ` +
+            "Dados ausentes desses grupos foram removidos por limite de tamanho, nao por ausencia observada.",
         ]
       : []),
+    ...(contexto.limiteContexto?.excedeu
+      ? [
+          `Atencao: mesmo apos as reducoes o contexto local ficou acima do teto de ${contexto.limiteContexto.maxBytes} bytes UTF-8 ` +
+            `(${contexto.limiteContexto.bytes} bytes). Nao trate a ausencia de um dado como ausencia observada; ` +
+            "registre a limitacao como incerteza.",
+        ]
+      : []),
+    "",
+    "Legenda dos dados locais (evidencia observada, nao inferencia):",
+    "- `pessoas[].keypoints` sao keypoints corporais nomeados (ombro, cotovelo, punho, quadril, etc.) com confianca. " +
+      "`x`/`y` sao coordenadas 2D normalizadas em [0,1].",
+    "- `maos[].landmarks` sao pontos 2D normalizados da mao (subconjunto compacto ou 21 pontos). " +
+      "`lateralidade` e `gesto` vem do reconhecedor; `geometria` e derivada dos landmarks.",
+    "- `geometria.dedos` traz, por dedo, `angulos` e `estado` (`estendido`, `dobrado` ou `desconhecido`).",
+    "- `geometria.dedosEstendidos` lista os nomes dos dedos estendidos; `totalEstendidos` e a contagem (0..5); " +
+      "`configuracao` resume o caso como `todos`, `nenhum` ou nomes unidos por `+`.",
+    "- Os `angulos` sao **estimativas locais 2D** calculadas a partir dos landmarks: nao sao medidas clinicas nem 3D. " +
+      "Perspectiva, oclusao e anisotropia da imagem podem altera-los.",
+    "- `geometria` pode divergir de `gesto` (rotulo fechado do MediaPipe). Quando isso ocorrer, trate como incerteza, " +
+      "nao como um fato escolhido arbitrariamente.",
+    "- Dados locais podem falhar ou vir incompletos (`indisponivel`, `sem_resultado`, `nao_carregado`, landmarks " +
+      "ausentes ou contexto compactado). Ausencia local nao prova ausencia fisica.",
+    "- Se a evidencia local divergir das imagens ou for inconclusiva, explicite a divergencia em `incertezas` e " +
+      "reduza a confianca da afirmacao; nao force uma conclusao.",
     "",
     "Frames (em ordem cronologica, cada um corresponde a uma imagem; coordenadas normalizadas em [0,1]):",
     frames,
