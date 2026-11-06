@@ -14,15 +14,15 @@ FASE 1 - Fechar a cadeia de evidencias [CONCLUIDA]
 [x] Adicionar teste de integracao do payload final enviado ao VLM: imagens, frameIds, deteccoes, pose, maos e eventos.
 [x] GATE FASE 1: objeto, pessoa e mao mantem IDs estaveis quando associaveis; associacoes incertas nao inventam continuidade.
 
-FASE 2 - Melhorar o motor temporal para acoes humanas
-[ ] Trocar limiar de deslocamento por frame por velocidade normalizada por segundo; rejeitar intervalos invalidos ou excessivamente longos.
-[ ] Distinguir postura mantida (ex.: braco erguido) de transicao (ex.: levantou o braco).
-[ ] Definir representacao estavel dos cinco dedos: polegar, indicador, medio, anelar e minimo estendidos.
-[ ] Implementar regras iniciais para polegar para cima, mao aberta, punho fechado, um dedo e dois dedos.
-[ ] Aplicar histerese e confirmacao por multiplas observacoes; preservar confianca e evidencias, sem tratar heuristica como certeza.
-[ ] Usar lateralidade como restricao na associacao de maos.
-[ ] Diferenciar estados de gesto confirmado, gesto encerrado, mao ocluida, inferencia indisponivel e observacao insuficiente.
-[ ] Criar testes temporais para velocidade, transicoes, gestos, lateralidade, oclusao e encerramento.
+FASE 2 - Melhorar o motor temporal para acoes humanas [CONCLUIDA]
+[x] Trocar limiar de deslocamento por frame por velocidade normalizada por segundo; rejeitar intervalos invalidos ou excessivamente longos.
+[x] Distinguir postura mantida (ex.: braco erguido) de transicao (ex.: levantou o braco).
+[x] Definir representacao estavel dos cinco dedos: polegar, indicador, medio, anelar e minimo estendidos.
+[x] Implementar regras iniciais para polegar para cima, mao aberta, punho fechado, um dedo e dois dedos.
+[x] Aplicar histerese e confirmacao por multiplas observacoes; preservar confianca e evidencias, sem tratar heuristica como certeza.
+[x] Usar lateralidade como restricao na associacao de maos.
+[x] Diferenciar estados de gesto confirmado, gesto encerrado, mao ocluida, inferencia indisponivel e observacao insuficiente.
+[x] Criar testes temporais para velocidade, transicoes, gestos, lateralidade, oclusao e encerramento.
 GATE FASE 2: cada evento registra entidade, inicio/fim, origem da evidencia, confianca, continuidade valida e motivo de encerramento.
 
 FASE 3 - Melhorar o contrato multimodal

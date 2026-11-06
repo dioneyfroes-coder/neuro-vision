@@ -35,6 +35,18 @@ export interface Entidade {
   deslocamento: number;
   /** Componente vertical do movimento (negativa = subindo). */
   deslocamentoY: number;
+  /** Velocidade instantanea normalizada por segundo no ultimo intervalo valido. */
+  velocidade: number;
+  /** Componente vertical da velocidade (negativa = subindo). */
+  velocidadeY: number;
+  /**
+   * `false` quando o ultimo intervalo foi invalido (`<= 0`, nao finito) ou
+   * excessivamente longo. Nesse caso a velocidade e zerada: nao se presume
+   * movimento atraves de uma lacuna.
+   */
+  velocidadeValida: boolean;
+  /** Intervalo (ms) efetivamente usado na ultima velocidade valida. */
+  intervaloVelocidadeMs?: number;
   confianca: number;
   framesVisto: number;
   framesAusente: number;
@@ -96,7 +108,11 @@ export class RastreadorEntidades {
    *               quando o subsistema falhou ou a entidade sumiu).
    * @param tempoMs tempo monotono (ms) do frame.
    */
-  atualizarComAssociacoes(sondas: Sonda[], tempoMs: number): ResultadoRastreamento {
+  atualizarComAssociacoes(
+    sondas: Sonda[],
+    tempoMs: number,
+    podeAssociar?: (entidade: Entidade, sonda: Sonda) => boolean
+  ): ResultadoRastreamento {
     // Expiracao temporal no inicio da atualizacao: uma entidade nao observada
     // por tempo demais nao deve sobreviver a lacunas longas entre ciclos.
     this.expirarPorTempo(tempoMs);
@@ -113,6 +129,7 @@ export class RastreadorEntidades {
       let melhorIdx = -1;
       for (let i = 0; i < naoAssociadas.length; i += 1) {
         const item = naoAssociadas[i];
+        if (podeAssociar && !podeAssociar(entidade, item.sonda)) continue;
         const d = distanciaPontos(entidade, item.sonda);
         if (d < melhorDist) {
           melhorDist = d;
@@ -191,6 +208,9 @@ export class RastreadorEntidades {
       y: sonda.y,
       deslocamento: 0,
       deslocamentoY: 0,
+      velocidade: 0,
+      velocidadeY: 0,
+      velocidadeValida: false,
       confianca: sonda.confianca,
       framesVisto: 1,
       framesAusente: 0,
@@ -207,6 +227,9 @@ export class RastreadorEntidades {
     const anterior = this.posicoesBrutas.get(entidade.entidadeId) ?? null;
     const bruto = { x: sonda.x, y: sonda.y };
     if (anterior) {
+      const intervaloMs = tempoMs - entidade.ultimaObservacaoMs;
+      const intervaloValido =
+        Number.isFinite(intervaloMs) && intervaloMs > 0 && intervaloMs <= this.config.maxTempoAusenteMs;
       const metrica = medirMovimento(anterior, bruto);
       entidade.deslocamento =
         this.config.alphaSuavizacao * entidade.deslocamento +
@@ -214,6 +237,13 @@ export class RastreadorEntidades {
       entidade.deslocamentoY =
         this.config.alphaSuavizacao * entidade.deslocamentoY +
         (1 - this.config.alphaSuavizacao) * metrica.deslocamentoY;
+      entidade.velocidadeValida = intervaloValido;
+      entidade.intervaloVelocidadeMs = intervaloValido ? intervaloMs : undefined;
+      entidade.velocidade = intervaloValido ? (metrica.deslocamento * 1000) / intervaloMs : 0;
+      entidade.velocidadeY = intervaloValido ? (metrica.deslocamentoY * 1000) / intervaloMs : 0;
+    } else {
+      entidade.velocidadeValida = false;
+      entidade.intervaloVelocidadeMs = undefined;
     }
     const suavizado = suavizarPonto(this.config.alphaSuavizacao, anterior, bruto);
     entidade.x = suavizado.x;

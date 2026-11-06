@@ -133,11 +133,24 @@ describe("calcularGeometriaMao", () => {
     expect(exigente!.totalEstendidos).toBe(0);
   });
 
-  it("omite dedos com landmarks ausentes/invalidos e nao inventa geometria", () => {
+  it("mantem os cinco dedos e marca como desconhecido o que falta", () => {
     const landmarks = maoEstendida();
     landmarks[7] = { x: Number.NaN, y: 0.5 };
     const geometria = calcularGeometriaMao(landmarks);
-    expect(geometria!.dedos.map((d) => d.nome)).not.toContain("indicador");
+    // Representacao estavel: os cinco dedos continuam presentes na ordem.
+    expect(geometria!.dedos.map((d) => d.nome)).toEqual([
+      "polegar",
+      "indicador",
+      "medio",
+      "anular",
+      "mindinho",
+    ]);
+    const indicador = geometria!.dedos.find((d) => d.nome === "indicador");
+    expect(indicador?.estado).toBe("desconhecido");
+    expect(indicador?.estendido).toBe(false);
+    expect(indicador?.angulos).toEqual([]);
+    expect(geometria!.dedosDesconhecidos).toEqual(["indicador"]);
+    expect(geometria!.totalDedosConhecidos).toBe(4);
     expect(geometria!.totalEstendidos).toBe(4);
     // Mao parcial nao vira "todos": o total de referencia continua sendo 5.
     expect(geometria!.configuracao).toBe("polegar+medio+anular+mindinho");

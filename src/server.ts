@@ -74,6 +74,7 @@ import type {
 } from "./types";
 import type {
   EstadoEventoTemporal,
+  MotivoEncerramentoEvento,
   OrigemSinalTemporal,
   TipoEventoTemporal,
 } from "./domain/temporal-event";
@@ -481,7 +482,16 @@ const SUBSISTEMAS_VALIDOS: SubsistemaIndisponivel[] = ["deteccao", "pose", "maos
 export const TIPOS_EVENTO_TEMPORAL_PERSISTIDOS: TipoEventoTemporal[] = [
   "gesto_detectado",
   "braco_levantado",
+  "transicao_acao",
   "movimento_corporal",
+];
+const MOTIVOS_ENCERRAMENTO_TEMPORAL: MotivoEncerramentoEvento[] = [
+  "sem_sinal",
+  "troca_sinal",
+  "periodo_cego",
+  "oclusao",
+  "transicao_concluida",
+  "ponto",
 ];
 const ESTADOS_EVENTO_TEMPORAL_PERSISTIDOS: EstadoEventoTemporal[] = [
   "confirmado",
@@ -579,6 +589,16 @@ export function montarEventoTemporal(payload: unknown): EventoTemporalPersistido
     Number.isFinite(p.intervaloSemObservacaoMs)
       ? p.intervaloSemObservacaoMs
       : undefined;
+  const motivoEncerramento = MOTIVOS_ENCERRAMENTO_TEMPORAL.includes(
+    p.motivoEncerramento as MotivoEncerramentoEvento
+  )
+    ? (p.motivoEncerramento as MotivoEncerramentoEvento)
+    : undefined;
+  const continuidadeValida =
+    typeof p.continuidadeValida === "boolean" ? p.continuidadeValida : undefined;
+  const evidencias = Array.isArray(p.evidencias)
+    ? p.evidencias.filter((e): e is string => typeof e === "string")
+    : undefined;
 
   return {
     eventoId: p.eventoId,
@@ -598,6 +618,9 @@ export function montarEventoTemporal(payload: unknown): EventoTemporalPersistido
     frameIds,
     estado: p.estado as EstadoEventoTemporal,
     intervaloSemObservacaoMs: intervalo,
+    motivoEncerramento,
+    continuidadeValida,
+    evidencias,
     idempotencyKey: p.idempotencyKey,
     registradoEm:
       typeof p.registradoEm === "string" ? p.registradoEm : new Date().toISOString(),

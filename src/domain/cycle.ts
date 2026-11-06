@@ -1,7 +1,7 @@
 import type { ObservacaoFrame } from "./observation";
 import type { ResultadoIndisponivel, TelemetriaSubsistema } from "./perception";
 import { estaIndisponivel } from "./perception";
-import type { EventoTemporal } from "./temporal-event";
+import type { DiagnosticoSinalTemporal, EventoTemporal } from "./temporal-event";
 
 /** Finalidade declarada da politica do ciclo. */
 export type FinalidadePoliticaCiclo = "operacional" | "benchmark";
@@ -57,6 +57,12 @@ export interface ResumoTemporal {
   objetosAtivos: number;
   /** Texto curto consolidado, quando o motor produz um. */
   descricao?: string;
+  /**
+   * Estados correntes dos sinais temporais (confirmado, ocluido, inferencia
+   * indisponivel, observacao insuficiente). Permite diagnosticar o que nao
+   * virou evento sem confundir falha, oclusao e ausencia de sinal.
+   */
+  diagnosticos?: DiagnosticoSinalTemporal[];
   /** Sinal de que faltaram observacoes (janela cega anterior ao ciclo). */
   houveIntervaloSemObservacao?: boolean;
   /**

@@ -48,6 +48,7 @@ export const TIPOS_EVENTO_RELEVANTES: readonly TipoEventoTemporal[] = [
   "mudanca_de_cena",
   "gesto_detectado",
   "braco_levantado",
+  "transicao_acao",
   "movimento_corporal",
 ];
 

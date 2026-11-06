@@ -10,6 +10,7 @@
 export type TipoEventoTemporal =
   | "gesto_detectado"
   | "braco_levantado"
+  | "transicao_acao"
   | "movimento_corporal"
   | "movimento_objeto"
   | "aparicao"
@@ -21,6 +22,58 @@ export type EstadoEventoTemporal = "candidato" | "confirmado" | "encerrado" | "i
 
 /** Origem dos sinais que sustentam o evento (qual subsistema contribuiu). */
 export type OrigemSinalTemporal = "objetos" | "pose" | "maos" | "cena" | "movimento";
+
+/**
+ * Motivo explicito de encerramento de um evento temporal.
+ *
+ * - `sem_sinal`: a entidade foi observada, mas o sinal deixou de existir;
+ * - `troca_sinal`: outro sinal substituiu o anterior no mesmo track;
+ * - `periodo_cego`: lacuna entre ciclos interrompeu a observacao;
+ * - `oclusao`: a entidade deixou de ser vista (nao foi inferencia que falhou);
+ * - `transicao_concluida`/`ponto`: evento pontual, sem duracao sustentada.
+ */
+export type MotivoEncerramentoEvento =
+  | "sem_sinal"
+  | "troca_sinal"
+  | "periodo_cego"
+  | "oclusao"
+  | "transicao_concluida"
+  | "ponto";
+
+/**
+ * Diagnostico corrente de um sinal temporal.
+ *
+ * Diferencia o que virou evento do que apenas foi visto: um gesto confirmado,
+ * um evento encerrado, uma mao ocluida, uma inferencia indisponivel e uma
+ * observacao insuficiente para confirmar nao sao a mesma coisa.
+ */
+export type EstadoDiagnosticoSinal =
+  | "confirmado"
+  | "encerrado"
+  | "ocluido"
+  | "inferencia_indisponivel"
+  | "observacao_insuficiente";
+
+/** Subsistema logico que produziu o diagnostico. */
+export type SinalTemporalDiagnosticado = "gesto" | "braco" | "movimento" | "transicao";
+
+export interface DiagnosticoSinalTemporal {
+  sinal: SinalTemporalDiagnosticado;
+  entidadeId: string;
+  estado: EstadoDiagnosticoSinal;
+  rotulo?: string;
+  confianca: number;
+  /** Frames em que o sinal positivo foi observado. */
+  framesEvidencia: number;
+  /** Frames consecutivos sem o sinal (para o estado corrente). */
+  framesSemSinal: number;
+  /** Evidencias textuais que sustentam (ou sustentaram) o sinal. */
+  evidencias: string[];
+  continuidadeValida: boolean;
+  motivoEncerramento?: MotivoEncerramentoEvento;
+  ultimaEvidenciaEm?: string;
+  ultimaObservacaoEm?: string;
+}
 
 export interface EventoTemporal {
   /** ID globalmente unico, para persistencia e referencias. */
@@ -69,4 +122,18 @@ export interface EventoTemporal {
    * o estado fica `incerto` (nunca `encerrado`).
    */
   intervaloSemObservacaoMs?: number;
+  /** Por que o evento terminou (ausencia, troca, oclusao ou lacuna). */
+  motivoEncerramento?: MotivoEncerramentoEvento;
+  /**
+   * `false` quando a continuidade temporal nao pode ser validada (intervalo
+   * invalido, longo demais ou periodo cego). O evento continua registrado, mas
+   * sem afirmar continuidade.
+   */
+  continuidadeValida?: boolean;
+  /**
+   * Evidencias textuais que sustentaram o evento (ex.: `geometria:todos`,
+   * `mediapipe:mao_aberta`, `velocidadeY:-0.5/s`). Preserva a origem concreta
+   * sem transformar heuristica em certeza.
+   */
+  evidencias?: string[];
 }

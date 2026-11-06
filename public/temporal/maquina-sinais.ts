@@ -1,6 +1,7 @@
 import type { ConfigMaquinaSinais } from "./contracts";
 import { CONFIG_MAQUINA_PADRAO } from "./contracts";
 import { uuid } from "../../src/domain/ids";
+import type { MotivoEncerramentoEvento } from "../../src/domain";
 
 /**
  * Leitura de um sinal para uma entidade em um frame.
@@ -28,10 +29,27 @@ export interface LeituraSinal {
    * Omitido equivale a `true` (leitura de entidade efetivamente observada).
    */
   observada?: boolean;
+  /**
+   * `false` quando o intervalo desde a leitura anterior nao e confiavel
+   * (intervalo invalido ou longo demais). O sinal pode continuar, mas o evento
+   * resultante nao afirma continuidade temporal.
+   */
+  continuidadeValida?: boolean;
+  /** Evidencias textuais que sustentam o sinal (ex.: `geometria:todos`). */
+  evidencias?: string[];
 }
 
-/** Por que um evento foi encerrado (preservado no diagnostico). */
-export type MotivoEncerramento = "sem_sinal" | "troca_sinal" | "periodo_cego";
+/**
+ * Por que um evento foi encerrado (preservado no diagnostico).
+ *
+ * `oclusao` e distinto de `sem_sinal`: a entidade deixou de ser vista, em vez
+ * de ter sido observada sem o sinal. `periodo_cego` indica uma lacuna entre
+ * ciclos, nao uma ausencia observada.
+ */
+export type MotivoEncerramento = Extract<
+  MotivoEncerramentoEvento,
+  "sem_sinal" | "troca_sinal" | "periodo_cego" | "oclusao"
+>;
 
 /**
  * Evento de sinal emitido pela maquina, com identidade estavel por todo o
@@ -60,6 +78,10 @@ export interface EventoSinal {
   motivoEncerramento?: MotivoEncerramento;
   /** Duracao (ms) do periodo cego que interrompeu o evento, quando houver. */
   intervaloSemObservacaoMs?: number;
+  /** `false` se algum intervalo da evidencia nao pode ser validado. */
+  continuidadeValida: boolean;
+  /** Evidencias textuais acumuladas (modelo, geometria, velocidade). */
+  evidencias: string[];
 }
 
 interface Ativo {
@@ -77,16 +99,40 @@ interface Ativo {
   ultimaObservacaoEm: string;
   /** Ultimo frame com evidencia positiva do sinal. */
   ultimoFrameId: string;
+  continuidadeValida: boolean;
+  evidencias: string[];
 }
 
 interface EstadoEntidade {
+  entidadeId: string;
   rotuloCandidato: string | null;
   framesCandidato: number;
   frameIdsCandidato: string[];
   inicioCandidato: string | null;
   cycleIdCandidato: string | null;
+  confiancaCandidato: number;
+  evidenciasCandidato: string[];
   framesSemSinal: number;
+  motivoUltimaAusencia: MotivoEncerramento;
   ativo: Ativo | null;
+}
+
+/** Fotografia do estado corrente de um sinal, para diagnostico. */
+export interface DiagnosticoMaquinaSinal {
+  entidadeId: string;
+  ativo: boolean;
+  rotuloAtivo?: string;
+  rotuloCandidato?: string;
+  framesCandidato: number;
+  /** Frames de evidencia positiva (ativo) ou do candidato corrente. */
+  framesEvidencia: number;
+  framesSemSinal: number;
+  motivoUltimaAusencia: MotivoEncerramento;
+  confianca: number;
+  continuidadeValida: boolean;
+  evidencias: string[];
+  ultimaEvidenciaEm?: string;
+  ultimaObservacaoEm?: string;
 }
 
 /** Opcoes de `processar` para distinguir "sem sinal" de "nao foi possivel ver". */
@@ -116,6 +162,12 @@ export interface OpcoesProcessarSinais {
 export class MaquinaSinais {
   private readonly config: ConfigMaquinaSinais;
   private readonly estados = new Map<string, EstadoEntidade>();
+  /**
+   * Encerramentos do processamento corrente. Permite que o diagnostico do ciclo
+   * distinga um evento que acabou de encerrar de um candidato/ativo, sem
+   * transformar o encerramento em estado permanente.
+   */
+  private encerradosNesteProcessamento: DiagnosticoMaquinaSinal[] = [];
 
   constructor(config?: Partial<ConfigMaquinaSinais>) {
     this.config = { ...CONFIG_MAQUINA_PADRAO, ...config };
@@ -127,6 +179,7 @@ export class MaquinaSinais {
    */
   processar(leituras: LeituraSinal[], opcoes: OpcoesProcessarSinais = {}): EventoSinal[] {
     const emitidos: EventoSinal[] = [];
+    this.encerradosNesteProcessamento = [];
 
     // Inferencia indisponivel: nao observamos nada. Preserva ativos (nao
     // afirma encerramento), reinicia candidatos (confirmacao exige frames
@@ -145,7 +198,7 @@ export class MaquinaSinais {
 
       let estado = this.estados.get(leitura.entidadeId);
       if (!estado) {
-        estado = this.novoEstado();
+        estado = this.novoEstado(leitura.entidadeId);
         this.estados.set(leitura.entidadeId, estado);
       }
 
@@ -168,6 +221,11 @@ export class MaquinaSinais {
 
         if (estado.rotuloCandidato === leitura.rotulo) {
           estado.framesCandidato += 1;
+          estado.confiancaCandidato = Math.max(
+            estado.confiancaCandidato,
+            leitura.confianca
+          );
+          this.acumularEvidencias(estado.evidenciasCandidato, leitura.evidencias);
           this.adicionarFrame(estado.frameIdsCandidato, leitura.frameId);
         } else {
           estado.rotuloCandidato = leitura.rotulo;
@@ -175,6 +233,8 @@ export class MaquinaSinais {
           estado.frameIdsCandidato = [leitura.frameId];
           estado.inicioCandidato = leitura.timestamp;
           estado.cycleIdCandidato = leitura.cycleId;
+          estado.confiancaCandidato = leitura.confianca;
+          estado.evidenciasCandidato = [...(leitura.evidencias ?? [])];
         }
 
         if (!estado.ativo && estado.framesCandidato >= this.config.framesParaConfirmar) {
@@ -185,23 +245,33 @@ export class MaquinaSinais {
         // Sem sinal valido neste frame. Se a entidade foi de fato observada
         // (mesmo sem sinal), a ultima observacao avanca; se ela apenas segue na
         // janela de tolerancia do rastreador, a observacao NAO avanca.
-        if (estado.ativo && leitura.observada !== false) {
-          estado.ativo.ultimaObservacaoEm = leitura.timestamp;
+        const motivo: MotivoEncerramento =
+          leitura.observada === false ? "oclusao" : "sem_sinal";
+        estado.motivoUltimaAusencia = motivo;
+        if (estado.ativo) {
+          if (leitura.observada !== false) {
+            estado.ativo.ultimaObservacaoEm = leitura.timestamp;
+          }
+          if (leitura.continuidadeValida === false) {
+            estado.ativo.continuidadeValida = false;
+          }
         }
         estado.framesSemSinal += 1;
         this.resetarCandidato(estado);
         if (estado.ativo && estado.framesSemSinal >= this.config.framesParaEncerrar) {
-          emitidos.push(this.encerrar(estado, "sem_sinal"));
+          emitidos.push(this.encerrar(estado, motivo));
         }
       }
     }
 
-    // Entidades que sumiram completamente do frame tambem contam como "sem sinal".
+    // Entidades que sumiram completamente do frame deixaram de ser vistas: o
+    // encerramento e por oclusao, nao por "sinal ausente observado".
     for (const [entidadeId, estado] of this.estados) {
       if (vistas.has(entidadeId)) continue;
+      estado.motivoUltimaAusencia = "oclusao";
       estado.framesSemSinal += 1;
       if (estado.ativo && estado.framesSemSinal >= this.config.framesParaEncerrar) {
-        emitidos.push(this.encerrar(estado, "sem_sinal"));
+        emitidos.push(this.encerrar(estado, "oclusao"));
       }
       // Retencao: sem evento ativo e sem sinal ha tempo, descarta o estado.
       if (!estado.ativo && estado.framesSemSinal > this.config.framesParaEncerrar) {
@@ -210,6 +280,44 @@ export class MaquinaSinais {
     }
 
     return emitidos;
+  }
+
+  /**
+   * Estados correntes para diagnostico, sem criar evento.
+   *
+   * Permite distinguir "observacao insuficiente" (candidato abaixo do limiar)
+   * de "confirmado" e "ocluido" mesmo quando nada foi emitido neste passo.
+   */
+  diagnosticos(): DiagnosticoMaquinaSinal[] {
+    const lista: DiagnosticoMaquinaSinal[] = [];
+    // Encerramentos primeiro: se a mesma entidade ja tem um novo ativo/candidato
+    // no ciclo, o estado corrente prevalece (o consumidor mantem um por sinal).
+    lista.push(
+      ...this.encerradosNesteProcessamento.map((diag) => ({
+        ...diag,
+        evidencias: [...diag.evidencias],
+      }))
+    );
+    for (const estado of this.estados.values()) {
+      const ativo = estado.ativo;
+      if (!ativo && estado.framesCandidato === 0) continue;
+      lista.push({
+        entidadeId: ativo?.entidadeId ?? estado.entidadeId,
+        ativo: ativo !== null,
+        rotuloAtivo: ativo?.rotulo,
+        rotuloCandidato: estado.rotuloCandidato ?? undefined,
+        framesCandidato: estado.framesCandidato,
+        framesEvidencia: ativo?.framesSinal ?? estado.framesCandidato,
+        framesSemSinal: estado.framesSemSinal,
+        motivoUltimaAusencia: estado.motivoUltimaAusencia,
+        confianca: ativo?.confianca ?? estado.confiancaCandidato,
+        continuidadeValida: ativo?.continuidadeValida ?? true,
+        evidencias: [...(ativo?.evidencias ?? estado.evidenciasCandidato)],
+        ultimaEvidenciaEm: ativo?.ultimoSinalEm,
+        ultimaObservacaoEm: ativo?.ultimaObservacaoEm,
+      });
+    }
+    return lista;
   }
 
   /**
@@ -227,6 +335,7 @@ export class MaquinaSinais {
           this.eventoDe(estado.ativo, "encerrado", referencia.timestamp, {
             motivoEncerramento: "periodo_cego",
             intervaloSemObservacaoMs: gapMs,
+            continuidadeValida: false,
           })
         );
         estado.ativo = null;
@@ -253,16 +362,21 @@ export class MaquinaSinais {
 
   limpar(): void {
     this.estados.clear();
+    this.encerradosNesteProcessamento = [];
   }
 
-  private novoEstado(): EstadoEntidade {
+  private novoEstado(entidadeId: string): EstadoEntidade {
     return {
+      entidadeId,
       rotuloCandidato: null,
       framesCandidato: 0,
       frameIdsCandidato: [],
       inicioCandidato: null,
       cycleIdCandidato: null,
+      confiancaCandidato: 0,
+      evidenciasCandidato: [],
       framesSemSinal: 0,
+      motivoUltimaAusencia: "sem_sinal",
       ativo: null,
     };
   }
@@ -273,9 +387,13 @@ export class MaquinaSinais {
     estado.frameIdsCandidato = [];
     estado.inicioCandidato = null;
     estado.cycleIdCandidato = null;
+    estado.confiancaCandidato = 0;
+    estado.evidenciasCandidato = [];
   }
 
   private iniciar(leitura: LeituraSinal, estado: EstadoEntidade): Ativo {
+    const evidencias = [...estado.evidenciasCandidato];
+    this.acumularEvidencias(evidencias, leitura.evidencias);
     return {
       eventoId: uuid(),
       entidadeId: leitura.entidadeId,
@@ -288,6 +406,8 @@ export class MaquinaSinais {
       ultimoSinalEm: leitura.timestamp,
       ultimaObservacaoEm: leitura.timestamp,
       ultimoFrameId: leitura.frameId,
+      continuidadeValida: leitura.continuidadeValida !== false,
+      evidencias,
     };
   }
 
@@ -298,6 +418,8 @@ export class MaquinaSinais {
     ativo.ultimoSinalEm = leitura.timestamp;
     ativo.ultimaObservacaoEm = leitura.timestamp;
     ativo.ultimoFrameId = leitura.frameId;
+    if (leitura.continuidadeValida === false) ativo.continuidadeValida = false;
+    this.acumularEvidencias(ativo.evidencias, leitura.evidencias);
   }
 
   /** Encerra o ativo do estado na ultima evidencia positiva. */
@@ -305,6 +427,20 @@ export class MaquinaSinais {
     const ativo = estado.ativo as Ativo;
     const referencia = this.ultimaReferenciaDeTempo(ativo);
     estado.ativo = null;
+    this.encerradosNesteProcessamento.push({
+      entidadeId: ativo.entidadeId,
+      ativo: false,
+      rotuloAtivo: ativo.rotulo,
+      framesCandidato: 0,
+      framesEvidencia: ativo.framesSinal,
+      framesSemSinal: estado.framesSemSinal,
+      motivoUltimaAusencia: motivo,
+      confianca: ativo.confianca,
+      continuidadeValida: ativo.continuidadeValida,
+      evidencias: [...ativo.evidencias],
+      ultimaEvidenciaEm: ativo.ultimoSinalEm,
+      ultimaObservacaoEm: ativo.ultimaObservacaoEm,
+    });
     return this.eventoDe(ativo, "encerrado", referencia.timestamp, {
       motivoEncerramento: motivo,
     });
@@ -314,11 +450,26 @@ export class MaquinaSinais {
     if (frameIds[frameIds.length - 1] !== frameId) frameIds.push(frameId);
   }
 
+  /** Mantem evidencias unicas e limita o acumulado para nao crescer sem fim. */
+  private acumularEvidencias(destino: string[], novas?: readonly string[]): void {
+    if (!novas) return;
+    for (const evidencia of novas) {
+      if (!evidencia || destino.includes(evidencia)) continue;
+      if (destino.length >= 12) break;
+      destino.push(evidencia);
+    }
+  }
+
   private eventoDe(
     ativo: Ativo,
     estado: "confirmado" | "encerrado",
     fimEm?: string,
-    extras: Pick<EventoSinal, "motivoEncerramento" | "intervaloSemObservacaoMs"> = {}
+    extras: Partial<
+      Pick<
+        EventoSinal,
+        "motivoEncerramento" | "intervaloSemObservacaoMs" | "continuidadeValida"
+      >
+    > = {}
   ): EventoSinal {
     return {
       eventoId: ativo.eventoId,
@@ -335,7 +486,9 @@ export class MaquinaSinais {
       confianca: ativo.confianca,
       cycleIdInicio: ativo.cycleIdInicio,
       framesSinal: ativo.framesSinal,
+      evidencias: [...ativo.evidencias],
       ...extras,
+      continuidadeValida: extras.continuidadeValida ?? ativo.continuidadeValida,
     };
   }
 

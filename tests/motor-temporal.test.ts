@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { indisponivel } from "../src/domain";
+import { estaIndisponivel, indisponivel } from "../src/domain";
 import type { ObservacaoFrame, PessoaPose, PontoCorporal } from "../src/domain";
 import { MotorTemporalImpl } from "../public/temporal/motor-temporal";
 import { RastreadorEntidades } from "../public/temporal/rastreador-entidades";
@@ -74,6 +74,39 @@ function maoComGesto(nome: string, confianca = 0.9): ObservacaoFrame["maos"] {
         gesto: { nome, confianca },
       },
     ],
+  };
+}
+
+/** 21 landmarks com todos os dedos estendidos (mao aberta geometrica). */
+function landmarksMaoAberta(): NonNullable<ObservacaoFrame["maos"]>["maos"][number]["landmarks"] {
+  const landmarks: PontoCorporal[] = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5 }));
+  landmarks[0] = { x: 0.5, y: 0.9 };
+  landmarks[1] = { x: 0.4, y: 0.75 };
+  landmarks[2] = { x: 0.35, y: 0.65 };
+  landmarks[3] = { x: 0.3, y: 0.55 };
+  landmarks[4] = { x: 0.25, y: 0.45 };
+  const dedos = [
+    { mcp: 5, pip: 6, dip: 7, tip: 8, x: 0.38 },
+    { mcp: 9, pip: 10, dip: 11, tip: 12, x: 0.46 },
+    { mcp: 13, pip: 14, dip: 15, tip: 16, x: 0.54 },
+    { mcp: 17, pip: 18, dip: 19, tip: 20, x: 0.62 },
+  ];
+  for (const { mcp, pip, dip, tip, x } of dedos) {
+    landmarks[mcp] = { x, y: 0.6 };
+    landmarks[pip] = { x, y: 0.48 };
+    landmarks[dip] = { x, y: 0.36 };
+    landmarks[tip] = { x, y: 0.24 };
+  }
+  return landmarks;
+}
+
+function maoGeometrica(
+  lateralidade: "esquerda" | "direita" = "direita",
+  x = 0.5
+): NonNullable<ObservacaoFrame["maos"]>["maos"][number] {
+  return {
+    lateralidade,
+    landmarks: landmarksMaoAberta().map((ponto) => ({ ...ponto, x: ponto.x + (x - 0.5) })),
   };
 }
 
@@ -173,6 +206,40 @@ describe("RastreadorEntidades", () => {
     expect(voltou[0].framesAusente).toBe(0);
   });
 
+  it("calcula velocidade normalizada por segundo e rejeita intervalos invalidos", () => {
+    const r = new RastreadorEntidades(
+      { distanciaMaxima: 0.3, maxFramesAusente: 5, maxTempoAusenteMs: 2000, alphaSuavizacao: 0.5 },
+      "t"
+    );
+    r.atualizar([{ x: 0.5, y: 0.5, confianca: 0.9 }], 0);
+    const a = r.atualizar([{ x: 0.6, y: 0.5, confianca: 0.9 }], 1000);
+    // 0.1 de deslocamento em 1 s = 0.1/s (nao "0.1 por frame").
+    expect(a[0].velocidade).toBeCloseTo(0.1);
+    expect(a[0].velocidadeValida).toBe(true);
+    expect(a[0].intervaloVelocidadeMs).toBe(1000);
+
+    // Mesmo instante: intervalo invalido, sem velocidade presumida.
+    const b = r.atualizar([{ x: 0.7, y: 0.5, confianca: 0.9 }], 1000);
+    expect(b[0].velocidade).toBe(0);
+    expect(b[0].velocidadeY).toBe(0);
+    expect(b[0].velocidadeValida).toBe(false);
+    expect(b[0].intervaloVelocidadeMs).toBeUndefined();
+  });
+
+  it("nao calcula velocidade atravessando uma lacuna longa", () => {
+    const r = new RastreadorEntidades(
+      { distanciaMaxima: 0.3, maxFramesAusente: 10, maxTempoAusenteMs: 500, alphaSuavizacao: 0.5 },
+      "t"
+    );
+    const antes = r.atualizar([{ x: 0.5, y: 0.5, confianca: 0.9 }], 0);
+    // 800 ms > 500 ms: a entidade expira e a nova observacao nao herda
+    // continuidade nem velocidade da anterior.
+    const depois = r.atualizar([{ x: 0.9, y: 0.5, confianca: 0.9 }], 800);
+    expect(depois[0].entidadeId).not.toBe(antes[0].entidadeId);
+    expect(depois[0].velocidade).toBe(0);
+    expect(depois[0].velocidadeValida).toBe(false);
+  });
+
   it("trajetorias proximas sem cruzamento preservam os IDs", () => {
     const r = new RastreadorEntidades(
       { distanciaMaxima: 0.2, maxFramesAusente: 5, maxTempoAusenteMs: 2000 },
@@ -260,6 +327,83 @@ describe("RastreadorEntidades", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Motor: lateralidade como restricao de associacao
+// ---------------------------------------------------------------------------
+
+describe("MotorTemporalImpl — lateralidade", () => {
+  const mao = (
+    lateralidade: "esquerda" | "direita" | "desconhecida",
+    x: number
+  ): NonNullable<ObservacaoFrame["maos"]>["maos"][number] => ({
+    lateralidade,
+    landmarks: [
+      { x, y: 0.5 },
+      { x: x + 0.02, y: 0.48 },
+    ],
+  });
+
+  const idsPorLateralidade = (
+    observacao: ObservacaoFrame
+  ): Map<string, string | undefined> => {
+    const ids = new Map<string, string | undefined>();
+    if (estaIndisponivel(observacao.maos)) return ids;
+    for (const detectada of observacao.maos.maos) {
+      ids.set(detectada.lateralidade, detectada.entidadeId);
+    }
+    return ids;
+  };
+
+  it("cruzamento de maos nao troca IDs entre esquerda e direita", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    const r1 = motor.processar([
+      obs({
+        ms: 0,
+        maos: { maos: [mao("esquerda", 0.4), mao("direita", 0.6)] },
+      }),
+    ]);
+    const ids1 = idsPorLateralidade(r1.observacoes[0]);
+    const idEsquerda = ids1.get("esquerda");
+    const idDireita = ids1.get("direita");
+    expect(idEsquerda).toBeDefined();
+    expect(idDireita).toBeDefined();
+    expect(idEsquerda).not.toBe(idDireita);
+
+    // As trajetorias se cruzam: sem a restricao de lateralidade, o guloso
+    // associaria cada mao ao probe mais proximo e trocaria os IDs.
+    const r2 = motor.processar([
+      obs({
+        ms: 100,
+        maos: { maos: [mao("esquerda", 0.55), mao("direita", 0.45)] },
+      }),
+    ]);
+    const ids2 = idsPorLateralidade(r2.observacoes[0]);
+    expect(ids2.get("esquerda")).toBe(idEsquerda);
+    expect(ids2.get("direita")).toBe(idDireita);
+  });
+
+  it("lateralidade desconhecida nao bloqueia a associacao", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    const r1 = motor.processar([
+      obs({
+        ms: 0,
+        maos: { maos: [mao("esquerda", 0.4), mao("direita", 0.6)] },
+      }),
+    ]);
+    const idEsquerda = idsPorLateralidade(r1.observacoes[0]).get("esquerda");
+    expect(idEsquerda).toBeDefined();
+
+    // Sem evidencia de lateralidade nao ha como restringir: a mao herda o ID
+    // da entidade esquerda, que esta mais proxima.
+    const r2 = motor.processar([
+      obs({ ms: 100, maos: { maos: [mao("desconhecida", 0.45)] } }),
+    ]);
+    expect(idsPorLateralidade(r2.observacoes[0]).get("desconhecida")).toBe(idEsquerda);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Maquina de sinais: confirmacao e encerramento temporais
 // ---------------------------------------------------------------------------
 
@@ -288,6 +432,38 @@ describe("MaquinaSinais", () => {
     expect(encerrados[0].estado).toBe("encerrado");
     expect(encerrados[0].eventoId).toBe(eventoId); // identidade estavel
     expect(encerrados[0].fimEm).toBeDefined();
+  });
+
+  it("diagnostico expoe o encerramento apenas no processamento em que ocorreu", () => {
+    const m = new MaquinaSinais({ framesParaConfirmar: 2, framesParaEncerrar: 2 });
+    const leitura = (rotulo: string | null, frame: number) => ({
+      entidadeId: "e1",
+      rotulo,
+      confianca: 0.9,
+      frameId: `f${frame}`,
+      timestamp: `t${frame}`,
+      cycleId: "c1",
+    });
+
+    m.processar([leitura("gesto_a", 1)]);
+    m.processar([leitura("gesto_a", 2)]);
+    m.processar([leitura(null, 3)]);
+    // Antes de encerrar, o estado corrente e "ativo".
+    const ativo = m.diagnosticos().find((d) => d.entidadeId === "e1");
+    expect(ativo?.ativo).toBe(true);
+    expect(ativo?.framesEvidencia).toBe(2);
+
+    m.processar([leitura(null, 4)]); // encerra
+    const encerrado = m.diagnosticos().find((d) => d.entidadeId === "e1");
+    expect(encerrado?.ativo).toBe(false);
+    expect(encerrado?.framesCandidato).toBe(0);
+    expect(encerrado?.framesEvidencia).toBe(2);
+    expect(encerrado?.motivoUltimaAusencia).toBe("sem_sinal");
+
+    // O encerramento nao vira estado permanente: no proximo processamento, sem
+    // novo ativo/candidato, nao ha diagnostico desse sinal.
+    m.processar([leitura(null, 5)]);
+    expect(m.diagnosticos().some((d) => d.entidadeId === "e1")).toBe(false);
   });
 
   it("fimEm e a ultima evidencia positiva, nunca o inicio nem o frame de ausencia", () => {
@@ -525,6 +701,55 @@ describe("MotorTemporalImpl — braço", () => {
     expect(eventos.filter((e) => e.estado === "encerrado")).toHaveLength(0);
   });
 
+  it("distingue transicao (braco subindo) de postura mantida (braco_levantado)", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    const eventos = [];
+    // Sobe em 4 passos e depois mantem a postura por 3 frames.
+    const alturas = [0.7, 0.55, 0.3, 0.25, 0.25, 0.25, 0.25];
+    for (let i = 0; i < alturas.length; i += 1) {
+      const r = motor.processar([obs({ ms: i * 100, pose: posePessoa(alturas[i], 0.9) })]);
+      eventos.push(...r.eventos);
+    }
+
+    const transicao = eventos.find(
+      (e) => e.tipo === "transicao_acao" && e.estado === "confirmado"
+    );
+    expect(transicao).toBeDefined();
+    expect(transicao?.descricao).toContain("subindo");
+    expect(transicao?.origens).toEqual(["pose"]);
+    expect(transicao?.evidencias?.some((e) => e.startsWith("velocidadeY:"))).toBe(true);
+    expect(transicao?.continuidadeValida).toBe(true);
+
+    // A postura mantida e um evento separado e permanece ativa quando a
+    // transicao ja terminou.
+    const postura = eventos.find(
+      (e) => e.tipo === "braco_levantado" && e.estado === "confirmado"
+    );
+    expect(postura).toBeDefined();
+    const transicaoEncerrada = eventos.find(
+      (e) => e.tipo === "transicao_acao" && e.estado === "encerrado"
+    );
+    expect(transicaoEncerrada?.eventoId).toBe(transicao?.eventoId);
+    expect(
+      eventos.some((e) => e.tipo === "braco_levantado" && e.estado === "encerrado")
+    ).toBe(false);
+  });
+
+  it("movimento vertical invalido nao produz transicao", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    const eventos = [];
+    // Mesmo instante em todos os frames: sem intervalo valido, sem velocidade.
+    for (let i = 0; i < 4; i += 1) {
+      const r = motor.processar([obs({ ms: 0, pose: posePessoa(0.7 - i * 0.1, 0.9) })]);
+      eventos.push(...r.eventos);
+    }
+    expect(
+      eventos.some((e) => e.tipo === "transicao_acao" && e.estado === "confirmado")
+    ).toBe(false);
+  });
+
   it("falha de pose nao encerra o braco ativo; recuperacao continua o evento", () => {
     reiniciarContador();
     const motor = criarMotor();
@@ -625,7 +850,24 @@ describe("MotorTemporalImpl — gestos", () => {
     expect(todos.filter((e) => e.estado === "confirmado")).toHaveLength(0);
   });
 
-  it("mão ocultada encerra o gesto ativo com duração e evidencia", () => {
+  it("geometria sem rotulo do modelo reconhece mao aberta", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    const eventos = [];
+    for (let i = 0; i < 3; i += 1) {
+      const r = motor.processar([obs({ ms: i * 100, maos: { maos: [maoGeometrica()] } })]);
+      eventos.push(...r.eventos.filter((e) => e.tipo === "gesto_detectado"));
+    }
+    const confirmado = eventos.find((e) => e.estado === "confirmado");
+    expect(confirmado).toBeDefined();
+    expect(confirmado?.descricao).toContain("mao_aberta");
+    // A origem continua sendo maos; a evidencia concreta fica registrada.
+    expect(confirmado?.origens).toEqual(["maos"]);
+    expect(confirmado?.evidencias?.some((e) => e.startsWith("geometria:"))).toBe(true);
+    expect(confirmado?.confianca).toBeLessThanOrEqual(0.9);
+  });
+
+  it("mão ocultada encerra o gesto por oclusao, nao por 'sem sinal'", () => {
     reiniciarContador();
     const motor = criarMotor();
     motor.processar([obs({ ms: 0, maos: maoComGesto("mao_aberta") })]);
@@ -634,15 +876,77 @@ describe("MotorTemporalImpl — gestos", () => {
     expect(confirmado).toBeDefined();
 
     // Mao oculta por 2 frames (>= framesParaEncerrar).
-    motor.processar([obs({ ms: 200, maos: { maos: [] } })]);
+    const r3 = motor.processar([obs({ ms: 200, maos: { maos: [] } })]);
+    expect(
+      r3.diagnosticos?.some(
+        (d) => d.sinal === "gesto" && d.estado === "ocluido"
+      )
+    ).toBe(true);
     const r4 = motor.processar([obs({ ms: 300, maos: { maos: [] } })]);
     const encerrado = r4.eventos.find((e) => e.tipo === "gesto_detectado" && e.estado === "encerrado");
     expect(encerrado).toBeDefined();
     expect(encerrado?.eventoId).toBe(confirmado?.eventoId);
     expect(encerrado?.fimEm).toBeDefined();
+    expect(encerrado?.motivoEncerramento).toBe("oclusao");
+    // A continuidade ate a ultima evidencia era valida; a oclusao explica o fim.
+    expect(encerrado?.continuidadeValida).toBe(true);
+    // O diagnostico do ciclo distingue o encerramento do estado "ocluido".
+    const diagEncerrado = r4.diagnosticos?.find((d) => d.sinal === "gesto");
+    expect(diagEncerrado?.estado).toBe("encerrado");
+    expect(diagEncerrado?.motivoEncerramento).toBe("oclusao");
     // duracao = fim - inicio (300 - 0 = 300ms apos normalizar epoch).
     const dur = Date.parse(encerrado!.fimEm!) - Date.parse(encerrado!.inicioEm);
     expect(dur).toBeGreaterThanOrEqual(0);
+  });
+
+  it("mao visivel sem gesto encerra como 'sem sinal'", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    motor.processar([obs({ ms: 0, maos: maoComGesto("mao_aberta") })]);
+    const r2 = motor.processar([obs({ ms: 100, maos: maoComGesto("mao_aberta") })]);
+    expect(
+      r2.eventos.some((e) => e.tipo === "gesto_detectado" && e.estado === "confirmado")
+    ).toBe(true);
+
+    const semGesto: ObservacaoFrame["maos"] = {
+      maos: [{ lateralidade: "direita", landmarks: [{ x: 0.5, y: 0.4 }] }],
+    };
+    motor.processar([obs({ ms: 200, maos: semGesto })]);
+    const r4 = motor.processar([obs({ ms: 300, maos: semGesto })]);
+    const encerrado = r4.eventos.find(
+      (e) => e.tipo === "gesto_detectado" && e.estado === "encerrado"
+    );
+    expect(encerrado?.motivoEncerramento).toBe("sem_sinal");
+    expect(encerrado?.ultimaObservacaoEm).toBe(
+      new Date(1700000000000 + 300).toISOString()
+    );
+  });
+
+  it("observacao insuficiente nao confirma e aparece no diagnostico", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    const r = motor.processar([obs({ ms: 0, maos: maoComGesto("mao_aberta") })]);
+    expect(
+      r.eventos.some((e) => e.tipo === "gesto_detectado" && e.estado === "confirmado")
+    ).toBe(false);
+    const diag = r.diagnosticos?.find((d) => d.sinal === "gesto");
+    expect(diag?.estado).toBe("observacao_insuficiente");
+    expect(diag?.framesEvidencia).toBe(1);
+  });
+
+  it("inferencia indisponivel preserva o gesto e aparece no diagnostico", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    motor.processar([obs({ ms: 0, maos: maoComGesto("mao_aberta") })]);
+    motor.processar([obs({ ms: 100, maos: maoComGesto("mao_aberta") })]);
+    const r = motor.processar([
+      obs({ ms: 200, maos: indisponivel("maos", "timeout") }),
+    ]);
+    expect(r.eventos.some((e) => e.tipo === "gesto_detectado" && e.estado === "encerrado")).toBe(
+      false
+    );
+    const diag = r.diagnosticos?.find((d) => d.sinal === "gesto");
+    expect(diag?.estado).toBe("inferencia_indisponivel");
   });
 });
 
@@ -683,6 +987,9 @@ describe("MotorTemporalImpl — estado entre ciclos", () => {
     expect(interrompido).toBeDefined();
     expect(interrompido?.eventoId).toBe(confirmado?.eventoId);
     expect(interrompido?.intervaloSemObservacaoMs).toBe(6000 - 100);
+    // O periodo cego invalida a continuidade: ela nao e presumida na lacuna.
+    expect(interrompido?.continuidadeValida).toBe(false);
+    expect(interrompido?.motivoEncerramento).toBe("periodo_cego");
     // Fim registrado como a ultima evidencia positiva (ms=100), nao o inicio
     // (ms=0) nem o instante da lacuna (ms=6000).
     const fim = Date.parse(interrompido!.fimEm!);

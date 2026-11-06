@@ -23,6 +23,15 @@ import type { LandmarkMao } from "./perception";
 /** Nome anatomico dos dedos, na ordem do polegar ao mindinho. */
 export type NomeDedo = "polegar" | "indicador" | "medio" | "anular" | "mindinho";
 
+/**
+ * Estado estavel de um dedo.
+ *
+ * `desconhecido` e explicito: landmarks ausentes/invalidos nao podem virar
+ * "dobrado" nem "estendido". A representacao mantem sempre os cinco dedos na
+ * ordem anatomica, com estado desconhecido onde falta evidencia.
+ */
+export type EstadoDedo = "estendido" | "dobrado" | "desconhecido";
+
 /** Angulos e estado de um dedo. */
 export interface GeometriaDedo {
   nome: NomeDedo;
@@ -30,15 +39,24 @@ export interface GeometriaDedo {
   angulos: number[];
   /** Heuristica: todos os angulos do dedo acima do limiar de extensao. */
   estendido: boolean;
+  /** Estado estavel (estendido, dobrado ou desconhecido). */
+  estado: EstadoDedo;
 }
 
 /** Geometria resumida de uma mao. */
 export interface GeometriaMao {
+  /** Sempre os cinco dedos, na ordem anatomica (polegar..minimo). */
   dedos: GeometriaDedo[];
-  /** Dedos considerados estendidos, na ordem anatomica. */
+  /** Dedos conhecidos e estendidos, na ordem anatomica. */
   dedosEstendidos: NomeDedo[];
+  /** Dedos conhecidos e dobrados, na ordem anatomica. */
+  dedosDobrados: NomeDedo[];
+  /** Dedos sem evidencia suficiente neste frame. */
+  dedosDesconhecidos: NomeDedo[];
   /** Quantidade de dedos estendidos (0..5). */
   totalEstendidos: number;
+  /** Quantidade de dedos com estado conhecido (0..5). */
+  totalDedosConhecidos: number;
   /** Configuracao compacta: `todos`, `nenhum` ou nomes unidos por `+`. */
   configuracao: string;
   /** Limiar (graus) usado na heuristica de extensao. */
@@ -118,8 +136,9 @@ function arredondar(valor: number, decimais: number): number {
  * Calcula angulos e estado estendido/dobrado de cada dedo.
  *
  * Retorna `null` quando nao ha landmarks suficientes para nenhum dedo (ex.:
- * resultado vazio). Dedos com pontos invalidos sao omitidos de `dedos` e nao
- * entram em `totalEstendidos`.
+ * resultado vazio). Dedos com pontos invalidos entram na lista com
+ * `estado: "desconhecido"`: a mao mantem a representacao estavel dos cinco
+ * dedos, mas nao inventa extensao/dobra onde falta evidencia.
  */
 export function calcularGeometriaMao(
   landmarks: readonly LandmarkMao[],
@@ -147,25 +166,49 @@ export function calcularGeometriaMao(
       }
       angulos.push(arredondar(angulo, decimais));
     }
-    if (!completo || angulos.length === 0) continue;
+    if (!completo || angulos.length === 0) {
+      dedos.push({ nome, angulos: [], estendido: false, estado: "desconhecido" });
+      continue;
+    }
+    const estendido = angulos.every((angulo) => angulo >= limiar);
     dedos.push({
       nome,
       angulos,
-      estendido: angulos.every((angulo) => angulo >= limiar),
+      estendido,
+      estado: estendido ? "estendido" : "dobrado",
     });
   }
 
-  if (dedos.length === 0) return null;
+  if (dedos.every((dedo) => dedo.estado === "desconhecido")) return null;
+  return resumirGeometria(dedos, limiar);
+}
 
-  const dedosEstendidos = dedos.filter((d) => d.estendido).map((d) => d.nome);
+/**
+ * Resume uma lista de dedos (na ordem anatomica) em `GeometriaMao`.
+ *
+ * Exposto para permitir histerese temporal: o motor reavalia o estado de cada
+ * dedo com o limiar ajustado e reconstruir o resumo sem duplicar a regra.
+ */
+export function resumirGeometria(
+  dedos: readonly GeometriaDedo[],
+  limiarExtensaoGraus: number
+): GeometriaMao {
+  const dedosEstendidos = dedos.filter((d) => d.estado === "estendido").map((d) => d.nome);
+  const dedosDobrados = dedos.filter((d) => d.estado === "dobrado").map((d) => d.nome);
+  const dedosDesconhecidos = dedos
+    .filter((d) => d.estado === "desconhecido")
+    .map((d) => d.nome);
   return {
-    dedos,
+    dedos: dedos.map((dedo) => ({ ...dedo, angulos: [...dedo.angulos] })),
     dedosEstendidos,
+    dedosDobrados,
+    dedosDesconhecidos,
     totalEstendidos: dedosEstendidos.length,
-    // O total e sempre 5 (mao completa): um dedo omitido por landmark invalido
-    // nao pode transformar uma mao parcial em "todos".
+    totalDedosConhecidos: dedos.length - dedosDesconhecidos.length,
+    // O total e sempre 5 (mao completa): um dedo desconhecido nao pode
+    // transformar uma mao parcial em "todos".
     configuracao: configurarDedos(dedosEstendidos, TOTAL_DEDOS),
-    limiarExtensaoGraus: limiar,
+    limiarExtensaoGraus,
   };
 }
 

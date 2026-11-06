@@ -505,7 +505,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
    *   confirmacao) — e o que o casamento da avaliacao usa.
    *
    * Tipos sem equivalente em `EventoVisual` (`gesto_detectado`,
-   * `braco_levantado`, `movimento_corporal`) nao entram neste stream: vao para
+   * `braco_levantado`, `transicao_acao`, `movimento_corporal`) nao entram neste stream: vao para
    * a memoria temporal propria em `persistirMemoriaTemporal`. `movimento_objeto`
    * e adaptado ao rótulo visual legado `movimento` com origem semantica explícita.
    */
@@ -558,7 +558,8 @@ export class CicloPercepcaoController implements ControladorCiclo {
    * Persiste a memoria pesquisavel de gestos/posturas/movimento corporal no
    * stream temporal (`eventos-temporais.jsonl`), separado dos fatos visuais.
    *
-   * - so `gesto_detectado`, `braco_levantado` e `movimento_corporal` entram;
+   * - so `gesto_detectado`, `braco_levantado`, `transicao_acao` e
+   *   `movimento_corporal` entram;
    * - `candidato` nunca vira memoria; `confirmado`, `encerrado` e `incerto`
    *   entram, cada um uma unica vez por `eventoId:estado`;
    * - `incerto` preserva `intervaloSemObservacaoMs`, para distinguir "o sinal
@@ -571,6 +572,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
       if (
         evt.tipo !== "gesto_detectado" &&
         evt.tipo !== "braco_levantado" &&
+        evt.tipo !== "transicao_acao" &&
         evt.tipo !== "movimento_corporal"
       ) {
         continue;
@@ -598,6 +600,9 @@ export class CicloPercepcaoController implements ControladorCiclo {
         frameIds: evt.frameIds,
         estado: evt.estado,
         intervaloSemObservacaoMs: evt.intervaloSemObservacaoMs,
+        motivoEncerramento: evt.motivoEncerramento,
+        continuidadeValida: evt.continuidadeValida,
+        evidencias: evt.evidencias,
         idempotencyKey: chave,
       };
       this.deps.fila.agendar({

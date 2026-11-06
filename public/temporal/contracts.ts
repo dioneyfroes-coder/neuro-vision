@@ -71,6 +71,11 @@ export interface ConfigMotorTemporal {
   gestos: ConfigMaquinaSinais;
   braco: ConfigMaquinaSinais;
   /**
+   * Maquina de estado da transicao de acao (ex.: braco subindo/descendo).
+   * Separada de `braco` para distinguir a **transicao** da **postura mantida**.
+   */
+  transicao: ConfigMaquinaSinais;
+  /**
    * Maquina de estado do movimento corporal (deslocamento de pessoas rastreadas).
    * Separada de gestos/braco para que cada sinal tenha sua propria confirmacao.
    */
@@ -90,11 +95,23 @@ export interface ConfigMotorTemporal {
    */
   confiancaMinimaPontoBraco: number;
   /**
-   * Deslocamento normalizado minimo (por frame) do centro de uma pessoa
-   * rastreada para contar como movimento corporal. Valores muito baixos
-   * transformam ruido de pose em evento; altos perdem deslocamentos lentos.
+   * Velocidade normalizada **por segundo** do centro de uma pessoa rastreada
+   * para contar como movimento corporal. Intervalos invalidos (`<= 0`) ou
+   * longos demais sao rejeitados antes de comparar: nao se presume movimento
+   * entre frames sem intervalo confiavel.
    */
-  limiarMovimentoCorporal: number;
+  limiarVelocidadeCorporal: number;
+  /**
+   * Velocidade vertical normalizada por segundo do punho para caracterizar uma
+   * **transicao** de acao (braco subindo/descendo). A postura mantida
+   * (`braco_levantado`) usa a relacao articular, nao este limiar.
+   */
+  limiarVelocidadeTransicaoBraco: number;
+  /**
+   * Histerese angular (graus) por dedo: um dedo ja estendido continua
+   * estendido ate `limiar - histerese`, evitando cintilacao na fronteira.
+   */
+  histereseAnguloDedoGraus: number;
   /**
    * Gap (ms) entre o fim do ciclo anterior e o inicio do atual que sinaliza um
    * periodo cego (janela sem observacao).
@@ -107,21 +124,25 @@ export const CONFIG_MOTOR_TEMPORAL_PADRAO: ConfigMotorTemporal = {
   rastreador: CONFIG_RASTREADOR_PADRAO,
   gestos: CONFIG_MAQUINA_PADRAO,
   braco: CONFIG_MAQUINA_PADRAO,
+  transicao: { framesParaConfirmar: 2, framesParaEncerrar: 2, confiancaMinima: 0.5 },
   movimento: { framesParaConfirmar: 2, framesParaEncerrar: 2, confiancaMinima: 0.5 },
   limiarAlturaBraco: 0.4,
   histereseBraco: 0.1,
   confiancaMinimaPontoBraco: 0.5,
-  limiarMovimentoCorporal: 0.015,
+  limiarVelocidadeCorporal: 0.03,
+  limiarVelocidadeTransicaoBraco: 0.2,
+  histereseAnguloDedoGraus: 12,
   limiarPeriodoCegoMs: 1200,
 };
 
 /** Configuracao parcial aceita na construcao do motor. */
 export type ConfiguracaoParcialMotorTemporal = Partial<
-  Omit<ConfigMotorTemporal, "rastreador" | "gestos" | "braco" | "movimento">
+  Omit<ConfigMotorTemporal, "rastreador" | "gestos" | "braco" | "transicao" | "movimento">
 > & {
   rastreador?: Partial<ConfigRastreador>;
   gestos?: Partial<ConfigMaquinaSinais>;
   braco?: Partial<ConfigMaquinaSinais>;
+  transicao?: Partial<ConfigMaquinaSinais>;
   movimento?: Partial<ConfigMaquinaSinais>;
 };
 
