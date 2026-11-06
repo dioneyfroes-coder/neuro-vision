@@ -38,8 +38,15 @@ export const CONFIG_RASTREAMENTO_PADRAO: ConfigRastreamento = {
 export interface ResultadoQuadro {
   /** Estado atual dos objetos rastreados. */
   objetos: ObjetoRastreado[];
+  /** Associacao entre o indice da deteccao de entrada e o track da instancia. */
+  associacoes: AssociacaoDeteccao[];
   /** Eventos gerados neste frame. */
   eventos: EventoVisual[];
+}
+
+export interface AssociacaoDeteccao {
+  indice: number;
+  objetoId: string;
 }
 
 /** Contexto compartilhado pelos eventos gerados em um frame. */
@@ -124,26 +131,35 @@ export class RastreadorObjetos {
   ): ResultadoQuadro {
     const eventos: EventoVisual[] = [];
     const timestamp = contexto.timestamp ?? new Date().toISOString();
-    const validas = deteccoes.filter((d) => d.score >= this.config.confiancaMinima);
+    const validas = deteccoes
+      .map((deteccao, indice) => ({ deteccao, indice }))
+      .filter(({ deteccao }) => deteccao.score >= this.config.confiancaMinima);
 
     const associados = new Set<ObjetoRastreado>();
-    const deteccoesAssociadas = new Set<ObjetoVisto>();
+    const deteccoesAssociadas = new Set<number>();
+    const associacoes: AssociacaoDeteccao[] = [];
 
-    const candidatos: Array<{ objeto: ObjetoRastreado; deteccao: ObjetoVisto; pontuacao: number }> = [];
+    const candidatos: Array<{
+      objeto: ObjetoRastreado;
+      deteccao: ObjetoVisto;
+      indice: number;
+      pontuacao: number;
+    }> = [];
     for (const objeto of this.objetos) {
-      for (const deteccao of validas) {
+      for (const { deteccao, indice } of validas) {
         if (objeto.rotulo !== deteccao.rotulo) continue;
         const pontuacao = this.pontuacaoAssociacao(objeto.caixa, deteccao.caixa);
         if (pontuacao === null) continue;
-        candidatos.push({ objeto, deteccao, pontuacao });
+        candidatos.push({ objeto, deteccao, indice, pontuacao });
       }
     }
     candidatos.sort((a, b) => b.pontuacao - a.pontuacao);
     for (const c of candidatos) {
       if (associados.has(c.objeto)) continue;
-      if (deteccoesAssociadas.has(c.deteccao)) continue;
+      if (deteccoesAssociadas.has(c.indice)) continue;
       associados.add(c.objeto);
-      deteccoesAssociadas.add(c.deteccao);
+      deteccoesAssociadas.add(c.indice);
+      associacoes.push({ indice: c.indice, objetoId: c.objeto.id });
       const objeto = c.objeto;
       const deteccao = c.deteccao;
 
@@ -172,8 +188,8 @@ export class RastreadorObjetos {
       }
     }
 
-    for (const deteccao of validas) {
-      if (deteccoesAssociadas.has(deteccao)) continue;
+    for (const { deteccao, indice } of validas) {
+      if (deteccoesAssociadas.has(indice)) continue;
       const objeto: ObjetoRastreado = {
         id: this.sessaoId ? `obj-${this.sessaoId}-${this.proximoId++}` : `obj-${this.proximoId++}`,
         rotulo: deteccao.rotulo,
@@ -187,6 +203,7 @@ export class RastreadorObjetos {
       };
       this.objetos.push(objeto);
       associados.add(objeto);
+      associacoes.push({ indice, objetoId: objeto.id });
       if (this.config.framesParaConfirmarAparicao <= 1) {
         this.aparicoesEmitidas.add(objeto.id);
         eventos.push(
@@ -216,7 +233,8 @@ export class RastreadorObjetos {
     }
     this.objetos = restantes;
 
-    return { objetos: [...this.objetos], eventos };
+    associacoes.sort((a, b) => a.indice - b.indice);
+    return { objetos: [...this.objetos], associacoes, eventos };
   }
 
   /**

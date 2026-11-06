@@ -1,0 +1,61 @@
+Neuro Vision - plano de mudancas
+Fonte: ANALISE_ESTADO_ATUAL_NEURO_VISION_20261102.md
+Nota: conferir o estado atual do codigo antes de marcar tarefas como iniciadas ou concluidas.
+
+ORDEM RECOMENDADA
+Fase 1 -> Fase 2 -> Fase 3 -> Fase 4
+Fase 5 habilita e valida o trabalho; alinhar o ambiente antes de depender da CI.
+
+FASE 1 - Fechar a cadeia de evidencias [CONCLUIDA]
+[x] Revisar o contrato atual de rastreamento e serializacao de deteccoes por frame.
+[x] Associar o trackId de instancia de objeto a cada deteccao serializada, preservando frameId; nao usar o rotulo da classe como identidade.
+[x] Confirmar por testes que IDs de pessoas, maos e objetos ficam vinculados ao frame correto ao longo de quatro snapshots.
+[x] Incluir timestamps e intervalos efetivos entre observacoes nos calculos temporais.
+[x] Adicionar teste de integracao do payload final enviado ao VLM: imagens, frameIds, deteccoes, pose, maos e eventos.
+[x] GATE FASE 1: objeto, pessoa e mao mantem IDs estaveis quando associaveis; associacoes incertas nao inventam continuidade.
+
+FASE 2 - Melhorar o motor temporal para acoes humanas
+[ ] Trocar limiar de deslocamento por frame por velocidade normalizada por segundo; rejeitar intervalos invalidos ou excessivamente longos.
+[ ] Distinguir postura mantida (ex.: braco erguido) de transicao (ex.: levantou o braco).
+[ ] Definir representacao estavel dos cinco dedos: polegar, indicador, medio, anelar e minimo estendidos.
+[ ] Implementar regras iniciais para polegar para cima, mao aberta, punho fechado, um dedo e dois dedos.
+[ ] Aplicar histerese e confirmacao por multiplas observacoes; preservar confianca e evidencias, sem tratar heuristica como certeza.
+[ ] Usar lateralidade como restricao na associacao de maos.
+[ ] Diferenciar estados de gesto confirmado, gesto encerrado, mao ocluida, inferencia indisponivel e observacao insuficiente.
+[ ] Criar testes temporais para velocidade, transicoes, gestos, lateralidade, oclusao e encerramento.
+GATE FASE 2: cada evento registra entidade, inicio/fim, origem da evidencia, confianca, continuidade valida e motivo de encerramento.
+
+FASE 3 - Melhorar o contrato multimodal
+[ ] Explicar no prompt dedosEstendidos, totalEstendidos e configuracao; descrever os angulos como estimativas locais 2D.
+[ ] Informar ao VLM que dados locais podem falhar; pedir que divergencias e casos inconclusivos sejam tratados como incerteza.
+[ ] Ao reduzir contexto, preservar ombros, cotovelos, pulsos e quadris, alem de gestos e eventos temporais confirmados.
+[ ] Registrar no payload que houve truncamento e quais grupos foram removidos.
+[ ] Medir e registrar a frequencia de truncamento em ciclos reais.
+[ ] Preservar a ligacao entre imagens, resultados estruturados e frameId.
+[ ] Adicionar testes de snapshot do payload e de truncamento sem perda silenciosa da unica evidencia de um evento.
+GATE FASE 3: o payload contem todas as evidencias necessarias ou declara explicitamente o que foi podado.
+
+FASE 4 - Validar benchmark para os objetivos do projeto
+[ ] Criar conjuntos EVAL separados: movimento_objeto, gestos_mao, postura_corporal, transicao_acao e oclusao_iluminacao.
+[ ] Anotar inicio/fim com resolucao temporal superior a 1 fps para movimentos rapidos.
+[ ] Revisar anotacoes humanas e manter tuning separado de EVAL.
+[ ] Executar varias rodadas independentes com os mesmos videos e parametros; separar aquecimento.
+[ ] Manter logs brutos fora do repositorio e registrar hashes e manifesto dos dados usados.
+[ ] Reportar mediana, P95 com tamanho da amostra, falhas e intervalo de confianca quando houver amostra suficiente.
+[ ] Distinguir "comparavel" de "estatisticamente suficiente"; nao declarar resultado conclusivo por haver apenas um ciclo.
+[ ] Representar metricas sem denominador como N/A/null e exclui-las das medias (incluindo recall sem positivos esperados).
+[ ] Renomear a janela medida pelo comparador para "janela de geracao do relatorio", sem confundi-la com duracao das inferencias.
+GATE FASE 4: resultados cobrem as capacidades avaliadas e deixam claros amostra, incerteza, falhas e limites de reproducao.
+
+FASE 5 - Corrigir ambiente de desenvolvimento e reprodutibilidade
+[ ] Alinhar CI e documentacao com Node 22.12+ ou Node 24, conforme engines do lockfile.
+[ ] Instalar dependencias de forma reproduzivel com npm ci.
+[ ] Executar npm run typecheck, npm run lint, npm test e os E2E aplicaveis.
+[ ] Anexar resultados de validacao ao relatorio da versao.
+[ ] Registrar backend, versao do modelo multimodal e dispositivos efetivos dos tres adaptadores.
+GATE FASE 5: ambiente e validacoes ficam reproduziveis e registrados; falhas e limitacoes de E2E ficam explicitas.
+
+FORA DO ESCOPO DESTE PLANO
+- Nao reescrever a arquitetura nem substituir modelos sem evidencia medida.
+- Nao inferir 30 FPS nem continuidade durante lacunas sem benchmark.
+- Nao usar EVAL atual de movimento de objetos como validacao de gestos ou postura humana.

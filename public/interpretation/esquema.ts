@@ -78,7 +78,7 @@ export interface DeteccaoObservada {
   rotulo: string;
   score: number;
   caixa: CaixaNormalizada;
-  /** Id de entidade estavel na sessao, quando o rastreador o atribuiu. */
+  /** ID da instancia rastreada, nao do rotulo/classe do detector. */
   trackId?: string;
 }
 
@@ -377,6 +377,7 @@ export function serializarDeteccoes(
       rotulo: d.rotulo || d.nome || "objeto",
       score: arredondar(limitar01(d.score), opcoes.decimais),
       caixa: normalizarCaixa(d.caixa, resultado.dimensoes, opcoes.decimais),
+      ...(d.entidadeId ? { trackId: d.entidadeId } : {}),
     }));
 }
 
@@ -523,7 +524,7 @@ export function calcularMovimento(
     trackId: string,
     centro: { x: number; y: number } | null
   ): void => {
-    if (!centro) return;
+    if (!centro || !Number.isFinite(observacao.capturadoEmMs)) return;
     const chave = `${tipo}:${trackId}`;
     posicoes.set(chave, { x: centro.x, y: centro.y, tMs: observacao.capturadoEmMs });
     const anterior = posicoesAnteriores.get(chave);
@@ -540,6 +541,19 @@ export function calcularMovimento(
       intervaloMs,
     });
   };
+
+  if (!estaIndisponivel(observacao.deteccoes)) {
+    const dimensoes = observacao.deteccoes.dimensoes;
+    if (dimensoes && dimensoes.largura > 0 && dimensoes.altura > 0) {
+      for (const deteccao of observacao.deteccoes.deteccoes) {
+        if (!deteccao.entidadeId) continue;
+        registrar("objeto", deteccao.entidadeId, {
+          x: ((deteccao.caixa.xmin + deteccao.caixa.xmax) / 2) / dimensoes.largura,
+          y: ((deteccao.caixa.ymin + deteccao.caixa.ymax) / 2) / dimensoes.altura,
+        });
+      }
+    }
+  }
 
   if (!estaIndisponivel(observacao.pose)) {
     for (const pessoa of observacao.pose.pessoas) {

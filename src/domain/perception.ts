@@ -56,6 +56,8 @@ export interface Deteccao {
   /** Confianca em [0, 1]. */
   score: number;
   caixa: Caixa;
+  /** Identidade da instancia associada pelo motor temporal, quando disponivel. */
+  entidadeId?: string;
 }
 
 /** Resultado do detector de objetos para um frame. */

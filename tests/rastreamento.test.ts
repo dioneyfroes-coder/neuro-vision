@@ -54,6 +54,38 @@ describe("RastreadorObjetos", () => {
     expect(f.eventos).toEqual([]);
   });
 
+  it("devolve IDs de instancia associados aos indices originais das deteccoes", () => {
+    const r = new RastreadorObjetos();
+    const fr1 = r.processar(
+      [
+        pessoa(0, 0),
+        det("person", { xmin: 700, ymin: 700, xmax: 800, ymax: 800 }, 0.1, "ruido"),
+        pessoa(300, 300),
+      ],
+      1000
+    );
+    const idEsquerdo = fr1.associacoes.find((a) => a.indice === 0)?.objetoId;
+    const idDireito = fr1.associacoes.find((a) => a.indice === 2)?.objetoId;
+    expect(idEsquerdo).toBeDefined();
+    expect(idDireito).toBeDefined();
+    expect(idDireito).not.toBe(idEsquerdo);
+    expect(fr1.associacoes.map((a) => a.indice)).toEqual([0, 2]);
+
+    // A ordem das deteccoes muda; a identidade continua ligada a instancia,
+    // nao a posicao da deteccao nem ao rotulo compartilhado.
+    const fr2 = r.processar([pessoa(305, 300), pessoa(5, 0)], 1100);
+    expect(fr2.associacoes).toEqual([
+      { indice: 0, objetoId: idDireito },
+      { indice: 1, objetoId: idEsquerdo },
+    ]);
+
+    // Um salto sem associacao plausivel inicia outra instancia, em vez de
+    // reutilizar um ID por compartilhar apenas o rotulo da classe.
+    const distante = r.processar([pessoa(900, 900)], 1200);
+    expect(distante.associacoes).toHaveLength(1);
+    expect([idEsquerdo, idDireito]).not.toContain(distante.associacoes[0].objetoId);
+  });
+
   it("caixa deslocada mas sobreposta mantem o mesmo ID", () => {
     const r = new RastreadorObjetos();
     r.processar([pessoa(0, 0)], 1000);

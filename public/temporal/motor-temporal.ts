@@ -141,6 +141,7 @@ export class MotorTemporalImpl implements MotorTemporal {
       const frameId = obs.frameId;
 
       // 1. Rastreamento de objetos (logica existente de rastreamento.ts).
+      let deteccoesObservadas = obs.deteccoes;
       if (!estaIndisponivel(obs.deteccoes)) {
         const objetosVistos: ObjetoVisto[] = obs.deteccoes.deteccoes.map((d) => ({
           nome: d.nome,
@@ -152,6 +153,12 @@ export class MotorTemporalImpl implements MotorTemporal {
           timestamp: obs.capturadoEm,
           sessaoId: sessionId,
         });
+        const deteccoes = obs.deteccoes.deteccoes.map((deteccao) => ({ ...deteccao }));
+        for (const { indice, objetoId } of resultado.associacoes) {
+          const deteccao = deteccoes[indice];
+          if (deteccao) deteccao.entidadeId = objetoId;
+        }
+        deteccoesObservadas = { ...obs.deteccoes, deteccoes };
         for (const ev of resultado.eventos) {
           const convertido = this.converterEventoVisual(ev, sessionId, frameId, obs.cycleId);
           if (convertido) eventos.push(convertido);
@@ -174,7 +181,7 @@ export class MotorTemporalImpl implements MotorTemporal {
       // modo `basico` apenas objetos e cena (acima) sao considerados: a variante
       // C do benchmark nao deve ganhar interpretacao temporal explicita.
       if (this.config.modo === "basico") {
-        observacoesEnriquecidas.push(obs);
+        observacoesEnriquecidas.push({ ...obs, deteccoes: deteccoesObservadas });
         continue;
       }
 
@@ -296,6 +303,7 @@ export class MotorTemporalImpl implements MotorTemporal {
 
       observacoesEnriquecidas.push({
         ...obs,
+        deteccoes: deteccoesObservadas,
         pose: poseObservada,
         maos: maosObservadas,
       });
