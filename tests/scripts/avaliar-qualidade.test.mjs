@@ -103,7 +103,33 @@ describe("compararEventos", () => {
     expect(r.falsosPositivos).toBe(1);
     expect(r.falsosPositivosPorMinuto).toBe(2);
     expect(r.precisao).toBe(0);
-    expect(r.recall).toBe(1);
+    // Sem mudancas esperadas nao ha denominador de recall: N/A, nao 1.
+    expect(r.recall).toBeNull();
+    expect(r.proporcaoPerdidas).toBeNull();
+  });
+
+  it("devolve N/A quando o denominador da metrica nao existe", () => {
+    const semEsperados = compararEventos({
+      esperados: [],
+      detectados: [],
+      duracaoMs: 0,
+    });
+    expect(semEsperados.precisao).toBeNull();
+    expect(semEsperados.recall).toBeNull();
+    expect(semEsperados.proporcaoPerdidas).toBeNull();
+    expect(semEsperados.falsosPositivosPorMinuto).toBeNull();
+
+    const soEsperados = compararEventos({
+      esperados: [ev("aparicao", 5000)],
+      detectados: [],
+      toleranciaMs: 3000,
+      duracaoMs: 60000,
+    });
+    // Ha esperados mas nenhuma deteccao: precisao sem denominador (N/A),
+    // recall definido (0).
+    expect(soEsperados.precisao).toBeNull();
+    expect(soEsperados.recall).toBe(0);
+    expect(soEsperados.falsosPositivosPorMinuto).toBe(0);
   });
 
   it("respeita a tolerancia nas bordas", () => {
@@ -385,5 +411,17 @@ describe("formatarRelatorio", () => {
     expect(texto).toContain("recall: 0%");
     expect(texto).toContain("Perdidas:");
     expect(texto).toContain("Falsos positivos:");
+  });
+
+  it("mostra N/A quando nao ha denominador para a metrica", () => {
+    const r = compararEventos({
+      esperados: [],
+      detectados: [],
+      duracaoMs: 0,
+    });
+    const texto = formatarRelatorio(r, { clip: "vazio.mp4", toleranciaMs: 3000 });
+    expect(texto).toContain("Precisao: N/A");
+    expect(texto).toContain("recall: N/A");
+    expect(texto).toContain("falsos positivos/min: N/A");
   });
 });

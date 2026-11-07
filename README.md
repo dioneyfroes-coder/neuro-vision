@@ -15,13 +15,13 @@ Visão computacional 100% local: a webcam enxerga e registra o que vê. A imagem
 
 ## Início rápido
 
-Requisitos: **Node.js 20+** e, para os modos de descrição/roteiro, um **modelo de visão** servido localmente por um backend compatível com a API de chat completions:
+Requisitos: **Node.js 22.12+** (ou 24+) e, para os modos de descrição/roteiro, um **modelo de visão** servido localmente por um backend compatível com a API de chat completions:
 
 - **LM Studio** — carregue um modelo de visão (ex.: `Qwen2.5-VL-3B-Instruct`, leve e rápido — é o padrão do app) e inicie o servidor local (padrão `http://localhost:1234`).
 - **llama.cpp (`llama-server`)** ou **vLLM** — com um modelo de visão e o endpoint `/v1/chat/completions` habilitado.
 
 ```bash
-npm install
+npm ci                            # instala exatamente o package-lock.json
 npm run dev                       # desenvolvimento (abre http://localhost:3000)
 npm start                         # produção (build + servidor)
 ```

@@ -265,8 +265,13 @@ export async function lerInicioSidecarEventos(caminhoEventos) {
   return undefined;
 }
 
+/**
+ * Razao com denominador explicito. Sem denominador (zero/ausente) a metrica e
+ * N/A (`null`) e deve ficar FORA de medias — nao existe "1" por ausencia de
+ * amostra. Vale para recall sem positivos esperados e FP/min sem duracao.
+ */
 function taxa(numerador, denominador) {
-  if (denominador <= 0) return 1;
+  if (!Number.isFinite(denominador) || denominador <= 0) return null;
   return numerador / denominador;
 }
 
@@ -284,6 +289,9 @@ function calcularDuracaoMs(esperados, detectados) {
  * deteccao de **tipo compativel** mais proxima dentro da tolerancia; cada
  * deteccao so pode casar uma vez. O escopo de objeto exige origem e rotulo
  * conhecidos para nao confundir movimento de pessoa com objeto deslocado.
+ *
+ * Metricas de razao sem denominador (recall sem positivos esperados, precisao
+ * sem deteccoes, FP/min sem duracao) valem `null` (N/A) e nao entram em medias.
  */
 export function compararEventos({
   esperados = [],
@@ -371,9 +379,12 @@ export function compararEventos({
     falsosPositivos: fp,
     precisao: taxa(tp, tp + fp),
     recall: taxa(tp, tp + fn),
-    /** Proporcao de mudancas esperadas que nao foram detectadas (0 quando nao ha mudancas esperadas). */
-    proporcaoPerdidas: tp + fn === 0 ? 0 : fn / (tp + fn),
-    falsosPositivosPorMinuto: duracaoEfetivaMs > 0 ? fp / (duracaoEfetivaMs / 60_000) : 0,
+    /** Sem mudancas esperadas o denominador nao existe: N/A (`null`), nao 0. */
+    proporcaoPerdidas: taxa(fn, tp + fn),
+    falsosPositivosPorMinuto:
+      Number.isFinite(duracaoEfetivaMs) && duracaoEfetivaMs > 0
+        ? fp / (duracaoEfetivaMs / 60_000)
+        : null,
     duracaoMs: duracaoEfetivaMs,
     correspondencias,
     perdidosDetalhe: perdidos,
@@ -382,7 +393,12 @@ export function compararEventos({
 }
 
 function pct(n) {
-  return `${(n * 100).toFixed(0)}%`;
+  return Number.isFinite(n) ? `${(n * 100).toFixed(0)}%` : "N/A";
+}
+
+/** Numero para exibicao; `null`/NaN viram N/A (nunca 0 silencioso). */
+function valorOuNa(n, casas = 2) {
+  return Number.isFinite(n) ? String(arredondar(n, casas)) : "N/A";
 }
 
 /** Relatorio legivel (modo padrao, sem `--json`). */
@@ -391,7 +407,7 @@ export function formatarRelatorio(rel, { clip = "", toleranciaMs = 0 } = {}) {
     `Clipe: ${clip || "(sem nome)"} | tolerancia: ${toleranciaMs} ms | duracao: ${arredondar(rel.duracaoMs / 60_000, 2)} min`,
     `Esperados: ${rel.esperados} | detectados: ${rel.detectados}`,
     `Verdadeiros positivos: ${rel.verdadeirosPositivos} | perdidos: ${rel.perdidos} | falsos positivos: ${rel.falsosPositivos}`,
-    `Precisao: ${pct(rel.precisao)} | recall: ${pct(rel.recall)} | falsos positivos/min: ${arredondar(rel.falsosPositivosPorMinuto, 2)}`,
+    `Precisao: ${pct(rel.precisao)} | recall: ${pct(rel.recall)} | falsos positivos/min: ${valorOuNa(rel.falsosPositivosPorMinuto, 2)}`,
   ];
   if (rel.foraEscopo > 0) linhas.push(`Fora do escopo avaliado: ${rel.foraEscopo}`);
   if (rel.semClassificacaoEscopo > 0) {

@@ -14,8 +14,8 @@ versionado aqui são as **anotações** (`.json`, formato de
 ```powershell
 # gate da Fase 4; deve passar antes de usar números finais:
 npm run validar:eval
-# eval (números finais):
-node scripts/benchmark-variantes.mjs --clipes-dir bench/videos --anotacoes-dir bench/clipes/eval --conjunto eval
+# eval (números finais): repita em sessões/dias independentes
+node scripts/benchmark-variantes.mjs --clipes-dir bench/videos --anotacoes-dir bench/clipes/eval --conjunto eval --min-ciclos 2 --min-amostras-estatisticas 10
 # tuning (limiares):
 node scripts/benchmark-variantes.mjs --clipes-dir bench/videos --anotacoes-dir bench/clipes/tuning --variantes B,C
 # rodada reproduzível (Fase 5): warm-up separado + etapas isoladas + gate de qualidade
@@ -74,11 +74,32 @@ quadro. O comparador restrito a este alvo só considera detecções `movimento`
 com origem `objetos` e rótulo do detector diferente de pessoa; eventos sem
 rótulo não são tratados como prova de movimento de objeto.
 
-**Fase 4 concluída em escopo reduzido, conforme autorizado pelo usuário:** o
+**Fase 4 validada apenas em escopo reduzido, conforme autorizado pelo usuário:** o
 manifesto cobre apenas `movimento_objeto.objeto_deslocado`, com três
-ocorrências mínimas e três clipes negativos revisados. Aceno e interpretação
-textual ficam explicitamente fora desta avaliação e não podem ser considerados
-validados ou promovidos por estes resultados.
+ocorrências mínimas e três clipes negativos revisados. Os demais alvos
+(`gestos_mao`, `postura_corporal`, `transicao_acao`, `oclusao_iluminacao`)
+continuam pendentes de dados humanos — a fase segue **parcial**. Aceno e
+interpretação textual ficam explicitamente fora desta avaliação e não podem ser
+considerados validados ou promovidos por estes resultados.
+
+### Pendências humanas da Fase 4 (não supríveis por código)
+
+O harness e o gate já existem, mas os conjuntos abaixo exigem **vídeos novos e
+revisão humana**; nenhum resultado deve ser inventado a partir do EVAL atual:
+
+| Alvo exigido | Estado | O que falta |
+|--------------|--------|-------------|
+| `movimento_objeto` | ✅ EVAL reduzido validado | — |
+| `gestos_mao` | ⏳ | clipes com gestos distintos + anotação EVAL revisada |
+| `postura_corporal` | ⏳ | clipes de postura (em pé/sentado/inclinado) + anotação revisada |
+| `transicao_acao` | ⏳ | clipes com início/fim de ação e anotação revisada |
+| `oclusao_iluminacao` | ⏳ | clipes com oclusão parcial e iluminação ruim + anotação revisada |
+
+Movimentos rápidos (gestos e transições) exigem anotação em **resolução melhor
+que 1 fps** (idealmente quadro a quadro ou ≥ 5 fps); a amostragem de 1 fps só é
+aceitável para ações lentas e deve constar em `revisao.metodo`. O EVAL de
+movimento de objeto **não valida** gestos, postura, transições ou oclusões —
+são alvos diferentes e continuam sem medição até a anotação humana existir.
 
 ## Conjunto TUNING (rascunhos + limiares)
 

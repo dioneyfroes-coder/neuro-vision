@@ -15,6 +15,7 @@ import {
   filtrarCiclosDaVariante,
   gravarRelatorioSeguro,
   identificarVarianteDoRegistro,
+  intervaloConfiancaMediana,
   lerArgs,
   modelosDosFrames,
   resolverSidecarInicioEventos,
@@ -25,6 +26,18 @@ import {
 } from "../../scripts/benchmark-variantes.mjs";
 
 describe("lerArgs — arquivos de eventos por clipe", () => {
+  it("usa minimos conservadores por padrao", () => {
+    const args = lerArgs([]);
+    expect(args.minCiclos).toBe(2);
+    expect(args.minAmostrasEstatisticas).toBe(10);
+  });
+
+  it("aceita minimos explicitos de ciclos e amostras estatisticas", () => {
+    const args = lerArgs(["--min-ciclos", "3", "--min-amostras-estatisticas", "20"]);
+    expect(args.minCiclos).toBe(3);
+    expect(args.minAmostrasEstatisticas).toBe(20);
+  });
+
   it("associa cada caminho ao nome completo do clipe e à variante", () => {
     const args = lerArgs([
       "--eventos-B-car-detection.mp4",
@@ -132,6 +145,8 @@ describe("agregarMetricasCiclos", () => {
     expect(m.metricas.totalMs.medianaMs).toBe(200);
     expect(m.metricas.totalMs.p95Ms).toBeCloseTo(290, 5);
     expect(m.metricas.totalMs.amostras).toBe(3);
+    // Amostra insuficiente: IC da mediana e N/A, nunca inventado.
+    expect(m.metricas.totalMs.intervaloConfiancaMediana).toBeNull();
     expect(m.metricas.multimodalMs.medianaMs).toBe(80);
     // Etapas sem valores ficam com amostras = 0 e mediana nula.
     expect(m.metricas.poseMs.medianaMs).toBeNull();
@@ -151,6 +166,19 @@ describe("agregarMetricasCiclos", () => {
     ]);
     expect(m.metricas.totalMs.amostras).toBe(1);
     expect(m.metricas.deteccaoMs.medianaMs).toBe(10);
+  });
+
+  it("anexa IC95% da mediana quando ha pelo menos 10 amostras", () => {
+    const registros = Array.from({ length: 10 }, (_, i) =>
+      registro({ cycleId: `c${i + 1}`, metricas: { totalMs: 100 + i * 10 } })
+    );
+    const m = agregarMetricasCiclos(registros);
+    expect(m.metricas.totalMs.amostras).toBe(10);
+    expect(m.metricas.totalMs.intervaloConfiancaMediana).toMatchObject({
+      confianca: 0.95,
+      amostras: 10,
+      metodo: "ordem-estatistica",
+    });
   });
 
   it("separa inferência por snapshot, memória, carga fria e desfechos (P3.1)", () => {
@@ -239,6 +267,38 @@ describe("agregarMetricasCiclos", () => {
       medianaMs: 400,
       amostras: 1,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 4/5 — intervalo de confianca da mediana (sem inventar incerteza)
+// ---------------------------------------------------------------------------
+
+describe("intervaloConfiancaMediana", () => {
+  it("devolve null quando a amostra nao basta para um IC nao trivial", () => {
+    expect(intervaloConfiancaMediana([])).toBeNull();
+    expect(intervaloConfiancaMediana([1, 2, 3, 4, 5])).toBeNull();
+    expect(intervaloConfiancaMediana([1, 2, 3, 4, 5, 6, 7, 8, 9])).toBeNull();
+  });
+
+  it("usa ordem estatistica com pelo menos 10 amostras", () => {
+    const valores = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28];
+    const ic = intervaloConfiancaMediana(valores);
+    expect(ic).toMatchObject({
+      confianca: 0.95,
+      amostras: 10,
+      metodo: "ordem-estatistica",
+    });
+    expect(ic.inferiorMs).toBeLessThanOrEqual(19);
+    expect(ic.superiorMs).toBeGreaterThanOrEqual(19);
+    expect(ic.inferiorMs).toBeLessThan(ic.superiorMs);
+  });
+
+  it("ignora valores nao finitos e respeita o minimo configuravel", () => {
+    expect(
+      intervaloConfiancaMediana([1, 2, 3, Number.NaN, 4, 5, 6], { minimoAmostras: 6 })
+    ).not.toBeNull();
+    expect(intervaloConfiancaMediana([1, 2, 3, Number.NaN], { minimoAmostras: 4 })).toBeNull();
   });
 });
 
@@ -358,6 +418,20 @@ describe("avaliarGateQualidade", () => {
     expect(d.promovivel).toBe(true);
     expect(d.ganhoF1).toBeCloseTo(0.3, 5);
     expect(d.taxaCusto).toBeCloseTo(1.4, 5);
+  });
+
+  it("usa o regime aquecido no gate quando ha warm-up separado", () => {
+    const g = avaliarGateQualidade([
+      {
+        variante: { letra: "D" },
+        desempenho: { ciclosConcluidos: 10, metricas: { totalMs: { medianaMs: 5000 } } },
+        desempenhoAquecido: { ciclosConcluidos: 2, metricas: { totalMs: { medianaMs: 1000 } } },
+        qualidade: { consolidado: { f1: 0.7, precisao: 0.7, recall: 0.7, falsosPositivosPorMinuto: 1 } },
+      },
+    ]);
+    const d = g.porVariante.find((p) => p.letra === "D");
+    expect(d.totalMedianaMs).toBe(1000);
+    expect(d.ciclosConcluidos).toBe(2);
   });
 
   it("mantem experimental quando o F1 fica abaixo do minimo", () => {
@@ -547,7 +621,9 @@ describe("avaliarComparabilidade", () => {
     const L = letra.toLowerCase();
     return {
       variante: { letra },
-      desempenho: { ciclos: 2, ciclosConcluidos: 2, cancelados: 0 },
+      // 10 ciclos concluidos = minimo estatistico padrao; assim os casos
+      // "conclusivos" realmente exercitam comparabilidade + suficiencia.
+      desempenho: { ciclos: 10, ciclosConcluidos: 10, cancelados: 0 },
       qualidade: {
         consolidado: {
           clipes: 5,
@@ -571,10 +647,49 @@ describe("avaliarComparabilidade", () => {
 
   it("e conclusivo com ciclos concluidos, modelo verificado e qualidade propria", () => {
     const r = avaliarComparabilidade(quatro(), { modeloGlobal: modelo });
+    expect(r.comparavel).toBe(true);
+    expect(r.estatisticamenteSuficiente).toBe(true);
     expect(r.conclusivo).toBe(true);
     expect(r.problemas).toEqual([]);
+    expect(r.limitacoesEstatisticas).toEqual([]);
+    expect(r.minCiclosValidos).toBe(2);
+    expect(r.minAmostrasEstatisticas).toBe(10);
     expect(r.porVariante).toHaveLength(4);
-    expect(r.porVariante[1]).toMatchObject({ letra: "B", ciclosConcluidos: 2, qualidade: true });
+    expect(r.porVariante[1]).toMatchObject({
+      letra: "B",
+      ciclosConcluidos: 10,
+      qualidade: true,
+      amostrasEstatisticas: 10,
+      estatisticamenteSuficiente: true,
+    });
+  });
+
+  it("distingue comparavel de estatisticamente suficiente", () => {
+    const resultados = ["B", "D"].map((l) =>
+      resultadoComparavel(l, { desempenho: { ciclos: 3, ciclosConcluidos: 3, cancelados: 0 } })
+    );
+    const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo });
+    // Dados validos: comparaveis. Mas 3 ciclos nao sustentam IC95% da mediana.
+    expect(r.comparavel).toBe(true);
+    expect(r.estatisticamenteSuficiente).toBe(false);
+    expect(r.conclusivo).toBe(false);
+    expect(r.problemas).toEqual([]);
+    expect(r.limitacoesEstatisticas).toHaveLength(2);
+    expect(r.limitacoesEstatisticas[0]).toContain("minimo estatistico 10");
+    expect(r.porVariante.find((p) => p.letra === "B")).toMatchObject({
+      amostrasEstatisticas: 3,
+      estatisticamenteSuficiente: false,
+    });
+  });
+
+  it("um unico ciclo nunca e conclusivo por padrao", () => {
+    const resultados = ["B", "D"].map((l) =>
+      resultadoComparavel(l, { desempenho: { ciclos: 1, ciclosConcluidos: 1, cancelados: 0 } })
+    );
+    const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo });
+    expect(r.comparavel).toBe(false);
+    expect(r.conclusivo).toBe(false);
+    expect(r.problemas.filter((p) => p.includes("abaixo do minimo 2"))).toHaveLength(2);
   });
 
   it("recusa quando uma variante nao tem ciclo concluido", () => {
@@ -632,6 +747,7 @@ describe("avaliarComparabilidade", () => {
       resultadoComparavel(l, { desempenho: { ciclos: 1, ciclosConcluidos: 1, cancelados: 0 } })
     );
     const r = avaliarComparabilidade(resultados, { modeloGlobal: modelo, minCiclosValidos: 2 });
+    expect(r.comparavel).toBe(false);
     expect(r.conclusivo).toBe(false);
     expect(r.problemas.filter((p) => p.includes("abaixo do minimo 2"))).toHaveLength(2);
   });

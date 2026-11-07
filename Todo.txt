@@ -35,25 +35,38 @@ FASE 3 - Melhorar o contrato multimodal [CONCLUIDA]
 [x] Adicionar testes de snapshot do payload e de truncamento sem perda silenciosa da unica evidencia de um evento.
 GATE FASE 3: o payload contem todas as evidencias necessarias ou declara explicitamente o que foi podado.
 
-FASE 4 - Validar benchmark para os objetivos do projeto
-[ ] Criar conjuntos EVAL separados: movimento_objeto, gestos_mao, postura_corporal, transicao_acao e oclusao_iluminacao.
-[ ] Anotar inicio/fim com resolucao temporal superior a 1 fps para movimentos rapidos.
-[ ] Revisar anotacoes humanas e manter tuning separado de EVAL.
-[ ] Executar varias rodadas independentes com os mesmos videos e parametros; separar aquecimento.
-[ ] Manter logs brutos fora do repositorio e registrar hashes e manifesto dos dados usados.
-[ ] Reportar mediana, P95 com tamanho da amostra, falhas e intervalo de confianca quando houver amostra suficiente.
-[ ] Distinguir "comparavel" de "estatisticamente suficiente"; nao declarar resultado conclusivo por haver apenas um ciclo.
-[ ] Representar metricas sem denominador como N/A/null e exclui-las das medias (incluindo recall sem positivos esperados).
-[ ] Renomear a janela medida pelo comparador para "janela de geracao do relatorio", sem confundi-la com duracao das inferencias.
+FASE 4 - Validar benchmark para os objetivos do projeto [PARCIAL: harness pronto; dados humanos pendentes]
+[~] Criar conjuntos EVAL separados: movimento_objeto, gestos_mao, postura_corporal, transicao_acao e oclusao_iluminacao.
+    (movimento_objeto EVAL reduzido validado; gestos/postura/transicao/oclusao exigem videos e anotacao humana — ver MATRIZ_COBERTURA.md)
+[~] Anotar inicio/fim com resolucao temporal superior a 1 fps para movimentos rapidos.
+    (validar:eval agora REJEITA evento rapido anotado a 1 fps; faltam as anotacoes humanas)
+[~] Revisar anotacoes humanas e manter tuning separado de EVAL.
+    (EVAL atual revisado e separado por hash; novos alvos ainda sem anotacao)
+[~] Executar varias rodadas independentes com os mesmos videos e parametros; separar aquecimento.
+    (--warmups e --min-amostras-estatisticas implementados; rodadas reais ainda nao executadas)
+[x] Manter logs brutos fora do repositorio e registrar hashes e manifesto dos dados usados.
+[x] Reportar mediana, P95 com tamanho da amostra, falhas e intervalo de confianca quando houver amostra suficiente.
+[x] Distinguir "comparavel" de "estatisticamente suficiente"; nao declarar resultado conclusivo por haver apenas um ciclo.
+[x] Representar metricas sem denominador como N/A/null e exclui-las das medias (incluindo recall sem positivos esperados).
+[x] Renomear a janela medida pelo comparador para "janela de geracao do relatorio", sem confundi-la com duracao das inferencias.
 GATE FASE 4: resultados cobrem as capacidades avaliadas e deixam claros amostra, incerteza, falhas e limites de reproducao.
+    (PENDENTE: os resultados atuais cobrem apenas movimento_objeto; nao ha dados para gestos/postura/transicao/oclusao.)
 
-FASE 5 - Corrigir ambiente de desenvolvimento e reprodutibilidade
-[ ] Alinhar CI e documentacao com Node 22.12+ ou Node 24, conforme engines do lockfile.
-[ ] Instalar dependencias de forma reproduzivel com npm ci.
-[ ] Executar npm run typecheck, npm run lint, npm test e os E2E aplicaveis.
-[ ] Anexar resultados de validacao ao relatorio da versao.
-[ ] Registrar backend, versao do modelo multimodal e dispositivos efetivos dos tres adaptadores.
+FASE 5 - Corrigir ambiente de desenvolvimento e reprodutibilidade [CONCLUIDA]
+[x] Alinhar CI e documentacao com Node 22.12+ ou Node 24, conforme engines do lockfile.
+[x] Instalar dependencias de forma reproduzivel com npm ci.
+[x] Executar npm run typecheck, npm run lint, npm test e os E2E aplicaveis.
+    (typecheck/lint/test verdes; e2e/app.spec.ts 15/15 — ver bench/RELATORIO_VALIDACAO_20261107.md)
+[x] Anexar resultados de validacao ao relatorio da versao.
+    (bench/RELATORIO_VALIDACAO_20261107.md)
+[x] Registrar backend, versao do modelo multimodal e dispositivos efetivos dos tres adaptadores.
+    (o harness agora sempre lista deteccao/pose/maos, com "nao registrado" quando a telemetria falta)
 GATE FASE 5: ambiente e validacoes ficam reproduziveis e registrados; falhas e limitacoes de E2E ficam explicitas.
+    (validado: ver bench/RELATORIO_VALIDACAO_20261107.md)
+
+LEGENDA
+[x] concluido e verificado no codigo/execucao
+[~] parcial: codigo/protocolo pronto, mas falta execucao ou dado humano
 
 FORA DO ESCOPO DESTE PLANO
 - Nao reescrever a arquitetura nem substituir modelos sem evidencia medida.

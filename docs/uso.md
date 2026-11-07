@@ -4,13 +4,13 @@ Instalação, execução, configuração, funcionamento offline e diagnóstico. 
 
 ## Requisitos
 
-- Node.js 20+ (usa `fetch` e `AbortSignal.timeout` nativos).
+- Node.js 22.12+ (ou 24+), conforme `engines`, `.nvmrc` e `.node-version` (usa `fetch` e `AbortSignal.timeout` nativos).
 - (Opcional, para os modos de descrição/roteiro) um backend de visão local compatível com a API de chat completions: **LM Studio**, **llama.cpp** (`llama-server`) ou **vLLM**.
 
 ## Instalação
 
 ```bash
-npm install
+npm ci
 ```
 
 Para os modos de descrição/roteiro, garanta um modelo de visão disponível. Com LM Studio, carregue um modelo de visão (ex.: `qwen2.5-vl-3b-instruct`, o padrão do app) e inicie o servidor local na porta padrão (`1234`). Com llama.cpp, suba o `llama-server` com um modelo multimodal e o endpoint `/v1/chat/completions` habilitado.
@@ -107,7 +107,7 @@ LMSTUDIO_URL=http://127.0.0.1:1234 NEURO_MODEL=qwen2.5-vl-3b-instruct npm run in
 
 | Recurso | De onde | Quando | Fica em cache? |
 | --- | --- | --- | --- |
-| Bibliotecas de desenvolvimento (`esbuild`, `tsx`, `vitest`, `playwright`) | npm | `npm install` | `node_modules/` |
+| Bibliotecas de desenvolvimento (`esbuild`, `tsx`, `vitest`, `playwright`) | npm | `npm ci` | `node_modules/` |
 | Transformers.js **3.8.1** (fixado) | CDN (`cdn.jsdelivr.net`) | ao usar um modo com pose (`percepcao*`; import sob demanda) | cache HTTP do navegador |
 | `onnxruntime-web` **1.21.0** (fixado) + WASM | CDN (`cdn.jsdelivr.net`) | na primeira carga do detector YOLO (import sob demanda) | cache HTTP do navegador |
 | Pesos do modelo de detecção (`onnx-community/yolov10n`) | Hugging Face Hub | na primeira carga do modelo | cache HTTP do navegador |

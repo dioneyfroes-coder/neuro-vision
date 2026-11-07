@@ -191,7 +191,7 @@ e mantenha a anotação junto do split correspondente (`bench/clipes/tuning` ou
 | `conjunto` | recomendado | `tuning` ou `eval`; nunca use a mesma gravação nos dois splits. |
 | `inicio` | não | Instante ISO em que a captura começou. A base dos offsets `em` vem, por precedência: do sidecar `<eventos>.inicio` (gravado por `e2e/webcam.spec.ts`), deste campo, ou do primeiro evento detectado. |
 | `duracaoMs` | não | Duração do clipe em ms. Usada no cálculo de falsos positivos por minuto; se ausente, é derivada do intervalo entre os eventos. |
-| `revisao` | recomendado | Estado e método da revisão humana; `rascunho` nunca é verdade-base final. |
+| `revisao` | recomendado | Estado e método da revisão humana; `rascunho` nunca é verdade-base final. Para gestos e transições de ação, `metodo` precisa provar resolução melhor que 1 fps (`quadro-a-quadro`, `5fps`, `10 fps` etc.); `amostragem-manual-1fps` é rejeitada para eventos rápidos. |
 | `casoNegativo` | opcional | Declare `true` somente se o clipe inteiro não contém nenhum dos eventos-alvo do manifesto. |
 | `negativos` | opcional | Lista de alvos ausentes neste clipe, no formato `categoria.classe`; permite negativos por classe mesmo quando há eventos de outras classes. |
 | `notas` | não | Texto livre para contexto. |
@@ -220,6 +220,13 @@ clipe sem eventos precisa declarar `casoNegativo: true` ou pelo menos um alvo
 em `negativos`; um rascunho vazio não comprova ausência de eventos. Use
 `casoNegativo` apenas para negativos globais. Consulte a matriz para saber o
 escopo e os mínimos vigentes.
+
+Movimentos rápidos — eventos com `categoria: "gesto"` ou classes de transição/
+ação rápida — exigem anotação com resolução temporal **melhor que 1 fps**
+(idealmente `quadro-a-quadro` ou ≥ 5 fps), declarada em `revisao.metodo`.
+`npm run validar:eval` rejeita esses eventos quando o método é
+`amostragem-manual-1fps` ou quando a resolução não pode ser comprovada. A
+amostragem de 1 fps continua aceitável apenas para ações lentas.
 
 No escopo atual de movimento de objetos, a qualidade considera apenas eventos
 `movimento` com `origensSinal` contendo `objetos` e `rotuloObjeto` do detector

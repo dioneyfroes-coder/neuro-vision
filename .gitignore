@@ -2,12 +2,10 @@ node_modules/
 dist/
 public/app.js
 public/workers/
-logs/*.jsonl
-logs/*.jsonl.config.json
-logs/*.inicio
-logs/snapshots/
-logs/nsfw-smoke-result.txt
-logs/nsfw-eventos-1min-result.txt
+# Logs brutos (eventos, ciclos, visao, snapshots) nunca entram no repositorio:
+# mantenha-os no volume local ou em um diretorio fora do clone.
+logs/*
+!logs/.gitkeep
 .env
 .DS_Store
 test-results/

@@ -1,5 +1,15 @@
 # Comparativo arquitetural A × B × C × D — 20261102
 
+> **Nota de revisão (2026-11-07):** este é um **artefato histórico** anterior aos
+> critérios atuais de comparabilidade e suficiência estatística. O veredito
+> "conclusivo" abaixo reflete a regra antiga (ao menos **1 ciclo** por variante),
+> insuficiente hoje: o harness passou a exigir `--min-ciclos 2` e
+> `--min-amostras-estatisticas 10` para conclusão. Da mesma forma, "Janela da
+> execução" é hoje **"janela de geração do relatório"** (wall-clock do harness,
+> não a duração das inferências). Os números permanecem como registro histórico;
+> não os use como evidência conclusiva. Critérios atuais em
+> [`docs/qualidade.md`](../docs/qualidade.md).
+
 - **Veredito:** ✅ **conclusivo** — dados comparáveis
 - **Conjunto reservado:** eval
 - **Warm-up excluído das medianas:** 0 ciclo(s) concluído(s) por variante

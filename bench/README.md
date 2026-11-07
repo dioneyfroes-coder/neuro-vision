@@ -45,3 +45,19 @@ cliente não define `max_tokens`; o limite de saída efetivo, se houver, depende
 do backend/modelo. Arquivos NSFW só são enviados se selecionados explicitamente
 com `--image`. No modo `--json`, isso sai em um objeto `ambiente` + `resultados`,
 pronto para versionar ao lado do hardware testado.
+
+## Comparação de variantes e validação
+
+O harness das variantes A–D (`scripts/benchmark-variantes.mjs`) usa o mesmo
+princípio: conjunto reservado fixo, clipes verificados por SHA-256, warm-up
+separado e relatório com ambiente, backend/modelo e dispositivos efetivos dos
+adaptadores. Para os critérios de comparabilidade, suficiência estatística,
+IC95% da mediana e semântica de métricas sem denominador, veja
+[`../docs/qualidade.md`](../docs/qualidade.md).
+
+- Protocolo e gate de qualidade × latência:
+  [`DECISAO_ARQUITETURAL_2026-10-21.md`](./DECISAO_ARQUITETURAL_2026-10-21.md).
+- Cobertura de clipes e pendências de anotação humana:
+  [`clipes/MATRIZ_COBERTURA.md`](./clipes/MATRIZ_COBERTURA.md).
+- Ambiente e validações executadas nas Fases 4/5:
+  [`RELATORIO_VALIDACAO_20261107.md`](./RELATORIO_VALIDACAO_20261107.md).

@@ -10,6 +10,26 @@ import { carregarAnotacao } from "./avaliar-qualidade.mjs";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ARQUIVO_MANIFESTO = "manifest.json";
 
+/**
+ * Resolucao temporal declarada em `revisao.metodo`. `quadro-a-quadro` conta
+ * como resolucao fina; `amostragem-manual-1fps` (ou qualquer N fps) e lida
+ * numericamente. Metodo sem informacao devolve `null` — nao presume nada.
+ */
+function taxaAmostragemFps(metodo) {
+  if (typeof metodo !== "string" || !metodo.trim()) return null;
+  if (/quadro-a-quadro/i.test(metodo)) return Number.POSITIVE_INFINITY;
+  const achado = metodo.match(/(\d+(?:[.,]\d+)?)\s*fps/i);
+  return achado ? Number(achado[1].replace(",", ".")) : null;
+}
+
+/** Movimentos rapidos exigem anotacao melhor que 1 fps. */
+function exigeResolucaoFina(evento) {
+  return (
+    evento?.categoria === "gesto" ||
+    /transicao|rapid|gesto/i.test(String(evento?.classe ?? ""))
+  );
+}
+
 async function lerJson(caminho) {
   return JSON.parse(await readFile(caminho, "utf8"));
 }
@@ -138,6 +158,18 @@ export async function validarConjuntoEval({
       ) {
         erros.push(`${relativo}: cada evento EVAL precisa dos metadados humanos completos`);
         break;
+      }
+    }
+
+    // Movimento rapido nao pode ser anotado so a 1 fps: a resolucao nao
+    // distingue inicio/fim de gesto ou transicao e inflaria o recall.
+    const eventosRapidos = dados.eventos.filter(exigeResolucaoFina);
+    if (eventosRapidos.length) {
+      const fps = taxaAmostragemFps(dados.revisao?.metodo);
+      if (fps === null || fps <= 1) {
+        erros.push(
+          `${relativo}: evento rapido (${eventosRapidos[0].categoria}.${eventosRapidos[0].classe}) exige anotacao melhor que 1 fps em revisao.metodo`
+        );
       }
     }
 

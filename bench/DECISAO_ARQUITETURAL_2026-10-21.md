@@ -17,7 +17,7 @@ exigia, e reafirma a decisão com base no mesmo estado de medição.
 | 1. Rodar A/B/C/D no **mesmo conjunto reservado** | `--conjunto <nome>` registra o conjunto (ex.: `eval`) no relatório e no comparativo; o harness já exige os **mesmos clipes** (nome, tamanho e SHA-256) e um arquivo de eventos próprio por variante. |
 | 2. **Warm-up** e **cold start** em ensaios separados | `--warmups <n>` exclui os `n` primeiros ciclos **concluídos** das medianas e reporta o cold start à parte ("1b. Cold start"). |
 | 3. Medir cada **etapa local isolada** e depois o **ciclo completo** | `--etapas-isoladas` mede captura/detecção/pose/mãos/temporal por si só e a soma local × ciclo completo, a partir das mesmas métricas reais. |
-| 4. Repetir com **backend/hardware documentados** | Cada relatório registra CPU, núcleos, RAM, plataforma, Node, commit/branch, backend multimodal e a janela da execução. |
+| 4. Repetir com **backend/hardware documentados** | Cada relatório registra CPU, núcleos, RAM, plataforma, Node, commit/branch, backend multimodal e a **janela de geração do relatório** (wall-clock do harness, não a duração das inferências). |
 | 5. Comparar **qualidade × latência** (não só o menor tempo) | Gate de qualidade × latência (`--min-f1`, `--max-fp-min`, `--ganho-minimo-f1`, `--custo-maximo-latencia`) com veredito por variante. |
 | 6. Manter **C/D experimentais** se não atingirem os critérios | O gate emite "promovível a padrão" ou "manter experimental" com o motivo; sem qualidade consolidada, nunca promove. |
 
@@ -73,14 +73,20 @@ Justificativa por dado:
    mesmo modelo multimodal verificado em `logs/visao.jsonl`.
 3. Separar warm-up: `--warmups 1`; comparar o cold start à parte.
 4. Medir por etapa e o ciclo completo: `--etapas-isoladas`.
-5. Aplicar o gate com os critérios definidos **antes** da rodada
+5. Exigir mais de um ciclo por variante e amostra estatística suficiente:
+   `--min-ciclos 2` (nunca concluir com um único ciclo) e
+   `--min-amostras-estatisticas 10` (mínimo para IC95% da mediana). Rodadas
+   comparáveis mas estatisticamente insuficientes são diagnósticos válidos
+   (`comparavel: true`, `conclusivo: false`), não promoção.
+6. Aplicar o gate com os critérios definidos **antes** da rodada
    (`--min-f1`, `--max-fp-min`, `--ganho-minimo-f1`, `--custo-maximo-latencia`).
-6. Promover C/D a padrão **somente** se o gate as marcar "promovível"; caso
-   contrário, manter experimentais e registrar o motivo.
+7. Promover C/D a padrão **somente** se o gate as marcar "promovível" e a rodada
+   for `conclusivo`; caso contrário, manter experimentais e registrar o motivo.
 
 ```powershell
 node scripts/benchmark-variantes.mjs --conjunto eval --anotacoes-dir bench/clipes/eval `
-  --warmups 1 --etapas-isoladas --modelo-visao qwen2.5-vl-3b-instruct `
+  --warmups 1 --min-ciclos 2 --min-amostras-estatisticas 10 --etapas-isoladas `
+  --modelo-visao qwen2.5-vl-3b-instruct `
   --ciclos-B logs/e2e-multiframe-percepcao-sequencia.ciclos.jsonl `
   --eventos-B logs/e2e-multiframe-percepcao-sequencia.jsonl `
   --ciclos-C logs/e2e-multiframe-percepcao-fundida.ciclos.jsonl `
