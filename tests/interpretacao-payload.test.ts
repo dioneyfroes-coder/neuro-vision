@@ -197,6 +197,15 @@ describe("montarPromptInterpretacao", () => {
     expect(prompt).toContain("nsfw=[");
   });
 
+  it("pede participantes da cena sem inferir identidade trans pela aparencia", () => {
+    const { contexto } = montarContextoCiclo({ ...PACOTE, observacoes: [OBS_BASE] });
+    const prompt = montarPromptInterpretacao(contexto);
+    expect(prompt).toContain('"participantes"');
+    expect(prompt).toContain("apresentacao");
+    expect(prompt).toContain("identidadeDeclarada");
+    expect(prompt).toMatch(/nunca deduza `pessoa_trans`/i);
+  });
+
   it("explica a geometria dos dedos e os limites das estimativas locais 2D", () => {
     const { contexto } = montarContextoCiclo({ ...PACOTE, observacoes: [OBS_BASE] });
     const prompt = montarPromptInterpretacao(contexto);
@@ -306,6 +315,47 @@ describe("normalizarInterpretacao", () => {
     expect(res.incertezas).toEqual(["resposta nao estruturada"]);
     expect(res.modelo).toBe("m1");
   });
+
+  it("normaliza participantes e preserva identidade apenas quando declarada", () => {
+    const json = JSON.stringify({
+      resumo: "duas pessoas na cena",
+      acoes: [],
+      participantes: [
+        {
+          descricao: "homem adulto",
+          apresentacao: "Masculina",
+          identidadeDeclarada: "homem",
+          evidencias: ["f1"],
+        },
+        {
+          descricao: "pessoa adulta",
+          apresentacao: "invalida",
+          identidadeDeclarada: "trans",
+          evidencias: [],
+        },
+      ],
+      evidencias: ["f1"],
+      incertezas: [],
+      contradicoes: [],
+    });
+    const res = normalizarInterpretacao(json);
+    expect(res.participantes).toEqual([
+      {
+        descricao: "homem adulto",
+        apresentacao: "masculina",
+        identidadeDeclarada: "homem",
+        evidencias: ["f1"],
+      },
+      { descricao: "pessoa adulta", apresentacao: "nao_identificada", evidencias: [] },
+    ]);
+  });
+
+  it("devolve lista vazia de participantes quando o campo esta ausente", () => {
+    const res = normalizarInterpretacao(
+      '{"resumo":"x","acoes":[],"evidencias":[],"incertezas":[],"contradicoes":[]}'
+    );
+    expect(res.participantes).toEqual([]);
+  });
 });
 
 describe("InterpretadorCiclo", () => {
@@ -361,6 +411,33 @@ describe("InterpretadorCiclo", () => {
       excedeuTeto: false,
       gruposRemovidos: [],
     });
+  });
+
+  it("valida evidencias dos participantes contra o contexto", async () => {
+    const o1: ObservacaoFrame = { ...OBS_BASE, frameId: "f1", capturadoEmMs: 0, imagem: "img1" };
+    const pacote: PacoteCiclo = { ...PACOTE, observacoes: [o1] };
+    const interpreter = new InterpretadorCiclo({
+      enviar: async () => ({
+        texto: JSON.stringify({
+          resumo: "pessoa adulta na cena",
+          acoes: [],
+          participantes: [
+            {
+              descricao: "mulher adulta",
+              apresentacao: "feminina",
+              evidencias: ["f1", "f9"],
+            },
+          ],
+          evidencias: ["f1"],
+          incertezas: [],
+          contradicoes: [],
+        }),
+        modelo: "m",
+      }),
+    });
+    const res = await interpreter.interpretar(pacote);
+    expect(res.participantes?.[0].evidencias).toEqual(["f1"]);
+    expect(res.participantes?.[0].evidenciasInvalidas).toEqual(["f9"]);
   });
 
   it("usa 'parcial' como texto no transporte e o interpretador normaliza", async () => {

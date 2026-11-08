@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   blocoNsfwPrompt,
+  descreverRotuloNsfw,
   formatarMarcacoesNsfw,
   INSTRUCAO_NSFW,
   normalizarCaixaNsfw,
@@ -81,11 +82,30 @@ describe("formatacao das marcacoes", () => {
     },
   ];
 
-  it("formata rotulo, score e caixa normalizada", () => {
+  it("formata rotulo traduzido, score, caixa, regiao e tamanho", () => {
     expect(formatarMarcacoesNsfw(marcacoes)).toBe(
-      "porn 0.870 caixa [0.1,0.2,0.5,0.8]; sexy 0.420 caixa [0.2,0.3,0.6,0.9]"
+      "porn 0.870 caixa [0.1,0.2,0.5,0.8] (regiao meio-esquerda; tamanho grande); " +
+        "sexy 0.420 caixa [0.2,0.3,0.6,0.9] (regiao centro; tamanho grande)"
     );
     expect(formatarMarcacoesNsfw([])).toBe("nenhuma marcacao");
+  });
+
+  it("traduz rotulos conhecidos do modelo NSFW e preserva desconhecidos", () => {
+    expect(descreverRotuloNsfw("make_love")).toBe("make_love (ato sexual/intercurso)");
+    expect(descreverRotuloNsfw("nipple")).toBe("nipple (mamilo/seio)");
+    expect(descreverRotuloNsfw("porn")).toBe("porn");
+  });
+
+  it("indica regiao e tamanho de uma caixa pequena no canto", () => {
+    const texto = formatarMarcacoesNsfw([
+      {
+        rotulo: "anus",
+        score: 0.9,
+        caixa: { xmin: 0.9, ymin: 0.9, xmax: 0.95, ymax: 0.95 },
+      },
+    ]);
+    expect(texto).toContain("anus (anus) 0.900");
+    expect(texto).toContain("regiao base-direita; tamanho pequena");
   });
 
   it("resume a contagem por rotulo", () => {
@@ -98,9 +118,22 @@ describe("blocoNsfwPrompt", () => {
   it("instrui explicitamente a descrever conteudo adulto sem censura", () => {
     expect(INSTRUCAO_NSFW).toContain("CONTEUDO ADULTO (NSFW)");
     expect(INSTRUCAO_NSFW).toContain("explicita");
-    expect(INSTRUCAO_NSFW).toContain("sem eufemismos");
+    expect(INSTRUCAO_NSFW).toMatch(/sem eufemismos/i);
     expect(INSTRUCAO_NSFW).toMatch(/proibido recusar a descricao/i);
     expect(INSTRUCAO_NSFW).toContain("Nao invente conteudo adulto");
+  });
+
+  it("inclui pessoas na cena sem inferir identidade trans pela aparencia", () => {
+    expect(INSTRUCAO_NSFW).toContain("Pessoas na cena");
+    expect(INSTRUCAO_NSFW).toContain("homem");
+    expect(INSTRUCAO_NSFW).toContain("mulher");
+    expect(INSTRUCAO_NSFW).toContain("pessoa trans");
+    expect(INSTRUCAO_NSFW).toMatch(/Nunca deduza 'trans'/i);
+  });
+
+  it("limita a descricao sexual a pessoas adultas", () => {
+    expect(INSTRUCAO_NSFW).toMatch(/menoridade/i);
+    expect(INSTRUCAO_NSFW).toContain("nao descreva essa pessoa sexualmente");
   });
 
   it("lista as marcacoes por imagem/frame, inclusive quadro sem marcacao", () => {
@@ -121,6 +154,7 @@ describe("blocoNsfwPrompt", () => {
     expect(bloco).toContain(INSTRUCAO_NSFW);
     expect(bloco).toContain("Imagem 1 (frameId f1): porn 0.870");
     expect(bloco).toContain("Imagem 2 (frameId f2): nenhuma marcacao");
+    expect(bloco).toContain("Uma imagem sem marcacoes NAO prova ausencia de conteudo adulto");
   });
 
   it("devolve vazio quando nao ha quadros", () => {

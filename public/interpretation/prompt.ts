@@ -134,6 +134,11 @@ export function montarPromptInterpretacao(contexto: ContextoCicloSerializavel): 
     "- Produza uma NARRATIVA CRONOLOGICA baseada APENAS nos dados acima e nas imagens.",
     "- Referencie os INDICES das imagens (1..N) e os frameIds/eventoIds reais.",
     "- Cite como EVIDENCIAS apenas IDs que aparecam acima (frames ou eventos). Nao invente IDs.",
+    "- Liste em `participantes` cada pessoa adulta visivel, com descricao visual, apresentacao " +
+      "(`masculina`, `feminina`, `ambigua` ou `nao_identificada`) e evidencias.",
+    "- `apresentacao` e leitura visual, nao identidade de genero. Preencha `identidadeDeclarada` " +
+      "somente quando o conteudo/metadado declarar explicitamente (`homem`, `mulher` ou `pessoa_trans`); " +
+      "nunca deduza `pessoa_trans` de aparencia, roupa, voz ou comportamento.",
     "- Separe o que foi OBSERVADO (deteccoes/pose/maos/eventos/nsfw) do que voce INFERE.",
     "- Liste INCERTEZAS explicitamente se qualquer afirmacao nao for diretamente observada.",
     "- Nao adivinhe. Se nao tem evidencia, diga 'nao observado'.",
@@ -148,6 +153,7 @@ export function montarPromptInterpretacao(contexto: ContextoCicloSerializavel): 
     '{',
     '  "resumo": "narrativa cronologica em portugues",',
     '  "acoes": [ { "descricao": "acao observada", "inicioEm": "ISO", "fimEm": "ISO", "evidencias": ["fX","eY"] } ],',
+    '  "participantes": [ { "descricao": "pessoa adulta na cena", "apresentacao": "masculina|feminina|ambigua|nao_identificada", "identidadeDeclarada": "homem|mulher|pessoa_trans|nao_informada", "evidencias": ["fX"] } ],',
     '  "evidencias": ["lista de IDs de frames/eventos citados"],',
     '  "incertezas": ["incertezas explicitadas"],',
     '  "contradicoes": []',

@@ -47,11 +47,32 @@ export interface AcaoInterpretada {
   evidenciasInvalidas?: string[];
 }
 
+/**
+ * Pessoa adulta descrita na cena. `apresentacao` e leitura visual (como a
+ * pessoa se apresenta na imagem), **nao** identidade de genero. A identidade so
+ * e preenchida quando declarada explicitamente no conteudo/metadado; nunca e
+ * inferida da aparencia.
+ */
+export interface ParticipanteInterpretado {
+  /** Descricao visual do participante (ex.: `homem adulto`, `mulher adulta`). */
+  descricao: string;
+  /** Apresentacao visual observada; nao e identidade de genero. */
+  apresentacao: "masculina" | "feminina" | "ambigua" | "nao_identificada";
+  /** Identidade declarada explicitamente; ausente quando nao informada. */
+  identidadeDeclarada?: "homem" | "mulher" | "pessoa_trans" | "nao_informada";
+  /** IDs de frames/eventos que sustentam a descricao. */
+  evidencias: string[];
+  /** Referencias citadas que nao existem no contexto (removidas na validacao). */
+  evidenciasInvalidas?: string[];
+}
+
 export interface ResultadoInterpretacao {
   /** Descricao textual em portugues. */
   resumo: string;
   /** Acoes interpretadas com intervalo temporal. */
   acoes: AcaoInterpretada[];
+  /** Pessoas adultas descritas na cena (quando o modelo as separa). */
+  participantes?: ParticipanteInterpretado[];
   /** IDs de frames/eventos citados como suporte. */
   evidencias: string[];
   /**

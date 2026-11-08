@@ -141,7 +141,7 @@ describe("montagem da requisicao (via stream)", () => {
     expect(texto).toContain(PROMPT_DESCRICAO);
     expect(texto).toContain("CONTEUDO ADULTO (NSFW)");
     expect(texto).toContain("porn 0.900");
-    expect(texto).toContain("sem eufemismos");
+    expect(texto).toMatch(/sem eufemismos/i);
 
     fetchMock.mockClear();
     await drenar(

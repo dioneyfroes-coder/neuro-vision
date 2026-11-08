@@ -1,4 +1,7 @@
-import type { ResultadoInterpretacao } from "../../src/domain/interpretation";
+import type {
+  ParticipanteInterpretado,
+  ResultadoInterpretacao,
+} from "../../src/domain/interpretation";
 
 /**
  * Normalizacao da resposta da interpretacao multimodal (Etapa 7 do roteiro).
@@ -40,9 +43,11 @@ export function normalizarInterpretacao(
       const contradicoes = Array.isArray(obj.contradicacoes)
         ? (obj.contradicacoes as unknown[]).filter((e): e is string => typeof e === "string")
         : [];
+      const participantes = normalizarParticipantes(obj.participantes);
       return {
         resumo,
         acoes,
+        participantes,
         evidencias,
         incertezas,
         contradicoes,
@@ -62,6 +67,57 @@ export function normalizarInterpretacao(
     modelo,
     bruto,
   };
+}
+
+/**
+ * Normaliza a lista de participantes descrita pelo modelo.
+ *
+ * `apresentacao` e leitura visual e cai para `nao_identificada` quando o valor
+ * e invalido. `identidadeDeclarada` so e mantida quando explicita e conhecida;
+ * qualquer outro valor e descartado (nunca inferimos identidade pela aparencia).
+ */
+function normalizarParticipantes(valor: unknown): ParticipanteInterpretado[] {
+  if (!Array.isArray(valor)) return [];
+  const apresentacoes = new Set<ParticipanteInterpretado["apresentacao"]>([
+    "masculina",
+    "feminina",
+    "ambigua",
+    "nao_identificada",
+  ]);
+  const identidades = new Set<
+    NonNullable<ParticipanteInterpretado["identidadeDeclarada"]>
+  >(["homem", "mulher", "pessoa_trans", "nao_informada"]);
+  return valor
+    .filter((p): p is Record<string, unknown> => p !== null && typeof p === "object")
+    .map((p) => {
+      const apresentacaoBruta =
+        typeof p.apresentacao === "string" ? p.apresentacao.trim().toLowerCase() : "";
+      const apresentacao = apresentacoes.has(
+        apresentacaoBruta as ParticipanteInterpretado["apresentacao"]
+      )
+        ? (apresentacaoBruta as ParticipanteInterpretado["apresentacao"])
+        : "nao_identificada";
+      const identidadeBruta =
+        typeof p.identidadeDeclarada === "string"
+          ? p.identidadeDeclarada.trim().toLowerCase()
+          : "";
+      const identidadeDeclarada = identidades.has(
+        identidadeBruta as NonNullable<ParticipanteInterpretado["identidadeDeclarada"]>
+      )
+        ? (identidadeBruta as NonNullable<
+            ParticipanteInterpretado["identidadeDeclarada"]
+          >)
+        : undefined;
+      const evidencias = Array.isArray(p.evidencias)
+        ? p.evidencias.filter((e): e is string => typeof e === "string")
+        : [];
+      return {
+        descricao: typeof p.descricao === "string" ? p.descricao : "",
+        apresentacao,
+        ...(identidadeDeclarada ? { identidadeDeclarada } : {}),
+        evidencias,
+      };
+    });
 }
 
 /** Extrai JSON em bloco ```json ou ``` ou texto entre chaves. */

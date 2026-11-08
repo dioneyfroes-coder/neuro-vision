@@ -35,6 +35,11 @@ export interface OpcoesGerarDescricao {
    * adulto sem eufemismos/censura. `undefined` = desligado.
    */
   nsfw?: MarcacaoNsfwLog[];
+  /**
+   * IDs dos frames enviados. No frame unico, o unico item vira o `frameId` do
+   * bloco NSFW; no multiframe o prompt explicito ja traz o proprio bloco.
+   */
+  frameIds?: string[];
 }
 
 export const PROMPT_ANALISE_PROFUNDA =
@@ -403,9 +408,12 @@ function montarCorpo(
       : `${promptBase}\n\n${PROMPT_ANALISE_PROFUNDA}`;
   // NSFW ativo: o bloco e anexado ao prompt padrao (um prompt explicito, como o
   // do ciclo multiframe, ja traz o proprio bloco e nao e duplicado).
+  const frameId = opcoes.frameIds?.length === 1 ? opcoes.frameIds[0] : undefined;
   const prompt =
     opcoes.prompt === undefined && opcoes.nsfw !== undefined
-      ? `${promptCompleto}\n\n${blocoNsfwPrompt([{ indice: 1, marcacoes: opcoes.nsfw }])}`
+      ? `${promptCompleto}\n\n${blocoNsfwPrompt([
+          { indice: 1, ...(frameId ? { frameId } : {}), marcacoes: opcoes.nsfw },
+        ])}`
       : promptCompleto;
   const requisicao = montarRequisicaoChat({
     backend,

@@ -147,8 +147,9 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
   /**
    * Valida os IDs/timestamps citados pelo modelo contra os frames e eventos
    * reais do contexto (Fase 3, item 6). Referencias inexistentes sao removidas
-   * de `evidencias`/`acoes[].evidencias` e separadas em `evidenciasInvalidas`,
-   * sem nunca fabricar uma evidencia que nao exista.
+   * de `evidencias`/`acoes[].evidencias`/`participantes[].evidencias` e
+   * separadas em `evidenciasInvalidas`, sem nunca fabricar uma evidencia que
+   * nao exista.
    */
   private validarEvidencias(
     contexto: ContextoCicloSerializavel,
@@ -163,9 +164,18 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
         ...(validada.invalidas.length > 0 ? { evidenciasInvalidas: validada.invalidas } : {}),
       };
     });
+    const participantes = resultado.participantes?.map((participante) => {
+      const validada = validarReferencias(contexto, participante.evidencias);
+      return {
+        ...participante,
+        evidencias: validada.validas,
+        ...(validada.invalidas.length > 0 ? { evidenciasInvalidas: validada.invalidas } : {}),
+      };
+    });
     return {
       ...resultado,
       acoes,
+      ...(participantes !== undefined ? { participantes } : {}),
       evidencias: global.validas,
       ...(global.invalidas.length > 0 ? { evidenciasInvalidas: global.invalidas } : {}),
     };

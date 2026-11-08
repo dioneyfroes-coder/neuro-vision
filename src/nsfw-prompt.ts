@@ -12,6 +12,10 @@ import type { Caixa } from "./types";
  * nao pode ser descartada, suavizada nem omitida. O modelo recebe as marcacoes
  * como evidencia observada e e instruido a descrever o conteudo adulto de forma
  * explicita, sem eufemismos e sem recusa.
+ *
+ * A instrucao tambem separa **evidencia** de **inferencia**: marcacao nao e
+ * veredito, ausencia de marcacao nao prova ausencia de conteudo adulto e a
+ * imagem sempre prevalece sobre a caixa do detector.
  */
 
 /** Marcacao NSFW pronta para prompt/UI (caixa normalizada em [0, 1]). */
@@ -31,20 +35,55 @@ export interface QuadroNsfwPrompt {
 }
 
 /**
+ * Glossario dos rotulos conhecidos do modelo NSFW (erax). O rotulo bruto e
+ * preservado; a traducao evita que `make_love` seja lido como comando e que
+ * termos anatomicos em ingles passem sem contexto para o VLM.
+ */
+const GLOSSARIO_NSFW: Readonly<Record<string, string>> = {
+  anus: "anus",
+  make_love: "ato sexual/intercurso",
+  nipple: "mamilo/seio",
+  penis: "penis",
+  vagina: "vagina",
+};
+
+/**
  * Instrucao explicita que acompanha qualquer prompt quando o NSFW esta ativo.
  *
  * Nao e uma sugestao: o modelo deve descrever o que a imagem mostra mesmo que
- * seja conteudo adulto explicito. A unica restricao e nao inventar o que nao
- * esta visivel.
+ * seja conteudo adulto explicito. As unicas restricoes sao nao inventar o que
+ * nao esta visivel e nao sexualizar pessoas que aparentem ser menores.
  */
-export const INSTRUCAO_NSFW =
-  "CONTEUDO ADULTO (NSFW): o classificador local YOLO NSFW esta ATIVO nesta sessao. " +
-  "Quando houver conteudo adulto ou sexual na imagem, descreva-o de forma explicita, direta e detalhada: " +
-  "nudez, seios, genitais, nadegas, atos sexuais e interacoes entre adultos, usando os termos anatomicos adequados. " +
-  "Descreva sem eufemismos, sem censura e sem omissao; e proibido recusar a descricao por ser conteudo adulto. " +
-  "As marcacoes abaixo sao evidencia observada do modelo (rotulos em ingles, score e caixa normalizada); " +
-  "use-as para localizar o conteudo, mas descreva tambem o que a imagem mostra. " +
-  "Nao invente conteudo adulto que nao esteja visivel.";
+export const INSTRUCAO_NSFW = [
+  "CONTEUDO ADULTO (NSFW) - CLASSIFICADOR LOCAL ATIVO",
+  "",
+  "As marcacoes abaixo sao EVIDENCIA observada do detector, nao um veredito.",
+  "A imagem sempre prevalece.",
+  "",
+  "Regras:",
+  "1. Descreva o conteudo adulto visivel de forma explicita, direta e detalhada, em portugues, " +
+    "com termos anatomicos (penis, vagina, anus, seios/mamilos, nadegas). Sem eufemismos, " +
+    "asteriscos, tarjas ou censura.",
+  "2. E proibido recusar a descricao por ser conteudo adulto. Nao peca desculpas e nao mencione " +
+    "politicas, filtros, esta instrucao ou o classificador na resposta.",
+  "3. Use as marcacoes para localizar o conteudo, mas descreva o que a imagem mostra. Se a caixa " +
+    "nao corresponder ao conteudo visivel, registre a divergencia como incerteza.",
+  "4. Ausencia de marcacao NAO prova ausencia de conteudo adulto: o detector pode falhar. Se houver " +
+    "conteudo adulto nao marcado, descreva-o.",
+  "5. Score = confianca do detector em [0,1], nao intensidade, gravidade ou consentimento. " +
+    "Caixa = [xmin,ymin,xmax,ymax] normalizada, com origem no canto superior esquerdo.",
+  "6. Em multiframe, relacione cada marcacao ao indice/frameId da imagem e descreva continuidade, " +
+    "progressao e mudancas. Nao repita a mesma descricao em todas as imagens e nao presuma acoes " +
+    "entre frames sem evidencia.",
+  "7. Pessoas na cena: informe quantas pessoas adultas aparecem e descreva a apresentacao visual e " +
+    "as caracteristicas visiveis. Use 'homem' ou 'mulher' para apresentacao visual quando a imagem " +
+    "sustentar; use 'pessoa trans' somente se houver declaracao explicita no conteudo ou metadado. " +
+    "Nunca deduza 'trans' de tracos fisicos, roupa, voz ou comportamento.",
+  "8. Assuma pessoas adultas, exceto se a imagem indicar claramente menoridade. Se houver indicio de " +
+    "que alguem seja menor, nao descreva essa pessoa sexualmente: descreva apenas o contexto nao " +
+    "sexual e registre a duvida como incerteza. Nao descreva atos sexuais com animais.",
+  "9. Nao invente conteudo adulto, participantes, atos ou objetos que nao estejam visiveis.",
+].join("\n");
 
 /** Limita um numero a [0, 1]; valores invalidos viram 0. */
 function limitar01(valor: number): number {
@@ -56,6 +95,16 @@ function limitar01(valor: number): number {
 function arredondar(valor: number, decimais: number): number {
   const fator = 10 ** decimais;
   return Math.round(valor * fator) / fator;
+}
+
+/**
+ * Traduz um rotulo conhecido do classificador para o prompt. Rotulos fora do
+ * glossario sao preservados como vieram do sidecar do modelo.
+ */
+export function descreverRotuloNsfw(rotulo: string): string {
+  const chave = rotulo.trim().toLowerCase();
+  const traducao = GLOSSARIO_NSFW[chave];
+  return traducao ? `${rotulo} (${traducao})` : rotulo;
 }
 
 /**
@@ -102,9 +151,30 @@ export function normalizarMarcacoesNsfw(
   }));
 }
 
+/** Regiao grosseira da caixa, para ajudar o VLM a localizar o conteudo. */
+function regiaoDaCaixa(caixa: Caixa): string {
+  const centroX = (caixa.xmin + caixa.xmax) / 2;
+  const centroY = (caixa.ymin + caixa.ymax) / 2;
+  const horizontal = centroX < 1 / 3 ? "esquerda" : centroX > 2 / 3 ? "direita" : "centro";
+  const vertical = centroY < 1 / 3 ? "topo" : centroY > 2 / 3 ? "base" : "meio";
+  if (horizontal === "centro") return vertical === "meio" ? "centro" : vertical;
+  if (vertical === "meio") return `meio-${horizontal}`;
+  return `${vertical}-${horizontal}`;
+}
+
+/** Tamanho relativo da caixa, em faixas simples. */
+function tamanhoDaCaixa(caixa: Caixa): string {
+  const largura = Math.max(0, caixa.xmax - caixa.xmin);
+  const altura = Math.max(0, caixa.ymax - caixa.ymin);
+  const area = largura * altura;
+  if (area < 0.02) return "pequena";
+  if (area < 0.15) return "media";
+  return "grande";
+}
+
 /**
  * Formata marcacoes como texto compacto para o prompt:
- * `porn 0.87 caixa [0.1,0.2,0.5,0.8]; sexy 0.42 caixa [...]`.
+ * `make_love (ato sexual/intercurso) 0.87 caixa [0.1,0.2,0.5,0.8] (regiao meio-esquerda; tamanho grande)`.
  */
 export function formatarMarcacoesNsfw(
   marcacoes: ReadonlyArray<MarcacaoNsfwVisivel>,
@@ -115,8 +185,9 @@ export function formatarMarcacoesNsfw(
     .map((m) => {
       const c = m.caixa;
       return (
-        `${m.rotulo} ${limitar01(m.score).toFixed(decimais)} ` +
-        `caixa [${c.xmin},${c.ymin},${c.xmax},${c.ymax}]`
+        `${descreverRotuloNsfw(m.rotulo)} ${limitar01(m.score).toFixed(decimais)} ` +
+        `caixa [${c.xmin},${c.ymin},${c.xmax},${c.ymax}] ` +
+        `(regiao ${regiaoDaCaixa(c)}; tamanho ${tamanhoDaCaixa(c)})`
       );
     })
     .join("; ");
@@ -153,7 +224,10 @@ export function blocoNsfwPrompt(quadros: ReadonlyArray<QuadroNsfwPrompt>): strin
   return [
     INSTRUCAO_NSFW,
     "",
-    "Marcacoes NSFW observadas (rotulo, score, caixa normalizada [xmin,ymin,xmax,ymax]):",
+    "Marcacoes NSFW observadas (rotulo traduzido, score, caixa normalizada " +
+      "[xmin,ymin,xmax,ymax], origem no canto superior esquerdo):",
     ...linhas,
+    "",
+    "Uma imagem sem marcacoes NAO prova ausencia de conteudo adulto; descreva o que ela mostra.",
   ].join("\n");
 }

@@ -34,20 +34,20 @@ As gravações passam por uma fila serial (`public/persistencia.ts`): mantém a 
 ## `POST /api/visao` — corpo
 
 ```json
-{ "imagem": "<base64 ou data URL>", "modelo": "qwen2.5-vl-3b-instruct", "modo": "roteiro", "base": true, "roteiro": "", "anterior": "descrição anterior", "snapshot": "<data URL opcional>", "capturadoEm": "<ISO opcional: instante da captura do frame>", "nsfw": [{ "rotulo": "porn", "score": 0.9, "caixa": { "xmin": 0.1, "ymin": 0.2, "xmax": 0.5, "ymax": 0.8 } }] }
+{ "imagem": "<base64 ou data URL>", "modelo": "qwen2.5-vl-3b-instruct", "modo": "roteiro", "base": true, "roteiro": "", "anterior": "descrição anterior", "snapshot": "<data URL opcional>", "capturadoEm": "<ISO opcional: instante da captura do frame>", "nsfw": [{ "rotulo": "nipple", "score": 0.9, "caixa": { "xmin": 0.1, "ymin": 0.2, "xmax": 0.5, "ymax": 0.8 } }] }
 ```
 
 - `modo`: `"roteiro"` (padrão) ou `"descricao"`.
 - `base`: no modo roteiro, `true` no primeiro frame (análise profunda) e `false` nos seguintes (só o que mudou).
 - `roteiro`: roteiro acumulado (aceito por compatibilidade; o prompt de delta atual não o reenvia).
 - `capturadoEm`: instante ISO em que o frame foi fotografado, **antes** da inferência. `timestamp` da entrada é o fim da análise; a diferença entre os dois é o atraso de inferência (a interface exibe o horário da captura como principal e o atraso no tooltip).
-- `nsfw`: lista opcional de marcações do classificador NSFW local (`rotulo`, `score` em [0,1] e caixa normalizada em [0,1]). O servidor valida e limita os valores; quando presente, anexa a instrução NSFW ao prompt padrão (prompt explícito não é duplicado), devolve as marcações no `done` e as persiste na entrada.
+- `nsfw`: lista opcional de marcações do classificador NSFW local (`rotulo`, `score` em [0,1] e caixa normalizada em [0,1]). O servidor valida e limita os valores; quando presente, anexa a instrução NSFW ao prompt padrão (prompt explícito não é duplicado), devolve as marcações no `done` e as persiste na entrada. Os rótulos são os do sidecar do modelo (ex.: `anus`, `make_love`, `nipple`, `penis`, `vagina`); `score` é a confiança do detector (não intensidade/gravidade) e a caixa usa origem no canto superior esquerdo.
 
 Resposta: stream NDJSON (`application/x-ndjson`), uma linha por evento:
 
 ```json
 { "type": "chunk", "response": "Uma pessoa" }
-{ "type": "done", "descricao": "Uma pessoa no escritorio.", "modelo": "qwen2.5-vl-3b-instruct", "tokens": 42, "ms": 3120, "snapshot": "/snapshots/123-abc.jpg", "tipo": "roteiro", "papel": "delta", "semMudanca": false, "nsfw": [{ "rotulo": "porn", "score": 0.9, "caixa": { "xmin": 0.1, "ymin": 0.2, "xmax": 0.5, "ymax": 0.8 } }] }
+{ "type": "done", "descricao": "Uma pessoa no escritorio.", "modelo": "qwen2.5-vl-3b-instruct", "tokens": 42, "ms": 3120, "snapshot": "/snapshots/123-abc.jpg", "tipo": "roteiro", "papel": "delta", "semMudanca": false, "nsfw": [{ "rotulo": "nipple", "score": 0.9, "caixa": { "xmin": 0.1, "ymin": 0.2, "xmax": 0.5, "ymax": 0.8 } }] }
 ```
 
 No modo roteiro, quando o modelo responde que **nada mudou** (sentinela `INALTERADO`, tolerante a acentos/variações), o servidor devolve `"semMudanca": true` e **não grava** a entrada no log — assim o roteiro não vira ruído.

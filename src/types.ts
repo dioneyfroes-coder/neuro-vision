@@ -22,7 +22,7 @@ export interface ObjetoVisto {
  * captura, o que mantem log, prompt e desenho coerentes entre modos.
  */
 export interface MarcacaoNsfwLog {
-  /** Rotulo do proprio modelo (em ingles, ex.: `porn`, `sexy`). */
+  /** Rotulo do proprio modelo (em ingles; no erax: `anus`, `make_love`, `nipple`, `penis`, `vagina`). */
   rotulo: string;
   /** Confianca em [0, 1]. */
   score: number;

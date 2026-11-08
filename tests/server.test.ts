@@ -886,7 +886,7 @@ describe("createServer", () => {
         text?: string;
       }[];
       expect(conteudo[0].text).toContain("CONTEUDO ADULTO (NSFW)");
-      expect(conteudo[0].text).toContain("sem eufemismos");
+      expect(conteudo[0].text).toMatch(/sem eufemismos/i);
       expect(conteudo[0].text).toContain("porn 0.900");
 
       const linhas = (await readFile(logFile, "utf8")).trim().split("\n");
