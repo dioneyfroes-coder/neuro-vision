@@ -1,73 +1,132 @@
-Neuro Vision - plano de mudancas
+Neuro Vision - plano de mudancas em passo a passo
 Fonte: ANALISE_ESTADO_ATUAL_NEURO_VISION_20261102.md
 Nota: conferir o estado atual do codigo antes de marcar tarefas como iniciadas ou concluidas.
 
-ORDEM RECOMENDADA
-Fase 1 -> Fase 2 -> Fase 3 -> Fase 4
-Fase 5 habilita e valida o trabalho; alinhar o ambiente antes de depender da CI.
+STATUS ATUAL
+- Fase 1: concluida
+- Fase 2: concluida
+- Fase 3: concluida
+- Fase 4: parcial (harness pronto; dados humanos pendentes)
+- Fase 5: concluida
 
-FASE 1 - Fechar a cadeia de evidencias [CONCLUIDA]
-[x] Revisar o contrato atual de rastreamento e serializacao de deteccoes por frame.
-[x] Associar o trackId de instancia de objeto a cada deteccao serializada, preservando frameId; nao usar o rotulo da classe como identidade.
-[x] Confirmar por testes que IDs de pessoas, maos e objetos ficam vinculados ao frame correto ao longo de quatro snapshots.
-[x] Incluir timestamps e intervalos efetivos entre observacoes nos calculos temporais.
-[x] Adicionar teste de integracao do payload final enviado ao VLM: imagens, frameIds, deteccoes, pose, maos e eventos.
-[x] GATE FASE 1: objeto, pessoa e mao mantem IDs estaveis quando associaveis; associacoes incertas nao inventam continuidade.
-
-FASE 2 - Melhorar o motor temporal para acoes humanas [CONCLUIDA]
-[x] Trocar limiar de deslocamento por frame por velocidade normalizada por segundo; rejeitar intervalos invalidos ou excessivamente longos.
-[x] Distinguir postura mantida (ex.: braco erguido) de transicao (ex.: levantou o braco).
-[x] Definir representacao estavel dos cinco dedos: polegar, indicador, medio, anelar e minimo estendidos.
-[x] Implementar regras iniciais para polegar para cima, mao aberta, punho fechado, um dedo e dois dedos.
-[x] Aplicar histerese e confirmacao por multiplas observacoes; preservar confianca e evidencias, sem tratar heuristica como certeza.
-[x] Usar lateralidade como restricao na associacao de maos.
-[x] Diferenciar estados de gesto confirmado, gesto encerrado, mao ocluida, inferencia indisponivel e observacao insuficiente.
-[x] Criar testes temporais para velocidade, transicoes, gestos, lateralidade, oclusao e encerramento.
-GATE FASE 2: cada evento registra entidade, inicio/fim, origem da evidencia, confianca, continuidade valida e motivo de encerramento.
-
-FASE 3 - Melhorar o contrato multimodal [CONCLUIDA]
-[x] Explicar no prompt dedosEstendidos, totalEstendidos e configuracao; descrever os angulos como estimativas locais 2D.
-[x] Informar ao VLM que dados locais podem falhar; pedir que divergencias e casos inconclusivos sejam tratados como incerteza.
-[x] Ao reduzir contexto, preservar ombros, cotovelos, pulsos e quadris, alem de gestos e eventos temporais confirmados.
-[x] Registrar no payload que houve truncamento e quais grupos foram removidos.
-[x] Medir e registrar a frequencia de truncamento em ciclos reais.
-[x] Preservar a ligacao entre imagens, resultados estruturados e frameId.
-[x] Adicionar testes de snapshot do payload e de truncamento sem perda silenciosa da unica evidencia de um evento.
-GATE FASE 3: o payload contem todas as evidencias necessarias ou declara explicitamente o que foi podado.
-
-FASE 4 - Validar benchmark para os objetivos do projeto [PARCIAL: harness pronto; dados humanos pendentes]
-[~] Criar conjuntos EVAL separados: movimento_objeto, gestos_mao, postura_corporal, transicao_acao e oclusao_iluminacao.
-    (movimento_objeto EVAL reduzido validado; gestos/postura/transicao/oclusao exigem videos e anotacao humana — ver MATRIZ_COBERTURA.md)
-[~] Anotar inicio/fim com resolucao temporal superior a 1 fps para movimentos rapidos.
-    (validar:eval agora REJEITA evento rapido anotado a 1 fps; faltam as anotacoes humanas)
-[~] Revisar anotacoes humanas e manter tuning separado de EVAL.
-    (EVAL atual revisado e separado por hash; novos alvos ainda sem anotacao)
-[~] Executar varias rodadas independentes com os mesmos videos e parametros; separar aquecimento.
-    (--warmups e --min-amostras-estatisticas implementados; rodadas reais ainda nao executadas)
-[x] Manter logs brutos fora do repositorio e registrar hashes e manifesto dos dados usados.
-[x] Reportar mediana, P95 com tamanho da amostra, falhas e intervalo de confianca quando houver amostra suficiente.
-[x] Distinguir "comparavel" de "estatisticamente suficiente"; nao declarar resultado conclusivo por haver apenas um ciclo.
-[x] Representar metricas sem denominador como N/A/null e exclui-las das medias (incluindo recall sem positivos esperados).
-[x] Renomear a janela medida pelo comparador para "janela de geracao do relatorio", sem confundi-la com duracao das inferencias.
-GATE FASE 4: resultados cobrem as capacidades avaliadas e deixam claros amostra, incerteza, falhas e limites de reproducao.
-    (PENDENTE: os resultados atuais cobrem apenas movimento_objeto; nao ha dados para gestos/postura/transicao/oclusao.)
-
-FASE 5 - Corrigir ambiente de desenvolvimento e reprodutibilidade [CONCLUIDA]
-[x] Alinhar CI e documentacao com Node 22.12+ ou Node 24, conforme engines do lockfile.
-[x] Instalar dependencias de forma reproduzivel com npm ci.
-[x] Executar npm run typecheck, npm run lint, npm test e os E2E aplicaveis.
-    (typecheck/lint/test verdes; e2e/app.spec.ts 15/15 — ver bench/RELATORIO_VALIDACAO_20261107.md)
-[x] Anexar resultados de validacao ao relatorio da versao.
-    (bench/RELATORIO_VALIDACAO_20261107.md)
-[x] Registrar backend, versao do modelo multimodal e dispositivos efetivos dos tres adaptadores.
-    (o harness agora sempre lista deteccao/pose/maos, com "nao registrado" quando a telemetria falta)
-GATE FASE 5: ambiente e validacoes ficam reproduziveis e registrados; falhas e limitacoes de E2E ficam explicitas.
-    (validado: ver bench/RELATORIO_VALIDACAO_20261107.md)
+ORDEM DE EXECUCAO
+Passo 0. Fase 5 (ambiente) - prerequisito transversal; alinhar antes de depender da CI.
+Passo 1. Fase 1 (cadeia de evidencias).
+Passo 2. Fase 2 (motor temporal para acoes humanas).
+Passo 3. Fase 3 (contrato multimodal).
+Passo 4. Fase 4 (benchmark orientado aos objetivos).
+Cada fase so avanca quando o GATE correspondente for atendido.
 
 LEGENDA
 [x] concluido e verificado no codigo/execucao
 [~] parcial: codigo/protocolo pronto, mas falta execucao ou dado humano
+[ ] pendente
 
+========================================================================
+FASE 5 - Corrigir ambiente de desenvolvimento e reprodutibilidade [CONCLUIDA]
+Objetivo: garantir que as validacoes das fases seguintes sejam reproduziveis.
+Depende de: nada (executar primeiro).
+------------------------------------------------------------------------
+5.1 [x] Alinhar CI e documentacao com Node 22.12+ ou Node 24, conforme engines do lockfile.
+5.2 [x] Instalar dependencias de forma reproduzivel com npm ci.
+5.3 [x] Executar npm run typecheck, npm run lint, npm test e os E2E aplicaveis.
+    (typecheck/lint/test verdes; e2e/app.spec.ts 15/15 - ver bench/RELATORIO_VALIDACAO_20261107.md)
+5.4 [x] Anexar resultados de validacao ao relatorio da versao.
+    (bench/RELATORIO_VALIDACAO_20261107.md)
+5.5 [x] Registrar backend, versao do modelo multimodal e dispositivos efetivos dos tres adaptadores.
+    (o harness agora sempre lista deteccao/pose/maos, com "nao registrado" quando a telemetria falta)
+GATE 5: ambiente e validacoes ficam reproduziveis e registrados; falhas e limitacoes de E2E ficam explicitas.
+    (validado: ver bench/RELATORIO_VALIDACAO_20261107.md)
+
+========================================================================
+FASE 1 - Fechar a cadeia de evidencias [CONCLUIDA]
+Objetivo: garantir que deteccoes, IDs, geometria, movimento e eventos cheguem ao
+interpretador com semantica clara e vinculados ao frame correto.
+Depende de: Fase 5.
+------------------------------------------------------------------------
+1.1 [x] Revisar o contrato atual de rastreamento e serializacao de deteccoes por frame.
+1.2 [x] Associar o trackId de instancia de objeto a cada deteccao serializada, preservando frameId;
+    nao usar o rotulo da classe como identidade.
+1.3 [x] Confirmar por testes que IDs de pessoas, maos e objetos ficam vinculados ao frame correto
+    ao longo de quatro snapshots.
+1.4 [x] Incluir timestamps e intervalos efetivos entre observacoes nos calculos temporais.
+1.5 [x] Adicionar teste de integracao do payload final enviado ao VLM: imagens, frameIds,
+    deteccoes, pose, maos e eventos.
+GATE 1: objeto, pessoa e mao mantem IDs estaveis quando associaveis; associacoes incertas nao
+    inventam continuidade.
+
+========================================================================
+FASE 2 - Melhorar o motor temporal para acoes humanas [CONCLUIDA]
+Objetivo: sair do limiar por frame e do gesto estatico para velocidade, transicoes
+e geometria da mao com estados explicitos.
+Depende de: Fase 1.
+------------------------------------------------------------------------
+2.1 [x] Trocar limiar de deslocamento por frame por velocidade normalizada por segundo;
+    rejeitar intervalos invalidos ou excessivamente longos.
+2.2 [x] Distinguir postura mantida (ex.: braco erguido) de transicao (ex.: levantou o braco).
+2.3 [x] Definir representacao estavel dos cinco dedos: polegar, indicador, medio, anelar e minimo
+    estendidos.
+2.4 [x] Implementar regras iniciais para polegar para cima, mao aberta, punho fechado, um dedo
+    e dois dedos.
+2.5 [x] Aplicar histerese e confirmacao por multiplas observacoes; preservar confianca e evidencias,
+    sem tratar heuristica como certeza.
+2.6 [x] Usar lateralidade como restricao na associacao de maos.
+2.7 [x] Diferenciar estados de gesto confirmado, gesto encerrado, mao ocluida, inferencia
+    indisponivel e observacao insuficiente.
+2.8 [x] Criar testes temporais para velocidade, transicoes, gestos, lateralidade, oclusao e
+    encerramento.
+GATE 2: cada evento registra entidade, inicio/fim, origem da evidencia, confianca, continuidade
+    valida e motivo de encerramento.
+
+========================================================================
+FASE 3 - Melhorar o contrato multimodal [CONCLUIDA]
+Objetivo: explicar as evidencias ao VLM, preservar o que importa no truncamento e
+declarar explicitamente o que foi podado.
+Depende de: Fases 1 e 2.
+------------------------------------------------------------------------
+3.1 [x] Explicar no prompt dedosEstendidos, totalEstendidos e configuracao; descrever os angulos
+    como estimativas locais 2D.
+3.2 [x] Informar ao VLM que dados locais podem falhar; pedir que divergencias e casos inconclusivos
+    sejam tratados como incerteza.
+3.3 [x] Ao reduzir contexto, preservar ombros, cotovelos, pulsos e quadris, alem de gestos e
+    eventos temporais confirmados.
+3.4 [x] Registrar no payload que houve truncamento e quais grupos foram removidos.
+3.5 [x] Medir e registrar a frequencia de truncamento em ciclos reais.
+3.6 [x] Preservar a ligacao entre imagens, resultados estruturados e frameId.
+3.7 [x] Adicionar testes de snapshot do payload e de truncamento sem perda silenciosa da unica
+    evidencia de um evento.
+GATE 3: o payload contem todas as evidencias necessarias ou declara explicitamente o que foi podado.
+
+========================================================================
+FASE 4 - Validar benchmark para os objetivos do projeto [PARCIAL: harness pronto; dados humanos pendentes]
+Objetivo: medir gestos, postura, transicoes e oclusao - nao apenas movimento de objetos.
+Depende de: Fases 1, 2 e 3.
+------------------------------------------------------------------------
+4.1 [~] Criar conjuntos EVAL separados: movimento_objeto, gestos_mao, postura_corporal,
+    transicao_acao e oclusao_iluminacao.
+    (movimento_objeto EVAL reduzido validado; gestos/postura/transicao/oclusao exigem videos e
+    anotacao humana - ver MATRIZ_COBERTURA.md)
+4.2 [~] Anotar inicio/fim com resolucao temporal superior a 1 fps para movimentos rapidos.
+    (validar:eval agora REJEITA evento rapido anotado a 1 fps; faltam as anotacoes humanas)
+4.3 [~] Revisar anotacoes humanas e manter tuning separado de EVAL.
+    (EVAL atual revisado e separado por hash; novos alvos ainda sem anotacao)
+4.4 [~] Executar varias rodadas independentes com os mesmos videos e parametros; separar aquecimento.
+    (--warmups e --min-amostras-estatisticas implementados; rodadas reais ainda nao executadas)
+4.5 [x] Manter logs brutos fora do repositorio e registrar hashes e manifesto dos dados usados.
+4.6 [x] Reportar mediana, P95 com tamanho da amostra, falhas e intervalo de confianca quando houver
+    amostra suficiente.
+4.7 [x] Distinguir "comparavel" de "estatisticamente suficiente"; nao declarar resultado conclusivo
+    por haver apenas um ciclo.
+4.8 [x] Representar metricas sem denominador como N/A/null e exclui-las das medias (incluindo recall
+    sem positivos esperados).
+4.9 [x] Renomear a janela medida pelo comparador para "janela de geracao do relatorio", sem
+    confundi-la com duracao das inferencias.
+GATE 4: resultados cobrem as capacidades avaliadas e deixam claros amostra, incerteza, falhas e
+    limites de reproducao.
+    (PENDENTE: os resultados atuais cobrem apenas movimento_objeto; nao ha dados para
+    gestos/postura/transicao/oclusao.)
+
+========================================================================
 FORA DO ESCOPO DESTE PLANO
 - Nao reescrever a arquitetura nem substituir modelos sem evidencia medida.
 - Nao inferir 30 FPS nem continuidade durante lacunas sem benchmark.
