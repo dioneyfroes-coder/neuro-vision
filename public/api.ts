@@ -5,6 +5,8 @@ import { ErroPercepcao } from "../src/erros";
 
 export interface InfoVisao {
   online: boolean;
+  /** URL base do backend consultado (para diagnostico da interface). */
+  backend?: string;
   /** Modelo de visao configurado (NEURO_MODEL ou o padrao do servidor). */
   solicitado?: string;
   /** Modelo efetivamente usado (o solicitado ou o melhor disponivel). */

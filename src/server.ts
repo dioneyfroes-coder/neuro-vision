@@ -1619,6 +1619,8 @@ async function handleClearLogs(
 
 interface InfoVisao {
   online: boolean;
+  /** URL base do backend consultado (para diagnostico da interface). */
+  backend: string;
   /** Modelo de visao configurado (NEURO_MODEL ou o padrao). */
   solicitado: string;
   /** Modelo efetivamente usado (o solicitado ou o melhor disponivel). */
@@ -1639,6 +1641,7 @@ async function consultarVisao(baseUrl?: string): Promise<InfoVisao> {
     if (!resposta.ok) {
       return {
         online: false,
+        backend: backend.baseUrl,
         solicitado,
         modelo: solicitado,
         modelos: [],
@@ -1651,15 +1654,19 @@ async function consultarVisao(baseUrl?: string): Promise<InfoVisao> {
       models?: { id?: string }[];
     };
     const modelos = (dados.data ?? dados.models ?? []).map((m) => m.id ?? "");
-    const modelosValidos = modelos.filter((n) => n.length > 0);
+    const nomes = modelos.filter((n) => n.length > 0);
+    const carregados = await modelosEmMemoria({ baseUrl, timeoutMs: 3000 });
+    // Alguns backends respondem `/v1/models` vazio mesmo com modelos baixados;
+    // nesse caso usamos o REST v0 do LM Studio como fonte de diagnostico.
+    const modelosValidos = nomes.length > 0 ? nomes : carregados;
     // Configurado instalado? Usa ele. Senao, cai para o melhor disponivel.
     const modelo =
       modelosValidos.length === 0 || modelosValidos.some((m) => mesmoModelo(m, solicitado))
         ? solicitado
         : melhorModeloDisponivel(modelosValidos) || solicitado;
-    const carregados = await modelosEmMemoria({ baseUrl, timeoutMs: 3000 });
     return {
       online: true,
+      backend: backend.baseUrl,
       solicitado,
       modelo,
       modelos: modelosValidos,
@@ -1669,6 +1676,7 @@ async function consultarVisao(baseUrl?: string): Promise<InfoVisao> {
   } catch (err) {
     return {
       online: false,
+      backend: backend.baseUrl,
       solicitado,
       modelo: solicitado,
       modelos: [],

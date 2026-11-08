@@ -134,6 +134,7 @@ async function prepararPagina(
         ok: true,
         visao: {
           online: false,
+          backend: "http://localhost:1234",
           modelo: "qwen2.5-vl-3b-instruct",
           modelos: [],
           carregados: [],
@@ -371,6 +372,17 @@ test("escolhe o modelo de visao na interface e o envia ao servidor", async ({ pa
 
   await page.locator("#stop").click();
   await expect(page.locator("#start")).toBeEnabled();
+});
+
+test("explica quando o seletor de visao nao tem modelos", async ({ page }) => {
+  await prepararPagina(page);
+  await page.goto("/");
+
+  const seletor = page.locator("#modeloVisao");
+  await expect(seletor.locator("option")).toHaveCount(2);
+  await expect(seletor.locator("option[disabled]")).toContainText("Backend offline");
+  await expect(seletor.locator("option[disabled]")).toContainText("http://localhost:1234");
+  await expect(seletor).toHaveAttribute("title", /Backend offline/);
 });
 
 test("parar durante a inferencia libera a webcam e permite iniciar de novo", async ({ page }) => {

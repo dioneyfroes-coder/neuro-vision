@@ -315,10 +315,22 @@ function salvarModeloVisao(): void {
   }
 }
 
+function motivoSemModelosVisao(): string {
+  if (!infoVisao) return "Não foi possível consultar o backend de visão.";
+  if (infoVisao.online === false) {
+    const onde = infoVisao.backend ? ` em ${infoVisao.backend}` : "";
+    const erro = infoVisao.erro ? ` (${infoVisao.erro})` : "";
+    return `Backend offline${onde}${erro} — inicie o LM Studio ou ajuste NEURO_BASE_URL.`;
+  }
+  const onde = infoVisao.backend ? ` em ${infoVisao.backend}` : "";
+  return `Nenhum modelo de visão instalado${onde}.`;
+}
+
 /**
  * Preenche o seletor de modelo de visao com os modelos instalados no backend
  * (`GET /api/health`) e preserva a escolha atual, mesmo que ela nao esteja na
- * lista (backend offline ou modelo desinstalado).
+ * lista (backend offline ou modelo desinstalado). Sem modelos, o seletor mostra
+ * um aviso explicito em vez de parecer vazio.
  */
 function atualizarOpcoesModeloVisao(): void {
   const atual = modeloVisaoSelect.value.trim();
@@ -327,18 +339,25 @@ function atualizarOpcoesModeloVisao(): void {
   const ids = ["", ...instalados];
   if (atual && !instalados.includes(atual)) ids.splice(1, 0, atual);
 
-  modeloVisaoSelect.replaceChildren(
-    ...ids.map((id) => {
-      const opcao = document.createElement("option");
-      opcao.value = id;
-      opcao.textContent = id || "Padrão do servidor";
-      return opcao;
-    })
-  );
+  const opcoes = ids.map((id) => {
+    const opcao = document.createElement("option");
+    opcao.value = id;
+    opcao.textContent = id || "Padrão do servidor";
+    return opcao;
+  });
+  if (instalados.length === 0) {
+    const aviso = document.createElement("option");
+    aviso.value = "__sem_modelos__";
+    aviso.disabled = true;
+    aviso.textContent = motivoSemModelosVisao();
+    opcoes.splice(1, 0, aviso);
+  }
+
+  modeloVisaoSelect.replaceChildren(...opcoes);
   modeloVisaoSelect.value = atual;
   modeloVisaoSelect.title = instalados.length
-    ? `Instalados no backend:\n${instalados.join("\n")}`
-    : "Backend offline ou sem modelos instalados.";
+    ? `Instalados no backend${infoVisao?.backend ? ` (${infoVisao.backend})` : ""}:\n${instalados.join("\n")}`
+    : motivoSemModelosVisao();
 }
 
 /**
@@ -692,7 +711,8 @@ async function verificarVisao(): Promise<void> {
       modeloStatusEl.className = "health online";
       modeloStatusEl.title = (o.modelos.join("\n") || "LM Studio acessivel") + (memoria ? `\n${memoria}` : "");
     } else {
-      modeloStatusEl.textContent = `LM Studio: offline${o?.erro ? " — " + o.erro : ""}`;
+      const onde = o?.backend ? ` (${o.backend})` : "";
+      modeloStatusEl.textContent = `LM Studio: offline${onde}${o?.erro ? " — " + o.erro : ""}`;
       modeloStatusEl.className = "health offline";
       modeloStatusEl.title = o?.erro ?? "LM Studio inacessivel";
     }
@@ -750,6 +770,16 @@ modeloVisaoSelect.addEventListener("change", () => {
       : "Modelo de visao: padrao do servidor."
   );
 });
+
+// Se o backend ainda nao estava no ar quando a pagina abriu, atualiza a lista
+// ao voltar o foco para a janela ou ao abrir o seletor.
+function atualizarVisaoSeVazia(): void {
+  if (!infoVisao?.online || (infoVisao.modelos ?? []).length === 0) {
+    void verificarVisao();
+  }
+}
+modeloVisaoSelect.addEventListener("focus", atualizarVisaoSeVazia);
+window.addEventListener("focus", atualizarVisaoSeVazia);
 
 nsfwToggle.addEventListener("change", () => {
   setStatus(

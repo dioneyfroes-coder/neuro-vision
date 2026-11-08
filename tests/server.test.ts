@@ -1677,6 +1677,42 @@ describe("createServer", () => {
     }
   });
 
+  it("GET /api/health usa o REST v0 quando /v1/models vem vazio", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/v1/models")) {
+          return { ok: true, json: async () => ({ data: [] }) };
+        }
+        if (url.includes("/api/v0/models")) {
+          return {
+            ok: true,
+            json: async () => ({ data: [{ id: "qwen2.5-vl-3b-instruct", state: "loaded" }] }),
+          };
+        }
+        return realFetch(input, init);
+      })
+    );
+
+    const server = createServer({ publicDir: tmpDir, backendUrl: "http://localhost:1234" });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+      expect(res.status).toBe(200);
+      const corpo = (await res.json()) as {
+        visao: { online: boolean; modelos: string[]; modelo: string };
+      };
+      expect(corpo.visao.online).toBe(true);
+      expect(corpo.visao.modelos).toContain("qwen2.5-vl-3b-instruct");
+      expect(corpo.visao.modelo).toBe("qwen2.5-vl-3b-instruct");
+    } finally {
+      server.close();
+    }
+  });
+
   it("POST /api/visao registra visao_cancelada quando o cliente desconecta", async () => {
     let sinalizarInicio: () => void = () => {};
     const iniciou = new Promise<void>((resolve) => {
