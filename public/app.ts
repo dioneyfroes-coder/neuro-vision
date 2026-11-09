@@ -16,6 +16,7 @@ import { obterVariante } from "./perception/variantes";
 import type { VariantePercepcao } from "./perception/variantes";
 import type { HabilitacaoSubsistemas } from "./perception/local-perception-pipeline";
 import { MODELO_NSFW_PADRAO } from "./nsfw-onnx";
+import { MODELO_NSFW, resolverModeloVisao } from "../src/nsfw-prompt";
 import { MotorTemporalImpl } from "./temporal/motor-temporal";
 import { InterpretadorCiclo } from "./interpretation/interpretador-ciclo";
 import { criarTransporteServidor } from "./interpretation/transporte-servidor";
@@ -181,12 +182,12 @@ const controladorFrame = new CycleController({
     return definicao.criarMotor({
       detector: detectorCoco,
       modelo: modelSelect.value,
-      modeloVisao: modeloVisaoSelecionado(),
+      modeloVisao: modeloVisaoEfetivo(),
       obterThreshold: () => Number(thresholdInput.value),
     });
   },
   criarMotorVisao: (opcoes) => new MotorVisao(opcoes),
-  obterModeloVisao: () => modeloVisaoSelecionado(),
+  obterModeloVisao: () => modeloVisaoEfetivo(),
   obterIntervaloMs: () => intervaloMsConfigurado,
   classificadorNsfw,
   // So carrega quando o toggle esta ligado no inicio da sessao; desligado, o
@@ -237,7 +238,8 @@ const controladorPercepcao = new CicloPercepcaoController({
       // explicita, registra o modelo efetivo do backend (o que o /api/health
       // reporta) — nunca o fallback "multiframe", para a verificacao de mesmo
       // modelo da Etapa 9 valer em qualquer execucao.
-      modelo: () => modeloVisaoSelecionado() ?? infoVisao?.modelo ?? undefined,
+      modelo: () => modeloVisaoEfetivo() ?? infoVisao?.modelo ?? undefined,
+      nsfwAtivo: () => nsfwAtivo(),
       incluirDadosLocais: varianteDoModoAtual().dadosLocais,
     }),
   obterIntervaloMs: () => intervaloMsConfigurado,
@@ -294,6 +296,24 @@ const MODELO_VISAO_STORAGE = "neuro.modeloVisao";
 /** Modelo de visao escolhido na interface; `undefined` = padrao do servidor. */
 function modeloVisaoSelecionado(): string | undefined {
   return modeloVisaoSelect.value.trim() || undefined;
+}
+
+/**
+ * NSFW realmente ativo na sessao: no multiframe depende de a variante rodar a
+ * percepcao local; nos modos de frame unico, basta o toggle ligado.
+ */
+function nsfwAtivo(): boolean {
+  const definicao = obterModo(motorSelect.value);
+  if (definicao.multiframe) return montarHabilitacao().nsfw === true;
+  return nsfwToggle.checked;
+}
+
+/**
+ * Modelo efetivo de visao: com NSFW ativo vale sempre `MODELO_NSFW`; desligado,
+ * respeita a escolha da interface (`undefined` = padrao do servidor).
+ */
+function modeloVisaoEfetivo(): string | undefined {
+  return resolverModeloVisao(modeloVisaoSelecionado(), nsfwAtivo());
 }
 
 function carregarModeloVisaoSalvo(): void {
@@ -368,7 +388,7 @@ function atualizarDiagnostico(): void {
   const motor = running ? motorSelect.value : "parado";
   const definicao = obterModo(motorSelect.value);
   const deteccao = modeloDeDeteccaoAtivo();
-  const modeloVisao = modeloVisaoSelecionado() ?? infoVisao?.modelo ?? "?";
+  const modeloVisao = modeloVisaoEfetivo() ?? infoVisao?.modelo ?? "?";
   const modelo =
     definicao.usaDeteccao && definicao.usaVisao
       ? `${deteccao} + ${modeloVisao}`
@@ -783,9 +803,11 @@ window.addEventListener("focus", atualizarVisaoSeVazia);
 
 nsfwToggle.addEventListener("change", () => {
   setStatus(
-    nsfwToggle.checked
-      ? "NSFW experimental: ligado. As marcacoes e a descricao explicita seguem no contexto, no prompt e na resposta."
-      : "NSFW experimental: desligado."
+    nsfwAtivo()
+      ? `NSFW experimental: ligado. Modelo fixo ${MODELO_NSFW}; as marcacoes e a descricao explicita seguem no contexto, no prompt e na resposta.`
+      : nsfwToggle.checked
+        ? "NSFW experimental: ligado, mas o modo atual nao roda a percepcao local (NSFW inativo)."
+        : "NSFW experimental: desligado."
   );
 });
 

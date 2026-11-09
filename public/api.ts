@@ -62,6 +62,11 @@ export interface PayloadVisao {
    * o subsistema esta ativo; `undefined` = desligado.
    */
   nsfw?: MarcacaoNsfwLog[];
+  /**
+   * NSFW ativo no fluxo multiframe (as marcacoes ja vao no prompt/contexto).
+   * Sinaliza ao servidor para usar exclusivamente o `MODELO_NSFW`.
+   */
+  nsfwAtivo?: boolean;
 }
 
 export interface ResultadoVisao {

@@ -4,8 +4,10 @@ import {
   descreverRotuloNsfw,
   formatarMarcacoesNsfw,
   INSTRUCAO_NSFW,
+  MODELO_NSFW,
   normalizarCaixaNsfw,
   normalizarMarcacoesNsfw,
+  resolverModeloVisao,
   resumirMarcacoesNsfw,
 } from "../src/nsfw-prompt";
 
@@ -159,5 +161,25 @@ describe("blocoNsfwPrompt", () => {
 
   it("devolve vazio quando nao ha quadros", () => {
     expect(blocoNsfwPrompt([])).toBe("");
+  });
+});
+
+describe("modelo obrigatorio do NSFW", () => {
+  it("usa o gemma quando o NSFW esta ativo, ignorando a escolha/padrao", () => {
+    expect(resolverModeloVisao("qwen2.5-vl-3b-instruct", true)).toBe(MODELO_NSFW);
+    expect(resolverModeloVisao(undefined, true)).toBe(MODELO_NSFW);
+    expect(resolverModeloVisao("outro-modelo", true)).toBe(MODELO_NSFW);
+  });
+
+  it("preserva o modelo escolhido quando o NSFW esta desligado", () => {
+    expect(resolverModeloVisao("qwen2.5-vl-3b-instruct", false)).toBe(
+      "qwen2.5-vl-3b-instruct"
+    );
+    expect(resolverModeloVisao(undefined, false)).toBeUndefined();
+    expect(resolverModeloVisao(null, false)).toBeUndefined();
+  });
+
+  it("expoe o id exato do gemma uncensored", () => {
+    expect(MODELO_NSFW).toBe("gemma-4-e2b-uncensored-hauhaucs-aggressive");
   });
 });

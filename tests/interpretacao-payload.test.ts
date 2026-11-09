@@ -514,4 +514,25 @@ describe("InterpretadorCiclo", () => {
     await interpreter.interpretar(pacote);
     expect(enviados).toEqual(["modelo-inicial", "qwen2.5-vl-3b-instruct"]);
   });
+
+  it("encaminha nsfwAtivo ao transporte quando o NSFW esta ligado", async () => {
+    const o1: ObservacaoFrame = { ...OBS_BASE, frameId: "f1", capturadoEmMs: 0, imagem: "img1" };
+    const pacote: PacoteCiclo = { ...PACOTE, observacoes: [o1] };
+    let nsfwRecebido: boolean | undefined;
+    let modeloRecebido: string | undefined;
+    const interpreter = new InterpretadorCiclo({
+      modelo: "gemma-4-e2b-uncensored-hauhaucs-aggressive",
+      nsfwAtivo: () => true,
+      enviar: async (req) => {
+        nsfwRecebido = req.nsfwAtivo;
+        modeloRecebido = req.modelo;
+        return {
+          texto: '{"resumo":"ok","acoes":[],"evidencias":["f1"],"incertezas":[],"contradicacoes":[]}',
+        };
+      },
+    });
+    await interpreter.interpretar(pacote);
+    expect(nsfwRecebido).toBe(true);
+    expect(modeloRecebido).toBe("gemma-4-e2b-uncensored-hauhaucs-aggressive");
+  });
 });

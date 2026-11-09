@@ -78,7 +78,7 @@ import type {
   OrigemSinalTemporal,
   TipoEventoTemporal,
 } from "./domain/temporal-event";
-import { normalizarCaixaNsfw } from "./nsfw-prompt";
+import { MODELO_NSFW, normalizarCaixaNsfw } from "./nsfw-prompt";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -744,6 +744,9 @@ export function validarPayloadVisao(payload: unknown): string | null {
   if (erroFrameIds) return erroFrameIds;
   if (p.nsfw !== undefined && !Array.isArray(p.nsfw)) {
     return "campo 'nsfw' deve ser uma lista";
+  }
+  if (p.nsfwAtivo !== undefined && typeof p.nsfwAtivo !== "boolean") {
+    return "campo 'nsfwAtivo' deve ser booleano";
   }
   if (p.motivo !== undefined && p.motivo !== null && !normalizarMotivo(p.motivo)) {
     return "campo 'motivo' tem valor invalido";
@@ -1511,10 +1514,25 @@ async function handleVisao(
     return;
   }
 
+  // NSFW ativo = marcacoes presentes (mesmo vazias) ou sinalizacao explicita
+  // do fluxo multiframe. Nesse caso o modelo e sempre o `MODELO_NSFW`, nunca a
+  // escolha da interface nem o padrao do servidor.
+  const nsfwAtivo = p.nsfw !== undefined || p.nsfwAtivo === true;
+  const modeloPedido = nsfwAtivo
+    ? MODELO_NSFW
+    : typeof p.modelo === "string"
+      ? p.modelo
+      : undefined;
   const escolha =
-    typeof p.modelo === "string"
-      ? { solicitado: p.modelo, modelo: p.modelo, alternativo: false }
+    modeloPedido !== undefined
+      ? { solicitado: modeloPedido, modelo: modeloPedido, alternativo: false }
       : await escolherModelo({ baseUrl: config.backendUrl });
+  if (nsfwAtivo && typeof p.modelo === "string" && p.modelo !== MODELO_NSFW) {
+    logEvent("info", "modelo_nsfw_forcado", {
+      solicitado: p.modelo,
+      modelo: MODELO_NSFW,
+    });
+  }
   if (escolha.alternativo) {
     logEvent("info", "modelo_fallback", {
       solicitado: escolha.solicitado,

@@ -29,6 +29,8 @@ export interface RequisicaoMultimodal {
   prompt: string;
   contexto: ContextoCicloSerializavel;
   modelo?: string;
+  /** NSFW ativo: o servidor deve usar exclusivamente o `MODELO_NSFW`. */
+  nsfwAtivo?: boolean;
 }
 
 export interface RespostaMultimodal {
@@ -52,6 +54,12 @@ export interface DependenciasInterpretadorCiclo {
    * (`/api/log`) e o que realmente rodou (garantia de mesmo modelo da Etapa 9).
    */
   modelo?: string | (() => string | undefined | null);
+  /**
+   * NSFW ativo. Pode ser uma funcao, resolvida a cada interpretacao (o toggle
+   * fica bloqueado durante a sessao, mas a leitura dinamica evita estado velho).
+   * Quando `true`, o servidor troca o modelo por `MODELO_NSFW`.
+   */
+  nsfwAtivo?: boolean | (() => boolean);
   limites?: Partial<LimitesContexto>;
   /**
    * Inclui os dados locais no contexto multimodal. `false` (variante B) envia
@@ -81,6 +89,7 @@ export interface DependenciasInterpretadorCiclo {
 export class InterpretadorCiclo implements InterpretadorMultimodal {
   private readonly enviar: EnviarMultimodal;
   private readonly obterModelo: () => string | null;
+  private readonly obterNsfwAtivo: () => boolean;
   private readonly limites: LimitesContexto;
   private readonly incluirDadosLocais: boolean;
   private readonly serializacao?: Partial<OpcoesSerializacao>;
@@ -91,6 +100,9 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
     const modelo = deps.modelo;
     this.obterModelo =
       typeof modelo === "function" ? () => modelo() ?? null : () => modelo ?? null;
+    const nsfwAtivo = deps.nsfwAtivo;
+    this.obterNsfwAtivo =
+      typeof nsfwAtivo === "function" ? nsfwAtivo : () => nsfwAtivo === true;
     this.limites = { ...LIMITES_CONTEXTO_PADRAO, ...deps.limites };
     this.incluirDadosLocais = deps.incluirDadosLocais ?? true;
     this.serializacao = deps.serializacao;
@@ -129,6 +141,7 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
         prompt,
         contexto,
         modelo: modelo ?? undefined,
+        ...(this.obterNsfwAtivo() ? { nsfwAtivo: true } : {}),
       },
       sinal
     );

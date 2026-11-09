@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { env } from "../src/env";
+import { MODELO_NSFW } from "../src/nsfw-prompt";
 
 /**
  * E2E focado da fase NSFW (opt-in, mesmo clipe de `webcam.spec.ts`).
@@ -133,12 +134,16 @@ test.describe("NSFW experimental com clipe real", () => {
     // precisa estar presente mesmo sem esperar a resposta.
     expect(corposVisao[0]).toHaveProperty("nsfw");
     expect(Array.isArray(corposVisao[0].nsfw)).toBe(true);
+    // O cliente tambem envia o gemma quando o toggle NSFW esta ligado.
+    expect(corposVisao[0].modelo).toBe(MODELO_NSFW);
 
     // O servidor grava a entrada antes de emitir `done`; o evento carrega as
     // mesmas marcacoes persistidas (inclusive lista vazia).
     await expect.poll(() => eventosDone.length, { timeout: 300_000 }).toBeGreaterThan(0);
     expect(eventosDone[0]).toHaveProperty("nsfw");
     expect(Array.isArray(eventosDone[0].nsfw)).toBe(true);
+    // NSFW ligado: o modelo efetivo e sempre o gemma, mesmo com o padrao qwen.
+    expect(eventosDone[0].modelo).toBe(MODELO_NSFW);
 
     await page.locator("#stop").click();
     await expect(page.locator("#start")).toBeEnabled();

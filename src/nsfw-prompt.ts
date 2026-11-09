@@ -35,6 +35,29 @@ export interface QuadroNsfwPrompt {
 }
 
 /**
+ * Modelo de visao obrigatorio quando o subsistema NSFW esta ativo.
+ *
+ * O padrao do app continua sendo o modelo rapido (`qwen2.5-vl-3b-instruct`);
+ * o NSFW so roda com este modelo, escolhido por fidelidade e por nao recusar
+ * conteudo adulto. A regra vale no cliente e no servidor.
+ */
+export const MODELO_NSFW = "gemma-4-e2b-uncensored-hauhaucs-aggressive";
+
+/**
+ * Resolve o modelo efetivo de uma requisicao de visao.
+ *
+ * Com NSFW ativo, ignora a escolha da interface/padrao do servidor e devolve
+ * sempre `MODELO_NSFW`. Sem NSFW, preserva o modelo pedido (`undefined` = o
+ * servidor decide o padrao).
+ */
+export function resolverModeloVisao(
+  modelo: string | undefined | null,
+  nsfwAtivo: boolean
+): string | undefined {
+  return nsfwAtivo ? MODELO_NSFW : (modelo ?? undefined);
+}
+
+/**
  * Glossario dos rotulos conhecidos do modelo NSFW (erax). O rotulo bruto e
  * preservado; a traducao evita que `make_love` seja lido como comando e que
  * termos anatomicos em ingles passem sem contexto para o VLM.

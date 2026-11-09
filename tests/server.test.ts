@@ -43,6 +43,7 @@ import {
   montarPromptDescricao,
   montarPromptRoteiro,
 } from "../src/visao";
+import { MODELO_NSFW } from "../src/nsfw-prompt";
 
 let tmpDir: string;
 
@@ -331,6 +332,8 @@ describe("seguranca de rede", () => {
     expect(validarPayloadVisao({ imagem: "QkxPQ", capturadoEm: false })).toContain("capturadoEm");
     expect(validarPayloadVisao({ imagem: "QkxPQ", nsfw: {} })).toContain("nsfw");
     expect(validarPayloadVisao({ imagem: "QkxPQ", nsfw: [] })).toBeNull();
+    expect(validarPayloadVisao({ imagem: "QkxPQ", nsfwAtivo: "sim" })).toContain("nsfwAtivo");
+    expect(validarPayloadVisao({ imagem: "QkxPQ", nsfwAtivo: true })).toBeNull();
   });
 });
 
@@ -900,6 +903,107 @@ describe("createServer", () => {
           },
         ],
       });
+    } finally {
+      server.close();
+    }
+  });
+
+  it("POST /api/visao com NSFW ativo forca o modelo gemma mesmo se outro for pedido", async () => {
+    let corpoVisao: Record<string, unknown> | null = null;
+    const sse =
+      [
+        `data: ${JSON.stringify({ model: MODELO_NSFW, choices: [{ delta: { content: "Conteudo adulto explicito." } }] })}`,
+        `data: ${JSON.stringify({
+          model: MODELO_NSFW,
+          choices: [{ delta: {}, finish_reason: "stop" }],
+          usage: { completion_tokens: 5 },
+        })}`,
+        "data: [DONE]",
+      ].join("\n") + "\n";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/v1/chat/completions")) {
+          if (init?.body) corpoVisao = JSON.parse(String(init.body)) as Record<string, unknown>;
+          return { ok: true, body: new Response(sse).body };
+        }
+        return realFetch(input, init);
+      })
+    );
+
+    const logFile = path.join(tmpDir, "visao-nsfw-modelo.jsonl");
+    const server = createServer({
+      logFile,
+      publicDir: tmpDir,
+      backendUrl: "http://localhost:1234",
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/visao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imagem: "data:image/jpeg;base64,QkxPQ",
+          modelo: "qwen2.5-vl-3b-instruct",
+          nsfw: [],
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect((corpoVisao as unknown as Record<string, unknown>).model).toBe(MODELO_NSFW);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("POST /api/visao com nsfwAtivo forca o gemma no fluxo multiframe", async () => {
+    let corpoVisao: Record<string, unknown> | null = null;
+    const sse =
+      [
+        `data: ${JSON.stringify({ model: MODELO_NSFW, choices: [{ delta: { content: '{"resumo":"ok"}' } }] })}`,
+        `data: ${JSON.stringify({
+          model: MODELO_NSFW,
+          choices: [{ delta: {}, finish_reason: "stop" }],
+          usage: { completion_tokens: 5 },
+        })}`,
+        "data: [DONE]",
+      ].join("\n") + "\n";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/v1/chat/completions")) {
+          if (init?.body) corpoVisao = JSON.parse(String(init.body)) as Record<string, unknown>;
+          return { ok: true, body: new Response(sse).body };
+        }
+        return realFetch(input, init);
+      })
+    );
+
+    const logFile = path.join(tmpDir, "visao-multiframe-nsfw.jsonl");
+    const server = createServer({
+      logFile,
+      publicDir: tmpDir,
+      backendUrl: "http://localhost:1234",
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/visao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imagens: ["data:image/jpeg;base64,QkxPQ"],
+          prompt: "prompt explicito do ciclo multiframe",
+          modelo: "qwen2.5-vl-3b-instruct",
+          nsfwAtivo: true,
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect((corpoVisao as unknown as Record<string, unknown>).model).toBe(MODELO_NSFW);
     } finally {
       server.close();
     }
