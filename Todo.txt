@@ -1,133 +1,208 @@
-Neuro Vision - plano de mudancas em passo a passo
-Fonte: ANALISE_ESTADO_ATUAL_NEURO_VISION_20261102.md
-Nota: conferir o estado atual do codigo antes de marcar tarefas como iniciadas ou concluidas.
+Neuro Vision - plano atual
+Atualizado: 10/11/2026
+Base: main em bcb0153 ("Forca gemma como unico modelo quando NSFW esta ativo")
+Nota: conferir o codigo antes de marcar tarefas como iniciadas ou concluidas.
 
-STATUS ATUAL
-- Fase 1: concluida
-- Fase 2: concluida
-- Fase 3: concluida
-- Fase 4: parcial (harness pronto; dados humanos pendentes)
-- Fase 5: concluida
+======================================================================
+RESUMO DO ESTADO ATUAL
+----------------------------------------------------------------------
+- Fases 1 a 5 do plano anterior: concluidas (cadeia de evidencias, motor
+  temporal, contrato multimodal, benchmark e ambiente).
+- Fase 4 (benchmark orientado a objetivos): parcial. O harness e os relatorios
+  existem; faltam anotacoes humanas para gestos, postura, transicao e oclusao.
+- NSFW usa hoje o NudeNet 320n (`nudenet_320n`, 18 classes) como padrao, em
+  worker dedicado. O catalogo tambem tem EraX YOLO11n/s/m e NudeNet 640m; cada
+  modelo carregado roda em Worker proprio.
+- Com NSFW ativo, a visao usa exclusivamente
+  `gemma-4-e2b-uncensored-hauhaucs-aggressive`. Sem NSFW, o padrao continua
+  `qwen2.5-vl-3b-instruct`.
+- Teste de 60 s do video NSFW em modo eventos: 3 chamadas de visao (2
+  concluidas), todas com gemma; 2 eventos; 10 marcacoes leves (8 nipple,
+  0,510-0,616); `nsfw: []` nas visoes; nenhuma inferencia de "trans".
+- Comparacao medida dos tres modelos NSFW em 3 imagens e no video de
+  referencia: bench/RELATORIO_NSFW_MODELOS_20261109.md. O 320n e 3-5x mais
+  rapido por quadro que o EraX nano e tem genitalia masculina/coberta.
+- Relatorio do teste de eventos: bench/RELATORIO_NSFW_EVENTOS_20261109.md
+  (nao versionado ainda).
 
+======================================================================
+LACUNAS CONFIRMADAS NO VIDEO NSFW DE REFERENCIA
+----------------------------------------------------------------------
+Video: bench/videos/nsfw - Mulher jovem e sexy transexual te provoca..mp4
+- O nome do arquivo declara "transexual", mas o app recebe apenas o stream da
+  webcam: metadados/contexto nunca chegam ao prompt.
+- O penis nao foi detectado pelo EraX (score abaixo de 0,5). O NudeNet 320n
+  detecta `MALE_GENITALIA_EXPOSED` a 0,661 no mesmo video (frame ~260 s).
+- Calcinha/genital coberto nao existe nas classes do EraX. O NudeNet tem
+  `FEMALE_GENITALIA_COVERED` (0,15-0,18 no video).
+- "Volume na calcinha" nao e classe de nenhum YOLO; exige VLM com prompt
+  explicito.
+- "Pose sexy" e subjetiva e nao e deteccao de objeto; exige pose + regra
+  geometrica ou VLM multi-frame.
+- Masturbacao e acao temporal; nao e detectavel por YOLO de objeto estatico.
+
+======================================================================
+DECISOES
+----------------------------------------------------------------------
+1. Modelos NSFW sao um catalogo, nao um unico modelo. O usuario escolhe qual
+   usar; o padrao e o NudeNet 320n desde que a comparacao medida mostrou que ele
+   e mais rapido por quadro que o EraX nano e tem as classes que o caso de uso
+   exige (genitalia masculina exposta, genitalia coberta, nadegas). O EraX nano
+   continua no catalogo. Evidencia: bench/RELATORIO_NSFW_MODELOS_20261109.md.
+2. Cada modelo carregado roda em seu **proprio Worker** (thread propria), sem
+   compartilhar fila, sessao ONNX ou runtime com outro modelo. Isso vale para
+   COCO, EraX, NudeNet 320n e NudeNet 640m.
+3. Nenhum modelo e carregado no boot: so quando o subsistema/toggle e o modelo
+   selecionado pedem. Worker que falha/timeout cai para a thread principal
+   apenas naquela sessao, como ja ocorre hoje.
+4. "Trans" so entra no prompt quando houver **declaracao explicita** em
+   metadado/contexto. Nunca inferir por aparencia, roupa, voz ou comportamento.
+5. `homem`/`mulher` descrevem apresentacao visual; identidade de genero so com
+   declaracao explicita. Participantes usam `apresentacao`
+   (masculina/feminina/ambigua/nao_identificada) e `identidadeDeclarada`
+   opcional.
+6. Todo o processamento e local/offline. Pesos ficam em `modelos/` (gitignored)
+   e sao servidos pelo proprio servidor.
+7. Nao integrar modelo de acao sexual sem pesos abertos confiaveis e evidencia
+   medida; para masturbacao, priorizar VLM multi-frame com o gemma.
+8. A decisao de aplicar sigmoid na saida crua do NudeNet e do **tensor inteiro**
+   (tolerancia 1e-3), nunca por linha. Probabilidade float32 pode sair
+   levemente negativa (-5,96e-8) e `sigmoid(0) = 0,5` criava falsos positivos
+   exatos em FACE_MALE/ARMPITS/MALE_BREAST.
+9. Classes nao sensiveis do NudeNet (rosto, pes, barriga, axila) sao filtradas
+   antes do payload/prompt; rotulos desconhecidos sao preservados para nao
+   quebrar modelo customizado sem sidecar.
+
+======================================================================
+FASE 6 - NSFW MULTI-MODELO COM WORKER POR MODELO
+----------------------------------------------------------------------
+6.1 [x] Apagar ANALISE_ESTADO_ATUAL_NEURO_VISION_20261102.md.
+6.2 [x] Criar `scripts/baixar-modelos-nsfw.mjs` com manifesto, download
+    retomavel, verificacao de tamanho e sidecar de classes.
+    Modelos a baixar:
+      - NudeNet 320n ONNX (12,2 MB)
+        https://huggingface.co/deepghs/nudenet_onnx/resolve/main/320n.onnx
+      - NudeNet NMS YOLOv8 ONNX (3 KB)
+        https://huggingface.co/deepghs/nudenet_onnx/resolve/main/nms-yolov8.onnx
+      - NudeNet 640m .pt (52 MB)
+        https://huggingface.co/vladmandic/nudenet/resolve/main/nudenet-v34-640m.pt
+    Destino: `modelos/yolonsfw/` (mesma pasta ja servida em `/yolonsfw/`).
+    O 640m sera exportado para ONNX por `scripts/exportar-yolo-nsfw.mjs`.
+6.3 [x] Exportar o NudeNet 640m para ONNX com `imgsz=640` e NMS embutido, no
+    mesmo formato `[1, 300, 6]` do EraX, ou manter saida crua e decodificar no
+    cliente (ver 6.4).
+6.4 [x] Suportar no cliente a saida crua YOLOv8 do NudeNet
+    `[1, 22, N]` (4 caixas + 18 classes), incluindo:
+      - transposicao e sigmoid quando necessario;
+      - NMS por classe (IoU 0,45);
+      - caixas na resolucao original;
+      - sidecar de classes do NudeNet.
+    Arquivo principal: `public/nsfw-onnx.ts` (novo decodificador, sem quebrar
+    o caminho `[1, 300, 6]` do EraX).
+6.5 [x] Thresholds por classe (nao um unico 0,5):
+      - genital exposto (MALE/FEMALE_GENITALIA_EXPOSED): 0,20-0,25;
+      - genital coberto (FEMALE_GENITALIA_COVERED): 0,15;
+      - anus/buttocks expostos: 0,20-0,25;
+      - mama exposta: 0,50 (evita falso positivo em decote);
+      - make_love/acao: manter 0,35-0,50 e tratar como indicio, nao certeza.
+    O limiar global continua ajustavel; os limites por classe sao o piso.
+6.6 [x] Catalogo de modelos NSFW em `public/nsfw-onnx.ts`:
+      - `nudenet_320n` (padrao desde 2026-11-09, 18 classes, saida crua);
+      - `erax_nsfw_yolo11n` (5 classes, `[1,300,6]`);
+      - `erax_nsfw_yolo11s` e `erax_nsfw_yolo11m` (opcionais, ja presentes);
+      - `nudenet_640m` (18 classes, export com NMS).
+    A UI ganha um seletor "Modelo NSFW"; a escolha e persistida por sessao.
+6.7 [x] Worker dedicado por modelo:
+      - adicionar tipos de motor `nsfw-nudenet` (ou equivalente) ao protocolo;
+      - uma instancia de `ClienteWorker` por modelo carregado;
+      - `worker-onnx.ts` atende EraX e NudeNet em instancias separadas;
+      - nunca compartilhar sessao ONNX entre modelos diferentes;
+      - telemetria por modelo (carga, inferencia, dispositivo, memoria).
+6.8 [x] Teste de isolamento: cada `criarMotorNsfwRemoto` cria Worker proprio;
+    trocar de modelo encerra a thread anterior e abre outra; recarregar o mesmo
+    modelo reaproveita o Worker. Coberto em `tests/motores-remotos.test.ts`
+    (4 casos: 2 motores/2 workers, troca de modelo, mesmo modelo, padrao 320n).
+    Tres modelos ativos ao mesmo tempo nao existem por decisao de orcamento
+    (Fase 8.2): o app mantem 1 modelo NSFW ativo por vez.
+6.9 [x] Contexto/metadados no payload de visao:
+      - adicionar campo opcional `contexto` em `/api/visao` (texto curto);
+      - o bench injeta o nome do clipe como contexto;
+      - o app permite uma anotacao/observacao do usuario;
+      - o prompt usa "trans" somente se o contexto declarar explicitamente.
+6.10 [x] Bench comparativo EraX vs NudeNet 320n vs NudeNet 640m:
+      - imagens NSFW do bench;
+      - video de referencia, amostragem a cada 10 s;
+      - metricas: recall de penis/vagina/anus/calcinha, falsos positivos,
+        latencia por frame e custo de carga;
+      - relatorio em `bench/RELATORIO_NSFW_MODELOS_20261109.md`.
+      - Limite registrado no relatorio: sem anotacao humana de ground truth, os
+        numeros sao concordancia entre modelos; falta calibrar os pisos.
+GATE 6: o modelo escolhido detecta penis e genital coberto no material de
+    referencia, cada modelo roda em thread propria e o relatorio compara
+    recall/latencia com amostra e limites explicitos.
+
+======================================================================
+FASE 7 - ACOES SEXUAIS (POSE E MASTURBACAO)
+----------------------------------------------------------------------
+7.1 [ ] VLM multi-frame para acao: enviar 3-6 frames do mesmo ciclo ao gemma
+    com instrucao explicita sobre a acao (masturbacao, sexo oral, penetracao),
+    preservando frameIds e dizendo que e inferencia, nao certeza.
+    Hoje o fluxo envia 1 frame por analise; esta e a mudanca de maior ganho.
+7.2 [ ] Regras geometricas com o YOLO Pose ja existente:
+      - mao proxima da regiao genital por N frames;
+      - pernas abertas/joelhos afastados;
+      - movimento ritmico do punho/braco;
+      - sempre como "pose compativel", nunca como prova de ato sexual.
+7.3 [ ] Avaliar modelo de acao em video (VideoMAE/X3D/SlowFast fine-tuned).
+    Situacao: nao foram encontrados pesos abertos confiaveis e especificos para
+    masturbacao/acao sexual. Nao baixar modelo generico so para "ter modelo":
+    ele nao reconhece a acao e so adiciona custo.
+    Alternativas se necessario: `miles-deep` (classificador antigo em Caffe,
+    nao integravel no navegador sem conversao) ou API comercial (Hive AI,
+    paga e envia imagem para fora - conflita com execucao local).
+7.4 [ ] Bench de acao com anotacao humana (inicio/fim > 1 fps) e comparacao
+    entre "1 frame", "3 frames" e "6 frames" no gemma.
+GATE 7: o sistema descreve a acao como inferencia com evidencia e confianca,
+    sem transformar heuristica em certeza; relatorio separa acerto de acao de
+    deteccao de corpo.
+
+======================================================================
+FASE 8 - ORCAMENTO DE THREADS E DESEMPENHO
+----------------------------------------------------------------------
+8.1 [ ] Medir, por modelo, custo de carga, latencia por frame e memoria.
+    Parcial: carga e latencia medidas em bench/RELATORIO_NSFW_MODELOS_20261109.md
+    (320n 1,5 s / 141-365 ms; EraX 1,5 s / 458-873 ms; 640m 1,9-2,1 s /
+    4,6-4,9 s). Memoria por modelo ainda nao medida.
+8.2 [ ] Definir orcamento: quantos workers NSFW podem ficar ativos ao mesmo
+    tempo sem degradar captura/pose/maos. Default: 1 modelo NSFW ativo.
+    Situacao atual: o app ja mantem 1 modelo NSFW ativo por vez (o seletor troca
+    de modelo e encerra a thread anterior); falta medir o efeito de 2+ modelos.
+8.3 [ ] Nao carregar modelos NSFW no boot; carregar sob demanda e encerrar ao
+    desligar o toggle/sessao.
+8.4 [ ] Fallback para thread principal apenas quando o worker falhar/timeout;
+    registrar o motivo na telemetria e nao repetir o worker na mesma sessao.
+8.5 [ ] Medir o efeito de COOP/COEP e `numThreads` WASM por worker; nao
+    prometer nucleo fisico exclusivo - o navegador continua agendando.
+GATE 8: nenhum modelo NSFW compartilha thread/sessao com outro; o custo de
+    cada um aparece na telemetria e o default nao degrada o ciclo.
+
+======================================================================
 ORDEM DE EXECUCAO
-Passo 0. Fase 5 (ambiente) - prerequisito transversal; alinhar antes de depender da CI.
-Passo 1. Fase 1 (cadeia de evidencias).
-Passo 2. Fase 2 (motor temporal para acoes humanas).
-Passo 3. Fase 3 (contrato multimodal).
-Passo 4. Fase 4 (benchmark orientado aos objetivos).
-Cada fase so avanca quando o GATE correspondente for atendido.
+----------------------------------------------------------------------
+Passo 1. Fase 6.1-6.3: apagar analise, escrever plano, baixar/exportar modelos.
+Passo 2. Fase 6.4-6.5: decodificador NudeNet + thresholds por classe.
+Passo 3. Fase 6.6-6.8: catalogo, seletor e worker por modelo.
+Passo 4. Fase 6.9: contexto/metadados (corrige "trans").
+Passo 5. Fase 6.10: bench comparativo e relatorio.
+Passo 6. Fase 7: VLM multi-frame e regras de pose.
+Passo 7. Fase 8: orcamento e telemetria.
 
-LEGENDA
-[x] concluido e verificado no codigo/execucao
-[~] parcial: codigo/protocolo pronto, mas falta execucao ou dado humano
-[ ] pendente
-
-========================================================================
-FASE 5 - Corrigir ambiente de desenvolvimento e reprodutibilidade [CONCLUIDA]
-Objetivo: garantir que as validacoes das fases seguintes sejam reproduziveis.
-Depende de: nada (executar primeiro).
-------------------------------------------------------------------------
-5.1 [x] Alinhar CI e documentacao com Node 22.12+ ou Node 24, conforme engines do lockfile.
-5.2 [x] Instalar dependencias de forma reproduzivel com npm ci.
-5.3 [x] Executar npm run typecheck, npm run lint, npm test e os E2E aplicaveis.
-    (typecheck/lint/test verdes; e2e/app.spec.ts 15/15 - ver bench/RELATORIO_VALIDACAO_20261107.md)
-5.4 [x] Anexar resultados de validacao ao relatorio da versao.
-    (bench/RELATORIO_VALIDACAO_20261107.md)
-5.5 [x] Registrar backend, versao do modelo multimodal e dispositivos efetivos dos tres adaptadores.
-    (o harness agora sempre lista deteccao/pose/maos, com "nao registrado" quando a telemetria falta)
-GATE 5: ambiente e validacoes ficam reproduziveis e registrados; falhas e limitacoes de E2E ficam explicitas.
-    (validado: ver bench/RELATORIO_VALIDACAO_20261107.md)
-
-========================================================================
-FASE 1 - Fechar a cadeia de evidencias [CONCLUIDA]
-Objetivo: garantir que deteccoes, IDs, geometria, movimento e eventos cheguem ao
-interpretador com semantica clara e vinculados ao frame correto.
-Depende de: Fase 5.
-------------------------------------------------------------------------
-1.1 [x] Revisar o contrato atual de rastreamento e serializacao de deteccoes por frame.
-1.2 [x] Associar o trackId de instancia de objeto a cada deteccao serializada, preservando frameId;
-    nao usar o rotulo da classe como identidade.
-1.3 [x] Confirmar por testes que IDs de pessoas, maos e objetos ficam vinculados ao frame correto
-    ao longo de quatro snapshots.
-1.4 [x] Incluir timestamps e intervalos efetivos entre observacoes nos calculos temporais.
-1.5 [x] Adicionar teste de integracao do payload final enviado ao VLM: imagens, frameIds,
-    deteccoes, pose, maos e eventos.
-GATE 1: objeto, pessoa e mao mantem IDs estaveis quando associaveis; associacoes incertas nao
-    inventam continuidade.
-
-========================================================================
-FASE 2 - Melhorar o motor temporal para acoes humanas [CONCLUIDA]
-Objetivo: sair do limiar por frame e do gesto estatico para velocidade, transicoes
-e geometria da mao com estados explicitos.
-Depende de: Fase 1.
-------------------------------------------------------------------------
-2.1 [x] Trocar limiar de deslocamento por frame por velocidade normalizada por segundo;
-    rejeitar intervalos invalidos ou excessivamente longos.
-2.2 [x] Distinguir postura mantida (ex.: braco erguido) de transicao (ex.: levantou o braco).
-2.3 [x] Definir representacao estavel dos cinco dedos: polegar, indicador, medio, anelar e minimo
-    estendidos.
-2.4 [x] Implementar regras iniciais para polegar para cima, mao aberta, punho fechado, um dedo
-    e dois dedos.
-2.5 [x] Aplicar histerese e confirmacao por multiplas observacoes; preservar confianca e evidencias,
-    sem tratar heuristica como certeza.
-2.6 [x] Usar lateralidade como restricao na associacao de maos.
-2.7 [x] Diferenciar estados de gesto confirmado, gesto encerrado, mao ocluida, inferencia
-    indisponivel e observacao insuficiente.
-2.8 [x] Criar testes temporais para velocidade, transicoes, gestos, lateralidade, oclusao e
-    encerramento.
-GATE 2: cada evento registra entidade, inicio/fim, origem da evidencia, confianca, continuidade
-    valida e motivo de encerramento.
-
-========================================================================
-FASE 3 - Melhorar o contrato multimodal [CONCLUIDA]
-Objetivo: explicar as evidencias ao VLM, preservar o que importa no truncamento e
-declarar explicitamente o que foi podado.
-Depende de: Fases 1 e 2.
-------------------------------------------------------------------------
-3.1 [x] Explicar no prompt dedosEstendidos, totalEstendidos e configuracao; descrever os angulos
-    como estimativas locais 2D.
-3.2 [x] Informar ao VLM que dados locais podem falhar; pedir que divergencias e casos inconclusivos
-    sejam tratados como incerteza.
-3.3 [x] Ao reduzir contexto, preservar ombros, cotovelos, pulsos e quadris, alem de gestos e
-    eventos temporais confirmados.
-3.4 [x] Registrar no payload que houve truncamento e quais grupos foram removidos.
-3.5 [x] Medir e registrar a frequencia de truncamento em ciclos reais.
-3.6 [x] Preservar a ligacao entre imagens, resultados estruturados e frameId.
-3.7 [x] Adicionar testes de snapshot do payload e de truncamento sem perda silenciosa da unica
-    evidencia de um evento.
-GATE 3: o payload contem todas as evidencias necessarias ou declara explicitamente o que foi podado.
-
-========================================================================
-FASE 4 - Validar benchmark para os objetivos do projeto [PARCIAL: harness pronto; dados humanos pendentes]
-Objetivo: medir gestos, postura, transicoes e oclusao - nao apenas movimento de objetos.
-Depende de: Fases 1, 2 e 3.
-------------------------------------------------------------------------
-4.1 [~] Criar conjuntos EVAL separados: movimento_objeto, gestos_mao, postura_corporal,
-    transicao_acao e oclusao_iluminacao.
-    (movimento_objeto EVAL reduzido validado; gestos/postura/transicao/oclusao exigem videos e
-    anotacao humana - ver MATRIZ_COBERTURA.md)
-4.2 [~] Anotar inicio/fim com resolucao temporal superior a 1 fps para movimentos rapidos.
-    (validar:eval agora REJEITA evento rapido anotado a 1 fps; faltam as anotacoes humanas)
-4.3 [~] Revisar anotacoes humanas e manter tuning separado de EVAL.
-    (EVAL atual revisado e separado por hash; novos alvos ainda sem anotacao)
-4.4 [~] Executar varias rodadas independentes com os mesmos videos e parametros; separar aquecimento.
-    (--warmups e --min-amostras-estatisticas implementados; rodadas reais ainda nao executadas)
-4.5 [x] Manter logs brutos fora do repositorio e registrar hashes e manifesto dos dados usados.
-4.6 [x] Reportar mediana, P95 com tamanho da amostra, falhas e intervalo de confianca quando houver
-    amostra suficiente.
-4.7 [x] Distinguir "comparavel" de "estatisticamente suficiente"; nao declarar resultado conclusivo
-    por haver apenas um ciclo.
-4.8 [x] Representar metricas sem denominador como N/A/null e exclui-las das medias (incluindo recall
-    sem positivos esperados).
-4.9 [x] Renomear a janela medida pelo comparador para "janela de geracao do relatorio", sem
-    confundi-la com duracao das inferencias.
-GATE 4: resultados cobrem as capacidades avaliadas e deixam claros amostra, incerteza, falhas e
-    limites de reproducao.
-    (PENDENTE: os resultados atuais cobrem apenas movimento_objeto; nao ha dados para
-    gestos/postura/transicao/oclusao.)
-
-========================================================================
-FORA DO ESCOPO DESTE PLANO
-- Nao reescrever a arquitetura nem substituir modelos sem evidencia medida.
-- Nao inferir 30 FPS nem continuidade durante lacunas sem benchmark.
-- Nao usar EVAL atual de movimento de objetos como validacao de gestos ou postura humana.
+======================================================================
+FORA DO ESCOPO
+----------------------------------------------------------------------
+- Nao substituir o padrao qwen2.5-vl-3b-instruct por gemma fora do NSFW.
+- Nao inferir "trans" por aparencia, roupa, voz ou comportamento.
+- Nao rodar o bench inteiro para testar um unico arquivo.
+- Nao commitar pesos (`modelos/` e gitignored).
+- Nao declarar resultado conclusivo com uma unica rodada ou amostra pequena.
+- Nao adicionar modelo de acao sem pesos confiaveis e evidencia medida.
