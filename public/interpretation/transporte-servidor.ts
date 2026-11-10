@@ -20,6 +20,7 @@ export function criarTransporteServidor(): EnviarMultimodal {
         frameIds: requisicao.frameIds,
         prompt: requisicao.prompt,
         modelo: requisicao.modelo,
+        ...(requisicao.contextoDeclarado ? { contexto: requisicao.contextoDeclarado } : {}),
         ...(requisicao.nsfwAtivo ? { nsfwAtivo: true } : {}),
         modo: "descricao",
       },

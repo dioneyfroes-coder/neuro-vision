@@ -103,6 +103,11 @@ export interface DependenciasCiclo {
   classificadorNsfw?: ClassificadorNsfw;
   /** Modelo NSFW a carregar; `undefined` desliga o subsistema nesta sessao. */
   obterModeloNsfw?: () => string | undefined;
+  /**
+   * Contexto/metadado declarado (anotacao do usuario). Vai ao prompt como
+   * declaracao, nunca como observacao visual. Ausente = nenhum contexto.
+   */
+  obterContexto?: () => string | undefined;
 }
 
 function gerarId(): string {
@@ -529,6 +534,7 @@ export class CycleController implements ControladorCiclo {
       base: ehRoteiro ? this.roteiroPrimeiro : undefined,
       anterior: ehRoteiro ? undefined : this.ultimaDescricao,
       motivo: motivo ?? undefined,
+      contexto: this.deps.obterContexto?.(),
       nsfw,
     });
 

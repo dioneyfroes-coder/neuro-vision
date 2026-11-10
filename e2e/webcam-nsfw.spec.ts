@@ -90,7 +90,9 @@ test.describe("NSFW experimental com clipe real", () => {
 
     const corposVisao: Array<Record<string, unknown>> = [];
     const eventosDone: Array<Record<string, unknown>> = [];
+    const pedidosNsfw: string[] = [];
     page.on("request", (req) => {
+      if (/\/yolonsfw\/.*\.onnx(\.json)?$/.test(req.url())) pedidosNsfw.push(req.url());
       if (req.method() !== "POST" || !req.url().endsWith("/api/visao")) return;
       try {
         corposVisao.push(JSON.parse(req.postData() || "{}"));
@@ -119,6 +121,9 @@ test.describe("NSFW experimental com clipe real", () => {
     await page.goto("/");
     await page.locator("#motor").selectOption("visao");
     await page.locator("#nsfw").check();
+    // O padrao do seletor e o NudeNet 320n (bench/RELATORIO_NSFW_MODELOS_20261109.md).
+    await expect(page.locator("#modeloNsfw")).toHaveValue("nudenet_320n");
+    await expect(page.locator("#status")).toContainText("nudenet_320n");
     await page.locator("#interval").evaluate((el) => {
       const input = el as HTMLInputElement;
       input.value = "1";
@@ -129,6 +134,13 @@ test.describe("NSFW experimental com clipe real", () => {
     await expect
       .poll(() => corposVisao.length, { timeout: 300_000 })
       .toBeGreaterThan(0);
+
+    // O worker do modelo NSFW padrao baixa os pesos e o sidecar de classes.
+    await expect
+      .poll(() => pedidosNsfw.some((url) => url.includes("nudenet_320n.onnx")), {
+        timeout: 120_000,
+      })
+      .toBe(true);
 
     // O corpo do /api/visao e montado antes da chamada ao backend; o campo NSFW
     // precisa estar presente mesmo sem esperar a resposta.

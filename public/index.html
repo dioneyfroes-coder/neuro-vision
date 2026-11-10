@@ -66,6 +66,26 @@
           <input id="nsfw" type="checkbox" />
           NSFW (experimental)
         </label>
+        <label>
+          Modelo NSFW
+          <select id="modeloNsfw" title="Classificador NSFW local. Cada modelo carrega em um worker/thread proprio; trocar de modelo recria o worker.">
+            <option value="nudenet_320n">NudeNet 320n (padrão, 18 classes)</option>
+            <option value="nudenet_640m">NudeNet 640m (18 classes, lento)</option>
+            <option value="erax_nsfw_yolo11n">EraX YOLO11n (rápido, 5 classes)</option>
+            <option value="erax_nsfw_yolo11s">EraX YOLO11s</option>
+            <option value="erax_nsfw_yolo11m">EraX YOLO11m</option>
+          </select>
+        </label>
+        <label>
+          Contexto
+          <input
+            id="contexto"
+            type="text"
+            maxlength="1000"
+            placeholder="ex.: nome do clipe, anotação"
+            title="Metadado declarado por você (nome do clipe, anotação). Vai ao prompt como declaração, nunca como observação visual. Identidade de gênero só entra por aqui."
+          />
+        </label>
       </div>
       <div id="status" class="status">Pronto.</div>
     </section>

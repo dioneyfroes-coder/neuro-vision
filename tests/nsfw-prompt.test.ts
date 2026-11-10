@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  LIMITE_CONTEXTO_DECLARADO,
+  blocoContextoDeclarado,
   blocoNsfwPrompt,
   descreverRotuloNsfw,
   formatarMarcacoesNsfw,
   INSTRUCAO_NSFW,
   MODELO_NSFW,
   normalizarCaixaNsfw,
+  normalizarContextoDeclarado,
   normalizarMarcacoesNsfw,
   resolverModeloVisao,
   resumirMarcacoesNsfw,
@@ -161,6 +164,31 @@ describe("blocoNsfwPrompt", () => {
 
   it("devolve vazio quando nao ha quadros", () => {
     expect(blocoNsfwPrompt([])).toBe("");
+  });
+
+  it("anexa o contexto declarado antes das marcacoes, separando declaracao de evidencia", () => {
+    const bloco = blocoNsfwPrompt(
+      [{ indice: 1, frameId: "f1", marcacoes: [] }],
+      "  clipe:\n  mulher   trans declarada  "
+    );
+    expect(bloco).toContain("CONTEXTO DECLARADO");
+    expect(bloco).toContain("- clipe: mulher trans declarada");
+    expect(bloco.indexOf("CONTEXTO DECLARADO")).toBeLessThan(bloco.indexOf(INSTRUCAO_NSFW));
+    expect(bloco).toMatch(/Nunca deduza 'pessoa trans'/);
+  });
+
+  it("nao cria bloco de contexto vazio", () => {
+    expect(blocoContextoDeclarado("   ")).toBe("");
+    expect(blocoContextoDeclarado(undefined)).toBe("");
+    expect(blocoContextoDeclarado("  nome   do clipe ")).toContain("- nome do clipe");
+  });
+
+  it("normaliza espacos e limita o tamanho do contexto declarado", () => {
+    expect(normalizarContextoDeclarado("  a\n\n b\tc  ")).toBe("a b c");
+    expect(normalizarContextoDeclarado("x".repeat(LIMITE_CONTEXTO_DECLARADO + 50))).toHaveLength(
+      LIMITE_CONTEXTO_DECLARADO
+    );
+    expect(normalizarContextoDeclarado(undefined)).toBeUndefined();
   });
 });
 

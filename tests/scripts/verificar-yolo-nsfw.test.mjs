@@ -46,11 +46,19 @@ describe("parsearArgumentos", () => {
         "--amostras",
         "7",
         "--fixtures-nsfw",
+        "--detalhado",
       ])
     ).toMatchObject({
       entradas: ["imagem.png", "video.mp4"],
       amostras: 7,
       fixturesNsfw: true,
+      detalhado: true,
+    });
+  });
+
+  it("liga o modo detalhado com o atalho -v", () => {
+    expect(parsearArgumentos(["modelo", "imagem.png", "-v"])).toMatchObject({
+      detalhado: true,
     });
   });
 

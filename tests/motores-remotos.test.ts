@@ -10,7 +10,7 @@ vi.mock("../public/pose", () => ({
   criarMotorPoseTransformers: mocks.criarMotorPoseTransformers,
 }));
 
-import { criarMotorPoseRemoto } from "../public/perception/workers/motores-remotos";
+import { criarMotorNsfwRemoto, criarMotorPoseRemoto } from "../public/perception/workers/motores-remotos";
 
 class WorkerFalso {
   onmessage: ((evento: MessageEvent) => void) | null = null;
@@ -122,5 +122,118 @@ describe("fallback do motor remoto de pose", () => {
     await motor.encerrar?.();
     expect(encerrarLocal).toHaveBeenCalledOnce();
     expect(workers[0].terminate).toHaveBeenCalled();
+  });
+});
+
+/** Worker NSFW falso: registra as mensagens e responde carga/inferencia. */
+class WorkerNsfwFalso {
+  onmessage: ((evento: MessageEvent) => void) | null = null;
+  onerror: ((evento: ErrorEvent) => void) | null = null;
+  onmessageerror: (() => void) | null = null;
+  terminate = vi.fn();
+  readonly mensagens: Array<Record<string, unknown>> = [];
+
+  postMessage(requisicao: { id: number; tipo: string; modelo?: string }): void {
+    this.mensagens.push(requisicao);
+    queueMicrotask(() => {
+      if (requisicao.tipo === "carregar") {
+        this.onmessage?.({
+          data: {
+            id: requisicao.id,
+            ok: true,
+            valor: { modelo: requisicao.modelo, dispositivo: "wasm", tempoCargaMs: 1 },
+          },
+        } as MessageEvent);
+      } else {
+        this.onmessage?.({ data: { id: requisicao.id, ok: true, valor: [] } } as MessageEvent);
+      }
+    });
+  }
+}
+
+describe("isolamento do motor NSFW por modelo", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function instalarWorkers(): WorkerNsfwFalso[] {
+    const workers: WorkerNsfwFalso[] = [];
+    vi.stubGlobal(
+      "Worker",
+      class extends WorkerNsfwFalso {
+        constructor() {
+          super();
+          workers.push(this);
+        }
+      }
+    );
+    return workers;
+  }
+
+  it("cria um Worker por motor e envia o modelo pedido a cada um", async () => {
+    const workers = instalarWorkers();
+
+    const motorA = criarMotorNsfwRemoto();
+    await motorA.carregar("nudenet_320n");
+    const motorB = criarMotorNsfwRemoto();
+    await motorB.carregar("nudenet_640m");
+
+    expect(workers).toHaveLength(2);
+    expect(workers[0]).not.toBe(workers[1]);
+    expect(workers[0].mensagens[0]).toMatchObject({
+      tipo: "carregar",
+      motor: "nsfw",
+      modelo: "nudenet_320n",
+    });
+    expect(workers[1].mensagens[0]).toMatchObject({
+      tipo: "carregar",
+      motor: "nsfw",
+      modelo: "nudenet_640m",
+    });
+
+    motorA.encerrar?.();
+    motorB.encerrar?.();
+    expect(workers[0].terminate).toHaveBeenCalled();
+    expect(workers[1].terminate).toHaveBeenCalled();
+  });
+
+  it("troca de modelo encerra a thread anterior e abre outra", async () => {
+    const workers = instalarWorkers();
+    const motor = criarMotorNsfwRemoto();
+
+    await motor.carregar("nudenet_320n");
+    const primeiro = workers[0];
+    await motor.carregar("erax_nsfw_yolo11n");
+
+    expect(primeiro.terminate).toHaveBeenCalled();
+    expect(workers).toHaveLength(2);
+    expect(workers[1].mensagens[0]).toMatchObject({ modelo: "erax_nsfw_yolo11n" });
+    // A nova thread nao herda a sessao ONNX da anterior.
+    expect(workers[1]).not.toBe(primeiro);
+  });
+
+  it("recarregar o mesmo modelo reaproveita o Worker atual", async () => {
+    const workers = instalarWorkers();
+    const motor = criarMotorNsfwRemoto();
+
+    await motor.carregar("nudenet_320n");
+    await motor.carregar("nudenet_320n");
+
+    expect(workers).toHaveLength(1);
+    expect(workers[0].terminate).not.toHaveBeenCalled();
+    expect(await motor.executar("frame")).toEqual([]);
+  });
+
+  it("sem modelo explicito usa o NudeNet 320n como padrao", async () => {
+    const workers = instalarWorkers();
+    const motor = criarMotorNsfwRemoto();
+
+    await motor.carregar(null);
+
+    expect(workers[0].mensagens[0]).toMatchObject({ modelo: "nudenet_320n" });
   });
 });

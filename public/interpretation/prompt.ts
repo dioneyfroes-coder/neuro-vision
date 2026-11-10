@@ -18,7 +18,10 @@ import type { ContextoCicloSerializavel } from "./esquema";
  * explicito: as marcacoes +18 sao evidencia e o modelo deve descreve-las sem
  * eufemismos, censura ou omissao.
  */
-export function montarPromptInterpretacao(contexto: ContextoCicloSerializavel): string {
+export function montarPromptInterpretacao(
+  contexto: ContextoCicloSerializavel,
+  contextoDeclarado?: string
+): string {
   const frames = contexto.frames
     .map((f) => {
       // Variante B nao envia dados locais: os subsistemas vem `nao_carregado`.
@@ -77,7 +80,7 @@ export function montarPromptInterpretacao(contexto: ContextoCicloSerializavel): 
       frameId: f.frameId,
       marcacoes: f.nsfw ?? [],
     }));
-  const blocoNsfw = blocoNsfwPrompt(quadrosNsfw);
+  const blocoNsfw = blocoNsfwPrompt(quadrosNsfw, contextoDeclarado);
 
   return [
     "Voce e um analista visual que interpreta EXCLUSIVAMENTE as evidencias fornecidas.",

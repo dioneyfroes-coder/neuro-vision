@@ -67,6 +67,12 @@ export interface PayloadVisao {
    * Sinaliza ao servidor para usar exclusivamente o `MODELO_NSFW`.
    */
   nsfwAtivo?: boolean;
+  /**
+   * Contexto/metadado declarado (nome do clipe, anotacao do usuario). O prompt
+   * o trata como declaracao, nunca como observacao visual; identidade de genero
+   * so entra por aqui.
+   */
+  contexto?: string;
 }
 
 export interface ResultadoVisao {

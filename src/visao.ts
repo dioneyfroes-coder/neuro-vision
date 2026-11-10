@@ -40,6 +40,13 @@ export interface OpcoesGerarDescricao {
    * bloco NSFW; no multiframe o prompt explicito ja traz o proprio bloco.
    */
   frameIds?: string[];
+  /**
+   * Contexto/metadado declarado por quem enviou a midia (nome do clipe,
+   * anotacao do usuario). Vai para o prompt como declaracao, nunca como
+   * observacao visual; e o unico caminho para uma identidade de genero
+   * declarada. So tem efeito com o NSFW ativo.
+   */
+  contexto?: string;
 }
 
 export const PROMPT_ANALISE_PROFUNDA =
@@ -411,9 +418,10 @@ function montarCorpo(
   const frameId = opcoes.frameIds?.length === 1 ? opcoes.frameIds[0] : undefined;
   const prompt =
     opcoes.prompt === undefined && opcoes.nsfw !== undefined
-      ? `${promptCompleto}\n\n${blocoNsfwPrompt([
-          { indice: 1, ...(frameId ? { frameId } : {}), marcacoes: opcoes.nsfw },
-        ])}`
+      ? `${promptCompleto}\n\n${blocoNsfwPrompt(
+          [{ indice: 1, ...(frameId ? { frameId } : {}), marcacoes: opcoes.nsfw }],
+          opcoes.contexto
+        )}`
       : promptCompleto;
   const requisicao = montarRequisicaoChat({
     backend,

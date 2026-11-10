@@ -62,6 +62,8 @@ export interface OpcoesMotorVisao {
   nsfw?: MarcacaoNsfwLog[];
   /** Frames que originaram a inferencia multimodal. */
   frameIds?: string[];
+  /** Contexto/metadado declarado (nome do clipe, anotacao do usuario). */
+  contexto?: string;
 }
 
 /** Motor de descricao/roteiro via backend de visao, atras da interface comum. */
@@ -105,6 +107,7 @@ export class MotorVisao implements MotorPercepcao {
       payload.anterior = this.opcoes.anterior;
     }
     payload.motivo = this.opcoes.motivo;
+    if (this.opcoes.contexto?.trim()) payload.contexto = this.opcoes.contexto.trim();
     if (this.opcoes.nsfw !== undefined) payload.nsfw = this.opcoes.nsfw;
 
     const { evento, parcial } = await api.descreverFrame(payload, sinal, aoProgresso);

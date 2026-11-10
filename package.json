@@ -18,6 +18,7 @@
     "qualidade": "node scripts/avaliar-qualidade.mjs",
     "validar:eval": "node scripts/validar-eval.mjs",
     "preparar:offline": "node scripts/preparar-offline.mjs",
+    "baixar:nsfw": "node scripts/baixar-modelos-nsfw.mjs",
     "gravar:webcam": "node scripts/gravar-webcam.mjs",
     "extrair:frames": "node scripts/extrair-frames.mjs",
     "integrar:lmstudio": "node --import tsx scripts/testar-lmstudio.mjs",

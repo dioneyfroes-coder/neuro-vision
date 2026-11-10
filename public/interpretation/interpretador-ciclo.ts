@@ -31,6 +31,8 @@ export interface RequisicaoMultimodal {
   modelo?: string;
   /** NSFW ativo: o servidor deve usar exclusivamente o `MODELO_NSFW`. */
   nsfwAtivo?: boolean;
+  /** Contexto/metadado declarado (nome do clipe, anotacao do usuario). */
+  contextoDeclarado?: string;
 }
 
 export interface RespostaMultimodal {
@@ -60,6 +62,12 @@ export interface DependenciasInterpretadorCiclo {
    * Quando `true`, o servidor troca o modelo por `MODELO_NSFW`.
    */
   nsfwAtivo?: boolean | (() => boolean);
+  /**
+   * Contexto/metadado declarado (nome do clipe, anotacao do usuario). Pode ser
+   * uma funcao para refletir a interface a cada interpretacao. Vai ao prompt
+   * como declaracao — nunca como observacao visual.
+   */
+  contextoDeclarado?: string | (() => string | undefined);
   limites?: Partial<LimitesContexto>;
   /**
    * Inclui os dados locais no contexto multimodal. `false` (variante B) envia
@@ -90,6 +98,7 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
   private readonly enviar: EnviarMultimodal;
   private readonly obterModelo: () => string | null;
   private readonly obterNsfwAtivo: () => boolean;
+  private readonly obterContextoDeclarado: () => string | undefined;
   private readonly limites: LimitesContexto;
   private readonly incluirDadosLocais: boolean;
   private readonly serializacao?: Partial<OpcoesSerializacao>;
@@ -103,6 +112,11 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
     const nsfwAtivo = deps.nsfwAtivo;
     this.obterNsfwAtivo =
       typeof nsfwAtivo === "function" ? nsfwAtivo : () => nsfwAtivo === true;
+    const contextoDeclarado = deps.contextoDeclarado;
+    this.obterContextoDeclarado =
+      typeof contextoDeclarado === "function"
+        ? () => contextoDeclarado() ?? undefined
+        : () => contextoDeclarado ?? undefined;
     this.limites = { ...LIMITES_CONTEXTO_PADRAO, ...deps.limites };
     this.incluirDadosLocais = deps.incluirDadosLocais ?? true;
     this.serializacao = deps.serializacao;
@@ -131,7 +145,8 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
       incluirDadosLocais: this.incluirDadosLocais,
       serializacao: this.serializacao,
     });
-    const prompt = montarPromptInterpretacao(contexto);
+    const contextoDeclarado = this.obterContextoDeclarado();
+    const prompt = montarPromptInterpretacao(contexto, contextoDeclarado);
     const modelo = this.obterModelo();
     const inicio = this.agora();
     const resposta = await this.enviar(
@@ -141,6 +156,7 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
         prompt,
         contexto,
         modelo: modelo ?? undefined,
+        ...(contextoDeclarado ? { contextoDeclarado } : {}),
         ...(this.obterNsfwAtivo() ? { nsfwAtivo: true } : {}),
       },
       sinal

@@ -736,7 +736,8 @@ export function validarPayloadVisao(payload: unknown): string | null {
     campoTipoTexto(p.anterior, "anterior") ??
     campoTipoTexto(p.roteiro, "roteiro") ??
     campoTipoTexto(p.prompt, "prompt") ??
-    campoTipoTexto(p.capturadoEm, "capturadoEm");
+    campoTipoTexto(p.capturadoEm, "capturadoEm") ??
+    campoTipoTexto(p.contexto, "contexto");
   if (texto) return texto;
   const erroImagens = validarListaImagens(p.imagens);
   if (erroImagens) return erroImagens;
@@ -1374,6 +1375,8 @@ async function streamVisao(
     motivo?: MotivoAnalise;
     capturadoEm?: string;
     frameIds?: string[];
+    /** Contexto/metadado declarado (nome do clipe, anotacao do usuario). */
+    contexto?: string;
     /** Marcacoes NSFW normalizadas; `undefined` = subsistema desligado. */
     nsfw?: MarcacaoNsfwLog[];
     apiKey?: string;
@@ -1559,6 +1562,7 @@ async function handleVisao(
         frameIds: Array.isArray(p.frameIds)
           ? p.frameIds.filter((id): id is string => typeof id === "string")
           : undefined,
+        contexto: typeof p.contexto === "string" ? p.contexto : undefined,
         nsfw: normalizarMarcacoesNsfw(p.nsfw),
       },
       config.logFile ?? LOG_FILE,
