@@ -61,20 +61,10 @@
           <span id="thresholdValue">0.50</span>
         </label>
         <label
-          title="Experimental: marca regioes sensiveis (NSFW) e preserva a descricao explicita no contexto, no prompt e na resposta. Exige pesos ONNX exportados em modelos/yolonsfw/ (scripts/exportar-yolo-nsfw.mjs)."
+          title="Experimental: marca regioes sensiveis (NSFW) e preserva a descricao explicita no contexto, no prompt e na resposta. Ao ligar, todos os modelos do catalogo rodam automaticamente no mesmo frame, cada um em seu proprio worker/thread, e as marcacoes sao mescladas. Exige pesos ONNX em modelos/yolonsfw/ (scripts/baixar-modelos-nsfw.mjs e scripts/exportar-yolo-nsfw.mjs)."
         >
           <input id="nsfw" type="checkbox" />
           NSFW (experimental)
-        </label>
-        <label>
-          Modelo NSFW
-          <select id="modeloNsfw" title="Classificador NSFW local. Cada modelo carrega em um worker/thread proprio; trocar de modelo recria o worker.">
-            <option value="nudenet_320n">NudeNet 320n (padrão, 18 classes)</option>
-            <option value="nudenet_640m">NudeNet 640m (18 classes, lento)</option>
-            <option value="erax_nsfw_yolo11n">EraX YOLO11n (rápido, 5 classes)</option>
-            <option value="erax_nsfw_yolo11s">EraX YOLO11s</option>
-            <option value="erax_nsfw_yolo11m">EraX YOLO11m</option>
-          </select>
         </label>
         <label>
           Contexto

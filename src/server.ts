@@ -306,10 +306,16 @@ function normalizarMarcacoesNsfw(valor: unknown): MarcacaoNsfwLog[] | undefined 
     const m = item as Record<string, unknown>;
     if (typeof m.rotulo !== "string" || m.rotulo.length === 0) continue;
     const score = campoNumero(m.score);
+    const modelo = typeof m.modelo === "string" && m.modelo.length > 0 ? m.modelo : undefined;
+    const modelos = Array.isArray(m.modelos)
+      ? m.modelos.filter((valor): valor is string => typeof valor === "string" && valor.length > 0)
+      : undefined;
     marcacoes.push({
       rotulo: m.rotulo,
       score: score === undefined ? 0 : Math.min(1, Math.max(0, score)),
       caixa: normalizarCaixaNsfw(normalizarCaixa(m.caixa)),
+      ...(modelo ? { modelo } : {}),
+      ...(modelos?.length ? { modelos } : {}),
     });
   }
   return marcacoes;

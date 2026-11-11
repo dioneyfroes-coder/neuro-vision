@@ -86,7 +86,7 @@ pré/pós-processamento, coberta pelos testes determinísticos.
 
 ## NSFW experimental (toggle da interface)
 
-O checkbox **NSFW (experimental)** (`#nsfw`) liga um subsistema do pipeline local: um classificador YOLO treinado para conteúdo sensível (YOLO11 ONNX, executado no worker ONNX dedicado, com tentativa WebGPU e recriação em WASM). Com o toggle ligado **na inicialização da sessão**, cada frame ganha marcações (`rotulo`, `score`, `caixa`) que:
+O checkbox **NSFW (experimental)** (`#nsfw`) liga um subsistema do pipeline local: ao ativar, ele carrega **automaticamente todos** os modelos do conjunto (`nudenet_320n`, `nudenet_640m`, `erax_nsfw_yolo11n/s/m` e `penis_yolov8m`), cada um em um **worker ONNX próprio** (com tentativa WebGPU e recriação em WASM), e roda todos sobre o mesmo frame. Não há seletor de modelo. As marcações são mescladas (mesmo rótulo com IoU ≥ 0,6 vira um registro com os modelos concordantes; rótulos diferentes são preservados) e cada frame ganha marcações (`rotulo`, `score`, `caixa`, `modelo`/`modelos`) que:
 
 - entram no **contexto estruturado** dos modos multiframe C/D (campo `nsfw` do frame no schema `contexto-1`) e no **corpo de `/api/visao`** de todos os modos; com o toggle desligado o campo é omitido por completo;
 - são devolvidas no `done` do stream, ficando também na entrada persistida (`visao.jsonl`) e no diagnóstico por ciclo (`observacoes[].nsfw`, métrica `nsfwMs`, `subsistemasIndisponiveis`);
@@ -100,14 +100,14 @@ Quando o NSFW está ativo, a informação +18 é preservada de ponta a ponta:
 - o **prompt** recebe o bloco de `src/nsfw-prompt.ts`: instrução explícita para descrever nudez e atos sexuais com termos anatômicos, sem eufemismos, censura ou recusa, usando as marcações como evidência e sem inventar o que não está visível. O bloco também explica que `score` é confiança do detector (não intensidade/gravidade), que a caixa é normalizada com origem no topo-esquerdo, que ausência de marcação não prova ausência de conteúdo adulto e que a imagem prevalece sobre a caixa. Em multiframe, o bloco lista as marcações por imagem/frame e pede continuidade/progressão; no frame único ele acompanha o prompt padrão de descrição/roteiro. Sobre pessoas na cena, o prompt pede a contagem de adultos e a apresentação visual; identidade de gênero não é inferida pela aparência — "pessoa trans" só é usada quando houver declaração explícita no conteúdo/metadado;
 - a **resposta** do modelo não é censurada nem filtrada pelo app; o texto explícito é exibido e persistido como qualquer outra descrição.
 
-Em `Deteccao` e `Eventos`, o NSFW roda em paralelo à percepção e o resultado é reaproveitado pela análise de visão do mesmo frame. Em `Visao` e `Roteiro`, ele roda antes da chamada multimodal. Falha ao carregar o classificador não derruba a sessão: gera aviso operacional (`origem: nsfw`) e o ciclo segue sem o bloco.
+Em `Deteccao` e `Eventos`, o NSFW roda em paralelo à percepção e o resultado é reaproveitado pela análise de visão do mesmo frame. Em `Visao` e `Roteiro`, ele roda antes da chamada multimodal. Falha de um modelo do conjunto não derruba os demais; só a falha de **todos** gera aviso operacional (`origem: nsfw`) e o ciclo segue sem o bloco.
 
 Detalhes:
 
 - **Pesos locais, nunca commitados.** Os `.pt` vivem em `modelos/yolonsfw/` (gitignored) e são exportados para ONNX por `node scripts/exportar-yolo-nsfw.mjs` (requer `ultralytics` — venv sugerida em `modelos/yolonsfw/.venv`). O servidor expõe os arquivos em `/yolonsfw/` (`src/server.ts`); sem export, a carga falha com instrução de como gerar.
-- **Rótulos do próprio modelo.** O export grava o sidecar `<modelo>.onnx.json` com as classes (no erax: `anus`, `make_love`, `nipple`, `penis`, `vagina`); o cliente lê o sidecar em vez de duplicar a tabela.
+- **Rótulos do próprio modelo.** O export/baixador grava o sidecar `<modelo>.onnx.json` com as classes (no erax: `anus`, `make_love`, `nipple`, `penis`, `vagina`; no NudeNet: 18 classes; no `penis_yolov8m`: `penis`); o cliente lê o sidecar em vez de duplicar a tabela.
 - **Desligado por padrão e experimental.** Sem toggle, nada é carregado e o `nsfw` fica ausente nas observações (a distinção "não rodou" × "rodou e não marcou" é preservada). O toggle fica bloqueado durante a captura (como os seletores de motor): ele vale para a próxima inicialização de sessão.
-- **Verificação empírica:** `node scripts/verificar-yolo-nsfw.mjs [modelo] [frame] [limiar]` — roda o caminho real em WASM no Chromium sobre frames de `bench/videos/frames/` (~0,8 s por inferência com o nano, saída `1×300×6`, NMS embutido no export).
+- **Verificação empírica:** `node scripts/verificar-yolo-nsfw.mjs [modelo] [frame] [limiar]` roda um modelo isolado; `node scripts/verificar-yolo-nsfw.mjs --conjunto <clipe> --amostras 5` roda os 6 em sequência e imprime o resumo comparativo. Ambos usam o caminho real em WASM no Chromium. O paralelo in-page não é suportado (múltiplas sessões ONNX concorrentes travam o WASM do ORT); no app cada modelo tem o próprio worker.
 
 ## Repetição na descrição
 

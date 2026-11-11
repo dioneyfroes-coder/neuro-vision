@@ -202,6 +202,9 @@ export class PipelineLocal {
       tempoCargaMs: metricas?.tempoCargaMs,
       tempoInferenciaMs: inferenciaValida ? duracaoInferenciaMs : undefined,
       memoriaBytes: metricas?.memoriaBytes,
+      ...(metricas?.telemetriaModelos?.length
+        ? { modelos: metricas.telemetriaModelos }
+        : {}),
     };
   }
 

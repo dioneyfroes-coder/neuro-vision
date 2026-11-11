@@ -23,6 +23,10 @@ export interface MarcacaoNsfwVisivel {
   rotulo: string;
   score: number;
   caixa: Caixa;
+  /** Modelo de maior score que produziu a marcacao, quando conhecido. */
+  modelo?: string;
+  /** Modelos que concordaram com a mesma regiao/rotulo (evidencia somada). */
+  modelos?: string[];
 }
 
 /** Marcacoes de uma imagem especifica no prompt multimodal. */
@@ -183,6 +187,8 @@ export function normalizarMarcacoesNsfw(
     rotulo: m.rotulo,
     score: arredondar(limitar01(m.score), 3),
     caixa: normalizarCaixaNsfw(m.caixa, dimensoes),
+    ...(m.modelo ? { modelo: m.modelo } : {}),
+    ...(m.modelos?.length ? { modelos: [...m.modelos] } : {}),
   }));
 }
 
@@ -207,9 +213,20 @@ function tamanhoDaCaixa(caixa: Caixa): string {
   return "grande";
 }
 
+/** Origem de uma marcacao quando o resultado vem do conjunto multi-modelo. */
+function origemDaMarcacao(m: MarcacaoNsfwVisivel): string {
+  const modelos = m.modelos?.length ? m.modelos : m.modelo ? [m.modelo] : [];
+  if (modelos.length === 0) return "";
+  if (modelos.length === 1) return ` (modelo ${modelos[0]})`;
+  return ` (concordam ${modelos.join(", ")})`;
+}
+
 /**
  * Formata marcacoes como texto compacto para o prompt:
  * `make_love (ato sexual/intercurso) 0.87 caixa [0.1,0.2,0.5,0.8] (regiao meio-esquerda; tamanho grande)`.
+ *
+ * Quando a marcacao vem do conjunto, a origem entra no fim — um rotulo apoiado
+ * por dois detectores independentes e evidencia mais forte que um so.
  */
 export function formatarMarcacoesNsfw(
   marcacoes: ReadonlyArray<MarcacaoNsfwVisivel>,
@@ -222,7 +239,8 @@ export function formatarMarcacoesNsfw(
       return (
         `${descreverRotuloNsfw(m.rotulo)} ${limitar01(m.score).toFixed(decimais)} ` +
         `caixa [${c.xmin},${c.ymin},${c.xmax},${c.ymax}] ` +
-        `(regiao ${regiaoDaCaixa(c)}; tamanho ${tamanhoDaCaixa(c)})`
+        `(regiao ${regiaoDaCaixa(c)}; tamanho ${tamanhoDaCaixa(c)})` +
+        origemDaMarcacao(m)
       );
     })
     .join("; ");

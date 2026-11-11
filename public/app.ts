@@ -1,7 +1,6 @@
 import type { Caixa, EntradaLog, MarcacaoNsfwLog } from "../src/types";
 import { AdaptadorDetectorObjetos } from "./perception/adapters/object-detector.adapter";
-import { AdaptadorClassificadorNsfw } from "./perception/adapters/nsfw-classifier.adapter";
-import { criarMotorNsfwRemoto } from "./perception/workers/motores-remotos";
+import { AdaptadorNsfwConjunto } from "./perception/adapters/nsfw-classifier.adapter";
 import { Camera } from "./camera";
 import { obterModo } from "./modos";
 import { MotorVisao } from "./motores";
@@ -15,7 +14,7 @@ import { criarPercepcaoLocal } from "./perception/percepcao-local";
 import { obterVariante } from "./perception/variantes";
 import type { VariantePercepcao } from "./perception/variantes";
 import type { HabilitacaoSubsistemas } from "./perception/local-perception-pipeline";
-import { MODELO_NSFW_PADRAO } from "./nsfw-onnx";
+import { MODELO_NSFW_CONJUNTO, MODELOS_NSFW_CONJUNTO } from "./nsfw-onnx";
 import { MODELO_NSFW, resolverModeloVisao } from "../src/nsfw-prompt";
 import { MotorTemporalImpl } from "./temporal/motor-temporal";
 import { InterpretadorCiclo } from "./interpretation/interpretador-ciclo";
@@ -64,7 +63,6 @@ const intervalValue = el<HTMLSpanElement>("intervalValue");
 const thresholdInput = el<HTMLInputElement>("threshold");
 const thresholdValue = el<HTMLSpanElement>("thresholdValue");
 const nsfwToggle = el<HTMLInputElement>("nsfw");
-const modeloNsfwSelect = el<HTMLSelectElement>("modeloNsfw");
 const contextoInput = el<HTMLInputElement>("contexto");
 
 /**
@@ -87,11 +85,12 @@ const configuracaoCaptura: ConfigCaptura = {
 
 const detectorCoco = new AdaptadorDetectorObjetos();
 /**
- * Classificador NSFW do modo de frame unico (worker dedicado, fallback local).
- * O multiframe cria o proprio adaptador dentro do pipeline local; este atende
- * `deteccao`, `eventos`, `visao` e `roteiro` quando o toggle esta ligado.
+ * Classificador NSFW do modo de frame unico (conjunto multi-modelo, um worker
+ * dedicado por modelo). O multiframe cria o proprio conjunto dentro do pipeline
+ * local; este atende `deteccao`, `eventos`, `visao` e `roteiro` quando o toggle
+ * esta ligado.
  */
-const classificadorNsfw = new AdaptadorClassificadorNsfw(criarMotorNsfwRemoto());
+const classificadorNsfw = new AdaptadorNsfwConjunto();
 let running = false;
 let intervaloMsConfigurado = Number(intervalInput.value) * 1000;
 
@@ -193,8 +192,9 @@ const controladorFrame = new CycleController({
   obterIntervaloMs: () => intervaloMsConfigurado,
   classificadorNsfw,
   // So carrega quando o toggle esta ligado no inicio da sessao; desligado, o
-  // modo de frame unico roda exatamente como antes.
-  obterModeloNsfw: () => (nsfwToggle.checked ? modeloNsfwSelecionado() : undefined),
+  // modo de frame unico roda exatamente como antes. O id e o conjunto: todos os
+  // modelos do catalogo rodam, sem seletor.
+  obterModeloNsfw: () => (nsfwToggle.checked ? MODELO_NSFW_CONJUNTO : undefined),
   obterContexto: contextoDeclarado,
 });
 
@@ -230,7 +230,8 @@ const controladorPercepcao = new CicloPercepcaoController({
     objetos: modelSelect.value,
     // NSFW experimental: so carrega quando o toggle esta ligado no inicio da
     // sessao (o toggle fica bloqueado durante a captura, como os seletores).
-    nsfw: nsfwToggle.checked ? modeloNsfwSelecionado() : undefined,
+    // O id composto dispara o conjunto inteiro, sem seletor de modelo.
+    nsfw: nsfwToggle.checked ? MODELO_NSFW_CONJUNTO : undefined,
   }),
   criarMotorTemporal: (modo) => new MotorTemporalImpl({ modo }),
   criarInterpretador: () =>
@@ -347,32 +348,9 @@ function salvarModeloVisao(): void {
   }
 }
 
-/** Chave do modelo NSFW escolhido na interface (persistido no navegador). */
-const MODELO_NSFW_STORAGE = "neuro.modeloNsfw";
-
-/**
- * Modelo NSFW efetivo. Sem escolha valida (valor vazio ou removido do catalogo),
- * mantem o padrao `MODELO_NSFW_PADRAO`; o catalogo no cliente resolve o arquivo.
- */
-function modeloNsfwSelecionado(): string {
-  return modeloNsfwSelect.value.trim() || MODELO_NSFW_PADRAO;
-}
-
-function carregarModeloNsfwSalvo(): void {
-  try {
-    const salvo = localStorage.getItem(MODELO_NSFW_STORAGE);
-    if (salvo) modeloNsfwSelect.value = salvo;
-  } catch {
-    // localStorage indisponivel (modo privado): segue com o padrao.
-  }
-}
-
-function salvarModeloNsfw(): void {
-  try {
-    localStorage.setItem(MODELO_NSFW_STORAGE, modeloNsfwSelecionado());
-  } catch {
-    // Best-effort: a escolha vale para a sessao mesmo sem persistir.
-  }
+/** Rotulo curto do conjunto NSFW para status/diagnostico. */
+function rotuloConjuntoNsfw(): string {
+  return `conjunto NSFW (${MODELOS_NSFW_CONJUNTO.length} modelos)`;
 }
 
 function motivoSemModelosVisao(): string {
@@ -442,7 +420,7 @@ function atualizarDiagnostico(): void {
         : "nenhum";
 
   const partes = [`motor ${motor}`, `backend LM Studio`, `modelo ${modelo}`, `carregados: ${carregados}`];
-  if (nsfwAtivo()) partes.push(`nsfw ${modeloNsfwSelecionado()}`);
+  if (nsfwAtivo()) partes.push(`nsfw ${rotuloConjuntoNsfw()}`);
   if (definicao.usaDeteccao && detectorCoco.dispositivo) {
     partes.push(`dispositivo ${detectorCoco.dispositivo}`);
   }
@@ -488,9 +466,8 @@ function habilitarSeletoresDeMotor(habilitado: boolean): void {
   modelSelect.disabled = !habilitado;
   modeloVisaoSelect.disabled = !habilitado;
   // O NSFW e carregado na configuracao da sessao: trocar no meio da captura
-  // nao teria efeito, entao o toggle e o modelo tambem bloqueiam junto.
+  // nao teria efeito, entao o toggle tambem bloqueia junto.
   nsfwToggle.disabled = !habilitado;
-  modeloNsfwSelect.disabled = !habilitado || !nsfwToggle.checked;
 }
 
 function drawBoxes(
@@ -844,12 +821,9 @@ modeloVisaoSelect.addEventListener("focus", atualizarVisaoSeVazia);
 window.addEventListener("focus", atualizarVisaoSeVazia);
 
 nsfwToggle.addEventListener("change", () => {
-  // Sem NSFW nao ha modelo a escolher; durante a captura o seletor fica travado
-  // junto do toggle (a configuracao e lida no inicio da sessao).
-  modeloNsfwSelect.disabled = !nsfwToggle.checked || running;
   setStatus(
     nsfwAtivo()
-      ? `NSFW experimental: ligado. Modelo NSFW ${modeloNsfwSelecionado()} e visao ${MODELO_NSFW}; as marcacoes e a descricao explicita seguem no contexto, no prompt e na resposta.`
+      ? `NSFW experimental: ligado. ${rotuloConjuntoNsfw()} e visao ${MODELO_NSFW}; cada modelo roda em seu proprio worker e as marcacoes sao mescladas. A descricao explicita segue no contexto, no prompt e na resposta.`
       : nsfwToggle.checked
         ? "NSFW experimental: ligado, mas o modo atual nao roda a percepcao local (NSFW inativo)."
         : "NSFW experimental: desligado."
@@ -857,17 +831,7 @@ nsfwToggle.addEventListener("change", () => {
   atualizarDiagnostico();
 });
 
-modeloNsfwSelect.addEventListener("change", () => {
-  salvarModeloNsfw();
-  setStatus(
-    `Modelo NSFW: ${modeloNsfwSelecionado()}. Ele sera carregado em um worker proprio ao iniciar a analise.`
-  );
-  atualizarDiagnostico();
-});
-
 carregarModeloVisaoSalvo();
-carregarModeloNsfwSalvo();
-modeloNsfwSelect.disabled = !nsfwToggle.checked;
 atualizarContagem();
 atualizarDiagnostico();
 void carregarHistorico();

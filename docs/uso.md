@@ -144,14 +144,14 @@ Nos modos multiframe (C/D), cada frame carrega **telemetria por subsistema** em 
 
 ## NSFW experimental
 
-O checkbox **NSFW (experimental)** no cabeçalho liga o classificador local de conteúdo adulto. Ele vale para a próxima inicialização de sessão e funciona em **todos os modos**: frame único (`Deteccao`, `Eventos`, `Visao`, `Roteiro`) e multiframe C/D. Com ele ligado:
+O checkbox **NSFW (experimental)** no cabeçalho liga o conjunto local de classificação de conteúdo adulto: ao ativar, **todos** os modelos do conjunto são carregados automaticamente, cada um em seu próprio worker, sem seletor. Ele vale para a próxima inicialização de sessão e funciona em **todos os modos**: frame único (`Deteccao`, `Eventos`, `Visao`, `Roteiro`) e multiframe C/D. Com ele ligado:
 
-- as marcações (`rotulo`, `score`, `caixa`) vão ao contexto (multiframe), ao prompt/corpo de `/api/visao` (quando o modo chama o modelo) e ao log;
+- as marcações (`rotulo`, `score`, `caixa`, `modelo`/`modelos`) vão ao contexto (multiframe), ao prompt/corpo de `/api/visao` (quando o modo chama o modelo) e ao log;
 - o modelo recebe instrução explícita para descrever conteúdo adulto sem eufemismos ou censura, e a resposta não é filtrada pelo app;
 - o prompt pede a contagem de pessoas adultas na cena e a apresentação visual; identidade de gênero não é inferida pela aparência — "pessoa trans" só é usada com declaração explícita no conteúdo/metadado;
 - as caixas aparecem sobre o frame e as tags `.tag.nsfw` na entrada do histórico.
 
-O classificador roda localmente. Ele requer os pesos exportados em `modelos/yolonsfw/` (instruções em [`modos.md`](./modos.md#nsfw-experimental-toggle-da-interface)); sem eles, a sessão continua e registra um aviso operacional, sem o bloco NSFW.
+Os classificadores rodam localmente, cada um em seu próprio worker. Eles requerem os pesos exportados em `modelos/yolonsfw/` (instruções em [`modos.md`](./modos.md#nsfw-experimental-toggle-da-interface)); sem eles, a sessão continua e registra um aviso operacional, sem o bloco NSFW.
 
 ## Scripts
 

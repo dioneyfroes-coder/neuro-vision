@@ -62,6 +62,16 @@ describe("parsearArgumentos", () => {
     });
   });
 
+  it("liga o benchmark do conjunto com --conjunto", () => {
+    expect(parsearArgumentos(["--conjunto", "clipe.mp4", "--amostras", "3"])).toMatchObject({
+      conjunto: true,
+      entradas: ["clipe.mp4"],
+      amostras: 3,
+    });
+    // Sem a flag, o comportamento de modelo unico permanece.
+    expect(parsearArgumentos(["clipe.mp4"])).toMatchObject({ conjunto: false });
+  });
+
   it("rejeita limiares invalidos, flags desconhecidas e argumentos incompletos", () => {
     expect(() => parsearArgumentos(["modelo", "2"])).toThrow(/limiar/);
     expect(() => parsearArgumentos(["modelo", "--desconhecida"])).toThrow(/opcao desconhecida/);

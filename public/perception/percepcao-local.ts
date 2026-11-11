@@ -1,7 +1,7 @@
 import { AdaptadorDetectorObjetos } from "./adapters/object-detector.adapter";
 import { AdaptadorPose } from "./adapters/pose-estimator.adapter";
 import { AdaptadorMaos } from "./adapters/hand-gesture.adapter";
-import { AdaptadorClassificadorNsfw } from "./adapters/nsfw-classifier.adapter";
+import { AdaptadorClassificadorNsfw, AdaptadorNsfwConjunto } from "./adapters/nsfw-classifier.adapter";
 import { criarMotorPoseTransformers, MODELO_POSE_PADRAO } from "../pose";
 import { criarMotorGestosMediaPipe, MODELO_MAOS_PADRAO } from "../gestos";
 import { MODELO_YOLO_PADRAO } from "../yolo-onnx";
@@ -61,7 +61,7 @@ export interface PercepcaoLocal {
   /** Adaptador do reconhecedor de maos/gestos (MediaPipe). */
   maos: AdaptadorMaos;
   /** Adaptador do classificador NSFW experimental (carrega so com toggle). */
-  nsfw: AdaptadorClassificadorNsfw;
+  nsfw: AdaptadorNsfwConjunto;
   /** Porta injetada no pipeline (somente para uso interno/diagnostico). */
   dependencias: DependenciasPipelineLocal;
   /** Habilitacao efetiva por subsistema nesta sessao. */
@@ -101,9 +101,15 @@ export function criarPercepcaoLocal(opcoes: OpcoesPercepcaoLocal = {}): Percepca
     new AdaptadorDetectorObjetos(usarWorkers ? criarMotorDeteccaoRemoto() : undefined);
   const pose = new AdaptadorPose(usarWorkers ? criarMotorPoseRemoto : criarMotorPoseTransformers);
   const maos = new AdaptadorMaos(usarWorkers ? criarMotorMaosRemoto : criarMotorGestosMediaPipe);
-  const nsfw = new AdaptadorClassificadorNsfw(
-    usarWorkers ? criarMotorNsfwRemoto() : undefined
-  );
+  const nsfw = new AdaptadorNsfwConjunto({
+    // Um worker por modelo: o conjunto nunca compartilha fila, sessao ONNX nem
+    // runtime entre NudeNet/EraX/penis. Sem workers, cada modelo cai para o
+    // motor local (tambem isolado por instancia).
+    criarAdaptador: () =>
+      new AdaptadorClassificadorNsfw(
+        usarWorkers ? criarMotorNsfwRemoto() : undefined
+      ),
+  });
 
   const habilitacao: Required<HabilitacaoSubsistemas> = {
     ...HABILITACAO_PADRAO,

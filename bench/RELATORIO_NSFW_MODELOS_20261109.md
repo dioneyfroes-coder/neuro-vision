@@ -1,5 +1,11 @@
 # Relatório — comparação de modelos NSFW (EraX × NudeNet 320n × NudeNet 640m)
 
+> **Nota (2026-11-11):** este relatório descreve a fase de comparação com um
+> modelo por vez e o seletor `#modeloNsfw`. O seletor foi removido: hoje o toggle
+> NSFW carrega automaticamente o conjunto completo (incluindo `penis_yolov8m`).
+> Para o custo e o comportamento atuais, ver
+> [`RELATORIO_NSFW_CONJUNTO_20261111.md`](./RELATORIO_NSFW_CONJUNTO_20261111.md).
+
 **Data:** 2026-11-10
 **Harness:** `scripts/verificar-yolo-nsfw.mjs` (Chromium headless, `onnxruntime-web` em WASM, sem servidor de app)
 **Limiar global:** 0,5 · **limiares por classe** de `public/nsfw-onnx.ts`

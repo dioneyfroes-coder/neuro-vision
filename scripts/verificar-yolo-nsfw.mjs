@@ -79,6 +79,7 @@ export function parsearArgumentos(argumentos) {
     amostras: 5,
     fixturesNsfw: false,
     detalhado: false,
+    conjunto: false,
     ajuda: false,
   };
   let i = 0;
@@ -95,6 +96,8 @@ export function parsearArgumentos(argumentos) {
       config.fixturesNsfw = true;
     } else if (argumento === "--detalhado" || argumento === "-v") {
       config.detalhado = true;
+    } else if (argumento === "--conjunto") {
+      config.conjunto = true;
     } else if (argumento === "--amostras") {
       const valor = argumentos[++i];
       if (valor === undefined) throw new Error("--amostras precisa de um valor");
@@ -185,9 +188,9 @@ const PAGINA = `<!doctype html>
   // podem disparar o sigmoid e criar falsos positivos em 0,5.
   const TOLERANCIA_PROBABILIDADE = 1e-3;
 
-  function saidaCruaUsaLogits(cru, linhas, indice) {
+  function saidaCruaUsaLogits(cru, linhas, indice, quantidadeClasses) {
     for (let i = 0; i < linhas; i++) {
-      for (let c = 0; c < 18; c++) {
+      for (let c = 0; c < quantidadeClasses; c++) {
         const valor = cru[indice(i, 4 + c)];
         if (!Number.isFinite(valor)) continue;
         if (valor < -TOLERANCIA_PROBABILIDADE || valor > 1 + TOLERANCIA_PROBABILIDADE) {
@@ -265,22 +268,25 @@ const PAGINA = `<!doctype html>
     return saida;
   }
 
-  // Saida crua YOLOv8/NudeNet: [1, 22, N] = 4 coords + 18 classes.
+  // Saida crua YOLOv8: [1, 4+nc, N] ou [1, N, 4+nc]. O numero de classes vem
+  // do sidecar (NudeNet: 18; penis: 1), sem hardcode.
   function interpretarCru(cru, dims, limiar, largura, altura, rotulos, lado) {
-    const transposto = dims[1] === 22;
+    const quantidadeClasses = rotulos.length;
+    const colunas = 4 + quantidadeClasses;
+    const transposto = dims[1] === colunas;
     const linhas = transposto ? dims[dims.length - 1] : dims[dims.length - 2];
     const indice = (linha, coluna) =>
-      transposto ? coluna * linhas + linha : linha * 22 + coluna;
+      transposto ? coluna * linhas + linha : linha * colunas + coluna;
     const ex = largura / lado;
     const ey = altura / lado;
     const candidatas = [];
     let minScore = Infinity;
     let maxScore = -Infinity;
     let linhasSigmoid = 0;
-    const usaLogits = saidaCruaUsaLogits(cru, linhas, indice);
+    const usaLogits = saidaCruaUsaLogits(cru, linhas, indice, quantidadeClasses);
     for (let i = 0; i < linhas; i++) {
-      const scores = new Array(18);
-      for (let c = 0; c < 18; c++) {
+      const scores = new Array(quantidadeClasses);
+      for (let c = 0; c < quantidadeClasses; c++) {
         const valor = cru[indice(i, 4 + c)];
         scores[c] = usaLogits ? sigmoid(valor) : valor;
         if (valor < minScore) minScore = valor;
@@ -289,7 +295,7 @@ const PAGINA = `<!doctype html>
       if (usaLogits) linhasSigmoid += 1;
       let melhor = 0;
       let score = scores[0];
-      for (let c = 1; c < 18; c++) {
+      for (let c = 1; c < quantidadeClasses; c++) {
         if (scores[c] > score) {
           score = scores[c];
           melhor = c;
@@ -315,10 +321,12 @@ const PAGINA = `<!doctype html>
 
   function interpretar(cru, dims, limiar, largura, altura, rotulos, lado) {
     const ultima = dims[dims.length - 1];
-    const crua = dims[1] === 22 || ultima === 22;
-    return crua
-      ? interpretarCru(cru, dims, limiar, largura, altura, rotulos, lado)
-      : interpretarNms(cru, dims, limiar, largura, altura, rotulos, lado);
+    // Saida com NMS embutido tem exatamente 6 colunas (xyxy, score, classe).
+    // Qualquer outra forma e saida crua (4 coords + nc scores).
+    const nms = dims[1] === 6 || ultima === 6;
+    return nms
+      ? interpretarNms(cru, dims, limiar, largura, altura, rotulos, lado)
+      : interpretarCru(cru, dims, limiar, largura, altura, rotulos, lado);
   }
 
   // Mesmas classes ignoradas do cliente (rosto, pes, barriga, axila).
@@ -348,8 +356,7 @@ const PAGINA = `<!doctype html>
     return dados;
   }
 
-  window.__iniciar = async (rotulos, limiar, entradas, amostras, lado) => {
-    const canvas = typeof OffscreenCanvas !== "undefined"
+  window.__iniciar = async (rotulos, limiar, entradas, amostras, lado) => {    const canvas = typeof OffscreenCanvas !== "undefined"
       ? new OffscreenCanvas(lado, lado)
       : Object.assign(document.createElement("canvas"), { width: lado, height: lado });
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -555,52 +562,38 @@ async function servir(porta, modelo, entradas) {
   return servidor;
 }
 
-async function main() {
-  const config = parsearArgumentos(process.argv.slice(2));
-  if (config.ajuda) {
-    console.log(
-      "Uso: node scripts/verificar-yolo-nsfw.mjs [modelo] [imagem|video ...] [limiar] [--amostras N] [--fixtures-nsfw] [--detalhado]"
-    );
-    console.log(
-      "  --detalhado/-v  imprime rotulo, score e caixa de cada marcacao (comparacao entre modelos)"
-    );
-    return;
-  }
-  const chave = path.basename(config.modelo).replace(/\.onnx$/i, "");
-  if (!/^[\w.-]+$/i.test(chave)) throw new Error("nome de modelo invalido");
-  const lado = ladoDoModelo(chave);
+/** Modelos do conjunto NSFW, na mesma ordem de `public/nsfw-onnx.ts`. */
+const MODELOS_CONJUNTO = [
+  "nudenet_320n",
+  "nudenet_640m",
+  "erax_nsfw_yolo11n",
+  "erax_nsfw_yolo11s",
+  "erax_nsfw_yolo11m",
+  "penis_yolov8m",
+];
+
+async function carregarRotulosModelo(chave) {
   const modelo = path.join(DIR_PESOS, `${chave}.onnx`);
   const sidecar = `${modelo}.json`;
-  const entradasArg =
-    config.fixturesNsfw
-      ? [...config.entradas, ...(await descobrirFixturesNsfw())]
-      : config.entradas.length
-        ? config.entradas
-        : ["bench/videos/frames/frame-1.jpg"];
-  if (!entradasArg.length) throw new Error("nenhuma fixture NSFW encontrada");
-  const entradas = entradasArg.map((arquivo) => path.resolve(ROOT, arquivo));
-
   if (!existsSync(modelo)) {
-    console.error(`Modelo nao encontrado: ${path.relative(ROOT, modelo)}`);
-    console.error("Exporte com: node scripts/exportar-yolo-nsfw.mjs");
-    process.exit(1);
+    throw new Error(`modelo nao encontrado: ${path.relative(ROOT, modelo)} (exporte com scripts/exportar-yolo-nsfw.mjs)`);
   }
   if (!existsSync(sidecar)) {
-    console.error(`Sidecar de classes ausente: ${path.relative(ROOT, sidecar)}`);
-    console.error("Reexporte com: node scripts/exportar-yolo-nsfw.mjs");
-    process.exit(1);
+    throw new Error(`sidecar de classes ausente: ${path.relative(ROOT, sidecar)} (reexporte o modelo)`);
   }
-  for (const [indice, entrada] of entradas.entries()) {
-    if (!existsSync(entrada)) throw new Error(`arquivo nao encontrado: ${entradasArg[indice]}`);
-    if (!obterMimeEntrada(entrada)) throw new Error(`formato nao suportado: ${entradasArg[indice]}`);
-  }
-
   const rotulos = JSON.parse(await readFile(sidecar, "utf8")).classes;
   if (!Array.isArray(rotulos) || rotulos.length === 0) {
-    console.error("Sidecar sem classes validas.");
-    process.exit(1);
+    throw new Error("sidecar sem classes validas");
   }
+  return { modelo, rotulos, lado: ladoDoModelo(chave) };
+}
 
+/**
+ * Executa um modelo sobre as entradas e devolve um resumo para o benchmark do
+ * conjunto. Lanca em qualquer falha de forma/rotulo/caixa.
+ */
+async function verificarModelo(chave, config, entradas) {
+  const { modelo, rotulos, lado } = await carregarRotulosModelo(chave);
   const servidor = await servir(0, modelo, entradas);
   const porta = servidor.address().port;
   const navegador = await chromium.launch();
@@ -636,8 +629,7 @@ async function main() {
     );
 
     if (errosDePagina.length) {
-      console.error("Erros na pagina:", errosDePagina.join(" | "));
-      process.exit(1);
+      throw new Error(`erros na pagina: ${errosDePagina.join(" | ")}`);
     }
 
     console.log(`Modelo: ${chave}.onnx | entrada: ${lado}x${lado} | classes: ${rotulos.join(", ")}`);
@@ -688,9 +680,11 @@ async function main() {
       const dims = frame.dims;
       if (dims.length < 2) return true;
       const ultima = dims[dims.length - 1];
-      const crua = dims[1] === 22 || ultima === 22;
-      // Saida crua: [1,22,N] ou [1,N,22]. Saida com NMS: [1,300,6].
-      return crua ? false : ultima !== 6;
+      const nms = dims[1] === 6 || ultima === 6;
+      // Saida com NMS: [1,300,6] (ou [1,6,300]). Saida crua: 4 + nc colunas.
+      if (nms) return ultima !== 6 && dims[1] !== 6;
+      const colunas = 4 + rotulos.length;
+      return dims[1] !== colunas && ultima !== colunas;
     });
     const fora = quadros.some((frame) =>
       frame.deteccoes.some(
@@ -701,22 +695,89 @@ async function main() {
       frame.deteccoes.some((d) => /^classe /.test(d.label))
     );
     if (formaInvalida) {
-      console.error(`FALHA: saida com forma inesperada (${formaInvalida.dims.join("x")}).`);
-      process.exit(1);
+      throw new Error(`saida com forma inesperada (${formaInvalida.dims.join("x")})`);
     }
-    if (fora) {
-      console.error("FALHA: caixa fora dos limites do frame.");
-      process.exit(1);
-    }
-    if (rotuloDesconhecido) {
-      console.error("FALHA: rotulo desconhecido (sidecar ausente/divergente).");
-      process.exit(1);
-    }
+    if (fora) throw new Error("caixa fora dos limites do frame");
+    if (rotuloDesconhecido) throw new Error("rotulo desconhecido (sidecar ausente/divergente)");
     console.log("OK: saida valida, caixas dentro dos limites e rotulos do sidecar.");
+
+    const totalMarcacoes = quadros.reduce((soma, frame) => soma + frame.deteccoes.length, 0);
+    const msInferenciaMedia = quadros.length
+      ? Math.round(
+          quadros.reduce((soma, frame) => soma + frame.msInferencia, 0) / quadros.length
+        )
+      : 0;
+    return {
+      chave,
+      msCarga: r.msCarga,
+      msInferenciaMedia,
+      quadros: quadros.length,
+      marcacoes: totalMarcacoes,
+    };
   } finally {
     await navegador.close();
     servidor.close();
   }
+}
+
+async function main() {
+  const config = parsearArgumentos(process.argv.slice(2));
+  if (config.ajuda) {
+    console.log(
+      "Uso: node scripts/verificar-yolo-nsfw.mjs [modelo] [imagem|video ...] [limiar] [--amostras N] [--fixtures-nsfw] [--detalhado] [--conjunto]"
+    );
+    console.log(
+      "  --detalhado/-v  imprime rotulo, score e caixa de cada marcacao (comparacao entre modelos)"
+    );
+    console.log(
+      "  --conjunto      roda todos os modelos do conjunto NSFW e imprime um resumo comparativo"
+    );
+    return;
+  }
+  // Em `--conjunto` o primeiro argumento pode ser o clipe (sem modelo): se ele
+  // tem extensao de arquivo, entra como entrada em vez de nome de modelo.
+  const modeloComoEntrada =
+    config.conjunto && /\.[a-z0-9]+$/i.test(config.modelo) ? [config.modelo] : [];
+  const entradasArg = config.fixturesNsfw
+    ? [...modeloComoEntrada, ...config.entradas, ...(await descobrirFixturesNsfw())]
+    : modeloComoEntrada.length || config.entradas.length
+      ? [...modeloComoEntrada, ...config.entradas]
+      : ["bench/videos/frames/frame-1.jpg"];
+  if (!entradasArg.length) throw new Error("nenhuma fixture NSFW encontrada");
+  const entradas = entradasArg.map((arquivo) => path.resolve(ROOT, arquivo));
+  for (const [indice, entrada] of entradas.entries()) {
+    if (!existsSync(entrada)) throw new Error(`arquivo nao encontrado: ${entradasArg[indice]}`);
+    if (!obterMimeEntrada(entrada)) throw new Error(`formato nao suportado: ${entradasArg[indice]}`);
+  }
+
+  if (config.conjunto) {
+    const resumos = [];
+    const falhas = [];
+    for (const chave of MODELOS_CONJUNTO) {
+      console.log(`\n=== ${chave} ===`);
+      try {
+        resumos.push(await verificarModelo(chave, config, entradas));
+      } catch (erro) {
+        console.error(`FALHA ${chave}: ${erro.message}`);
+        falhas.push({ chave, erro: erro.message });
+      }
+    }
+    console.log("\n=== Resumo do conjunto ===");
+    for (const resumo of resumos) {
+      console.log(
+        `${resumo.chave}: carga ${resumo.msCarga} ms | inferencia media ${resumo.msInferenciaMedia} ms/quadro | ${resumo.marcacoes} marcacao(oes) em ${resumo.quadros} quadro(s)`
+      );
+    }
+    if (falhas.length) {
+      console.error(`\n${falhas.length} modelo(s) falharam.`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  const chave = path.basename(config.modelo).replace(/\.onnx$/i, "");
+  if (!/^[\w.-]+$/i.test(chave)) throw new Error("nome de modelo invalido");
+  await verificarModelo(chave, config, entradas);
 }
 
 const caminhoDoModulo = fileURLToPath(import.meta.url);

@@ -27,6 +27,10 @@ export interface MarcacaoNsfwLog {
   /** Confianca em [0, 1]. */
   score: number;
   caixa: Caixa;
+  /** Modelo que produziu a marcacao (conjunto multi-modelo), quando conhecido. */
+  modelo?: string;
+  /** Modelos que concordaram com a mesma regiao/rotulo (evidencia somada). */
+  modelos?: string[];
 }
 
 export type TipoEntrada = "deteccao" | "descricao" | "roteiro";

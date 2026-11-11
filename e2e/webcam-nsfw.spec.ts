@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { env } from "../src/env";
 import { MODELO_NSFW } from "../src/nsfw-prompt";
+import { MODELOS_NSFW_CONJUNTO } from "../public/nsfw-onnx";
 
 /**
  * E2E focado da fase NSFW (opt-in, mesmo clipe de `webcam.spec.ts`).
@@ -30,7 +31,10 @@ test.describe("NSFW experimental com clipe real", () => {
     test.setTimeout(600_000);
 
     const bytes = await readFile(CLIP);
-    const dataUrl = `data:video/webm;base64,${bytes.toString("base64")}`;
+    // O clipe pode ser webm (padrao do bench) ou mp4; o MIME precisa bater com o
+    // container para o Chromium decodificar no `<video>` do init script.
+    const mime = CLIP.toLowerCase().endsWith(".mp4") ? "video/mp4" : "video/webm";
+    const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
 
     await page.addInitScript(
       ({ src, semGpu }) => {
@@ -121,9 +125,9 @@ test.describe("NSFW experimental com clipe real", () => {
     await page.goto("/");
     await page.locator("#motor").selectOption("visao");
     await page.locator("#nsfw").check();
-    // O padrao do seletor e o NudeNet 320n (bench/RELATORIO_NSFW_MODELOS_20261109.md).
-    await expect(page.locator("#modeloNsfw")).toHaveValue("nudenet_320n");
-    await expect(page.locator("#status")).toContainText("nudenet_320n");
+    // Sem seletor: ligar o NSFW dispara o conjunto inteiro, cada modelo no seu
+    // proprio worker. O status resume o conjunto.
+    await expect(page.locator("#status")).toContainText("conjunto NSFW");
     await page.locator("#interval").evaluate((el) => {
       const input = el as HTMLInputElement;
       input.value = "1";
@@ -135,12 +139,17 @@ test.describe("NSFW experimental com clipe real", () => {
       .poll(() => corposVisao.length, { timeout: 300_000 })
       .toBeGreaterThan(0);
 
-    // O worker do modelo NSFW padrao baixa os pesos e o sidecar de classes.
+    // Cada modelo do conjunto baixa os pesos e o sidecar de classes em seu
+    // proprio worker. A falha de um nao impede os demais (isolamento).
     await expect
-      .poll(() => pedidosNsfw.some((url) => url.includes("nudenet_320n.onnx")), {
-        timeout: 120_000,
-      })
-      .toBe(true);
+      .poll(
+        () =>
+          MODELOS_NSFW_CONJUNTO.filter((modelo) =>
+            pedidosNsfw.some((url) => url.includes(`${modelo}.onnx`))
+          ).length,
+        { timeout: 300_000 }
+      )
+      .toBe(MODELOS_NSFW_CONJUNTO.length);
 
     // O corpo do /api/visao e montado antes da chamada ao backend; o campo NSFW
     // precisa estar presente mesmo sem esperar a resposta.

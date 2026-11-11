@@ -13,6 +13,7 @@ import {
   type ResultadoNsfw,
   type ResultadoOuIndisponivel,
   type ResultadoPose,
+  type TelemetriaModeloNsfw,
 } from "../../src/domain";
 
 /**
@@ -145,6 +146,10 @@ export interface MarcacaoNsfwObservada {
   rotulo: string;
   score: number;
   caixa: CaixaNormalizada;
+  /** Modelo de maior score que produziu a marcacao, quando conhecido. */
+  modelo?: string;
+  /** Modelos que concordaram com a mesma regiao/rotulo (evidencia somada). */
+  modelos?: string[];
 }
 
 /** Movimento de uma entidade entre frames (deslocamento/direcao). */
@@ -168,6 +173,8 @@ export interface EstadoSubsistemaObservado {
   motivo?: string;
   /** Modelo em uso, quando a telemetria o expoe. */
   modelo?: string;
+  /** Telemetria por modelo quando o subsistema agrega um conjunto (NSFW). */
+  modelos?: TelemetriaModeloNsfw[];
 }
 
 /**
@@ -399,14 +406,23 @@ export function normalizarCaixa(
 /** Estado observado de um subsistema, derivado do resultado + telemetria. */
 export function estadoSubsistema<T>(
   resultado: ResultadoOuIndisponivel<T> | undefined,
-  telemetria: { status?: EstadoObservado; modelo?: string; motivoFalha?: string } | undefined,
+  telemetria:
+    | {
+        status?: EstadoObservado;
+        modelo?: string;
+        motivoFalha?: string;
+        modelos?: TelemetriaModeloNsfw[];
+      }
+    | undefined,
   vazio: (valor: T) => boolean
 ): EstadoSubsistemaObservado {
+  const modelos = telemetria?.modelos?.length ? { modelos: telemetria.modelos } : {};
   if (resultado === undefined) {
     return {
       status: telemetria?.status ?? "nao_carregado",
       modelo: telemetria?.modelo,
       motivo: telemetria?.motivoFalha,
+      ...modelos,
     };
   }
   if (estaIndisponivel(resultado)) {
@@ -414,12 +430,14 @@ export function estadoSubsistema<T>(
       status: "indisponivel",
       modelo: telemetria?.modelo,
       motivo: resultado.motivo,
+      ...modelos,
     };
   }
   const status: EstadoObservado = vazio(resultado) ? "sem_resultado" : "ok";
   return {
     status,
     modelo: telemetria?.modelo ?? (resultado as { modelo?: string }).modelo,
+    ...modelos,
   };
 }
 
@@ -553,6 +571,8 @@ export function serializarNsfw(
     rotulo: m.rotulo,
     score: arredondar(limitar01(m.score), opcoes.decimais),
     caixa: normalizarCaixa(m.caixa, dimensoes, opcoes.decimais),
+    ...(m.modelo ? { modelo: m.modelo } : {}),
+    ...(m.modelos?.length ? { modelos: [...m.modelos] } : {}),
   }));
 }
 

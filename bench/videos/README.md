@@ -128,14 +128,16 @@ uniformes por padrão; resultados são diagnósticos de execução, não métric
 precisão/recall, até que exista anotação humana para cada arquivo.
 
 ```powershell
-node scripts/verificar-yolo-nsfw.mjs erax_nsfw_yolo11n --fixtures-nsfw --amostras 5
+node scripts/verificar-yolo-nsfw.mjs --conjunto --fixtures-nsfw --amostras 5
 ```
 
 Na execução exploratória da Fase 6, o smoke processou três imagens e cinco
 quadros do vídeo; encontrou duas marcações em uma imagem e nenhuma nos demais
 quadros. Como não há anotação humana dos arquivos, isso confirma apenas que o
 caminho local de inferência e a validação de saída funcionam — não mede a
-precisão ou o recall do classificador.
+precisão ou o recall do classificador. Para medir o conjunto completo (6
+modelos) em um clipe, use `--conjunto <clipe> --amostras 5`; o relatório está em
+`bench/RELATORIO_NSFW_CONJUNTO_20261111.md`.
 
    O modelo real é pesado (ver `bench/BASELINE.md`): em WASM/CPU leva ~24 s por
    inferência e, com WebGPU, ~5–6 s. A cadência de amostragem resultante define a

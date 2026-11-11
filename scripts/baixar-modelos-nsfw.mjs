@@ -9,7 +9,8 @@
  *   - NudeNet 320n ONNX (saida crua YOLOv8 `[1, 22, N]`);
  *   - modulo NMS YOLOv8 (opcional; o cliente tambem implementa NMS em JS);
  *   - NudeNet 640m `.pt` (o export para ONNX roda depois, com
- *     `scripts/exportar-yolo-nsfw.mjs`).
+ *     `scripts/exportar-yolo-nsfw.mjs`);
+ *   - detector dedicado de penis YOLOv8m `.pt` (idem: exportar depois).
  *
  * Os arquivos sao servidos pelo proprio servidor em `/yolonsfw/`. A pasta e
  * gitignored: nenhum peso entra no repositorio.
@@ -76,6 +77,13 @@ export const MODELOS = [
     origem: "https://huggingface.co/vladmandic/nudenet/resolve/main/nudenet-v34-640m.pt",
     arquivo: "nudenet_640m.pt",
     tamanho: 52_023_681,
+  },
+  {
+    nome: "Detector de penis YOLOv8m (.pt, exportar depois)",
+    origem:
+      "https://huggingface.co/throaway2854/YOLOv8m-Penis-Detection/resolve/main/best.pt?download=true",
+    arquivo: "penis_yolov8m.pt",
+    tamanho: 52_073_042,
   },
 ];
 
@@ -169,9 +177,10 @@ function listar() {
 function ajuda() {
   console.log("Uso: node scripts/baixar-modelos-nsfw.mjs [--forcar] [--listar]");
   console.log("");
-  console.log("Baixa NudeNet 320n, NMS YOLOv8 e NudeNet 640m para modelos/yolonsfw/.");
-  console.log("Depois de baixar o 640m, exporte com:");
+  console.log("Baixa NudeNet 320n, NMS YOLOv8, NudeNet 640m e o detector de penis YOLOv8m para modelos/yolonsfw/.");
+  console.log("Depois de baixar os .pt, exporte com:");
   console.log("  node scripts/exportar-yolo-nsfw.mjs modelos/yolonsfw/nudenet_640m.pt");
+  console.log("  node scripts/exportar-yolo-nsfw.mjs modelos/yolonsfw/penis_yolov8m.pt");
 }
 
 async function main() {

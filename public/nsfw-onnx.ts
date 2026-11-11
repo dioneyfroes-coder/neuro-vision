@@ -98,7 +98,47 @@ export const MODELOS_NSFW: Readonly<Record<string, DefinicaoModeloNsfw>> = {
     formato: "nms",
     classes: CLASSES_NUDENET,
   },
+  // Detector dedicado de penis (YOLOv8m fine-tuned). Cobre o que os modelos
+  // generalistas perdem em close-ups e angulos incomuns. Exportado com NMS
+  // embutido (`[1, 300, 6]`), uma unica classe `penis`.
+  penis_yolov8m: {
+    arquivo: "penis_yolov8m",
+    lado: 640,
+    formato: "nms",
+    classes: ["penis"],
+  },
 };
+
+/**
+ * Id composto que ativa o **conjunto** NSFW na interface.
+ *
+ * Nao e um arquivo `.onnx`: e o sinal de que todos os modelos de
+ * `MODELOS_NSFW_CONJUNTO` devem carregar, cada um no proprio worker/thread, e
+ * rodar sobre o mesmo frame. O adaptador `AdaptadorNsfwConjunto` resolve o
+ * conjunto; o catalogo continua aceitando um modelo unico para diagnostico.
+ */
+export const MODELO_NSFW_CONJUNTO = "conjunto_nsfw";
+
+/**
+ * Modelos executados automaticamente quando o toggle NSFW e ligado.
+ *
+ * A ordem prioriza recall e diversidade: NudeNet (classes cobertas e genitalia
+ * masculina), EraX (NMS estavel e `make_love`) e o detector dedicado de penis.
+ * O resultado de todos e mesclado por rotulo + IoU; nao ha seletor de modelo.
+ */
+export const MODELOS_NSFW_CONJUNTO = [
+  "nudenet_320n",
+  "nudenet_640m",
+  "erax_nsfw_yolo11n",
+  "erax_nsfw_yolo11s",
+  "erax_nsfw_yolo11m",
+  "penis_yolov8m",
+] as const;
+
+/** Chaves validas do conjunto (para UI/diagnostico). */
+export function modelosDoConjuntoNsfw(): string[] {
+  return [...MODELOS_NSFW_CONJUNTO];
+}
 
 /**
  * Limiares por classe. Um unico limiar global esconde justamente o que importa:
@@ -139,6 +179,7 @@ export function limiarEfetivoNsfw(rotulo: string, global = 0.5): number {
 /** Resolve a definicao do catalogo; chaves/URLs desconhecidas usam o padrao. */
 export function definicaoModeloNsfw(modelo: string | null | undefined): DefinicaoModeloNsfw {
   const chave = modelo?.trim() || MODELO_NSFW_PADRAO;
+  if (chave === MODELO_NSFW_CONJUNTO) return MODELOS_NSFW[MODELO_NSFW_PADRAO];
   return MODELOS_NSFW[chave] ?? { arquivo: chave, lado: LADO_ENTRADA_YOLO, formato: "nms" };
 }
 

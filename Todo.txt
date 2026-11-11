@@ -111,7 +111,8 @@ FASE 6 - NSFW MULTI-MODELO COM WORKER POR MODELO
       - `erax_nsfw_yolo11n` (5 classes, `[1,300,6]`);
       - `erax_nsfw_yolo11s` e `erax_nsfw_yolo11m` (opcionais, ja presentes);
       - `nudenet_640m` (18 classes, export com NMS).
-    A UI ganha um seletor "Modelo NSFW"; a escolha e persistida por sessao.
+    Sem seletor de modelo: ligar o toggle carrega `MODELOS_NSFW_CONJUNTO`
+    inteiro (id composto `MODELO_NSFW_CONJUNTO`), em ordem de recall/diversidade.
 6.7 [x] Worker dedicado por modelo:
       - adicionar tipos de motor `nsfw-nudenet` (ou equivalente) ao protocolo;
       - uma instancia de `ClienteWorker` por modelo carregado;
@@ -119,11 +120,11 @@ FASE 6 - NSFW MULTI-MODELO COM WORKER POR MODELO
       - nunca compartilhar sessao ONNX entre modelos diferentes;
       - telemetria por modelo (carga, inferencia, dispositivo, memoria).
 6.8 [x] Teste de isolamento: cada `criarMotorNsfwRemoto` cria Worker proprio;
-    trocar de modelo encerra a thread anterior e abre outra; recarregar o mesmo
-    modelo reaproveita o Worker. Coberto em `tests/motores-remotos.test.ts`
-    (4 casos: 2 motores/2 workers, troca de modelo, mesmo modelo, padrao 320n).
-    Tres modelos ativos ao mesmo tempo nao existem por decisao de orcamento
-    (Fase 8.2): o app mantem 1 modelo NSFW ativo por vez.
+    recarregar o mesmo modelo reaproveita o Worker. Coberto em
+    `tests/motores-remotos.test.ts` e `tests/nsfw-classifier-adapter.test.ts`.
+    O conjunto mantem os 6 modelos ativos ao mesmo tempo, cada um em um Worker
+    proprio (sem fila/sessao/runtime compartilhados). A falha de um modelo e
+    isolada; so a falha de todos marca o subsistema indisponivel.
 6.9 [x] Contexto/metadados no payload de visao:
       - adicionar campo opcional `contexto` em `/api/visao` (texto curto);
       - o bench injeta o nome do clipe como contexto;
@@ -137,6 +138,28 @@ FASE 6 - NSFW MULTI-MODELO COM WORKER POR MODELO
       - relatorio em `bench/RELATORIO_NSFW_MODELOS_20261109.md`.
       - Limite registrado no relatorio: sem anotacao humana de ground truth, os
         numeros sao concordancia entre modelos; falta calibrar os pisos.
+6.11 [x] Detector dedicado de penis `penis_yolov8m`:
+      - origem `throaway2854/YOLOv8m-Penis-Detection` (`best.pt`, 52,1 MB);
+      - `scripts/baixar-modelos-nsfw.mjs` baixa os pesos;
+      - `scripts/exportar-yolo-nsfw.mjs` exporta ONNX `[1,300,6]`, classe
+        `penis`, sidecar de classes;
+      - integrado ao catalogo e ao conjunto; piso de classe 0,25.
+6.12 [x] Conjunto automatico com mescla complementar:
+      - `AdaptadorNsfwConjunto` carrega/avalia os 6 modelos em paralelo, um
+        adaptador (e um Worker) por modelo;
+      - `mesclarMarcacoesNsfw` deduplica mesmo rotulo com IoU >= 0,6, mantem o
+        maior score e registra os modelos concordantes (`modelos`);
+      - rotulos diferentes nunca sao suprimidos;
+      - telemetria por modelo (`modelos`, `telemetriaModelos`) no pipeline e no
+        contexto;
+      - seletor `#modeloNsfw` e persistencia `neuro.modeloNsfw` removidos.
+6.13 [x] Bench do conjunto e relatorio de desempenho:
+      - `node scripts/verificar-yolo-nsfw.mjs --conjunto <clipe> --amostras 5`;
+      - mede carga e inferencia por modelo e valida a saida de cada um;
+      - relatorio em `bench/RELATORIO_NSFW_CONJUNTO_20261111.md`.
+      - Limite: o paralelo in-page trava o WASM do ORT (multiplas sessoes
+        concorrentes); o app evita isso com um Worker por modelo. A parede
+        agregada nao foi medida diretamente; a faixa e derivada.
 GATE 6: o modelo escolhido detecta penis e genital coberto no material de
     referencia, cada modelo roda em thread propria e o relatorio compara
     recall/latencia com amostra e limites explicitos.
@@ -170,13 +193,15 @@ GATE 7: o sistema descreve a acao como inferencia com evidencia e confianca,
 FASE 8 - ORCAMENTO DE THREADS E DESEMPENHO
 ----------------------------------------------------------------------
 8.1 [ ] Medir, por modelo, custo de carga, latencia por frame e memoria.
-    Parcial: carga e latencia medidas em bench/RELATORIO_NSFW_MODELOS_20261109.md
-    (320n 1,5 s / 141-365 ms; EraX 1,5 s / 458-873 ms; 640m 1,9-2,1 s /
-    4,6-4,9 s). Memoria por modelo ainda nao medida.
+    Carga e latencia medidas em bench/RELATORIO_NSFW_MODELOS_20261109.md e
+    bench/RELATORIO_NSFW_CONJUNTO_20261111.md: 320n 1,6 s / 176 ms; 640m 2,0 s /
+    4,8 s; EraX n/s/m 1,6-1,9 s / 0,55-4,1 s; penis_yolov8m 1,9 s / 4,6 s.
+    Memoria por modelo ainda nao medida.
 8.2 [ ] Definir orcamento: quantos workers NSFW podem ficar ativos ao mesmo
-    tempo sem degradar captura/pose/maos. Default: 1 modelo NSFW ativo.
-    Situacao atual: o app ja mantem 1 modelo NSFW ativo por vez (o seletor troca
-    de modelo e encerra a thread anterior); falta medir o efeito de 2+ modelos.
+    tempo sem degradar captura/pose/maos. O default agora e o conjunto de 6
+    modelos, cada um em um Worker proprio (~350 MB de pesos + runtime por
+    worker). Falta medir a parede real e a memoria do conjunto; ate la, tratar
+    o conjunto como analise sob demanda, nao tempo real.
 8.3 [ ] Nao carregar modelos NSFW no boot; carregar sob demanda e encerrar ao
     desligar o toggle/sessao.
 8.4 [ ] Fallback para thread principal apenas quando o worker falhar/timeout;

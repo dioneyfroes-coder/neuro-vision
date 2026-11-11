@@ -143,6 +143,17 @@ export interface MarcacaoNsfw {
   /** Confianca em [0, 1]. */
   score: number;
   caixa: Caixa;
+  /**
+   * Modelo que produziu a marcacao (quando o resultado vem de um conjunto).
+   * O conjunto roda varios modelos no mesmo frame; a marcacao mesclada guarda
+   * aqui o modelo de maior score.
+   */
+  modelo?: string;
+  /**
+   * Todos os modelos que concordaram com a marcacao (mesmo rotulo e caixa com
+   * IoU alto). Um unico modelo aparece quando nao houve concordancia.
+   */
+  modelos?: string[];
 }
 
 /** Resultado do classificador NSFW para um frame. */
@@ -150,8 +161,35 @@ export interface ResultadoNsfw {
   marcacoes: MarcacaoNsfw[];
   /** Modelo que produziu o resultado (quando conhecido). */
   modelo?: string;
+  /** Modelos que participaram do resultado (conjunto multi-modelo). */
+  modelos?: string[];
   /** Resumo legivel (ex.: `porn 0.87, sexy 0.42`). */
   resumo?: string;
+}
+
+/**
+ * Telemetria de **um modelo** dentro do conjunto NSFW.
+ *
+ * Cada modelo carrega e infere em seu proprio worker/thread. O conjunto agrega
+ * os custos por modelo para separar carga fria, inferencia aquecida e memoria,
+ * alem de permitir que um modelo falhe sem derrubar os demais.
+ */
+export interface TelemetriaModeloNsfw {
+  /** Chave do catalogo (ex.: `nudenet_320n`). */
+  modelo: string;
+  status: EstadoSubsistema;
+  /** Dispositivo de inferencia do modelo (`wasm`, `webgpu`, ...). */
+  dispositivo?: string;
+  /** Motivo legivel quando o modelo ficou indisponivel. */
+  motivoFalha?: string;
+  /** Tempo da carga fria do modelo (ms). */
+  tempoCargaMs?: number;
+  /** Tempo da ultima inferencia valida do modelo (ms). */
+  tempoInferenciaMs?: number;
+  /** Heap usado no momento da amostra (bytes), quando o runtime expoe. */
+  memoriaBytes?: number;
+  /** Marcacoes devolvidas pelo modelo na ultima avaliacao. */
+  marcacoes?: number;
 }
 
 /** Qualquer subsistema pode falhar sem apagar os demais. */
@@ -190,4 +228,9 @@ export interface TelemetriaSubsistema {
   tempoInferenciaMs?: number;
   /** Heap usado no momento da amostra (bytes), quando o runtime expoe. */
   memoriaBytes?: number;
+  /**
+   * Telemetria por modelo quando o subsistema agrega varios modelos (NSFW em
+   * conjunto). Ausente nos subsistemas de modelo unico.
+   */
+  modelos?: TelemetriaModeloNsfw[];
 }

@@ -4,6 +4,7 @@ import type {
   ResultadoNsfw,
   ResultadoOuIndisponivel,
   ResultadoPose,
+  TelemetriaModeloNsfw,
 } from "../../src/domain/perception";
 
 /**
@@ -32,6 +33,16 @@ import type {
 export interface MetricasAdaptador {
   /** Identificador do modelo atualmente carregado (ex.: `Xenova/yolov8n-pose`). */
   modelo?: string;
+  /**
+   * Ids dos modelos carregados quando o adaptador agrega um conjunto (NSFW).
+   * Para adaptadores de modelo unico fica ausente.
+   */
+  modelos?: string[];
+  /**
+   * Telemetria por modelo do conjunto (carga, inferencia, memoria e falhas).
+   * Ausente em adaptadores de modelo unico.
+   */
+  telemetriaModelos?: TelemetriaModeloNsfw[];
   /** Dispositivo de inferencia efetivamente usado (ex.: `wasm`, `webgpu`, `gpu`, `cpu`). */
   dispositivo?: string;
   /** Versao do runtime/modelo, quando exposta pelo SDK. */
