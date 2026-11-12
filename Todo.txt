@@ -10,9 +10,10 @@ RESUMO DO ESTADO ATUAL
   temporal, contrato multimodal, benchmark e ambiente).
 - Fase 4 (benchmark orientado a objetivos): parcial. O harness e os relatorios
   existem; faltam anotacoes humanas para gestos, postura, transicao e oclusao.
-- NSFW usa hoje o NudeNet 320n (`nudenet_320n`, 18 classes) como padrao, em
-  worker dedicado. O catalogo tambem tem EraX YOLO11n/s/m e NudeNet 640m; cada
-  modelo carregado roda em Worker proprio.
+- NSFW usa hoje o conjunto automatico `MODELOS_NSFW_CONJUNTO` (6 modelos:
+  NudeNet 320n/640m, EraX YOLO11n/s/m e `penis_yolov8m`), sem seletor; cada
+  modelo carregado roda em Worker proprio. Evidencia mais recente:
+  bench/RELATORIO_TESTE_NSFW_20261112.md.
 - Com NSFW ativo, a visao usa exclusivamente
   `gemma-4-e2b-uncensored-hauhaucs-aggressive`. Sem NSFW, o padrao continua
   `qwen2.5-vl-3b-instruct`.
@@ -44,11 +45,11 @@ Video: bench/videos/nsfw - Mulher jovem e sexy transexual te provoca..mp4
 ======================================================================
 DECISOES
 ----------------------------------------------------------------------
-1. Modelos NSFW sao um catalogo, nao um unico modelo. O usuario escolhe qual
-   usar; o padrao e o NudeNet 320n desde que a comparacao medida mostrou que ele
-   e mais rapido por quadro que o EraX nano e tem as classes que o caso de uso
-   exige (genitalia masculina exposta, genitalia coberta, nadegas). O EraX nano
-   continua no catalogo. Evidencia: bench/RELATORIO_NSFW_MODELOS_20261109.md.
+1. [Superada em 2026-11-11 pela Fase 6.6/6.12] Modelos NSFW sao um catalogo,
+   nao um unico modelo. O usuario escolhia qual usar; o padrao era o NudeNet
+   320n. Hoje o toggle liga o conjunto inteiro, sem seletor. Evidencia:
+   bench/RELATORIO_NSFW_MODELOS_20261109.md (historico) e
+   bench/RELATORIO_TESTE_NSFW_20261112.md (conjunto).
 2. Cada modelo carregado roda em seu **proprio Worker** (thread propria), sem
    compartilhar fila, sessao ONNX ou runtime com outro modelo. Isso vale para
    COCO, EraX, NudeNet 320n e NudeNet 640m.
