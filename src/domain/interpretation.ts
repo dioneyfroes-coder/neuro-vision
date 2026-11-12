@@ -31,9 +31,33 @@ export interface DiagnosticoContextoMultimodal {
   gruposRemovidos: GrupoRemovidoContexto[];
 }
 
+/** Tipo fechado de acao sexual inferida em multiframe. */
+export type TipoAcaoInterpretada =
+  | "masturbacao"
+  | "sexo_oral"
+  | "penetracao"
+  | "outra";
+
+/**
+ * Natureza da conclusao de acao:
+ *
+ * - `observada`: o ato e diretamente visivel em pelo menos um frame;
+ * - `inferida`: a conclusao depende da sequencia/continuidade entre frames.
+ *
+ * Mesmo `observada` e leitura do modelo, nao um fato; `confianca` expressa o
+ * grau de suporte. Nenhuma das duas transforma heuristica em certeza.
+ */
+export type NaturezaAcaoInterpretada = "observada" | "inferida";
+
 /** Acao interpretada com seu intervalo temporal aproximado. */
 export interface AcaoInterpretada {
   descricao: string;
+  /** Tipo de acao sexual quando o modelo classifica (multiframe NSFW). */
+  tipo?: TipoAcaoInterpretada;
+  /** `observada` (visivel) ou `inferida` (dependente da sequencia). */
+  natureza?: NaturezaAcaoInterpretada;
+  /** Confianca do modelo em [0, 1] para a conclusao da acao. */
+  confianca?: number;
   /** Instante ISO de inicio sugerido (quando o modelo fornece). */
   inicioEm?: string;
   /** Instante ISO de fim sugerido. */

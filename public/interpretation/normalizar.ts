@@ -1,7 +1,17 @@
 import type {
+  NaturezaAcaoInterpretada,
   ParticipanteInterpretado,
   ResultadoInterpretacao,
+  TipoAcaoInterpretada,
 } from "../../src/domain/interpretation";
+
+const TIPOS_ACAO = new Set<TipoAcaoInterpretada>([
+  "masturbacao",
+  "sexo_oral",
+  "penetracao",
+  "outra",
+]);
+const NATUREZAS_ACAO = new Set<NaturezaAcaoInterpretada>(["observada", "inferida"]);
 
 /**
  * Normalizacao da resposta da interpretacao multimodal (Etapa 7 do roteiro).
@@ -26,8 +36,26 @@ export function normalizarInterpretacao(
               const evidencias = Array.isArray((a as { evidencias?: unknown }).evidencias)
                 ? ((a as { evidencias: unknown[] }).evidencias.filter((e): e is string => typeof e === "string"))
                 : [];
+              const tipoBruto =
+                typeof (a as { tipo?: unknown }).tipo === "string"
+                  ? (a as { tipo: string }).tipo.trim().toLowerCase()
+                  : "";
+              const naturezaBruta =
+                typeof (a as { natureza?: unknown }).natureza === "string"
+                  ? (a as { natureza: string }).natureza.trim().toLowerCase()
+                  : "";
+              const confiancaBruta = (a as { confianca?: unknown }).confianca;
               return {
                 descricao: typeof (a as { descricao?: unknown }).descricao === "string" ? (a as { descricao?: string }).descricao : "",
+                ...(TIPOS_ACAO.has(tipoBruto as TipoAcaoInterpretada)
+                  ? { tipo: tipoBruto as TipoAcaoInterpretada }
+                  : {}),
+                ...(NATUREZAS_ACAO.has(naturezaBruta as NaturezaAcaoInterpretada)
+                  ? { natureza: naturezaBruta as NaturezaAcaoInterpretada }
+                  : {}),
+                ...(typeof confiancaBruta === "number" && Number.isFinite(confiancaBruta)
+                  ? { confianca: Math.min(1, Math.max(0, confiancaBruta)) }
+                  : {}),
                 inicioEm: typeof (a as { inicioEm?: unknown }).inicioEm === "string" ? (a as { inicioEm?: string }).inicioEm : undefined,
                 fimEm: typeof (a as { fimEm?: unknown }).fimEm === "string" ? (a as { fimEm?: string }).fimEm : undefined,
                 evidencias,

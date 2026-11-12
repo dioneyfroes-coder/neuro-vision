@@ -233,7 +233,11 @@ const controladorPercepcao = new CicloPercepcaoController({
     // O id composto dispara o conjunto inteiro, sem seletor de modelo.
     nsfw: nsfwToggle.checked ? MODELO_NSFW_CONJUNTO : undefined,
   }),
-  criarMotorTemporal: (modo) => new MotorTemporalImpl({ modo }),
+  // Regras de pose compativel (Fase 7.2) so entram com o NSFW ativo; em SFW o
+  // motor temporal continua exatamente como antes. O toggle fica bloqueado
+  // durante a captura, entao o valor no inicio da sessao e estavel.
+  criarMotorTemporal: (modo) =>
+    new MotorTemporalImpl({ modo, avaliarPoseSexual: nsfwToggle.checked }),
   criarInterpretador: () =>
     new InterpretadorCiclo({
       enviar: criarTransporteServidor(),

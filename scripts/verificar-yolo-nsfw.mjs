@@ -80,6 +80,7 @@ export function parsearArgumentos(argumentos) {
     fixturesNsfw: false,
     detalhado: false,
     conjunto: false,
+    isolamento: true,
     ajuda: false,
   };
   let i = 0;
@@ -98,6 +99,8 @@ export function parsearArgumentos(argumentos) {
       config.detalhado = true;
     } else if (argumento === "--conjunto") {
       config.conjunto = true;
+    } else if (argumento === "--sem-isolamento") {
+      config.isolamento = false;
     } else if (argumento === "--amostras") {
       const valor = argumentos[++i];
       if (valor === undefined) throw new Error("--amostras precisa de um valor");
@@ -356,16 +359,97 @@ const PAGINA = `<!doctype html>
     return dados;
   }
 
+  // Memoria linear WASM: o ORT aloca WebAssembly.Memory para pesos e ativacoes,
+  // e o heap JS nao ve essa memoria. Envolver o construtor mede o custo real do
+  // modelo sem depender de APIs de medicao do navegador.
+  const memoriasWasm = [];
+  if (typeof WebAssembly !== "undefined" && typeof WebAssembly.Memory === "function") {
+    const MemoriaOriginal = WebAssembly.Memory;
+    WebAssembly.Memory = new Proxy(MemoriaOriginal, {
+      construct(alvo, argumentos) {
+        const memoria = Reflect.construct(alvo, argumentos);
+        memoriasWasm.push(memoria);
+        return memoria;
+      },
+    });
+  }
+
+  function bytesMemoriaWasm() {
+    let total = 0;
+    for (const memoria of memoriasWasm) total += memoria.buffer.byteLength;
+    return total;
+  }
+
+  // Memoria: o heap JS (performance.memory) e grosseiro e nao inclui o WASM;
+  // somamos a memoria linear das instancias criadas pelo ORT. Quando
+  // measureUserAgentSpecificMemory existe (raro em headless), ele e preferido.
+  async function medirMemoria() {
+    const amostra = {
+      metodo: null,
+      totalBytes: null,
+      jsHeapBytes: null,
+      wasmBytes: bytesMemoriaWasm(),
+    };
+    if (performance.memory && Number.isFinite(performance.memory.usedJSHeapSize)) {
+      amostra.jsHeapBytes = performance.memory.usedJSHeapSize;
+    }
+    if (typeof performance.measureUserAgentSpecificMemory === "function") {
+      try {
+        const medida = await performance.measureUserAgentSpecificMemory();
+        if (medida && Number.isFinite(medida.bytes)) {
+          amostra.totalBytes = medida.bytes;
+          amostra.metodo = "measureUserAgentSpecificMemory";
+        }
+      } catch {
+        // Sem isolamento/credencial: cai para WASM + heap JS.
+      }
+    }
+    if (!amostra.metodo) {
+      if (amostra.wasmBytes > 0 && amostra.jsHeapBytes !== null) {
+        amostra.metodo = "wasm+performance.memory";
+      } else if (amostra.wasmBytes > 0) {
+        amostra.metodo = "wasm";
+      } else if (amostra.jsHeapBytes !== null) {
+        amostra.metodo = "performance.memory";
+      }
+    }
+    return amostra;
+  }
+
   window.__iniciar = async (rotulos, limiar, entradas, amostras, lado) => {    const canvas = typeof OffscreenCanvas !== "undefined"
       ? new OffscreenCanvas(lado, lado)
       : Object.assign(document.createElement("canvas"), { width: lado, height: lado });
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+    // Mesma politica de public/desempenho.ts: sem isolamento o WASM cai para
+    // 1 thread; com COOP/COEP usa ate 4 threads por runtime.
+    const isolado = typeof crossOriginIsolated !== "undefined" && crossOriginIsolated;
+    const nucleos = Number.isFinite(navigator.hardwareConcurrency)
+      ? navigator.hardwareConcurrency
+      : 1;
+    const threads = isolado ? Math.max(1, Math.min(4, nucleos)) : 1;
+    ort.env.wasm.numThreads = threads;
+    const ambiente = {
+      crossOriginIsolated: isolado,
+      hardwareConcurrency: nucleos,
+      numThreads: threads,
+      simd: ort.env.wasm.simd ?? null,
+    };
+    const memoriaAntes = await medirMemoria();
+    let picoJsHeapBytes = memoriaAntes.jsHeapBytes;
 
     const inicioCarga = performance.now();
     const sessao = await ort.InferenceSession.create("/modelo.onnx", {
       executionProviders: ["wasm"],
     });
     const msCarga = Math.round(performance.now() - inicioCarga);
+    const memoriaCarga = await medirMemoria();
+    if (
+      memoriaCarga.jsHeapBytes !== null &&
+      (picoJsHeapBytes === null || memoriaCarga.jsHeapBytes > picoJsHeapBytes)
+    ) {
+      picoJsHeapBytes = memoriaCarga.jsHeapBytes;
+    }
     async function inferir(origem, largura, altura, emSegundos) {
       ctx.drawImage(origem, 0, 0, lado, lado);
       const rgba = ctx.getImageData(0, 0, lado, lado).data;
@@ -378,6 +462,13 @@ const PAGINA = `<!doctype html>
       const inicio = performance.now();
       const resultado = await sessao.run(feeds);
       const msInferencia = Math.round(performance.now() - inicio);
+      if (
+        performance.memory &&
+        Number.isFinite(performance.memory.usedJSHeapSize) &&
+        (picoJsHeapBytes === null || performance.memory.usedJSHeapSize > picoJsHeapBytes)
+      ) {
+        picoJsHeapBytes = performance.memory.usedJSHeapSize;
+      }
       const tensor = resultado[sessao.outputNames[0]];
       const deteccoes = filtrarRelevantes(
         interpretar(tensor.data, tensor.dims, limiar, largura, altura, rotulos, lado)
@@ -455,10 +546,24 @@ const PAGINA = `<!doctype html>
       }
       resultados.push({ nome: entrada.nome, frames });
     }
+    const memoriaAposInferencia = await medirMemoria();
+    if (
+      memoriaAposInferencia.jsHeapBytes !== null &&
+      (picoJsHeapBytes === null || memoriaAposInferencia.jsHeapBytes > picoJsHeapBytes)
+    ) {
+      picoJsHeapBytes = memoriaAposInferencia.jsHeapBytes;
+    }
     return {
       msCarga,
       lado,
       resultados,
+      ambiente,
+      memoria: {
+        antes: memoriaAntes,
+        aposCarga: memoriaCarga,
+        aposInferencia: memoriaAposInferencia,
+        picoJsHeapBytes,
+      },
     };
   };
   window.__carregada = true;
@@ -497,18 +602,30 @@ export function interpretarFaixaBytes(cabecalho, tamanho) {
   return { inicio, fim: Math.min(fim, tamanho - 1) };
 }
 
-async function servir(porta, modelo, entradas) {
+async function servir(porta, modelo, entradas, isolamento = true) {
   const html = Buffer.from(PAGINA, "utf8");
   const pesos = await readFile(modelo);
+  // COOP/COEP habilitam SharedArrayBuffer e o WASM multithread do ORT, igual ao
+  // servidor do app. `--sem-isolamento` desliga para medir o efeito (1 thread).
+  const cabecalhosIsolamento = isolamento
+    ? {
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Embedder-Policy": "credentialless",
+      }
+    : {};
   const servidor = createServer((req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
     if (url.pathname === "/") {
-      res.writeHead(200, { "content-type": MIME[".html"] });
+      res.writeHead(200, { ...cabecalhosIsolamento, "content-type": MIME[".html"] });
       res.end(html);
       return;
     }
     if (url.pathname === "/modelo.onnx") {
-      res.writeHead(200, { "content-type": MIME[".onnx"], "content-length": pesos.length });
+      res.writeHead(200, {
+        ...cabecalhosIsolamento,
+        "content-type": MIME[".onnx"],
+        "content-length": pesos.length,
+      });
       res.end(pesos);
       return;
     }
@@ -522,12 +639,16 @@ async function servir(porta, modelo, entradas) {
       const tamanho = statSync(entrada).size;
       const faixa = interpretarFaixaBytes(req.headers.range, tamanho);
       if (faixa === null) {
-        res.writeHead(416, { "content-range": `bytes */${tamanho}` });
+        res.writeHead(416, {
+          ...cabecalhosIsolamento,
+          "content-range": `bytes */${tamanho}`,
+        });
         res.end();
         return;
       }
       if (faixa) {
         res.writeHead(206, {
+          ...cabecalhosIsolamento,
           "content-type": obterMimeEntrada(entrada),
           "content-length": faixa.fim - faixa.inicio + 1,
           "content-range": `bytes ${faixa.inicio}-${faixa.fim}/${tamanho}`,
@@ -537,6 +658,7 @@ async function servir(porta, modelo, entradas) {
         return;
       }
       res.writeHead(200, {
+        ...cabecalhosIsolamento,
         "content-type": obterMimeEntrada(entrada),
         "content-length": tamanho,
         "accept-ranges": "bytes",
@@ -551,6 +673,7 @@ async function servir(porta, modelo, entradas) {
         return;
       }
       res.writeHead(200, {
+        ...cabecalhosIsolamento,
         "content-type": MIME[path.extname(arquivo)] || "application/octet-stream",
       });
       createReadStream(arquivo).pipe(res);
@@ -571,6 +694,21 @@ const MODELOS_CONJUNTO = [
   "erax_nsfw_yolo11m",
   "penis_yolov8m",
 ];
+
+/** Formata bytes em MB com uma casa; `n/d` quando a metrica nao existe. */
+function formatarBytes(bytes) {
+  if (!Number.isFinite(bytes)) return "n/d";
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Valor efetivo de uma amostra, preferindo o total do agente ao WASM/heap JS. */
+function memoriaDaAmostra(amostra) {
+  if (!amostra) return null;
+  if (Number.isFinite(amostra.totalBytes)) return amostra.totalBytes;
+  if (Number.isFinite(amostra.wasmBytes) && amostra.wasmBytes > 0) return amostra.wasmBytes;
+  if (Number.isFinite(amostra.jsHeapBytes)) return amostra.jsHeapBytes;
+  return null;
+}
 
 async function carregarRotulosModelo(chave) {
   const modelo = path.join(DIR_PESOS, `${chave}.onnx`);
@@ -594,7 +732,7 @@ async function carregarRotulosModelo(chave) {
  */
 async function verificarModelo(chave, config, entradas) {
   const { modelo, rotulos, lado } = await carregarRotulosModelo(chave);
-  const servidor = await servir(0, modelo, entradas);
+  const servidor = await servir(0, modelo, entradas, config.isolamento);
   const porta = servidor.address().port;
   const navegador = await chromium.launch();
   try {
@@ -634,6 +772,23 @@ async function verificarModelo(chave, config, entradas) {
 
     console.log(`Modelo: ${chave}.onnx | entrada: ${lado}x${lado} | classes: ${rotulos.join(", ")}`);
     console.log(`Carga: ${r.msCarga} ms | limiar global: ${config.limiar} | execucao: WASM`);
+    console.log(
+      `Ambiente: crossOriginIsolated=${r.ambiente.crossOriginIsolated} | ` +
+        `hardwareConcurrency=${r.ambiente.hardwareConcurrency} | numThreads=${r.ambiente.numThreads} | simd=${r.ambiente.simd}`
+    );
+    const memoriaAntes = memoriaDaAmostra(r.memoria.antes);
+    const memoriaCarga = memoriaDaAmostra(r.memoria.aposCarga);
+    const memoriaInferencia = memoriaDaAmostra(r.memoria.aposInferencia);
+    const metodoMemoria = r.memoria.aposInferencia.metodo ?? "indisponivel";
+    const wasmAntes = r.memoria.antes.wasmBytes ?? 0;
+    const wasmCarga = r.memoria.aposCarga.wasmBytes ?? 0;
+    const wasmInferencia = r.memoria.aposInferencia.wasmBytes ?? 0;
+    console.log(
+      `Memoria (${metodoMemoria}): wasm antes ${formatarBytes(wasmAntes)} | ` +
+        `apos carga ${formatarBytes(wasmCarga)} (+${formatarBytes(wasmCarga - wasmAntes)}) | ` +
+        `apos inferencia ${formatarBytes(wasmInferencia)} (+${formatarBytes(wasmInferencia - wasmAntes)}) | ` +
+        `pico JS heap ${formatarBytes(r.memoria.picoJsHeapBytes)}`
+    );
     const quadros = r.resultados.flatMap((entrada) =>
       entrada.frames.map((frame) => ({ ...frame, nome: entrada.nome }))
     );
@@ -713,6 +868,13 @@ async function verificarModelo(chave, config, entradas) {
       msInferenciaMedia,
       quadros: quadros.length,
       marcacoes: totalMarcacoes,
+      memoriaAntesBytes: memoriaAntes,
+      memoriaCargaBytes: memoriaCarga,
+      memoriaInferenciaBytes: memoriaInferencia,
+      picoJsHeapBytes: r.memoria.picoJsHeapBytes,
+      memoriaMetodo: metodoMemoria,
+      crossOriginIsolated: r.ambiente.crossOriginIsolated,
+      numThreads: r.ambiente.numThreads,
     };
   } finally {
     await navegador.close();
@@ -731,6 +893,9 @@ async function main() {
     );
     console.log(
       "  --conjunto      roda todos os modelos do conjunto NSFW e imprime um resumo comparativo"
+    );
+    console.log(
+      "  --sem-isolamento desliga COOP/COEP (WASM em 1 thread) para medir o efeito do isolamento"
     );
     return;
   }
@@ -765,7 +930,10 @@ async function main() {
     console.log("\n=== Resumo do conjunto ===");
     for (const resumo of resumos) {
       console.log(
-        `${resumo.chave}: carga ${resumo.msCarga} ms | inferencia media ${resumo.msInferenciaMedia} ms/quadro | ${resumo.marcacoes} marcacao(oes) em ${resumo.quadros} quadro(s)`
+        `${resumo.chave}: carga ${resumo.msCarga} ms | inferencia media ${resumo.msInferenciaMedia} ms/quadro | ` +
+          `${resumo.marcacoes} marcacao(oes) em ${resumo.quadros} quadro(s) | ` +
+          `memoria ${formatarBytes(resumo.memoriaInferenciaBytes)} (${resumo.memoriaMetodo}) | ` +
+          `threads ${resumo.numThreads}`
       );
     }
     if (falhas.length) {

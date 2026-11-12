@@ -30,6 +30,7 @@ import { CONFIG_MOTOR_TEMPORAL_PADRAO } from "./contracts";
 import { RastreadorEntidades, type Entidade, type Sonda } from "./rastreador-entidades";
 import { MaquinaSinais, type EventoSinal } from "./maquina-sinais";
 import { centroidePontos, pontoReferenciaPose } from "./referencia-pose";
+import { AvaliadorPoseSexual } from "./regras-pose";
 
 /**
  * Indices dos pontos-chave na ordem COCO (17 pontos) usada pelo estimador de
@@ -65,6 +66,9 @@ export class MotorTemporalImpl implements MotorTemporal {
   private readonly braco: MaquinaSinais;
   private readonly transicao: MaquinaSinais;
   private readonly movimento: MaquinaSinais;
+  private readonly poseSexual: MaquinaSinais;
+  /** Regras geometricas de pose compativel (Fase 7.2). */
+  private readonly avaliadorPose: AvaliadorPoseSexual;
   /** Histerese dos cinco dedos por track de mao. */
   private readonly dedosPorEntidade = new Map<string, EstadoDedos>();
   /** Ultima amostra vertical de cada punho por pessoa/lado, para transicao. */
@@ -82,6 +86,11 @@ export class MotorTemporalImpl implements MotorTemporal {
       braco: { ...CONFIG_MOTOR_TEMPORAL_PADRAO.braco, ...config?.braco },
       transicao: { ...CONFIG_MOTOR_TEMPORAL_PADRAO.transicao, ...config?.transicao },
       movimento: { ...CONFIG_MOTOR_TEMPORAL_PADRAO.movimento, ...config?.movimento },
+      poseSexual: { ...CONFIG_MOTOR_TEMPORAL_PADRAO.poseSexual, ...config?.poseSexual },
+      regrasPoseSexual: {
+        ...CONFIG_MOTOR_TEMPORAL_PADRAO.regrasPoseSexual,
+        ...config?.regrasPoseSexual,
+      },
     };
     this.objetos = new RastreadorObjetos();
     this.cena = new DetectorMudancaDeCena();
@@ -91,6 +100,8 @@ export class MotorTemporalImpl implements MotorTemporal {
     this.braco = new MaquinaSinais(this.config.braco);
     this.transicao = new MaquinaSinais(this.config.transicao);
     this.movimento = new MaquinaSinais(this.config.movimento);
+    this.poseSexual = new MaquinaSinais(this.config.poseSexual);
+    this.avaliadorPose = new AvaliadorPoseSexual(this.config.regrasPoseSexual);
   }
 
   /**
@@ -159,8 +170,18 @@ export class MotorTemporalImpl implements MotorTemporal {
           )
         );
       }
+      if (this.config.avaliarPoseSexual) {
+        for (const sinal of this.poseSexual.interromperPorPeriodoCego(gapMs)) {
+          eventos.push(
+            this.sinalParaEvento(sinal, "pose_compativel_sexual", "pose", sessionId, () =>
+              "Pose compativel interrompida por periodo cego"
+            )
+          );
+        }
+      }
       // Uma lacuna invalida a continuidade de todos os punhos conhecidos.
       this.punhos.clear();
+      this.avaliadorPose.limpar();
     }
 
     for (const obs of observacoes) {
@@ -353,12 +374,40 @@ export class MotorTemporalImpl implements MotorTemporal {
         );
       }
 
+      // 7. Pose compativel com ato sexual (Fase 7.2). So roda quando o NSFW
+      // esta ativo; o evento e indicio geometrico, nunca prova do ato.
+      if (this.config.avaliarPoseSexual) {
+        const leiturasPose = this.montarLeiturasPoseSexual(
+          posesComTrackId,
+          maosComTrackId,
+          tempoMs,
+          obs.capturadoEm,
+          frameId,
+          obs.cycleId,
+          poseDisponivel
+        );
+        for (const sinal of this.poseSexual.processar(leiturasPose, {
+          indisponivel: !poseDisponivel,
+        })) {
+          eventos.push(
+            this.sinalParaEvento(sinal, "pose_compativel_sexual", "pose", sessionId, (s) =>
+              s.estado === "confirmado"
+                ? "Pose compativel com ato sexual (indicio geometrico, nao prova)"
+                : "Pose compativel encerrada"
+            )
+          );
+        }
+      }
+
       // Diagnostico corrente: diferencia confirmado, ocluido, inferencia
       // indisponivel e observacao insuficiente mesmo sem evento emitido.
       this.registrarDiagnosticos("gesto", this.gestos, !maosDisponivel);
       this.registrarDiagnosticos("braco", this.braco, !poseDisponivel);
       this.registrarDiagnosticos("transicao", this.transicao, !poseDisponivel);
       this.registrarDiagnosticos("movimento", this.movimento, !poseDisponivel);
+      if (this.config.avaliarPoseSexual) {
+        this.registrarDiagnosticos("pose_sexual", this.poseSexual, !poseDisponivel);
+      }
 
       observacoesEnriquecidas.push({
         ...obs,
@@ -400,6 +449,8 @@ export class MotorTemporalImpl implements MotorTemporal {
     this.braco.limpar();
     this.transicao.limpar();
     this.movimento.limpar();
+    this.poseSexual.limpar();
+    this.avaliadorPose.limpar();
     this.dedosPorEntidade.clear();
     this.punhos.clear();
     this.diagnosticos.clear();
@@ -554,6 +605,46 @@ export class MotorTemporalImpl implements MotorTemporal {
           : pose
             ? ["velocidadeY:abaixo_do_limiar"]
             : [],
+      };
+    });
+  }
+
+  /**
+   * Le as regras geometricas de pose compativel por pessoa rastreada.
+   *
+   * O avaliador mantem apenas o historico de ritmo do punho; as demais regras
+   * sao avaliadas no frame. Sem pose da entidade, a leitura preserva a ausencia
+   * de sinal (a maquina decide se e oclusao ou apenas tolerancia do rastreador).
+   */
+  private montarLeiturasPoseSexual(
+    poses: PessoaPose[],
+    maos: MaoDetectada[],
+    tempoMs: number,
+    timestamp: string,
+    frameId: string,
+    cycleId: string,
+    poseDisponivel: boolean
+  ) {
+    const porEntidade = new Map<string, PessoaPose>();
+    for (const pose of poses) {
+      if (pose.entidadeId) porEntidade.set(pose.entidadeId, pose);
+    }
+    return this.pessoas.vivas.map((entidade) => {
+      const pose = porEntidade.get(entidade.entidadeId);
+      const resultado =
+        pose && poseDisponivel
+          ? this.avaliadorPose.avaliar(pose, maos, tempoMs)
+          : null;
+      return {
+        entidadeId: entidade.entidadeId,
+        rotulo: resultado?.compativel ? "pose_compativel" : null,
+        confianca: resultado?.confianca ?? 0,
+        frameId,
+        timestamp,
+        cycleId,
+        observada: pose !== undefined,
+        continuidadeValida: pose !== undefined ? continuidadeDaEntidade(entidade) : true,
+        evidencias: resultado?.evidencias ?? (pose ? ["pose:sem_regra"] : []),
       };
     });
   }

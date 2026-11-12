@@ -51,6 +51,12 @@ export interface MetricasAdaptador {
   status?: EstadoSubsistema;
   /** Motivo legivel quando `status === "indisponivel"`. */
   motivoFalha?: string;
+  /**
+   * Motivo do fallback worker -> thread principal, quando ocorreu. Diferente de
+   * `motivoFalha`: o modelo pode estar `ok` rodando localmente apos a queda do
+   * worker. Ausente quando a inferencia rodou no worker.
+   */
+  motivoFallback?: string;
   /** Tempo da ultima carga do modelo (ms). */
   tempoCargaMs?: number;
   /** Tempo da ultima inferencia (ms). */

@@ -49,10 +49,12 @@ function avisoFallback(
   aoStatus: ((mensagem: string) => void) | undefined,
   motor: string,
   erro: unknown
-): void {
+): string {
   const detalhe = mensagemDe(erro);
   const origem = erro instanceof ErroWorker ? "worker" : "motor";
-  aoStatus?.(`${origem} de ${motor} indisponivel (${detalhe}); usando a thread principal.`);
+  const mensagem = `${origem} de ${motor} indisponivel (${detalhe}); usando a thread principal.`;
+  aoStatus?.(mensagem);
+  return mensagem;
 }
 
 /**
@@ -68,6 +70,7 @@ function criarMotorDeteccaoComWorker(
   let modelo: string | null = null;
   let dispositivo: "webgpu" | "wasm" | null = null;
   let tempoCargaMs: number | null = null;
+  let motivoFallback: string | null = null;
   let status: ((mensagem: string) => void) | undefined;
 
   const garantirLocal = async (): Promise<MotorDeteccao> => {
@@ -92,6 +95,9 @@ function criarMotorDeteccaoComWorker(
     get tempoCargaMs() {
       return tempoCargaMs;
     },
+    get motivoFallback() {
+      return motivoFallback;
+    },
     get aoStatus() {
       return status;
     },
@@ -104,6 +110,9 @@ function criarMotorDeteccaoComWorker(
     async carregar(idModelo, aoStatus) {
       status = aoStatus ?? status;
       modelo = idModelo;
+      // Nova tentativa de worker: o motivo anterior deixa de valer ate haver
+      // nova falha.
+      motivoFallback = null;
       try {
         cliente = new ClienteWorker(nome);
         cliente.aoStatus = status;
@@ -118,7 +127,7 @@ function criarMotorDeteccaoComWorker(
       } catch (erro) {
         cliente?.encerrar();
         cliente = null;
-        avisoFallback(status, nome, erro);
+        motivoFallback = avisoFallback(status, nome, erro);
       }
       await garantirLocal();
     },
@@ -139,7 +148,7 @@ function criarMotorDeteccaoComWorker(
         } catch (erro) {
           cliente.encerrar();
           cliente = null;
-          avisoFallback(status, nome, erro);
+          motivoFallback = avisoFallback(status, nome, erro);
         }
       }
       return (await garantirLocal()).executar(imagem, opcoes);
@@ -153,6 +162,7 @@ function criarMotorDeteccaoComWorker(
       modelo = null;
       dispositivo = null;
       tempoCargaMs = null;
+      motivoFallback = null;
     },
   };
 }
@@ -180,6 +190,7 @@ export function criarMotorNsfwRemoto(): MotorDeteccao {
   let modeloWorker: string | null = null;
   let dispositivo: "webgpu" | "wasm" | null = null;
   let tempoCargaMs: number | null = null;
+  let motivoFallback: string | null = null;
   let status: ((mensagem: string) => void) | undefined;
 
   const encerrarCliente = (): void => {
@@ -214,6 +225,9 @@ export function criarMotorNsfwRemoto(): MotorDeteccao {
     get tempoCargaMs() {
       return tempoCargaMs;
     },
+    get motivoFallback() {
+      return motivoFallback;
+    },
     get aoStatus() {
       return status;
     },
@@ -234,6 +248,8 @@ export function criarMotorNsfwRemoto(): MotorDeteccao {
       encerrarCliente();
       encerrarLocal();
       modelo = alvo;
+      // Nova tentativa de worker para este modelo: limpa o motivo anterior.
+      motivoFallback = null;
       try {
         cliente = new ClienteWorker("nsfw");
         cliente.aoStatus = status;
@@ -248,7 +264,7 @@ export function criarMotorNsfwRemoto(): MotorDeteccao {
         return;
       } catch (erro) {
         encerrarCliente();
-        avisoFallback(status, `nsfw (${alvo})`, erro);
+        motivoFallback = avisoFallback(status, `nsfw (${alvo})`, erro);
       }
       await garantirLocal(alvo);
     },
@@ -268,7 +284,7 @@ export function criarMotorNsfwRemoto(): MotorDeteccao {
           );
         } catch (erro) {
           encerrarCliente();
-          avisoFallback(status, "nsfw", erro);
+          motivoFallback = avisoFallback(status, "nsfw", erro);
         }
       }
       const alvo = modelo ?? MODELO_NSFW_PADRAO;
@@ -281,6 +297,7 @@ export function criarMotorNsfwRemoto(): MotorDeteccao {
       modelo = null;
       dispositivo = null;
       tempoCargaMs = null;
+      motivoFallback = null;
     },
   };
 }

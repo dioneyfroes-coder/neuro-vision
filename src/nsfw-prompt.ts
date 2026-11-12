@@ -124,6 +124,46 @@ export const INSTRUCAO_NSFW = [
   "9. Nao invente conteudo adulto, participantes, atos ou objetos que nao estejam visiveis.",
 ].join("\n");
 
+/**
+ * Instrucao de inferencia de acao sexual a partir de **varios frames** do mesmo
+ * ciclo. O bloco so faz sentido com 2+ imagens: acao e fenomeno temporal e um
+ * frame isolado nao sustenta conclusao sobre masturbacao, sexo oral ou
+ * penetracao.
+ *
+ * O texto exige separar o que e visivel do que e inferido, preservar os
+ * `frameId` reais e tratar a conclusao como inferencia com confianca — nunca
+ * como certeza. E a mudanca de maior ganho do plano (Fase 7.1).
+ */
+export const INSTRUCAO_ACAO_MULTIFRAME = [
+  "ACAO SEXUAL EM MULTIFRAME - INFERENCIA, NAO CERTEZA",
+  "",
+  "Voce recebeu varias imagens do MESMO ciclo, em ordem cronologica. Use a sequencia inteira; nao conclua acao sexual a partir de uma unica imagem.",
+  "",
+  "Regras:",
+  "1. Para cada acao sexual (masturbacao, sexo oral, penetracao vaginal/anal, outra), preencha em `acoes`:",
+  "   - `tipo`: `masturbacao`, `sexo_oral`, `penetracao` ou `outra`;",
+  "   - `natureza`: `observada` quando o ato e diretamente visivel em pelo menos um frame; `inferida` quando a conclusao depende da continuidade/sequencia entre frames;",
+  "   - `confianca` em [0,1] (nao use 1,0: e leitura do modelo, nao medicao);",
+  "   - `evidencias` com os frameIds EXATOS que sustentam a conclusao.",
+  "2. Preserve os frameIds reais de cada imagem. Nunca invente IDs.",
+  "3. Inferencia nunca e certeza: use confianca abaixo de 0,7 quando a conclusao depender de oclusao, roupa, angulo, iluminacao ou continuidade entre frames. Registre a duvida em `incertezas`.",
+  "4. Nao presuma penetracao/sexo oral apenas por corpos proximos, expressao facial, roupa ou posicao. Exija evidencia visual concreta (contato genital, movimento coordenado, posicao compativel, continuidade entre frames).",
+  "5. Movimento ritmico, mao proxima da genital e pernas/joelhos afastados sao indicios de POSE COMPATIVEL, nao prova de ato sexual. Se for so isso, descreva como indicio e mantenha `natureza: inferida` com confianca baixa.",
+  "6. Se a sequencia nao sustentar a acao, escreva 'nao observado' na descricao e nao invente `tipo`. Ausencia de evidencia nao e evidencia de ausencia.",
+  "7. Descreva separadamente o que e corpo visivel (genital, seios, nadegas, posicao) do que e acao inferida; o relatorio precisa distinguir acerto de acao de deteccao de corpo.",
+].join("\n");
+
+/**
+ * Bloco de acao multiframe, vazio quando ha menos de 2 imagens.
+ *
+ * O numero de frames entra no texto para que o modelo saiba quantas evidencias
+ * temporais tem e nao trate a sequencia como um unico instante.
+ */
+export function blocoAcaoMultiframe(quantidadeFrames: number): string {
+  if (!Number.isFinite(quantidadeFrames) || quantidadeFrames < 2) return "";
+  return `${INSTRUCAO_ACAO_MULTIFRAME}\n\nImagens neste ciclo: ${Math.floor(quantidadeFrames)}.`;
+}
+
 /** Limita um numero a [0, 1]; valores invalidos viram 0. */
 function limitar01(valor: number): number {
   if (!Number.isFinite(valor)) return 0;

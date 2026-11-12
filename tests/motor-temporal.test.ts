@@ -1253,4 +1253,58 @@ describe("MotorTemporalImpl — objetos e cena", () => {
     ]);
     expect(motor.pessoasVivas[0]?.entidadeId).toBe(id1);
   });
+
+  it("emite pose_compativel_sexual como indicio quando o NSFW esta ativo", () => {
+    reiniciarContador();
+    const motor = new MotorTemporalImpl({
+      avaliarPoseSexual: true,
+      poseSexual: { framesParaConfirmar: 2, framesParaEncerrar: 2, confiancaMinima: 0.5 },
+      regrasPoseSexual: { distanciaMaoGenital: 0.2 },
+    });
+    const eventos = [];
+    // Punhos na altura do quadril: a mao fica proxima da regiao genital
+    // estimada e a regra atinge o limiar de pose compativel.
+    for (let i = 0; i < 2; i += 1) {
+      const r = motor.processar([obs({ ms: i * 100, pose: posePessoa(0.6, 0.6) })]);
+      eventos.push(...r.eventos);
+    }
+    const evento = eventos.find((e) => e.tipo === "pose_compativel_sexual");
+    expect(evento).toBeDefined();
+    expect(evento?.estado).toBe("confirmado");
+    expect(evento?.origens).toEqual(["pose"]);
+    expect(evento?.descricao).toMatch(/indicio geometrico, nao prova/i);
+    expect(evento?.evidencias?.join(" ")).toContain("mao_proxima_genital");
+  });
+
+  it("nao emite pose_compativel_sexual quando as regras estao desligadas", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    const eventos = [];
+    for (let i = 0; i < 4; i += 1) {
+      const r = motor.processar([obs({ ms: i * 100, pose: posePessoa(0.6, 0.6) })]);
+      eventos.push(...r.eventos);
+    }
+    expect(eventos.some((e) => e.tipo === "pose_compativel_sexual")).toBe(false);
+  });
+
+  it("encerra a pose compativel quando o sinal deixa de ser observado", () => {
+    reiniciarContador();
+    const motor = new MotorTemporalImpl({
+      avaliarPoseSexual: true,
+      poseSexual: { framesParaConfirmar: 2, framesParaEncerrar: 2, confiancaMinima: 0.5 },
+      regrasPoseSexual: { distanciaMaoGenital: 0.2 },
+    });
+    const eventos = [];
+    for (let i = 0; i < 2; i += 1) {
+      eventos.push(...motor.processar([obs({ ms: i * 100, pose: posePessoa(0.6, 0.6) })]).eventos);
+    }
+    // Punhos longe da genital e pernas fechadas: o sinal some.
+    for (let i = 2; i < 4; i += 1) {
+      eventos.push(...motor.processar([obs({ ms: i * 100, pose: posePessoa(0.1, 0.1) })]).eventos);
+    }
+    const encerrado = eventos.find(
+      (e) => e.tipo === "pose_compativel_sexual" && e.estado === "encerrado"
+    );
+    expect(encerrado).toBeDefined();
+  });
 });

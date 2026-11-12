@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  AdaptadorClassificadorNsfw,
   AdaptadorNsfwConjunto,
   LIMITE_IOU_MESCLA_NSFW,
   mesclarMarcacoesNsfw,
 } from "../public/perception/adapters/nsfw-classifier.adapter";
 import { MODELO_NSFW_CONJUNTO } from "../public/nsfw-onnx";
+import type { DeteccaoYOLO, MotorDeteccao } from "../public/yolo-onnx";
 import { ErroPercepcao } from "../src/erros";
 import type {
   ClassificadorNsfw,
@@ -101,6 +103,7 @@ class AdaptadorFalso implements ClassificadorNsfw {
       falharCarga?: boolean;
       falharAvaliacao?: boolean;
       resultado?: ResultadoNsfw;
+      motivoFallback?: string;
     } = {}
   ) {}
 
@@ -108,6 +111,9 @@ class AdaptadorFalso implements ClassificadorNsfw {
     this.metricas.tempoCargaMs = 1;
     this.metricas.dispositivo = "wasm";
     this.metricas.modelo = modelo;
+    if (this.opcoes.motivoFallback) {
+      this.metricas.motivoFallback = this.opcoes.motivoFallback;
+    }
     if (this.opcoes.falharCarga) {
       this.metricas.status = "indisponivel";
       this.metricas.motivoFalha = `${this.chave} quebrou na carga`;
@@ -266,5 +272,61 @@ describe("AdaptadorNsfwConjunto - fabrica default", () => {
     // Cada modelo tem sua propria instancia/telemetria.
     expect(new Set(conjunto.metricas.telemetriaModelos?.map((t) => t.modelo)).size).toBe(2);
     vi.restoreAllMocks();
+  });
+
+  it("propaga o motivo de fallback por modelo e no agregado do subsistema", async () => {
+    const conjunto = criarConjunto({
+      a: {},
+      b: { motivoFallback: "worker de b indisponivel; usando a thread principal" },
+    });
+    await conjunto.carregar(MODELO_NSFW_CONJUNTO);
+    const telemetriaB = conjunto.metricas.telemetriaModelos?.find((t) => t.modelo === "b");
+    expect(telemetriaB?.motivoFallback).toContain("thread principal");
+    expect(telemetriaB?.status).toBe("ok");
+    expect(conjunto.metricas.motivoFallback).toContain("b: worker de b indisponivel");
+    // O modelo que rodou no worker nao ganha motivo de fallback.
+    const telemetriaA = conjunto.metricas.telemetriaModelos?.find((t) => t.modelo === "a");
+    expect(telemetriaA?.motivoFallback).toBeUndefined();
+  });
+});
+
+/** Motor de deteccao controlavel para exercitar a telemetria de fallback. */
+class MotorFalso implements MotorDeteccao {
+  modelo: string | null = "nudenet_320n";
+  dispositivo: "webgpu" | "wasm" | null = "wasm";
+  tempoCargaMs: number | null = 3;
+  aoStatus?: (mensagem: string) => void;
+
+  constructor(readonly motivoFallback: string | null = null) {}
+
+  async carregar(): Promise<void> {}
+  async executar(): Promise<DeteccaoYOLO[]> {
+    return [];
+  }
+  encerrar(): void {}
+}
+
+describe("AdaptadorClassificadorNsfw - telemetria de fallback", () => {
+  it("registra o motivo do fallback sem marcar o modelo como indisponivel", async () => {
+    const motor = new MotorFalso("worker de nsfw indisponivel; usando a thread principal");
+    const adaptador = new AdaptadorClassificadorNsfw(motor);
+    await adaptador.carregar("nudenet_320n");
+    expect(adaptador.metricas.status).toBe("ok");
+    expect(adaptador.metricas.motivoFallback).toContain("thread principal");
+    await adaptador.avaliar(ENTRADA);
+    expect(adaptador.metricas.motivoFallback).toContain("thread principal");
+  });
+
+  it("nao inventa motivo quando a inferencia rodou no worker", async () => {
+    const adaptador = new AdaptadorClassificadorNsfw(new MotorFalso(null));
+    await adaptador.carregar("nudenet_320n");
+    expect(adaptador.metricas.motivoFallback).toBeUndefined();
+  });
+
+  it("limpa o motivo ao encerrar", async () => {
+    const adaptador = new AdaptadorClassificadorNsfw(new MotorFalso("worker caiu"));
+    await adaptador.carregar("nudenet_320n");
+    adaptador.encerrar();
+    expect(adaptador.metricas.motivoFallback).toBeUndefined();
   });
 });

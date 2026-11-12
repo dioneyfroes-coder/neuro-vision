@@ -12,6 +12,7 @@ export type TipoEventoTemporal =
   | "braco_levantado"
   | "transicao_acao"
   | "movimento_corporal"
+  | "pose_compativel_sexual"
   | "movimento_objeto"
   | "aparicao"
   | "desaparecimento"
@@ -55,7 +56,12 @@ export type EstadoDiagnosticoSinal =
   | "observacao_insuficiente";
 
 /** Subsistema logico que produziu o diagnostico. */
-export type SinalTemporalDiagnosticado = "gesto" | "braco" | "movimento" | "transicao";
+export type SinalTemporalDiagnosticado =
+  | "gesto"
+  | "braco"
+  | "movimento"
+  | "transicao"
+  | "pose_sexual";
 
 export interface DiagnosticoSinalTemporal {
   sinal: SinalTemporalDiagnosticado;

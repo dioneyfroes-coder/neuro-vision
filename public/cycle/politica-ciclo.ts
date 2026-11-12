@@ -50,6 +50,7 @@ export const TIPOS_EVENTO_RELEVANTES: readonly TipoEventoTemporal[] = [
   "braco_levantado",
   "transicao_acao",
   "movimento_corporal",
+  "pose_compativel_sexual",
 ];
 
 /** Politica padrao do modo operacional (producao/uso real). */

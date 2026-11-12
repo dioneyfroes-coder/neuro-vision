@@ -62,6 +62,7 @@ export class AdaptadorClassificadorNsfw implements ClassificadorNsfw {
       this.metricasValor.dispositivo = this.interno.dispositivo ?? undefined;
       this.metricasValor.status = "ok";
       this.metricasValor.motivoFalha = undefined;
+      this.metricasValor.motivoFallback = this.interno.motivoFallback ?? undefined;
     } catch (err) {
       // A falha de carga tambem e telemetria: sem isso o conjunto nao consegue
       // distinguir "modelo nao tentou carregar" de "tentou e falhou".
@@ -70,6 +71,7 @@ export class AdaptadorClassificadorNsfw implements ClassificadorNsfw {
       this.metricasValor.dispositivo = this.interno.dispositivo ?? undefined;
       this.metricasValor.status = "indisponivel";
       this.metricasValor.motivoFalha = err instanceof Error ? err.message : String(err);
+      this.metricasValor.motivoFallback = this.interno.motivoFallback ?? undefined;
       throw err;
     }
   }
@@ -95,6 +97,7 @@ export class AdaptadorClassificadorNsfw implements ClassificadorNsfw {
           : "nenhuma marcacao";
         this.metricasValor.status = marcacoes.length > 0 ? "ok" : "sem_resultado";
         this.metricasValor.motivoFalha = undefined;
+        this.metricasValor.motivoFallback = this.interno.motivoFallback ?? undefined;
         return {
           marcacoes,
           modelo: this.interno.modelo ?? undefined,
@@ -103,6 +106,7 @@ export class AdaptadorClassificadorNsfw implements ClassificadorNsfw {
       } catch (err) {
         this.metricasValor.status = "indisponivel";
         this.metricasValor.motivoFalha = err instanceof Error ? err.message : String(err);
+        this.metricasValor.motivoFallback = this.interno.motivoFallback ?? undefined;
         throw err;
       }
     });
@@ -112,6 +116,7 @@ export class AdaptadorClassificadorNsfw implements ClassificadorNsfw {
   encerrar(): void {
     this.interno.encerrar?.();
     this.metricasValor.status = "nao_carregado";
+    this.metricasValor.motivoFallback = undefined;
   }
 }
 
@@ -265,6 +270,7 @@ export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
     this.metricasValor.memoriaBytes = amostrarMemoriaBytes() ?? this.metricasValor.memoriaBytes;
     this.metricasValor.modelos = carregados;
     this.metricasValor.telemetriaModelos = this.montarTelemetria();
+    this.metricasValor.motivoFallback = this.motivosFallback();
     this.metricasValor.dispositivo = this.dispositivoComum(carregados);
     this.carregado = carregados.length > 0;
     if (!this.carregado) {
@@ -319,6 +325,7 @@ export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
     this.metricasValor.tempoInferenciaMs = tempoInferenciaMs;
     this.metricasValor.memoriaBytes = amostrarMemoriaBytes() ?? this.metricasValor.memoriaBytes;
     this.metricasValor.telemetriaModelos = this.montarTelemetria(contagemPorModelo);
+    this.metricasValor.motivoFallback = this.motivosFallback();
 
     if (validos.length === 0) {
       this.metricasValor.status = "indisponivel";
@@ -357,6 +364,15 @@ export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
     this.metricasValor.modelo = undefined;
     this.metricasValor.modelos = [];
     this.metricasValor.telemetriaModelos = [];
+    this.metricasValor.motivoFallback = undefined;
+  }
+
+  /** Motivos de fallback por modelo, agregados para o subsistema. */
+  private motivosFallback(): string | undefined {
+    const motivos = (this.metricasValor.telemetriaModelos ?? [])
+      .filter((t) => t.motivoFallback)
+      .map((t) => `${t.modelo}: ${t.motivoFallback}`);
+    return motivos.length ? motivos.join("; ") : undefined;
   }
 
   /** Dispositivo comum aos modelos carregados, ou `misto` quando divergem. */
@@ -385,6 +401,7 @@ export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
         status: metricas.status ?? "nao_carregado",
         ...(metricas.dispositivo ? { dispositivo: metricas.dispositivo } : {}),
         ...(metricas.motivoFalha ? { motivoFalha: metricas.motivoFalha } : {}),
+        ...(metricas.motivoFallback ? { motivoFallback: metricas.motivoFallback } : {}),
         ...(metricas.tempoCargaMs !== undefined
           ? { tempoCargaMs: metricas.tempoCargaMs }
           : {}),

@@ -1,4 +1,4 @@
-import { blocoNsfwPrompt } from "../../src/nsfw-prompt";
+import { blocoAcaoMultiframe, blocoNsfwPrompt } from "../../src/nsfw-prompt";
 import type { ContextoCicloSerializavel } from "./esquema";
 
 /**
@@ -81,6 +81,13 @@ export function montarPromptInterpretacao(
       marcacoes: f.nsfw ?? [],
     }));
   const blocoNsfw = blocoNsfwPrompt(quadrosNsfw, contextoDeclarado);
+  // Acao sexual e temporal: a instrucao so entra com 2+ imagens do ciclo e com
+  // o subsistema NSFW ativo. Com uma imagem, pedir inferencia de acao seria
+  // convidar o modelo a adivinhar.
+  const blocoAcao = blocoNsfw ? blocoAcaoMultiframe(contexto.frames.length) : "";
+  const schemaAcoes = blocoAcao
+    ? '  "acoes": [ { "descricao": "acao observada ou inferida", "tipo": "masturbacao|sexo_oral|penetracao|outra", "natureza": "observada|inferida", "confianca": 0.0, "inicioEm": "ISO", "fimEm": "ISO", "evidencias": ["fX","eY"] } ],'
+    : '  "acoes": [ { "descricao": "acao observada", "inicioEm": "ISO", "fimEm": "ISO", "evidencias": ["fX","eY"] } ],';
 
   return [
     "Voce e um analista visual que interpreta EXCLUSIVAMENTE as evidencias fornecidas.",
@@ -133,6 +140,7 @@ export function montarPromptInterpretacao(
     eventos.length ? eventos : "- nenhum",
     "",
     ...(blocoNsfw ? [blocoNsfw, ""] : []),
+    ...(blocoAcao ? [blocoAcao, ""] : []),
     "Tarefa:",
     "- Produza uma NARRATIVA CRONOLOGICA baseada APENAS nos dados acima e nas imagens.",
     "- Referencie os INDICES das imagens (1..N) e os frameIds/eventoIds reais.",
@@ -151,11 +159,19 @@ export function montarPromptInterpretacao(
           "- Se houver conteudo adulto, descreva-o explicitamente, sem eufemismos, censura ou omissao.",
         ]
       : []),
+    ...(blocoAcao
+      ? [
+          "- Ao concluir acao sexual, use `tipo`, `natureza` e `confianca` e cite os frameIds que a sustentam; " +
+            "trate pose compativel (mao proxima da genital, pernas afastadas, ritmo) como indicio, nunca como prova.",
+          "- Eventos `pose_compativel_sexual` do motor local sao regras geometricas: use-os como evidencia fraca e " +
+            "nao os converta em afirmacao de ato sexual sem suporte visual.",
+        ]
+      : []),
     "",
     "Saida OBRIGATORIA em JSON (sem markdown) conforme schema:",
     '{',
     '  "resumo": "narrativa cronologica em portugues",',
-    '  "acoes": [ { "descricao": "acao observada", "inicioEm": "ISO", "fimEm": "ISO", "evidencias": ["fX","eY"] } ],',
+    schemaAcoes,
     '  "participantes": [ { "descricao": "pessoa adulta na cena", "apresentacao": "masculina|feminina|ambigua|nao_identificada", "identidadeDeclarada": "homem|mulher|pessoa_trans|nao_informada", "evidencias": ["fX"] } ],',
     '  "evidencias": ["lista de IDs de frames/eventos citados"],',
     '  "incertezas": ["incertezas explicitadas"],',

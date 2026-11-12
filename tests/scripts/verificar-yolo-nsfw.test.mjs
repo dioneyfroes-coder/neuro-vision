@@ -72,6 +72,15 @@ describe("parsearArgumentos", () => {
     expect(parsearArgumentos(["clipe.mp4"])).toMatchObject({ conjunto: false });
   });
 
+  it("permite desligar COOP/COEP para medir o efeito do isolamento", () => {
+    expect(parsearArgumentos(["--conjunto", "clipe.mp4"])).toMatchObject({
+      isolamento: true,
+    });
+    expect(
+      parsearArgumentos(["--conjunto", "clipe.mp4", "--sem-isolamento"])
+    ).toMatchObject({ isolamento: false });
+  });
+
   it("rejeita limiares invalidos, flags desconhecidas e argumentos incompletos", () => {
     expect(() => parsearArgumentos(["modelo", "2"])).toThrow(/limiar/);
     expect(() => parsearArgumentos(["modelo", "--desconhecida"])).toThrow(/opcao desconhecida/);

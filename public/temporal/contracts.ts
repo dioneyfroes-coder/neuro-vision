@@ -1,4 +1,8 @@
 import type { ObservacaoFrame, ResumoTemporal } from "../../src/domain";
+import {
+  CONFIG_REGRAS_POSE_SEXUAL_PADRAO,
+  type ConfigRegrasPoseSexual,
+} from "./regras-pose";
 
 /**
  * Contratos do motor temporal (Etapa 6 do roteiro de modularizacao).
@@ -117,6 +121,16 @@ export interface ConfigMotorTemporal {
    * periodo cego (janela sem observacao).
    */
   limiarPeriodoCegoMs: number;
+  /**
+   * Liga as regras geometricas de **pose compativel** com ato sexual (Fase
+   * 7.2). Fica desligado por padrao e so deve ser ligado quando o NSFW esta
+   * ativo: em modo SFW o motor nao emite esse tipo de evento.
+   */
+  avaliarPoseSexual: boolean;
+  /** Maquina de estado do sinal de pose compativel (confirmacao/encerramento). */
+  poseSexual: ConfigMaquinaSinais;
+  /** Limiares geometricos da pose compativel. */
+  regrasPoseSexual: ConfigRegrasPoseSexual;
 }
 
 export const CONFIG_MOTOR_TEMPORAL_PADRAO: ConfigMotorTemporal = {
@@ -133,17 +147,31 @@ export const CONFIG_MOTOR_TEMPORAL_PADRAO: ConfigMotorTemporal = {
   limiarVelocidadeTransicaoBraco: 0.2,
   histereseAnguloDedoGraus: 12,
   limiarPeriodoCegoMs: 1200,
+  avaliarPoseSexual: false,
+  poseSexual: { framesParaConfirmar: 3, framesParaEncerrar: 3, confiancaMinima: 0.5 },
+  regrasPoseSexual: CONFIG_REGRAS_POSE_SEXUAL_PADRAO,
 };
 
 /** Configuracao parcial aceita na construcao do motor. */
 export type ConfiguracaoParcialMotorTemporal = Partial<
-  Omit<ConfigMotorTemporal, "rastreador" | "gestos" | "braco" | "transicao" | "movimento">
+  Omit<
+    ConfigMotorTemporal,
+    | "rastreador"
+    | "gestos"
+    | "braco"
+    | "transicao"
+    | "movimento"
+    | "poseSexual"
+    | "regrasPoseSexual"
+  >
 > & {
   rastreador?: Partial<ConfigRastreador>;
   gestos?: Partial<ConfigMaquinaSinais>;
   braco?: Partial<ConfigMaquinaSinais>;
   transicao?: Partial<ConfigMaquinaSinais>;
   movimento?: Partial<ConfigMaquinaSinais>;
+  poseSexual?: Partial<ConfigMaquinaSinais>;
+  regrasPoseSexual?: Partial<ConfigRegrasPoseSexual>;
 };
 
 /** Leitura consolidada + observacoes enriquecidas com os IDs de rastreamento. */

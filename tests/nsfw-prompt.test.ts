@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   LIMITE_CONTEXTO_DECLARADO,
+  blocoAcaoMultiframe,
   blocoContextoDeclarado,
   blocoNsfwPrompt,
+  INSTRUCAO_ACAO_MULTIFRAME,
   descreverRotuloNsfw,
   formatarMarcacoesNsfw,
   INSTRUCAO_NSFW,
@@ -189,6 +191,32 @@ describe("blocoNsfwPrompt", () => {
       LIMITE_CONTEXTO_DECLARADO
     );
     expect(normalizarContextoDeclarado(undefined)).toBeUndefined();
+  });
+});
+
+describe("acao sexual em multiframe", () => {
+  it("exige inferencia com tipo, natureza, confianca e frameIds", () => {
+    expect(INSTRUCAO_ACAO_MULTIFRAME).toContain("ACAO SEXUAL EM MULTIFRAME");
+    expect(INSTRUCAO_ACAO_MULTIFRAME).toContain("masturbacao");
+    expect(INSTRUCAO_ACAO_MULTIFRAME).toContain("sexo_oral");
+    expect(INSTRUCAO_ACAO_MULTIFRAME).toContain("penetracao");
+    expect(INSTRUCAO_ACAO_MULTIFRAME).toContain("natureza");
+    expect(INSTRUCAO_ACAO_MULTIFRAME).toContain("confianca");
+    expect(INSTRUCAO_ACAO_MULTIFRAME).toContain("frameIds");
+  });
+
+  it("trata pose compativel como indicio, nunca como prova", () => {
+    expect(INSTRUCAO_ACAO_MULTIFRAME).toMatch(/POSE COMPATIVEL, nao prova/i);
+    expect(INSTRUCAO_ACAO_MULTIFRAME).toMatch(/inferencia nunca e certeza/i);
+  });
+
+  it("so aparece com 2 ou mais imagens", () => {
+    expect(blocoAcaoMultiframe(1)).toBe("");
+    expect(blocoAcaoMultiframe(0)).toBe("");
+    expect(blocoAcaoMultiframe(Number.NaN)).toBe("");
+    const bloco = blocoAcaoMultiframe(4);
+    expect(bloco).toContain(INSTRUCAO_ACAO_MULTIFRAME);
+    expect(bloco).toContain("Imagens neste ciclo: 4");
   });
 });
 

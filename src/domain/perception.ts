@@ -182,6 +182,12 @@ export interface TelemetriaModeloNsfw {
   dispositivo?: string;
   /** Motivo legivel quando o modelo ficou indisponivel. */
   motivoFalha?: string;
+  /**
+   * Motivo do fallback worker -> thread principal. O modelo pode seguir `ok`
+   * rodando na thread principal; este campo registra que o worker dedicado
+   * falhou e nao foi tentado de novo na sessao.
+   */
+  motivoFallback?: string;
   /** Tempo da carga fria do modelo (ms). */
   tempoCargaMs?: number;
   /** Tempo da ultima inferencia valida do modelo (ms). */
@@ -222,6 +228,11 @@ export interface TelemetriaSubsistema {
   versao?: string;
   /** Motivo legivel quando `status === "indisponivel"`. */
   motivoFalha?: string;
+  /**
+   * Motivo do fallback worker -> thread principal, quando ocorreu. O subsistema
+   * pode seguir `ok` na thread principal; este campo registra a queda do worker.
+   */
+  motivoFallback?: string;
   /** Tempo da ultima carga do modelo (ms): custo frio, nao por frame. */
   tempoCargaMs?: number;
   /** Tempo da ultima inferencia bem-sucedida (ms): custo aquecido por frame. */

@@ -197,6 +197,55 @@ describe("montarPromptInterpretacao", () => {
     expect(prompt).toContain("nsfw=[");
   });
 
+  it("inclui instrucao de acao multiframe e schema com tipo/natureza/confianca", () => {
+    const obsNsfw = (frameId: string, ms: number, imagem: string): ObservacaoFrame => ({
+      ...OBS_BASE,
+      frameId,
+      capturadoEmMs: ms,
+      imagem,
+      nsfw: { marcacoes: [] },
+      metricas: {
+        subsistemas: {
+          deteccao: { status: "ok" },
+          pose: { status: "ok" },
+          maos: { status: "ok" },
+          nsfw: { status: "ok" },
+        },
+      },
+    });
+    const pacote: PacoteCiclo = {
+      ...PACOTE,
+      observacoes: [obsNsfw("f1", 0, "img1"), obsNsfw("f2", 500, "img2")],
+    };
+    const { contexto } = montarContextoCiclo(pacote);
+    const prompt = montarPromptInterpretacao(contexto);
+    expect(prompt).toContain("ACAO SEXUAL EM MULTIFRAME");
+    expect(prompt).toContain("Imagens neste ciclo: 2");
+    expect(prompt).toContain('"tipo": "masturbacao|sexo_oral|penetracao|outra"');
+    expect(prompt).toContain('"natureza": "observada|inferida"');
+    expect(prompt).toContain('"confianca": 0.0');
+  });
+
+  it("nao pede inferencia de acao sexual com uma unica imagem", () => {
+    const obs: ObservacaoFrame = {
+      ...OBS_BASE,
+      nsfw: { marcacoes: [] },
+      metricas: {
+        subsistemas: {
+          deteccao: { status: "ok" },
+          pose: { status: "ok" },
+          maos: { status: "ok" },
+          nsfw: { status: "ok" },
+        },
+      },
+    };
+    const { contexto } = montarContextoCiclo({ ...PACOTE, observacoes: [obs] });
+    const prompt = montarPromptInterpretacao(contexto);
+    expect(prompt).toContain("CONTEUDO ADULTO (NSFW)");
+    expect(prompt).not.toContain("ACAO SEXUAL EM MULTIFRAME");
+    expect(prompt).not.toContain('"natureza": "observada|inferida"');
+  });
+
   it("pede participantes da cena sem inferir identidade trans pela aparencia", () => {
     const { contexto } = montarContextoCiclo({ ...PACOTE, observacoes: [OBS_BASE] });
     const prompt = montarPromptInterpretacao(contexto);
@@ -300,6 +349,23 @@ describe("normalizarInterpretacao", () => {
     expect(res.acoes).toHaveLength(1);
     expect(res.evidencias).toEqual(["f1"]);
     expect(res.modelo).toBe("qwen2.5-vl");
+  });
+
+  it("normaliza tipo/natureza/confianca de acao e descarta valores invalidos", () => {
+    const json =
+      '{"resumo":"x","acoes":[' +
+      '{"descricao":"masturbacao","tipo":"masturbacao","natureza":"inferida","confianca":1.7,"evidencias":["f1","f2"]},' +
+      '{"descricao":"outra","tipo":"inventado","natureza":"certeza","confianca":"alta","evidencias":[]}' +
+      '],"evidencias":[],"incertezas":[],"contradicoes":[]}';
+    const res = normalizarInterpretacao(json);
+    expect(res.acoes[0]).toMatchObject({
+      tipo: "masturbacao",
+      natureza: "inferida",
+      confianca: 1,
+    });
+    expect(res.acoes[1].tipo).toBeUndefined();
+    expect(res.acoes[1].natureza).toBeUndefined();
+    expect(res.acoes[1].confianca).toBeUndefined();
   });
 
   it("extrai JSON em bloco fenced", () => {

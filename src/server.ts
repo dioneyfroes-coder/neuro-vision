@@ -490,6 +490,7 @@ export const TIPOS_EVENTO_TEMPORAL_PERSISTIDOS: TipoEventoTemporal[] = [
   "braco_levantado",
   "transicao_acao",
   "movimento_corporal",
+  "pose_compativel_sexual",
 ];
 const MOTIVOS_ENCERRAMENTO_TEMPORAL: MotivoEncerramentoEvento[] = [
   "sem_sinal",

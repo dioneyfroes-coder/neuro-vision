@@ -413,6 +413,13 @@ export interface MotorDeteccao {
   readonly modelo: string | null;
   readonly dispositivo: "webgpu" | "wasm" | null;
   readonly tempoCargaMs: number | null;
+  /**
+   * Motivo do fallback worker -> thread principal, quando ocorreu. Fica `null`
+   * enquanto a inferencia roda no worker e e preenchido **uma vez** por motor
+   * (o fallback nao e repetido na mesma sessao). A telemetria usa esse campo
+   * para distinguir "rodou no worker" de "caiu para a thread principal".
+   */
+  readonly motivoFallback?: string | null;
   aoStatus?: (mensagem: string) => void;
   carregar(modelo: string | null, aoStatus?: (mensagem: string) => void): Promise<void>;
   executar(imagem: string, opcoes?: OpcoesInferenciaYolo): Promise<DeteccaoYOLO[]>;

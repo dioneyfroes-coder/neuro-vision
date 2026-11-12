@@ -199,6 +199,7 @@ export class PipelineLocal {
       motivoFalha: indisponivel
         ? (resultado as ResultadoIndisponivel).motivo
         : metricas?.motivoFalha,
+      ...(metricas?.motivoFallback ? { motivoFallback: metricas.motivoFallback } : {}),
       tempoCargaMs: metricas?.tempoCargaMs,
       tempoInferenciaMs: inferenciaValida ? duracaoInferenciaMs : undefined,
       memoriaBytes: metricas?.memoriaBytes,
