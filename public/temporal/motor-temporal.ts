@@ -33,13 +33,6 @@ import { centroidePontos, pontoReferenciaPose } from "./referencia-pose";
 import { AvaliadorPoseSexual } from "./regras-pose";
 
 /**
- * Indices dos pontos-chave na ordem COCO (17 pontos) usada pelo estimador de
- * pose padrao (YOLOv8-pose): punhos esquerdo/direito. Ver `ARTICULACOES_BRACO`
- * para a relacao articular completa (ombro/cotovelo/punho).
- */
-export const INDICES_PUNHOS = [9, 10] as const;
-
-/**
  * Motor temporal (Etapa 6 do roteiro de modularizacao).
  *
  * Encapsula a logica atual de `rastreamento.ts` (rastreamento de objetos) e

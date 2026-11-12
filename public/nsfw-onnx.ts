@@ -135,11 +135,6 @@ export const MODELOS_NSFW_CONJUNTO = [
   "penis_yolov8m",
 ] as const;
 
-/** Chaves validas do conjunto (para UI/diagnostico). */
-export function modelosDoConjuntoNsfw(): string[] {
-  return [...MODELOS_NSFW_CONJUNTO];
-}
-
 /**
  * Limiares por classe. Um unico limiar global esconde justamente o que importa:
  * penis e genital coberto costumam ficar entre 0,15 e 0,35 enquanto `nipple`

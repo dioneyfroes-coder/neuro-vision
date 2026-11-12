@@ -194,5 +194,3 @@ export const env = {
     return bool("E2E_LOCAL_MODELS_REQUIRE_HAND", true);
   },
 };
-
-export type Env = typeof env;

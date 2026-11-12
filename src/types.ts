@@ -1,11 +1,7 @@
 import type { EventoTemporal, OrigemSinalTemporal } from "./domain/temporal-event";
+import type { Caixa } from "./domain/perception";
 
-export interface Caixa {
-  xmin: number;
-  ymin: number;
-  xmax: number;
-  ymax: number;
-}
+export type { Caixa };
 
 export interface ObjetoVisto {
   nome: string;
