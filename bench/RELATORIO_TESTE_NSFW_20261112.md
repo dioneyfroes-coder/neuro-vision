@@ -15,7 +15,7 @@ com as imagens e julgar o acerto.
 | E2E no app (clipe de 60 s) | **passou** em 31,0 s |
 | Testes NSFW | **178/178** |
 | Suíte completa | **854/854** |
-| Acerto semântico | **forte** em corpo (seios/mamilos/vagina) e na foto de casal; **fraco** no strap-on; **zero** no `penis_yolov8m` |
+| Acerto semântico | **forte** em corpo (seios/mamilos/vagina) e na foto de casal; **fraco** no strap-on; `penis_yolov8m` **0 nas 4 fixtures, mas 13/130 na varredura pós-60 s** (seção 4.5) |
 | Ground truth humano | **não existe** — as contagens são marcações, não precisão/recall |
 
 Leia a seção **“O que acertou e o que não acertou”** antes de concluir qualquer
@@ -71,6 +71,12 @@ WebGPU), COOP/COEP habilitado (`crossOriginIsolated=true`, `numThreads=4`).
 > O E2E usa outro recorte: `nsfw-60s.mp4` (60 s). Os quadros do bench acima vêm
 > do vídeo-fonte completo (~11 min 49 s), não do clipe de 60 s. Não misture os
 > dois conjuntos de números.
+>
+> **Confirmado em 2026-11-13:** `nsfw-60s.mp4` é o **primeiro minuto** do
+> vídeo-fonte. Extrair 30 quadros do clipe a 1/2 fps e rodar os mesmos modelos
+> devolve exatamente as mesmas contagens de `bench/videos/frames-pre60/`
+> (`penis` 1, `FEMALE_BREAST_EXPOSED` 36, `FEMALE_GENITALIA_COVERED` 5,
+> `FEMALE_GENITALIA_EXPOSED` 2, `vagina` 4).
 
 ---
 
@@ -83,7 +89,7 @@ WebGPU), COOP/COEP habilitado (`crossOriginIsolated=true`, `numThreads=4`).
 | `erax_nsfw_yolo11n` | 1.468 ms | **195 ms/quadro** | 12 | 61,3 MB |
 | `erax_nsfw_yolo11s` | 1.631 ms | **588 ms/quadro** | 11 | 115,8 MB |
 | `erax_nsfw_yolo11m` | 1.902 ms | **1.193 ms/quadro** | 19 | 260,1 MB |
-| `penis_yolov8m` | 1.923 ms | **1.292 ms/quadro** | **0** | 271,8 MB |
+| `penis_yolov8m` | 1.923 ms | **1.292 ms/quadro** | **0** (13/130 na varredura pós-60 s; seção 4.5) | 271,8 MB |
 
 - **Total:** 82 marcações em 7 quadros por modelo (42 inferências no total).
 - **Soma da memória linear WASM:** 37,8 + 271,8 + 61,3 + 115,8 + 260,1 + 271,8 =
@@ -274,7 +280,95 @@ Concordância de região:
   `y ≈ 805–1279`). É a mesma região, com enquadramentos diferentes.
 - **Estabilidade temporal:** os scores de seio ficam em 0,74–0,86 e os de
   vagina em 0,41–0,61 nos 4 quadros; não há oscilação errática.
-- **`penis`:** 0 marcações em 4 quadros. O `penis_yolov8m` também 0.
+- **`penis`:** 0 marcações nos 4 quadros amostrados. O `penis_yolov8m` também 0
+  **nesses 4 quadros**, mas dispara em outros instantes do mesmo vídeo — ver
+  seção 4.5. A ausência aqui era **artefato de amostragem**, não do modelo.
+
+---
+
+### 4.5 Varredura temporal pós-60 s (2026-11-13)
+
+Motivo: o usuário garantiu que há pênis no vídeo. Os 4 quadros da seção 4.4 não
+continham o órgão, então a conclusão anterior ("0 `penis`") estava limitada pela
+amostra. Esta varredura extrai quadros a **1/5 s** de `t=60 s` até o fim
+(~705 s) — 130 quadros — e roda os modelos separadamente.
+
+```powershell
+# quadros: bench/videos/frames-pos60/frame-0001..0130.jpg  (t = 60 + (n-1)*5 s)
+node scripts/verificar-yolo-nsfw.mjs penis_yolov8m  @frames --detalhado
+node scripts/verificar-yolo-nsfw.mjs erax_nsfw_yolo11n @frames --detalhado
+node scripts/verificar-yolo-nsfw.mjs nudenet_320n    @frames --detalhado
+# os outros três (640m, 11s, 11m) rodaram os mesmos 130 quadros
+```
+
+**Resultado: SIM, foi detectado.** Pênis/genitália masculina apareceu em 6 dos 6
+modelos, em instantes diferentes:
+
+| Instante | Modelo | Rótulo | Score | Caixa (px) |
+|---:|---|---|---:|---|
+| **t=250 s** | `nudenet_320n` | `MALE_GENITALIA_EXPOSED` | **0,584** | [361,9, 965,7, 521,4, 1185,4] |
+| **t=250 s** | `nudenet_640m` | `MALE_GENITALIA_EXPOSED` | **0,565** | [367,4, 978,7, 509,8, 1175,6] |
+| **t=250 s** | `erax_nsfw_yolo11s` | `penis` | **0,475** | [149,9, 811,0, 618,3, 1278,8] |
+| **t=250 s** | `erax_nsfw_yolo11m` | `penis` | 0,256 | [204,0, 840,0, 599,6, 1273,0] |
+| **t=250 s** | `erax_nsfw_yolo11n` | `penis` | 0,253 | [131,3, 806,1, 621,3, 1279,8] |
+| t=145 s | `erax_nsfw_yolo11s` | `penis` | 0,268 | [130,4, 831,0, 515,4, 1276,0] |
+| t=310 s | `erax_nsfw_yolo11s` | `penis` | 0,286 | [128,1, 824,2, 509,7, 1269,3] |
+| t=380 s | `nudenet_640m` | `MALE_GENITALIA_EXPOSED` | 0,267 | [294,1, 885,4, 449,4, 1089,0] |
+| t=595 s | `erax_nsfw_yolo11n` | `penis` | **0,444** | [133,5, 796,9, 551,8, 1270,1] |
+| t=595 s | `erax_nsfw_yolo11m` | `penis` | 0,343 | [107,0, 781,8, 550,6, 1274,9] |
+| t=615 s | `erax_nsfw_yolo11n` | `penis` | 0,310 | [90,2, 758,5, 565,6, 1275,3] |
+| t=655 s | `erax_nsfw_yolo11n` | `penis` | 0,266 | [93,4, 813,0, 558,7, 1277,3] |
+| t=80 s | `penis_yolov8m` | `penis` | 0,414 | [0,0, 0,0, 199,2, 1280,0] |
+| t=110 s | `penis_yolov8m` | `penis` | 0,371 | [0,0, 90,4, 498,2, 1280,0] |
+| t=350 s | `penis_yolov8m` | `penis` | 0,381 | [1,7, 89,2, 554,5, 1248,1] |
+| t=490 s | `penis_yolov8m` | `penis` | **0,425** | [0,0, 200,5, 604,8, 1261,7] |
+| t=550 s | `penis_yolov8m` | `penis` | 0,324 | [0,0, 166,4, 595,6, 1241,6] |
+
+O `penis_yolov8m` mostra os picos acima; os outros 8 quadros em que marcou são
+t=115, 185, 400, 465, 470, 475, 625 e 630 s (13 quadros, 14 detecções).
+
+Contagens da varredura (130 quadros por modelo):
+
+| Modelo | Quadros com `penis`/`MALE_GENITALIA` | Máximo |
+|---|---:|---:|
+| `penis_yolov8m` | 13 (14 detecções) | 0,425 |
+| `erax_nsfw_yolo11n` | 4 | 0,444 |
+| `erax_nsfw_yolo11s` | 3 | 0,475 |
+| `erax_nsfw_yolo11m` | 2 | 0,343 |
+| `nudenet_640m` | 2 | 0,565 |
+| `nudenet_320n` | 1 | 0,584 |
+
+**Primeiro minuto** (30 quadros a 1/2 s, `bench/videos/frames-pre60/`):
+
+| Instante | Modelo | Rótulo | Score | Caixa (px) |
+|---:|---|---|---:|---|
+| **t=2 s** | `penis_yolov8m` | `penis` | **0,511** | [0,0, 529,4, 526,2, 1113,3] |
+| t=16–32 s | `nudenet_320n` | `FEMALE_GENITALIA_COVERED` | 0,206–0,405 | região púbica coberta |
+| t=12–38 s | `erax_nsfw_yolo11n` | `vagina` | 0,359–0,418 | região pélvica |
+
+Leitura:
+- **t=250 s é o quadro-âncora.** Cinco modelos independentes marcam a mesma
+  região pélvica como pênis/genitália masculina no mesmo quadro: os dois NudeNet
+  em `MALE_GENITALIA_EXPOSED` e os três EraX em `penis`. As caixas dos dois
+  NudeNet são quase idênticas (diferença de ~6 px).
+- **t=2 s** é a maior confiança de `penis` em todo o vídeo (0,511), já no
+  primeiro minuto — compatível com "volume enquanto vestida".
+- **Primeiro minuto também tem `make_love`:** o `erax_nsfw_yolo11n` marca
+  `make_love` 0,35–0,55 em 7 quadros (t=12, 22, 34, 42, 44, 46, 52 s). É
+  indício de ato sexual em cena, não prova — a regra do projeto exige sequência
+  multiframe e evidência visual para concluir ação.
+- **Rótulo dominante continua feminino:** no NudeNet 320n, `FEMALE_GENITALIA_EXPOSED`
+  aparece em 87 quadros (máx. 0,568) contra 1 de `MALE_GENITALIA_EXPOSED`; no
+  640m, 30 contra 2. Os modelos localizam a genitália de forma estável, mas a
+  **classificação** tende ao rótulo feminino. É o ponto fraco real, não a
+  detecção.
+- **`penis_yolov8m` não está morto nem inútil:** 13/130 quadros, sempre na região
+  pélvica inferior. As caixas, porém, são **muito maiores** que as dos outros
+  modelos (chegam a 605×1061 px num quadro 720×1280), o que piora a
+  localização — o rótulo é útil, a caixa não.
+- **Sem inspeção visual:** não foi possível abrir os JPEGs neste ambiente. A
+  conclusão é sobre **o que os detectores marcaram**, com as caixas acima para
+  conferência humana.
 
 ---
 
@@ -285,10 +379,10 @@ Os modelos não são redundantes; cada um cobre classes que os outros não têm:
 | Classe / papel | Quem cobre | Evidência neste teste |
 |---|---|---|
 | `make_love` (ação) | **só EraX** | 0,64–0,78 na foto 2 |
-| `MALE_GENITALIA_EXPOSED` | **só NudeNet** | 0,76 na foto 2; 0,27 no strap-on |
-| `FEMALE_GENITALIA_COVERED` | **só NudeNet** | classe existe no sidecar; não disparou acima do piso nestas fixtures |
+| `MALE_GENITALIA_EXPOSED` | **só NudeNet** | 0,76 na foto 2; 0,27 no strap-on; **0,584 em t=250 s do vídeo** |
+| `FEMALE_GENITALIA_COVERED` | **só NudeNet** | 0,206–0,405 no primeiro minuto do vídeo (região púbica coberta) |
 | `nipple` | **só EraX** | 0,50–0,68 na foto 2 e no vídeo |
-| `penis` dedicado | **`penis_yolov8m`** | 0 nestas fixtures; 0,304 em outro clipe (t=1,5 s) |
+| `penis` dedicado | **`penis_yolov8m`** | 0 nas 4 fixtures, **13/130 na varredura pós-60 s** (máx. 0,425); 0,304 em outro clipe |
 | `FEMALE_BREAST_EXPOSED` | NudeNet 320n/640m | 0,74–0,86 no vídeo e na foto 2 |
 | `vagina` / `FEMALE_GENITALIA_EXPOSED` | EraX + NudeNet | acordo de região nos 3 primeiros casos |
 
@@ -350,10 +444,12 @@ no motor temporal, payload de interpretação e o próprio script de verificaç�
 
 ### Não acertou / ficou fraco
 
-1. **`penis_yolov8m`:** **0 marcações nas 7 inferências do próprio modelo**
-   (o teste inteiro soma 42 inferências: 6 modelos × 7 quadros). Já marcou 0,304 em outro clipe no
-   t=1,5 s, então o modelo não está morto — é **sensível ao quadro**. Neste
-   conjunto de fixtures ele não agregou nada.
+1. **`penis_yolov8m` — corrigido em 2026-11-13:** deu **0 marcações nas 7
+   inferências** deste teste (42 inferências no total: 6 modelos × 7 quadros),
+   mas **não está morto nem inútil**: na varredura pós-60 s (130 quadros) marcou
+   **13 quadros** (máx. 0,425), e **0,511 em t=2 s** no primeiro minuto. O zero
+   anterior era **artefato dos 4 quadros amostrados**. O defeito real é a
+   geometria: caixas grandes demais para localizar o órgão.
 2. **Strap-on (foto 1):** só 2/6 modelos reagiram, ambos no piso da classe
    (0,270 e 0,254). O NudeNet usou o rótulo errado (`MALE_GENITALIA_EXPOSED`
    para um strap-on); o EraX usou `penis`, mais próximo. **Acerto parcial.**
@@ -361,10 +457,18 @@ no motor temporal, payload de interpretação e o próprio script de verificaç�
    para 11n/11s, `penis` para 11m e `MALE_GENITALIA_EXPOSED` para 640m. A
    localização é concordante; o rótulo não. Sem olhar a imagem, não há como
    declarar qual está certo.
-4. **Vídeo com mulher trans:** nenhum `penis` nos 4 quadros amostrados. Se o
-   órgão está visível nesses quadros, é uma falha dos detectores; se não está,
-   é ausência legítima. O relatório não converte isso em acerto nem em erro.
-5. **Sem ground truth:** não há anotação humana de presença/ausência por classe.
+4. **Rótulo genital dominante é feminino:** no vídeo, o NudeNet 320n marca
+   `FEMALE_GENITALIA_EXPOSED` em **87 dos 130 quadros** e
+   `MALE_GENITALIA_EXPOSED` em **1**. A região é encontrada de forma estável; a
+   **classificação** é que pende para o rótulo feminino. Um relatório que só
+   olha o rótulo mais frequente diria "genitália feminina" mesmo nos instantes
+   em que 5 modelos concordam em pênis (t=250 s).
+5. **Amostragem periódica perde disparos isolados:** o app analisa no
+   `#interval` (padrão **4 s**). O `penis 0,511` do primeiro minuto ocorre em
+   **t=2 s**; a próxima análise (t=4 s) já não o vê. O mesmo vale para t=250 s
+   (o pico cai entre amostras de 4 s). Detecção esparsa + amostragem periódica =
+   evidência perdida. Isso é comportamento de amostragem, não bug do detector.
+6. **Sem ground truth:** não há anotação humana de presença/ausência por classe.
    As 82 marcações são **detecções**, não acertos. Precisão/recall não podem ser
    calculados com este teste.
 
@@ -381,7 +485,14 @@ no motor temporal, payload de interpretação e o próprio script de verificaç�
 - **Paralelo agregado não medido.** O harness roda um modelo por vez; a parede
   real dos 6 workers simultâneos no app é faixa derivada, não medida.
 - **Quadros do vídeo-fonte, não do clipe de 60 s.** O bench amostra t = 141,79 /
-  283,58 / 425,37 / 567,15 s do vídeo de ~709 s; o E2E usa `nsfw-60s.mp4`.
+  283,58 / 425,37 / 567,15 s do vídeo de ~709 s; o E2E usa `nsfw-60s.mp4`
+  (confirmado como o primeiro minuto).
+- **Sem inspeção visual nesta varredura.** Os JPEGs não foram abertos por um
+  humano nem pelo agente; as conclusões da seção 4.5 são sobre marcações e
+  caixas, não sobre o conteúdo visto.
+- **Amostragem periódica.** A varredura usa 1 quadro a cada 5 s (pós-60 s) e
+  1 a cada 2 s (primeiro minuto). Disparos entre esses instantes não são vistos.
+  O app usa intervalo padrão de 4 s, ainda mais grosso.
 - **Sem anotação humana.** Não há como afirmar ação sexual, identidade de gênero
   ou presença/ausência de órgão a partir das marcações. Identidade “trans” só
   aparece aqui porque o **título do arquivo** a declara; os modelos detectam
@@ -398,7 +509,17 @@ no motor temporal, payload de interpretação e o próprio script de verificaç�
 2. Para o vídeo, extraia quadros em t = 141,79 / 283,58 / 425,37 / 567,15 s ou
    rode `node scripts/verificar-yolo-nsfw.mjs --conjunto --fixtures-nsfw
    --amostras 4 --detalhado` de novo.
-3. O que julgar:
+3. Para reproduzir a varredura pós-60 s (seção 4.5):
+   ```powershell
+   ffmpeg -ss 60 -i "bench/videos/nsfw - Mulher jovem e sexy transexual te provoca..mp4" `
+     -vf "fps=1/5" -q:v 2 "bench/videos/frames-pos60/frame-%04d.jpg"
+   $frames = Get-ChildItem "bench/videos/frames-pos60" -Filter *.jpg | ForEach-Object FullName
+   node scripts/verificar-yolo-nsfw.mjs nudenet_320n   @frames --detalhado
+   node scripts/verificar-yolo-nsfw.mjs erax_nsfw_yolo11n @frames --detalhado
+   node scripts/verificar-yolo-nsfw.mjs penis_yolov8m  @frames --detalhado
+   ```
+   Confira o quadro `frame-0039.jpg` (t=250 s) — é onde 5 modelos concordam.
+4. O que julgar:
    - a caixa cai sobre a parte certa do corpo?
    - o rótulo descreve o que está visível?
    - o score é compatível com a certeza visual?
