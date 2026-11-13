@@ -19,7 +19,4 @@ Documentação correlata fora de `docs/`:
 - [`bench/BASELINE.md`](../bench/BASELINE.md) — máquina de referência, números e metas realistas por hardware.
 - [`bench/videos/README.md`](../bench/videos/README.md) — anotação de clipes, fluxo de captura e regras de casamento da avaliação de eventos.
 - [`bench/clipes/MATRIZ_COBERTURA.md`](../bench/clipes/MATRIZ_COBERTURA.md) — separação dos clipes em `tuning/` e `eval/` com a cobertura mínima de cenários.
-- [`bench/DECISAO_ARQUITETURAL_2026-10-19.md`](../bench/DECISAO_ARQUITETURAL_2026-10-19.md) — decisão da Etapa 9 (sempre ativos × sob demanda × frequência) com as métricas medidas.
-- [`bench/DECISAO_ARQUITETURAL_2026-10-21.md`](../bench/DECISAO_ARQUITETURAL_2026-10-21.md) — protocolo reproduzível e gate de qualidade × latência da Fase 5 (warm-up, etapas isoladas, comparabilidade e suficiência estatística).
-- [`bench/COMPARATIVO_FINAL_20261020.md`](../bench/COMPARATIVO_FINAL_20261020.md) — estado final das Etapas 8–10: verificação, subsistemas e números que sustentam a decisão.
-- [`bench/RELATORIO_VALIDACAO_20261107.md`](../bench/RELATORIO_VALIDACAO_20261107.md) — validação das Fases 4/5: ambiente, `npm ci`, typecheck/lint/testes/E2E e limitações explícitas (EVAL incompleto, sem rodada real do backend).
+- [`bench/RELATORIO_TESTE_NSFW_20261112.md`](../bench/RELATORIO_TESTE_NSFW_20261112.md) — teste completo do conjunto NSFW: execução dos 6 modelos, contrato, E2E e varredura temporal.

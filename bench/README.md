@@ -56,8 +56,8 @@ IC95% da mediana e semântica de métricas sem denominador, veja
 [`../docs/qualidade.md`](../docs/qualidade.md).
 
 - Protocolo e gate de qualidade × latência:
-  [`DECISAO_ARQUITETURAL_2026-10-21.md`](./DECISAO_ARQUITETURAL_2026-10-21.md).
+  [`../docs/qualidade.md`](../docs/qualidade.md).
 - Cobertura de clipes e pendências de anotação humana:
   [`clipes/MATRIZ_COBERTURA.md`](./clipes/MATRIZ_COBERTURA.md).
-- Ambiente e validações executadas nas Fases 4/5:
-  [`RELATORIO_VALIDACAO_20261107.md`](./RELATORIO_VALIDACAO_20261107.md).
+- Teste completo do conjunto NSFW (6 modelos, contrato, E2E e varredura temporal):
+  [`RELATORIO_TESTE_NSFW_20261112.md`](./RELATORIO_TESTE_NSFW_20261112.md).

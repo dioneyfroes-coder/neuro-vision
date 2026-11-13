@@ -48,7 +48,7 @@ O app usa **um modelo de visão por vez**. A escolha pode vir de dois lugares:
 > raciocínio **e** resposta; é um *teto*, não uma meta — modelos que terminam
 > antes param no fim de frase e não pagam nada por ele. O custo real do
 > raciocínio é **tempo**: numa mesma máquina o gemma fecha uma análise em ~7 s
-> contra ~0,7 s do qwen2.5-vl (medido em `bench/comparativo-2026-10-15.md`).
+> contra ~0,7 s do qwen2.5-vl.
 > Se o teto ainda for consumido inteiramente pelo raciocínio, o servidor devolve
 > `502` apontando o limite de tokens (`finish_reason: "length"`) e sugere
 > aumentar o teto ou usar um modelo não-pensante. Um modelo de texto puro (sem

@@ -53,7 +53,7 @@ inferência multimodal local exigir mais tempo.
 O `--anotacoes-dir` faz o harness procurar a anotação `<base>.json` primeiro no
 conjunto e depois ao lado do vídeo. O `--conjunto <nome>` registra qual conjunto
 reservado foi usado nos relatórios (protocolo e gate em
-[`../DECISAO_ARQUITETURAL_2026-10-21.md`](../DECISAO_ARQUITETURAL_2026-10-21.md)).
+[`../../docs/qualidade.md`](../../docs/qualidade.md)).
 Quando `--conjunto eval` é usado, o harness exige o diretório EVAL oficial e
 bloqueia a rodada se `validar:eval` não comprovar a cobertura e a separação.
 Nesse modo, processa somente os vídeos anotados no diretório EVAL oficial; não
