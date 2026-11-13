@@ -1,6 +1,6 @@
 # Relatório de validação — versão 0.1.0 (2026-11-07)
 
-Registro das validações executadas para as Fases 4 e 5 do `Todo.txt`.
+Registro das validações executadas para as Fases 4 e 5 do plano.
 Este relatório cobre **código, ambiente e testes automatizados**; os números de
 benchmark com o modelo local só entram em uma rodada real do harness.
 
