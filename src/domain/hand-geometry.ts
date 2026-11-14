@@ -14,9 +14,11 @@ import type { LandmarkMao } from "./perception";
  * Regras:
  * - a heuristica de extensao usa os angulos proximais/distais do dedo, nao o
  *   rotulo do classificador;
- * - coordenadas sao normalizadas [0, 1]; a anisotropia da imagem (largura x
- *   altura) pode distorcer levemente os angulos, por isso o resultado e uma
- *   aproximacao, nao uma medida clinica;
+ * - coordenadas sao normalizadas [0, 1] e **nao compartilham a mesma escala
+ *   fisica** (x e relativo a largura, y a altura). Quando as dimensoes do frame
+ *   sao informadas, os angulos sao calculados em coordenadas corrigidas
+ *   (`x * largura`, `y * altura`); sem elas, a geometria usa 1:1 e marca
+ *   `aspectoCorrigido: false` para que a limitacao fique registrada;
  * - pontos ausentes/invalidos nao inventam geometria: o dedo fica de fora.
  */
 
@@ -61,6 +63,24 @@ export interface GeometriaMao {
   configuracao: string;
   /** Limiar (graus) usado na heuristica de extensao. */
   limiarExtensaoGraus: number;
+  /**
+   * `true` quando os angulos foram calculados com as dimensoes reais do frame.
+   * `false` significa que x/y normalizados foram tratados como 1:1 e que a
+   * anisotropia da imagem pode ter distorcido os angulos (ver `dimensoes`).
+   */
+  aspectoCorrigido: boolean;
+}
+
+/** Dimensoes, em pixels, da imagem em que os landmarks foram detectados. */
+export interface DimensoesImagem {
+  largura: number;
+  altura: number;
+}
+
+/** Fatores de escala usados para converter coordenadas normalizadas em pixels. */
+export interface EscalaGeometria {
+  x: number;
+  y: number;
 }
 
 /** Opcoes de calculo da geometria. */
@@ -72,6 +92,12 @@ export interface OpcoesGeometriaMao {
   limiarExtensaoGraus?: number;
   /** Casas decimais dos angulos. Padrao: 1. */
   decimais?: number;
+  /**
+   * Dimensoes reais do frame analisado. Quando validas, corrigem a anisotropia
+   * entre x e y (ex.: 16:9). Sem elas, assume-se 1:1 e o resultado registra
+   * `aspectoCorrigido: false`.
+   */
+  dimensoes?: DimensoesImagem;
 }
 
 /** Limiar padrao de extensao (graus). */
@@ -100,23 +126,53 @@ const ARTICULACOES_DEDOS: ReadonlyArray<{
 /**
  * Angulo interno (graus) no vertice `b` do triangulo `a-b-c`.
  *
+ * `escala` converte coordenadas normalizadas em coordenadas fisicas do frame
+ * (`x * escala.x`, `y * escala.y`). Sem escala, os eixos sao tratados como 1:1.
+ *
  * Retorna `null` quando algum vetor tem comprimento zero (pontos coincidentes),
  * para nao transformar ausencia de informacao em um angulo arbitrario.
  */
 export function anguloInterno(
   a: Pick<LandmarkMao, "x" | "y">,
   b: Pick<LandmarkMao, "x" | "y">,
-  c: Pick<LandmarkMao, "x" | "y">
+  c: Pick<LandmarkMao, "x" | "y">,
+  escala?: EscalaGeometria
 ): number | null {
-  const v1x = a.x - b.x;
-  const v1y = a.y - b.y;
-  const v2x = c.x - b.x;
-  const v2y = c.y - b.y;
+  const escalaX = escala?.x ?? 1;
+  const escalaY = escala?.y ?? 1;
+  const v1x = (a.x - b.x) * escalaX;
+  const v1y = (a.y - b.y) * escalaY;
+  const v2x = (c.x - b.x) * escalaX;
+  const v2y = (c.y - b.y) * escalaY;
   const n1 = Math.hypot(v1x, v1y);
   const n2 = Math.hypot(v2x, v2y);
   if (n1 === 0 || n2 === 0) return null;
   const cosseno = Math.min(1, Math.max(-1, (v1x * v2x + v1y * v2y) / (n1 * n2)));
   return (Math.acos(cosseno) * 180) / Math.PI;
+}
+
+/**
+ * Deriva a escala de pixels a partir das dimensoes do frame. Dimensoes ausentes
+ * ou invalidas caem para 1:1 (`aspectoCorrigido: false`): nao se inventa uma
+ * proporcao que o chamador nao informou.
+ */
+function escalaDeDimensoes(dimensoes?: DimensoesImagem): {
+  escala: EscalaGeometria;
+  aspectoCorrigido: boolean;
+} {
+  const largura = dimensoes?.largura;
+  const altura = dimensoes?.altura;
+  if (
+    largura !== undefined &&
+    altura !== undefined &&
+    Number.isFinite(largura) &&
+    Number.isFinite(altura) &&
+    largura > 0 &&
+    altura > 0
+  ) {
+    return { escala: { x: largura, y: altura }, aspectoCorrigido: true };
+  }
+  return { escala: { x: 1, y: 1 }, aspectoCorrigido: false };
 }
 
 function pontoValido(ponto: LandmarkMao | undefined): ponto is LandmarkMao {
@@ -146,6 +202,7 @@ export function calcularGeometriaMao(
 ): GeometriaMao | null {
   const limiar = opcoes.limiarExtensaoGraus ?? LIMIAR_EXTENSAO_PADRAO_GRAUS;
   const decimais = opcoes.decimais ?? 1;
+  const { escala, aspectoCorrigido } = escalaDeDimensoes(opcoes.dimensoes);
   const dedos: GeometriaDedo[] = [];
 
   for (const { nome, articulacoes } of ARTICULACOES_DEDOS) {
@@ -159,7 +216,7 @@ export function calcularGeometriaMao(
         completo = false;
         break;
       }
-      const angulo = anguloInterno(a, b, c);
+      const angulo = anguloInterno(a, b, c, escala);
       if (angulo === null) {
         completo = false;
         break;
@@ -180,7 +237,7 @@ export function calcularGeometriaMao(
   }
 
   if (dedos.every((dedo) => dedo.estado === "desconhecido")) return null;
-  return resumirGeometria(dedos, limiar);
+  return resumirGeometria(dedos, limiar, aspectoCorrigido);
 }
 
 /**
@@ -188,10 +245,13 @@ export function calcularGeometriaMao(
  *
  * Exposto para permitir histerese temporal: o motor reavalia o estado de cada
  * dedo com o limiar ajustado e reconstruir o resumo sem duplicar a regra.
+ * `aspectoCorrigido` deve ser propagado do calculo original para nao perder a
+ * informacao de como os angulos foram obtidos.
  */
 export function resumirGeometria(
   dedos: readonly GeometriaDedo[],
-  limiarExtensaoGraus: number
+  limiarExtensaoGraus: number,
+  aspectoCorrigido = false
 ): GeometriaMao {
   const dedosEstendidos = dedos.filter((d) => d.estado === "estendido").map((d) => d.nome);
   const dedosDobrados = dedos.filter((d) => d.estado === "dobrado").map((d) => d.nome);
@@ -209,6 +269,7 @@ export function resumirGeometria(
     // transformar uma mao parcial em "todos".
     configuracao: configurarDedos(dedosEstendidos, TOTAL_DEDOS),
     limiarExtensaoGraus,
+    aspectoCorrigido,
   };
 }
 

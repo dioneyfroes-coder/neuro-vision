@@ -513,9 +513,11 @@ function pontoValido(ponto: PontoCorporal, confiancaMinima: number): boolean {
 /** Serializa as maos de um frame (lateralidade, gesto e landmarks). */
 export function serializarMaos(
   resultado: ResultadoOuIndisponivel<ResultadoMaos>,
-  opcoes: OpcoesSerializacao
+  opcoes: OpcoesSerializacao,
+  dimensoesFrame?: { largura: number; altura: number }
 ): MaoObservada[] {
   if (estaIndisponivel(resultado)) return [];
+  const dimensoes = resultado.dimensoes ?? dimensoesFrame;
   return resultado.maos.slice(0, opcoes.maxMaosPorFrame).map((mao, i) => {
     const observada: MaoObservada = {
       indice: i + 1,
@@ -533,6 +535,7 @@ export function serializarMaos(
     if (opcoes.geometriaMao) {
       const geometria = calcularGeometriaMao(mao.landmarks, {
         decimais: opcoes.decimais,
+        dimensoes,
       });
       if (geometria) observada.geometria = geometria;
     }

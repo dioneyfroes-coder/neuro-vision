@@ -92,7 +92,7 @@ export function estabilizarDedos(
     };
   });
 
-  return resumirGeometria(dedos, limiarEntrada);
+  return resumirGeometria(dedos, limiarEntrada, geometria.aspectoCorrigido);
 }
 
 /** Extrai o estado conhecido de cada dedo para alimentar a proxima histerese. */

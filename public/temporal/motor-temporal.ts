@@ -355,7 +355,15 @@ export class MotorTemporalImpl implements MotorTemporal {
         maosComTrackId,
         obs.capturadoEm,
         frameId,
-        obs.cycleId
+        obs.cycleId,
+        // Dimensoes do frame para corrigir a anisotropia dos landmarks. O
+        // resultado de maos e a fonte preferida; a deteccao do mesmo frame
+        // serve de fallback.
+        !estaIndisponivel(obs.maos) && obs.maos.dimensoes
+          ? obs.maos.dimensoes
+          : !estaIndisponivel(obs.deteccoes)
+            ? obs.deteccoes.dimensoes
+            : undefined
       );
       for (const sinal of this.gestos.processar(leiturasGesto, { indisponivel: !maosDisponivel })) {
         eventos.push(
@@ -646,7 +654,8 @@ export class MotorTemporalImpl implements MotorTemporal {
     maos: MaoDetectada[],
     timestamp: string,
     frameId: string,
-    cycleId: string
+    cycleId: string,
+    dimensoesFrame?: { largura: number; altura: number }
   ) {
     const porEntidade = new Map<string, MaoDetectada>();
     for (const mao of maos) {
@@ -671,7 +680,10 @@ export class MotorTemporalImpl implements MotorTemporal {
         };
       }
 
-      const geometria = mao.landmarks.length > 0 ? calcularGeometriaMao(mao.landmarks) : null;
+      const geometria =
+        mao.landmarks.length > 0
+          ? calcularGeometriaMao(mao.landmarks, { dimensoes: dimensoesFrame })
+          : null;
       const estabilizada = geometria
         ? estabilizarDedos(
             geometria,

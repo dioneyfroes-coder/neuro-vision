@@ -101,7 +101,10 @@ export function mapearGesto(nome: string): string {
 }
 
 /** Converte a saida crua do motor em `ResultadoMaos` normalizado. */
-export function normalizarMaos(saida: SaidaMaosCru): ResultadoMaos {
+export function normalizarMaos(
+  saida: SaidaMaosCru,
+  dimensoes?: { largura: number; altura: number }
+): ResultadoMaos {
   const maos: MaoDetectada[] = saida.maos.map((mao) => {
     const landmarks: LandmarkMao[] = mao.landmarks.map((landmark) => {
       const ponto: LandmarkMao = { x: limite01(landmark.x), y: limite01(landmark.y) };
@@ -125,7 +128,7 @@ export function normalizarMaos(saida: SaidaMaosCru): ResultadoMaos {
     return detectada;
   });
 
-  return { maos };
+  return { maos, ...(dimensoes ? { dimensoes } : {}) };
 }
 
 export class AdaptadorMaos implements ReconhecedorGestos {
@@ -172,7 +175,7 @@ export class AdaptadorMaos implements ReconhecedorGestos {
     return medirTempoInferencia(this.metricas, async () => {
       try {
         const saida = await motor.executar(entrada.imagem);
-        const resultado = normalizarMaos(saida);
+        const resultado = normalizarMaos(saida, entrada.dimensoes);
         this.metricas.status = resultado.maos.length > 0 ? "ok" : "sem_resultado";
         this.metricas.motivoFalha = undefined;
         return resultado;

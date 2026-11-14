@@ -43,6 +43,7 @@ exports[`Fase 3 — compactacao preserva a evidencia > snapshot do payload multi
         "maos": [
           {
             "geometria": {
+              "aspectoCorrigido": true,
               "configuracao": "todos",
               "dedos": [
                 {

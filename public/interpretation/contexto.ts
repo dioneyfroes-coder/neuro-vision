@@ -222,7 +222,7 @@ function montarObservacao(
     subsistemas,
     deteccoes: serializarDeteccoes(obs.deteccoes, serializacao),
     pessoas: serializarPessoas(obs.pose, serializacao),
-    maos: serializarMaos(obs.maos, serializacao),
+    maos: serializarMaos(obs.maos, serializacao, dimensoes),
     movimento: movimento.movimentos,
   };
   if (obs.nsfw !== undefined) {

@@ -110,6 +110,24 @@ function maoGeometrica(
   };
 }
 
+/**
+ * Indicador com angulo proximal de 140 graus em coordenadas normalizadas. Em
+ * 16:9 o angulo real passa de 150 e o dedo deve contar como estendido; sem as
+ * dimensoes, a geometria o trata como dobrado (4 dedos estendidos).
+ */
+function maoIndicadorCurvo(): NonNullable<ObservacaoFrame["maos"]>["maos"][number] {
+  const mao = maoGeometrica();
+  const direcao = Math.PI - (140 * Math.PI) / 180;
+  const passo = 0.1;
+  const dx = passo * Math.cos(direcao);
+  const dy = passo * Math.sin(direcao);
+  mao.landmarks[5] = { x: 0.4, y: 0.5 };
+  mao.landmarks[6] = { x: 0.5, y: 0.5 };
+  mao.landmarks[7] = { x: 0.5 + dx, y: 0.5 + dy };
+  mao.landmarks[8] = { x: 0.5 + 2 * dx, y: 0.5 + 2 * dy };
+  return mao;
+}
+
 function criarMotor() {
   return new MotorTemporalImpl({
     rastreador: { distanciaMaxima: 0.3, maxFramesAusente: 3, alphaSuavizacao: 0.5 },
@@ -865,6 +883,43 @@ describe("MotorTemporalImpl — gestos", () => {
     expect(confirmado?.origens).toEqual(["maos"]);
     expect(confirmado?.evidencias?.some((e) => e.startsWith("geometria:"))).toBe(true);
     expect(confirmado?.confianca).toBeLessThanOrEqual(0.9);
+  });
+
+  it("usa as dimensoes do frame para corrigir a geometria do gesto", () => {
+    // Sem dimensoes, o indicador parece dobrado e a mao fica com 4 dedos
+    // estendidos: a regra nao fecha "mao_aberta".
+    reiniciarContador();
+    const semDimensoes = criarMotor();
+    let confirmadoSem: unknown;
+    for (let i = 0; i < 3; i += 1) {
+      const r = semDimensoes.processar([
+        obs({ ms: i * 100, maos: { maos: [maoIndicadorCurvo()] } }),
+      ]);
+      confirmadoSem ??= r.eventos.find(
+        (e) => e.tipo === "gesto_detectado" && e.estado === "confirmado"
+      );
+    }
+    expect(confirmadoSem).toBeUndefined();
+
+    // Com as dimensoes reais (16:9), o angulo e corrigido e os cinco dedos
+    // contam como estendidos.
+    reiniciarContador();
+    const comDimensoes = criarMotor();
+    const eventos = [];
+    for (let i = 0; i < 3; i += 1) {
+      const r = comDimensoes.processar([
+        obs({
+          ms: i * 100,
+          maos: {
+            maos: [maoIndicadorCurvo()],
+            dimensoes: { largura: 1600, altura: 900 },
+          },
+        }),
+      ]);
+      eventos.push(...r.eventos.filter((e) => e.tipo === "gesto_detectado"));
+    }
+    const confirmado = eventos.find((e) => e.estado === "confirmado");
+    expect(confirmado?.descricao).toContain("mao_aberta");
   });
 
   it("mão ocultada encerra o gesto por oclusao, nao por 'sem sinal'", () => {

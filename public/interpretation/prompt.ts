@@ -125,7 +125,8 @@ export function montarPromptInterpretacao(
     "- `geometria.dedosEstendidos` lista os nomes dos dedos estendidos; `totalEstendidos` e a contagem (0..5); " +
       "`configuracao` resume o caso como `todos`, `nenhum` ou nomes unidos por `+`.",
     "- Os `angulos` sao **estimativas locais 2D** calculadas a partir dos landmarks: nao sao medidas clinicas nem 3D. " +
-      "Perspectiva, oclusao e anisotropia da imagem podem altera-los.",
+      "`aspectoCorrigido` indica se a proporcao real do frame foi usada no calculo; quando `false`, a anisotropia " +
+      "da imagem pode ter distorcido os angulos. Perspectiva e oclusao continuam sendo fontes de erro.",
     "- `geometria` pode divergir de `gesto` (rotulo fechado do MediaPipe). Quando isso ocorrer, trate como incerteza, " +
       "nao como um fato escolhido arbitrariamente.",
     "- Dados locais podem falhar ou vir incompletos (`indisponivel`, `sem_resultado`, `nao_carregado`, landmarks " +

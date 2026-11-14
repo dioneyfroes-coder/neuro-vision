@@ -126,6 +126,12 @@ export interface MaoDetectada {
 /** Resultado do reconhecedor de maos/gestos para um frame. */
 export interface ResultadoMaos {
   maos: MaoDetectada[];
+  /**
+   * Dimensoes reais da imagem analisada. Os landmarks sao normalizados em [0, 1]
+   * por eixo; sem as dimensoes, a geometria nao consegue corrigir a anisotropia
+   * (x relativo a largura, y a altura) ao calcular angulos.
+   */
+  dimensoes?: { largura: number; altura: number };
   modelo?: string;
 }
 

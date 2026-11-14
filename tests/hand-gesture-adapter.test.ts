@@ -58,6 +58,14 @@ describe("normalizarMaos", () => {
     expect(mao.gesto).toEqual({ nome: "polegar_para_cima", confianca: 0.82 });
   });
 
+  it("preserva as dimensoes do frame para a correcao geometrica", () => {
+    const dimensoes = { largura: 1280, altura: 720 };
+    const resultado = normalizarMaos(saida(), dimensoes);
+    expect(resultado.dimensoes).toEqual(dimensoes);
+    // Sem dimensoes, o campo fica ausente em vez de inventar 1:1.
+    expect(normalizarMaos(saida()).dimensoes).toBeUndefined();
+  });
+
   it("omite gesto quando a categoria e 'None' ou ausente", () => {
     const semGesto = normalizarMaos(saida({ maos: [{ landmarks: [], lateralidade: "Left" }] }));
     expect(semGesto.maos[0].gesto).toBeUndefined();

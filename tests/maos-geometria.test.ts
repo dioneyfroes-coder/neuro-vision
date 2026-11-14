@@ -68,10 +68,45 @@ describe("anguloInterno", () => {
     expect(anguloInterno({ x: 1, y: 0 }, b, { x: 1, y: 0 })).toBeCloseTo(0);
   });
 
+  it("corrige a anisotropia quando recebe a escala do frame", () => {
+    const b = { x: 0, y: 0 };
+    const a = { x: 1, y: 0 };
+    const rad = (140 * Math.PI) / 180;
+    const c = { x: Math.cos(rad), y: Math.sin(rad) };
+    // Sem dimensoes, o angulo e medido em coordenadas normalizadas (1:1).
+    expect(anguloInterno(a, b, c)).toBeCloseTo(140, 1);
+    // Em 16:9, x e y tem escalas fisicas diferentes; o angulo real e maior.
+    expect(anguloInterno(a, b, c, { x: 1600, y: 900 })).toBeCloseTo(154.7, 1);
+    // Escala quadrada preserva o angulo normalizado.
+    expect(anguloInterno(a, b, c, { x: 100, y: 100 })).toBeCloseTo(140, 1);
+  });
+
   it("nao inventa angulo quando os pontos coincidem", () => {
     expect(anguloInterno({ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 1, y: 0 })).toBeNull();
   });
 });
+
+/**
+ * Indicador com o angulo proximal de ~140 em coordenadas normalizadas.
+ *
+ * Em um frame 16:9 o mesmo angulo, medido em pixels, passa de ~154: a mao
+ * parece "dobrada" apenas por causa da anisotropia entre x e y. Este e o caso
+ * que a correcao precisa resolver.
+ */
+function maoComIndicadorEmAnguloNormalizado(): LandmarkMao[] {
+  const landmarks = maoEstendida();
+  const passo = 0.1;
+  // Angulo de 140 graus no pip: o vetor para o mcp aponta para (-1, 0), entao
+  // o vetor para o dip precisa estar a 40 graus do eixo +x.
+  const direcao = Math.PI - (140 * Math.PI) / 180;
+  const dx = passo * Math.cos(direcao);
+  const dy = passo * Math.sin(direcao);
+  landmarks[5] = { x: 0.4, y: 0.5 };
+  landmarks[6] = { x: 0.5, y: 0.5 };
+  landmarks[7] = { x: landmarks[6].x + dx, y: landmarks[6].y + dy };
+  landmarks[8] = { x: landmarks[7].x + dx, y: landmarks[7].y + dy };
+  return landmarks;
+}
 
 describe("calcularGeometriaMao", () => {
   it("reconhece todos os dedos estendidos sem depender do rotulo do gesto", () => {
@@ -98,6 +133,44 @@ describe("calcularGeometriaMao", () => {
     for (const dedo of geometria!.dedos) {
       expect(dedo.angulos).toHaveLength(2);
       for (const angulo of dedo.angulos) expect(angulo).toBeGreaterThan(170);
+    }
+  });
+
+  it("corrige a anisotropia das dimensoes e registra que o fez", () => {
+    const landmarks = maoComIndicadorEmAnguloNormalizado();
+    const semDimensoes = calcularGeometriaMao(landmarks);
+    const comDimensoes = calcularGeometriaMao(landmarks, {
+      dimensoes: { largura: 1600, altura: 900 },
+    });
+    const quadrada = calcularGeometriaMao(landmarks, {
+      dimensoes: { largura: 100, altura: 100 },
+    });
+    const indicador = (geometria: NonNullable<typeof semDimensoes>) =>
+      geometria.dedos.find((d) => d.nome === "indicador");
+
+    expect(semDimensoes!.aspectoCorrigido).toBe(false);
+    expect(comDimensoes!.aspectoCorrigido).toBe(true);
+    expect(quadrada!.aspectoCorrigido).toBe(true);
+
+    // Normalizado por eixo: o indicador parece dobrado.
+    expect(indicador(semDimensoes!)?.estado).toBe("dobrado");
+    expect(semDimensoes!.totalEstendidos).toBe(4);
+    // Com pixels reais (16:9), o angulo cruza o limiar e o dedo fica estendido.
+    expect(indicador(comDimensoes!)?.angulos[0]).toBeGreaterThan(150);
+    expect(indicador(comDimensoes!)?.estado).toBe("estendido");
+    expect(comDimensoes!.totalEstendidos).toBe(5);
+    // Escala quadrada nao altera o angulo normalizado.
+    expect(indicador(quadrada!)?.angulos).toEqual(indicador(semDimensoes!)?.angulos);
+  });
+
+  it("nao aplica correcao com dimensoes invalidas", () => {
+    for (const dimensoes of [
+      { largura: 0, altura: 900 },
+      { largura: 1600, altura: -1 },
+      { largura: Number.NaN, altura: 900 },
+    ]) {
+      const geometria = calcularGeometriaMao(maoEstendida(), { dimensoes });
+      expect(geometria!.aspectoCorrigido).toBe(false);
     }
   });
 
