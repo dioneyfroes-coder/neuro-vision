@@ -20,6 +20,7 @@ import { MotorTemporalImpl } from "./temporal/motor-temporal";
 import { InterpretadorCiclo } from "./interpretation/interpretador-ciclo";
 import { criarTransporteServidor } from "./interpretation/transporte-servidor";
 import {
+  POLITICA_CICLO_BENCHMARK_5FPS,
   POLITICA_CICLO_BENCHMARK_ALVO,
   POLITICA_CICLO_OPERACIONAL,
 } from "./cycle/politica-ciclo";
@@ -70,11 +71,18 @@ const contextoInput = el<HTMLInputElement>("contexto");
  * snapshots, pausa pos-ciclo e frequencia da interpretacao. O intervalo entre
  * inicios continua vindo do seletor da interface (`intervaloMsConfigurado`); a
  * pausa pos-ciclo e contada do **fim** de cada ciclo.
+ *
+ * `?benchmark=5fps` ativa a politica de cadencia independente (Fase 1.3/1.4):
+ * maos a 5 FPS alvo, pose/deteccao a 1 Hz, 5 snapshots a 200 ms.
  */
+const parametrosUrl = new URLSearchParams(window.location.search);
+const benchmark = parametrosUrl.get("benchmark");
 const politicaCiclo: PoliticaCiclo =
-  new URLSearchParams(window.location.search).get("benchmark") === "eval"
-    ? POLITICA_CICLO_BENCHMARK_ALVO
-    : POLITICA_CICLO_OPERACIONAL;
+  benchmark === "5fps"
+    ? POLITICA_CICLO_BENCHMARK_5FPS
+    : benchmark === "eval"
+      ? POLITICA_CICLO_BENCHMARK_ALVO
+      : POLITICA_CICLO_OPERACIONAL;
 
 /** Captura derivada da politica: quantidade e espacamento dos snapshots. */
 const configuracaoCaptura: ConfigCaptura = {

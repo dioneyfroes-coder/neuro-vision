@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PacoteCiclo } from "../src/domain/cycle";
 import type { EventoTemporal, ObservacaoFrame } from "../src/domain";
-import { indisponivel } from "../src/domain/perception";
+import { indisponivel, naoAmostrado } from "../src/domain/perception";
 import { montarContextoCiclo, tamanhoBytesUtf8 } from "../public/interpretation/contexto";
 import {
   calcularMovimento,
@@ -502,6 +502,16 @@ describe("estadoSubsistema", () => {
     expect(estadoSubsistema(undefined, { status: "nao_carregado" }, () => true).status).toBe(
       "nao_carregado"
     );
+  });
+
+  it("distingue frame pulado pela cadencia (nao_amostrado) de falha", () => {
+    expect(
+      estadoSubsistema(naoAmostrado("maos"), { modelo: "mediapipe" }, () => true)
+    ).toMatchObject({
+      status: "nao_amostrado",
+      modelo: "mediapipe",
+      motivo: "nao amostrado pela cadencia de percepcao",
+    });
   });
 });
 

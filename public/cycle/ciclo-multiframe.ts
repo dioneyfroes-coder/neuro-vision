@@ -1,5 +1,7 @@
 import { ehCancelamento, ErroPercepcao } from "../../src/erros";
 import { estaIndisponivel, indisponivel } from "../../src/domain/perception";
+import { planejarAmostragem, resumirAmostragem } from "../../src/domain/cadencia";
+import type { AmostragemFrame } from "../../src/domain/cadencia";
 import type {
   ResultadoDeteccaoLocal,
   ResultadoMaos,
@@ -92,7 +94,8 @@ export interface DependenciasCicloMultiframe {
    */
   processarFrame: (
     snapshot: SnapshotCapturado,
-    sinal?: AbortSignal
+    sinal?: AbortSignal,
+    amostragem?: AmostragemFrame
   ) => Promise<ProcessamentoFrame>;
   /**
    * Quantos frames do ciclo sao processados em paralelo (padrao:
@@ -321,6 +324,11 @@ export async function executarCicloMultiframe(
     // (a associacao resultado<->snapshot e indexada), entao a semantica do ciclo
     // nao depende da ordem de conclusao.
     const quadros = deps.store.quadros;
+    // Cadencia independente por subsistema (Fase 1.3): o plano e derivado dos
+    // timestamps, antes do processamento, para nao depender da ordem de
+    // conclusao dos frames. Sem `politica.cadencia`, todos rodam em todos.
+    const timestampsCaptura = quadros.map((quadro) => quadro.capturadoEmMs);
+    const planoAmostragem = planejarAmostragem(timestampsCaptura, politica?.cadencia);
     const concorrencia = Math.max(1, deps.concorrenciaFrames ?? CONCORRENCIA_FRAMES_PADRAO);
     let deteccaoMs = 0;
     let poseMs = 0;
@@ -351,9 +359,15 @@ export async function executarCicloMultiframe(
     const processados = await mapearConcorrente(
       quadros,
       concorrencia,
-      async (snapshot): Promise<FrameProcessado> => {
+      async (snapshot, indice): Promise<FrameProcessado> => {
         try {
-          return { processamento: await deps.processarFrame(snapshot, sinal) };
+          return {
+            processamento: await deps.processarFrame(
+              snapshot,
+              sinal,
+              planoAmostragem[indice]
+            ),
+          };
         } catch (err) {
           if (ehCancelamento(err) || sinal?.aborted) throw cancelado();
           const mensagem = (err as Error).message;
@@ -456,6 +470,11 @@ export async function executarCicloMultiframe(
     }
     metricas.percepcaoTotalMs = percepcaoTotalMs;
     metricas.resultadosPercepcao = resultadosPercepcao;
+    metricas.amostragem = resumirAmostragem(
+      timestampsCaptura,
+      planoAmostragem,
+      politica?.cadencia
+    );
     if (Object.keys(inferenciaPorSnapshotMs).length > 0) {
       metricas.inferenciaPorSnapshotMs = inferenciaPorSnapshotMs;
     }

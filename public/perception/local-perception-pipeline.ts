@@ -1,5 +1,6 @@
 import { ehCancelamento, ErroPercepcao } from "../../src/erros";
-import { estaIndisponivel, indisponivel } from "../../src/domain/perception";
+import type { AmostragemFrame } from "../../src/domain/cadencia";
+import { estaIndisponivel, indisponivel, naoAmostrado, naoFoiAmostrado } from "../../src/domain/perception";
 import type {
   ResultadoDeteccaoLocal,
   ResultadoIndisponivel,
@@ -70,10 +71,15 @@ export interface DependenciasPipelineLocal {
   aoStatus?: (mensagem: string) => void;
 }
 
-/** Assinatura do processamento de um frame, compativel com `DependenciasCicloMultiframe`. */
+/**
+ * Assinatura do processamento de um frame, compativel com
+ * `DependenciasCicloMultiframe`. `amostragem` lista os subsistemas que a
+ * cadencia quer executar neste frame; ausente = todos.
+ */
 export type ProcessarFrameLocal = (
   snapshot: SnapshotCapturado,
-  sinal?: AbortSignal
+  sinal?: AbortSignal,
+  amostragem?: AmostragemFrame
 ) => Promise<ProcessamentoFrame>;
 
 interface ExecucaoSubsistema<T> {
@@ -99,7 +105,8 @@ export class PipelineLocal {
 
   async processarFrame(
     snapshot: SnapshotCapturado,
-    sinal?: AbortSignal
+    sinal?: AbortSignal,
+    amostragem?: AmostragemFrame
   ): Promise<ProcessamentoFrame> {
     const entrada: EntradaAdaptador = {
       imagem: snapshot.imagem,
@@ -110,35 +117,44 @@ export class PipelineLocal {
       ...HABILITACAO_PADRAO,
       ...this.deps.habilitacao,
     };
+    // Ausente = sem cadencia configurada: todos os subsistemas rodam.
+    const executar = (subsistema: SubsistemaPercepcao): boolean =>
+      amostragem === undefined || amostragem.has(subsistema);
 
     // Os subsistemas rodam **em paralelo** no mesmo frame (otimizacao de
     // desempenho): YOLO (objetos/pose), MediaPipe (maos) e NSFW compartilham a
     // inferencia concorrente sem competir pela mesma sessao (runtimes distintos).
     // Cada um continua isolado: uma falha vira `indisponivel` sem apagar os
-    // demais (item 8), e o cancelamento propaga (nunca mascarado).
+    // demais (item 8), e o cancelamento propaga (nunca mascarado). Um
+    // subsistema pulado pela cadencia vira `naoAmostrado` — nem falha nem
+    // ausencia.
     const nsfwHabilitado = habilitacao.nsfw && Boolean(this.deps.nsfw?.modelo);
     const [deteccao, pose, maos, nsfwExecucao] = await Promise.all([
       this.executar("deteccao", sinal, () =>
         habilitacao.deteccao && this.deps.detector
           ? this.deps.detector.detectar(entrada, { threshold, percentage: false })
-          : Promise.resolve(indisponivel("deteccao", "detector de objetos desativado"))
+          : Promise.resolve(indisponivel("deteccao", "detector de objetos desativado")),
+        executar("deteccao")
       ),
       this.executar("pose", sinal, () =>
         habilitacao.pose && this.deps.pose
           ? this.deps.pose.estimar(entrada)
-          : Promise.resolve(indisponivel("pose", "estimador de pose desativado"))
+          : Promise.resolve(indisponivel("pose", "estimador de pose desativado")),
+        executar("pose")
       ),
       this.executar("maos", sinal, () =>
         habilitacao.maos && this.deps.maos
           ? this.deps.maos.reconhecer(entrada)
-          : Promise.resolve(indisponivel("maos", "reconhecedor de maos desativado"))
+          : Promise.resolve(indisponivel("maos", "reconhecedor de maos desativado")),
+        executar("maos")
       ),
       // NSFW experimental: roda somente quando habilitado (toggle da interface)
       // **e** carregado. Nesses casos, falha vira `indisponivel` como nos demais;
       // caso contrario o campo `nsfw` fica ausente no frame.
       nsfwHabilitado
         ? this.executar("nsfw", sinal, () =>
-            this.deps.nsfw!.avaliar(entrada, { threshold, percentage: false })
+            this.deps.nsfw!.avaliar(entrada, { threshold, percentage: false }),
+            executar("nsfw")
           )
         : Promise.resolve(null),
     ]);
@@ -181,6 +197,16 @@ export class PipelineLocal {
     duracaoInferenciaMs: number | undefined
   ): TelemetriaSubsistema {
     const metricas = porta?.metricas as MetricasAdaptador | undefined;
+    if (naoFoiAmostrado(resultado)) {
+      // Pular pela cadencia nao e falha: preserva modelo/dispositivo e nao
+      // herda tempo de inferencia de outro frame.
+      return {
+        status: "nao_amostrado",
+        modelo: metricas?.modelo,
+        dispositivo: metricas?.dispositivo,
+        versao: metricas?.versao,
+      };
+    }
     const indisponivel = resultado && estaIndisponivel(resultado);
     const status: EstadoSubsistema = resultado
       ? indisponivel
@@ -226,9 +252,14 @@ export class PipelineLocal {
   private async executar<T>(
     subsistema: SubsistemaPercepcao,
     sinal: AbortSignal | undefined,
-    tarefa: () => Promise<ResultadoOuIndisponivel<T>>
+    tarefa: () => Promise<ResultadoOuIndisponivel<T>>,
+    amostrar = true
   ): Promise<ExecucaoSubsistema<T>> {
     if (sinal?.aborted) throw cancelado();
+    // Frame pulado de proposito: nao toca o SDK e nao conta como inferencia.
+    if (!amostrar) {
+      return { resultado: naoAmostrado(subsistema), duracaoMs: 0 };
+    }
     const inicio = performance.now();
     try {
       const resultado = await tarefa();
@@ -248,7 +279,7 @@ export class PipelineLocal {
 /** Cria o processador de frame a partir do pipeline, pronto para o ciclo. */
 export function criarProcessadorFrameLocal(deps: DependenciasPipelineLocal): ProcessarFrameLocal {
   const pipeline = new PipelineLocal(deps);
-  return (snapshot, sinal) => pipeline.processarFrame(snapshot, sinal);
+  return (snapshot, sinal, amostragem) => pipeline.processarFrame(snapshot, sinal, amostragem);
 }
 
 /**

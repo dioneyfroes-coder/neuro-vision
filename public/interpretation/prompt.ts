@@ -129,8 +129,9 @@ export function montarPromptInterpretacao(
       "da imagem pode ter distorcido os angulos. Perspectiva e oclusao continuam sendo fontes de erro.",
     "- `geometria` pode divergir de `gesto` (rotulo fechado do MediaPipe). Quando isso ocorrer, trate como incerteza, " +
       "nao como um fato escolhido arbitrariamente.",
-    "- Dados locais podem falhar ou vir incompletos (`indisponivel`, `sem_resultado`, `nao_carregado`, landmarks " +
-      "ausentes ou contexto compactado). Ausencia local nao prova ausencia fisica.",
+    "- Dados locais podem falhar ou vir incompletos (`indisponivel`, `sem_resultado`, `nao_carregado`, `nao_amostrado`, " +
+      "landmarks ausentes ou contexto compactado). `nao_amostrado` significa que aquele subsistema foi pulado pela " +
+      "cadencia de percepcao naquele frame — nao e falha nem ausencia. Ausencia local nao prova ausencia fisica.",
     "- Se a evidencia local divergir das imagens ou for inconclusiva, explicite a divergencia em `incertezas` e " +
       "reduza a confianca da afirmacao; nao force uma conclusao.",
     "",

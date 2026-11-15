@@ -129,6 +129,7 @@ bench/
   BASELINE.md          máquina de referência e metas realistas por hardware (imutável; relatórios novos vão para RELATORIO_*/COMPARATIVO_*)
 scripts/
   benchmark.mjs        benchmark comparativo dos modelos do backend de visão (latência, tok/s, inferências/min)
+  benchmark-cadencia.mjs  amostragem efetiva e latência por etapa a partir dos ciclos persistidos
   benchmark-variantes.mjs  compara as variantes A–D sobre os mesmos clipes (desempenho + qualidade + verificação de modelo)
   gerar-fixtures-bench.mjs  gera o conjunto fixo de imagens sintéticas
   avaliar-qualidade.mjs     compara eventos gravados com a anotação (precisão/recall/FP por minuto)
@@ -229,16 +230,21 @@ O teto de bytes (`maxBytesContexto`) é medido em **bytes UTF-8** (`TextEncoder`
 
 ## Política do ciclo
 
-A cadência do ciclo multiframe é explícita em `public/cycle/politica-ciclo.ts` (`POLITICA_CICLO_OPERACIONAL` para uso real e `POLITICA_CICLO_BENCHMARK_ALVO` para avaliação), separando o que antes vivia num único "intervalo":
+A cadência do ciclo multiframe é explícita em `public/cycle/politica-ciclo.ts` (`POLITICA_CICLO_OPERACIONAL` para uso real, `POLITICA_CICLO_BENCHMARK_ALVO` e `POLITICA_CICLO_BENCHMARK_5FPS` para avaliação), separando o que antes vivia num único "intervalo":
 
-| Campo | Operacional | Benchmark alvo | O que é |
-| --- | ---: | ---: | --- |
-| `intervaloEntreSnapshotsMs` | 500 | 1000 | Espaçamento entre os snapshots **dentro** de um ciclo. |
-| `quantidadeSnapshots` | 4 | 4 | Quantos snapshots compõem a janela do ciclo. |
-| `pausaAposCicloMs` | 6000 | 6000 | Descanso contado da **conclusão efetiva** do ciclo (não é intervalo entre inícios). |
-| `interpretacao` | `sob_demanda` | `a_cada_ciclo` | Quando a etapa multimodal é chamada. |
+| Campo | Operacional | Benchmark alvo | Benchmark 5 FPS | O que é |
+| --- | ---: | ---: | ---: | --- |
+| `intervaloEntreSnapshotsMs` | 500 | 1000 | 200 | Espaçamento entre os snapshots **dentro** de um ciclo. |
+| `quantidadeSnapshots` | 4 | 4 | 5 | Quantos snapshots compõem a janela do ciclo. |
+| `pausaAposCicloMs` | 6000 | 6000 | 0 | Descanso contado da **conclusão efetiva** do ciclo (não é intervalo entre inícios). |
+| `interpretacao` | `sob_demanda` | `a_cada_ciclo` | `a_cada_ciclo` | Quando a etapa multimodal é chamada. |
+| `cadencia` | — | — | `maosMs: 200`, `poseMs: 1000`, `deteccaoMs: 1000` | Intervalo alvo de amostragem **por subsistema**, independente do intervalo entre snapshots. |
 
 O agendador (`public/scheduler.ts`) combina os dois limites: `espera = max(500 ms, intervalo - duração, pausaAposCiclo)`. Como a espera começa sempre após a conclusão, a **pausa entra como piso direto** — um ciclo nunca começa antes do prazo apenas porque o ciclo anterior foi mais longo que o intervalo. O intervalo entre inícios continua vindo do seletor da interface; a `configuracaoCaptura` (quadros/intervalo entre snapshots) é derivada da política, para não divergir.
+
+**Cadência independente de percepção (Fase 1.3).** Sem `cadencia`, todos os subsistemas rodam em todos os snapshots (comportamento anterior preservado). Com `cadencia`, um planejador puro (`src/domain/cadencia.ts`) decide, **a partir dos timestamps de captura**, quais subsistemas executam em cada frame: o primeiro frame roda todos (ancora rastreadores e garante uma observação completa), e cada subsistema é reamostrado quando o deslocamento alcança o próximo múltiplo do seu intervalo, com tolerância para jitter. A decisão não depende da ordem de conclusão das inferências, então o plano é determinístico mesmo com concorrência. A política de 5 FPS usa esse recurso para tentar mãos a 5 FPS enquanto pose/deteccao rodam a 1 Hz; a meta de FPS é de **amostragem**, não de throughput — o custo real de inferência aparece nas métricas de latência.
+
+**Frame não amostrado não é falha.** O frame pulado pela cadência retorna `ResultadoIndisponivel` com `naoAmostrado: true` (status `nao_amostrado` no contexto multimodal). O motor temporal **ignora** esses frames: não reseta máquinas de sinal, não conta ausência e não encerra eventos. O `RegistroCiclo` também não os inclui em `subsistemasIndisponiveis`, e a lista de indisponibilidades enviada ao prompt os omite — evita confundir "não executado de propósito" com "falhou". Cada ciclo registra em `metricas.amostragem` a janela, os frames, os amostrados, o intervalo alvo, o intervalo médio e o FPS efetivo por subsistema. Para medir a meta, use `npm run bench:cadencia` (ver [`qualidade.md`](./qualidade.md)).
 
 **Frequência da interpretação.** `interpretacao` decide se a etapa multimodal roda:
 
@@ -291,5 +297,5 @@ A persistência é separada do servidor HTTP (`src/persistence/`), com uma primi
 
 - Unitários/integração: `npm test` (vitest, incluindo `percepcao`, `motores`, `rastreamento`, `cena`, `motor-temporal`, `memoria`, `persistence`, `server`, `politica-analise`, `provedor`, `visao`, ciclos multiframe e os testes dos scripts `tests/scripts/*.test.mjs`).
 - Build: `npm run build` gera servidor, `public/app.js` e os três bundles de worker (`npm run build:workers`); `npm run clean` remove todos os artefatos.
-- E2E: `npm run test:e2e` (Playwright; o transformers.js é substituído por stubs em `e2e/app.spec.ts`; `e2e/webcam.spec.ts` e `e2e/webcam-multiframe.spec.ts` são **opt-in** com modelo real e clipe via `E2E_WEBCAM_*`). O `webServer` do Playwright roda `npm run build`, então os workers são exercitados no E2E.
+- E2E: `npm run test:e2e` (Playwright; o transformers.js é substituído por stubs em `e2e/app.spec.ts`; `e2e/webcam.spec.ts`, `e2e/webcam-multiframe.spec.ts` e `e2e/webcam-cadencia.spec.ts` são **opt-in** com modelo real e clipe via `E2E_WEBCAM_*`). O `webServer` do Playwright roda `npm run build`, então os workers são exercitados no E2E. O E2E de cadência abre `?benchmark=5fps`, confere os 5 snapshots a 200 ms, a política aplicada e a amostragem de mãos (sem confundir frame pulado com indisponibilidade) e grava os ciclos para `npm run bench:cadencia`.
 - Desempenho/qualidade: ver [`qualidade.md`](./qualidade.md).

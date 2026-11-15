@@ -6,6 +6,7 @@ import {
   eventosRelevantes,
   POLITICA_CICLO_BENCHMARK_ALVO,
   POLITICA_CICLO_BENCHMARK_RAPIDO,
+  POLITICA_CICLO_BENCHMARK_5FPS,
   POLITICA_CICLO_OPERACIONAL,
   TIPOS_EVENTO_RELEVANTES,
 } from "../public/cycle/politica-ciclo";
@@ -77,6 +78,27 @@ describe("politicas explicitas do ciclo", () => {
       quantidadeSnapshots: 4,
       interpretacao: "a_cada_ciclo",
     });
+  });
+
+  it("benchmark 5fps captura 5 snapshots a 200 ms com cadencia independente", () => {
+    expect(POLITICA_CICLO_BENCHMARK_5FPS).toMatchObject({
+      id: "benchmark-5fps",
+      finalidade: "benchmark",
+      referencia: "5fps",
+      intervaloEntreSnapshotsMs: 200,
+      quantidadeSnapshots: 5,
+      pausaAposCicloMs: 0,
+      interpretacao: "a_cada_ciclo",
+      cadencia: { maosMs: 200, poseMs: 1000, deteccaoMs: 1000 },
+    });
+    // Janela nominal de 0,8 s: 5 frames espacados por 200 ms.
+    expect(aplicarPolitica(POLITICA_CICLO_BENCHMARK_5FPS).janelaNominalMs).toBe(800);
+  });
+
+  it("politicas operacionais/antigas nao ganham cadencia por acidente", () => {
+    expect(POLITICA_CICLO_OPERACIONAL.cadencia).toBeUndefined();
+    expect(POLITICA_CICLO_BENCHMARK_ALVO.cadencia).toBeUndefined();
+    expect(POLITICA_CICLO_BENCHMARK_RAPIDO.cadencia).toBeUndefined();
   });
 });
 

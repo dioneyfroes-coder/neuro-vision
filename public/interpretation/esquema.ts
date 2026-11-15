@@ -1,6 +1,7 @@
 import {
   calcularGeometriaMao,
   estaIndisponivel,
+  naoFoiAmostrado,
   type Caixa,
   type GeometriaMao,
   type GrupoRemovidoContexto,
@@ -30,16 +31,26 @@ import {
  * - caixas normalizadas em [0, 1] (relativas as dimensoes do frame);
  * - keypoints corporais **nomeados** (ordem COCO de 17 pontos), com confianca;
  * - maos com lateralidade, gesto/score e landmarks normalizados (compactados);
- * - estado do subsistema (`ok`/`sem_resultado`/`indisponivel`/`nao_carregado`) +
- *   motivo, nunca lista vazia indistinguivel de falha;
+ * - estado do subsistema (`ok`/`sem_resultado`/`indisponivel`/`nao_carregado`/
+ *   `nao_amostrado`) + motivo, nunca lista vazia indistinguivel de falha;
  * - movimento entre frames (deslocamento/direcao), nao so posicao isolada.
  */
 
 /** Versao do schema. Sobe quando a forma dos campos muda de modo incompativel. */
 export const VERSAO_ESQUEMA_CONTEXTO = "contexto-1";
 
-/** Estado observado de um subsistema de percepcao num frame. */
-export type EstadoObservado = "ok" | "sem_resultado" | "indisponivel" | "nao_carregado";
+/**
+ * Estado observado de um subsistema de percepcao num frame.
+ *
+ * `nao_amostrado` = pulado de proposito pela cadencia independente: nao e
+ * falha nem ausencia, e nao deve ser lido como "nada foi visto".
+ */
+export type EstadoObservado =
+  | "ok"
+  | "sem_resultado"
+  | "indisponivel"
+  | "nao_carregado"
+  | "nao_amostrado";
 
 /**
  * Nomes dos 17 keypoints na ordem COCO usada pelo estimador de pose padrao
@@ -426,6 +437,14 @@ export function estadoSubsistema<T>(
     };
   }
   if (estaIndisponivel(resultado)) {
+    if (naoFoiAmostrado(resultado)) {
+      return {
+        status: "nao_amostrado",
+        modelo: telemetria?.modelo,
+        motivo: resultado.motivo,
+        ...modelos,
+      };
+    }
     return {
       status: "indisponivel",
       modelo: telemetria?.modelo,

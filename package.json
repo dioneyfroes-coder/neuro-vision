@@ -15,6 +15,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "bench": "node scripts/benchmark.mjs",
+    "bench:cadencia": "node scripts/benchmark-cadencia.mjs",
     "qualidade": "node scripts/avaliar-qualidade.mjs",
     "validar:eval": "node scripts/validar-eval.mjs",
     "preparar:offline": "node scripts/preparar-offline.mjs",

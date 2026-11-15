@@ -1,4 +1,4 @@
-import { estaIndisponivel } from "../../src/domain";
+import { estaIndisponivel, naoFoiAmostrado } from "../../src/domain";
 import type {
   DiagnosticoContextoMultimodal,
   ObservacaoFrame,
@@ -290,7 +290,9 @@ function coletarIndisponibilidades(observacoes: ObservacaoFrame[]): string[] {
       ["nsfw", obs.nsfw],
     ];
     for (const [nome, res] of pares) {
-      if (estaIndisponivel(res)) {
+      // `nao_amostrado` = pulado pela cadencia, nao falha. Nao entra na lista de
+      // indisponibilidades (o prompt ja recebe o estado por frame).
+      if (estaIndisponivel(res) && !naoFoiAmostrado(res)) {
         vistos.add(`frame ${i + 1}: ${nome} indisponivel (${res.motivo})`);
       }
     }

@@ -1,6 +1,7 @@
 import type { ObservacaoFrame } from "./observation";
 import type { ResultadoIndisponivel, TelemetriaSubsistema } from "./perception";
-import { estaIndisponivel } from "./perception";
+import { estaIndisponivel, naoFoiAmostrado } from "./perception";
+import type { AmostragemCiclo, CadenciaPercepcao } from "./cadencia";
 import type { DiagnosticoSinalTemporal, EventoTemporal } from "./temporal-event";
 import type { DiagnosticoContextoMultimodal } from "./interpretation";
 
@@ -37,6 +38,11 @@ export interface PoliticaCicloAplicada {
   janelaNominalMs: number;
   pausaAposCicloMs: number;
   interpretacao: FrequenciaInterpretacao;
+  /**
+   * Cadencia independente por subsistema (Fase 1.3), quando configurada.
+   * Ausente = todos os subsistemas executam em todos os snapshots.
+   */
+  cadencia?: CadenciaPercepcao;
 }
 
 /** Leitura consolidada do motor temporal para um ciclo. */
@@ -182,6 +188,12 @@ export interface MetricasCiclo {
   /** Saida agregada dos modelos locais; falhas e subsistemas nao executados nao contam. */
   resultadosPercepcao?: EvidenciaPercepcaoCiclo;
   /**
+   * Amostragem efetiva por subsistema no ciclo (Fase 1.3/1.4): quantos frames
+   * executaram cada um, intervalo medio e FPS efetivo de **amostragem**.
+   * Diferente de `inferenciaPorSnapshotMs`, que mede o custo da inferencia.
+   */
+  amostragem?: AmostragemCiclo;
+  /**
    * Compactacao do contexto multimodal enviado neste ciclo (Fase 3): bytes,
    * teto, se houve truncamento e quais grupos foram podados. A frequencia de
    * truncamento e a fracao de ciclos interpretados com `truncado: true`.
@@ -308,7 +320,11 @@ export function criarRegistroCiclo(
   const indisponiveis = new Set<ResultadoIndisponivel["subsistema"]>();
   for (const observacao of pacote.observacoes) {
     for (const subsistema of [observacao.deteccoes, observacao.pose, observacao.maos, observacao.nsfw]) {
-      if (estaIndisponivel(subsistema)) indisponiveis.add(subsistema.subsistema);
+      // Pular um frame por cadencia nao e indisponibilidade: o subsistema nao
+      // falhou e sera executado de novo no proximo alvo.
+      if (estaIndisponivel(subsistema) && !naoFoiAmostrado(subsistema)) {
+        indisponiveis.add(subsistema.subsistema);
+      }
     }
   }
   return {

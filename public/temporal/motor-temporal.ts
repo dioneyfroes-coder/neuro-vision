@@ -5,6 +5,7 @@ import {
   estabilizarDedos,
   estadosDosDedos,
   estaIndisponivel,
+  naoFoiAmostrado,
   type DiagnosticoSinalTemporal,
   type EstadoDedos,
   type EventoTemporal,
@@ -259,6 +260,10 @@ export class MotorTemporalImpl implements MotorTemporal {
         poseObservada = { ...obs.pose, pessoas: posesComTrackId };
       }
       const poseDisponivel = !estaIndisponivel(obs.pose);
+      // Frame pulado pela cadencia: nao e falha nem ausencia. Os rastreadores e
+      // as maquinas de sinal ignoram o frame por completo, preservando
+      // candidatos e eventos ativos como se a observacao nao existisse.
+      const poseNaoAmostrada = naoFoiAmostrado(obs.pose);
 
       // 4. Rastreamento de maos em coordenadas normalizadas.
       let maosObservadas = obs.maos;
@@ -291,6 +296,7 @@ export class MotorTemporalImpl implements MotorTemporal {
         maosObservadas = { ...obs.maos, maos: maosComTrackId };
       }
       const maosDisponivel = !estaIndisponivel(obs.maos);
+      const maosNaoAmostradas = naoFoiAmostrado(obs.maos);
 
       // 5. Maquina de braco levantado (a partir da pose enriquecida).
       const leiturasBraco = this.montarLeiturasBraco(
@@ -299,14 +305,16 @@ export class MotorTemporalImpl implements MotorTemporal {
         frameId,
         obs.cycleId
       );
-      for (const sinal of this.braco.processar(leiturasBraco, { indisponivel: !poseDisponivel })) {
-        eventos.push(
-          this.sinalParaEvento(sinal, "braco_levantado", "pose", sessionId, (s) =>
-            s.estado === "confirmado"
-              ? "Braco levantado"
-              : "Braco abaixado"
-          )
-        );
+      if (!poseNaoAmostrada) {
+        for (const sinal of this.braco.processar(leiturasBraco, { indisponivel: !poseDisponivel })) {
+          eventos.push(
+            this.sinalParaEvento(sinal, "braco_levantado", "pose", sessionId, (s) =>
+              s.estado === "confirmado"
+                ? "Braco levantado"
+                : "Braco abaixado"
+            )
+          );
+        }
       }
 
       // 5a. Transicao de acao: velocidade vertical do punho. Distingue
@@ -319,16 +327,18 @@ export class MotorTemporalImpl implements MotorTemporal {
         obs.cycleId,
         poseDisponivel
       );
-      for (const sinal of this.transicao.processar(leiturasTransicao, {
-        indisponivel: !poseDisponivel,
-      })) {
-        eventos.push(
-          this.sinalParaEvento(sinal, "transicao_acao", "pose", sessionId, (s) =>
-            s.rotulo === "braco_subindo"
-              ? "Braco subindo (transicao)"
-              : "Braco descendo (transicao)"
-          )
-        );
+      if (!poseNaoAmostrada) {
+        for (const sinal of this.transicao.processar(leiturasTransicao, {
+          indisponivel: !poseDisponivel,
+        })) {
+          eventos.push(
+            this.sinalParaEvento(sinal, "transicao_acao", "pose", sessionId, (s) =>
+              s.rotulo === "braco_subindo"
+                ? "Braco subindo (transicao)"
+                : "Braco descendo (transicao)"
+            )
+          );
+        }
       }
 
       // 5b. Movimento corporal: deslocamento de pessoas rastreadas. Nao confundir
@@ -338,16 +348,18 @@ export class MotorTemporalImpl implements MotorTemporal {
         frameId,
         obs.cycleId
       );
-      for (const sinal of this.movimento.processar(leiturasMovimento, {
-        indisponivel: !poseDisponivel,
-      })) {
-        eventos.push(
-          this.sinalParaEvento(sinal, "movimento_corporal", "pose", sessionId, (s) =>
-            s.estado === "confirmado"
-              ? "Movimento corporal"
-              : "Movimento corporal encerrado"
-          )
-        );
+      if (!poseNaoAmostrada) {
+        for (const sinal of this.movimento.processar(leiturasMovimento, {
+          indisponivel: !poseDisponivel,
+        })) {
+          eventos.push(
+            this.sinalParaEvento(sinal, "movimento_corporal", "pose", sessionId, (s) =>
+              s.estado === "confirmado"
+                ? "Movimento corporal"
+                : "Movimento corporal encerrado"
+            )
+          );
+        }
       }
 
       // 6. Maquina de gestos (a partir das maos enriquecidas).
@@ -365,19 +377,21 @@ export class MotorTemporalImpl implements MotorTemporal {
             ? obs.deteccoes.dimensoes
             : undefined
       );
-      for (const sinal of this.gestos.processar(leiturasGesto, { indisponivel: !maosDisponivel })) {
-        eventos.push(
-          this.sinalParaEvento(sinal, "gesto_detectado", "maos", sessionId, (s) =>
-            s.estado === "confirmado"
-              ? `Gesto "${s.rotulo}" confirmado`
-              : `Gesto "${s.rotulo}" encerrado`
-          )
-        );
+      if (!maosNaoAmostradas) {
+        for (const sinal of this.gestos.processar(leiturasGesto, { indisponivel: !maosDisponivel })) {
+          eventos.push(
+            this.sinalParaEvento(sinal, "gesto_detectado", "maos", sessionId, (s) =>
+              s.estado === "confirmado"
+                ? `Gesto "${s.rotulo}" confirmado`
+                : `Gesto "${s.rotulo}" encerrado`
+            )
+          );
+        }
       }
 
       // 7. Pose compativel com ato sexual (Fase 7.2). So roda quando o NSFW
       // esta ativo; o evento e indicio geometrico, nunca prova do ato.
-      if (this.config.avaliarPoseSexual) {
+      if (this.config.avaliarPoseSexual && !poseNaoAmostrada) {
         const leiturasPose = this.montarLeiturasPoseSexual(
           posesComTrackId,
           maosComTrackId,
@@ -402,12 +416,14 @@ export class MotorTemporalImpl implements MotorTemporal {
 
       // Diagnostico corrente: diferencia confirmado, ocluido, inferencia
       // indisponivel e observacao insuficiente mesmo sem evento emitido.
-      this.registrarDiagnosticos("gesto", this.gestos, !maosDisponivel);
-      this.registrarDiagnosticos("braco", this.braco, !poseDisponivel);
-      this.registrarDiagnosticos("transicao", this.transicao, !poseDisponivel);
-      this.registrarDiagnosticos("movimento", this.movimento, !poseDisponivel);
-      if (this.config.avaliarPoseSexual) {
-        this.registrarDiagnosticos("pose_sexual", this.poseSexual, !poseDisponivel);
+      if (!maosNaoAmostradas) this.registrarDiagnosticos("gesto", this.gestos, !maosDisponivel);
+      if (!poseNaoAmostrada) {
+        this.registrarDiagnosticos("braco", this.braco, !poseDisponivel);
+        this.registrarDiagnosticos("transicao", this.transicao, !poseDisponivel);
+        this.registrarDiagnosticos("movimento", this.movimento, !poseDisponivel);
+        if (this.config.avaliarPoseSexual) {
+          this.registrarDiagnosticos("pose_sexual", this.poseSexual, !poseDisponivel);
+        }
       }
 
       observacoesEnriquecidas.push({

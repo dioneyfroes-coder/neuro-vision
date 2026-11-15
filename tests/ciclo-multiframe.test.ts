@@ -10,6 +10,7 @@ import type {
 import type { InterpretadorMultimodal } from "../public/interpretation/contracts";
 import type { MotorTemporal } from "../public/temporal/contracts";
 import type { PacoteCiclo } from "../src/domain";
+import { naoAmostrado } from "../src/domain";
 import type { ResultadoInterpretacao } from "../src/domain";
 import type { EventoTemporal, ObservacaoFrame, ResumoTemporal } from "../src/domain";
 import type { RegistroCiclo } from "../src/domain/cycle";
@@ -105,14 +106,17 @@ function montar(opcoes: {
   fonte?: FonteCaptura;
   concorrenciaFrames?: number;
   agoraCaptura?: () => number;
+  configCaptura?: Partial<typeof CONFIG_CAPTURA_PADRAO>;
+  maxQuadros?: number;
 } = {}) {
   const imagens = opcoes.imagens ?? ["A", "B", "C", "D"];
   const capturados: string[] = [];
   const interpretados: string[][] = [];
-  const store = new SnapshotStore({ maxQuadros: 4 });
+  const configCaptura = { ...CONFIG_CAPTURA_PADRAO, ...opcoes.configCaptura };
+  const store = new SnapshotStore({ maxQuadros: opcoes.maxQuadros ?? 4 });
   const captura = new WebcamCapture(
     opcoes.fonte ?? fonteComImagens(imagens),
-    CONFIG_CAPTURA_PADRAO,
+    configCaptura,
     {
       agora: opcoes.agoraCaptura ?? (() => 0),
       esperar: async () => undefined,
@@ -692,5 +696,73 @@ describe("executarCicloMultiframe", () => {
       executarCicloMultiframe(cancelado.deps, controller.signal)
     ).rejects.toSatisfy(ehCancelamento);
     expect(registrarCancelado).toHaveBeenCalledTimes(1);
+  });
+
+  it("aplica a cadencia independente e registra a amostragem efetiva (Fase 1.3)", async () => {
+    type Amostrados = { deteccao: boolean; pose: boolean; maos: boolean };
+    const pedidos: Amostrados[] = [];
+    let relogio = 0;
+    const { deps } = montar({
+      configCaptura: { quadros: 4, intervaloMs: 300 },
+      // Duas leituras por frame (captura + espera) -> timestamps 0, 600, 1200, 1800.
+      agoraCaptura: () => {
+        const valor = relogio;
+        relogio += 300;
+        return valor;
+      },
+      processarFrame: async (_snapshot, _sinal, amostragem) => {
+        const amostrar = (subsistema: "deteccao" | "pose" | "maos"): boolean =>
+          amostragem === undefined || amostragem.has(subsistema);
+        const pedido: Amostrados = {
+          deteccao: amostrar("deteccao"),
+          pose: amostrar("pose"),
+          maos: amostrar("maos"),
+        };
+        pedidos.push(pedido);
+        return {
+          deteccoes: pedido.deteccao ? processamento().deteccoes : naoAmostrado("deteccao"),
+          pose: pedido.pose ? processamento().pose : naoAmostrado("pose"),
+          maos: pedido.maos ? processamento().maos : naoAmostrado("maos"),
+          metricas: {},
+        };
+      },
+    });
+    deps.obterPolitica = () => ({
+      id: "benchmark-5fps",
+      finalidade: "benchmark",
+      referencia: "5fps",
+      intervaloEntreSnapshotsMs: 300,
+      quantidadeSnapshots: 4,
+      janelaNominalMs: 900,
+      pausaAposCicloMs: 0,
+      interpretacao: "a_cada_ciclo",
+      cadencia: { maosMs: 300, poseMs: 1200, deteccaoMs: 1200 },
+    });
+    const registros: RegistroCiclo[] = [];
+    deps.persistirCiclo = (registro) => {
+      registros.push(registro);
+    };
+
+    const resultado = await executarCicloMultiframe(deps);
+
+    // O plano usa os timestamps reais da captura, nao a ordem de conclusao.
+    expect(resultado.pacote.metricas.janelaCapturaMs).toBe(1800);
+    expect(pedidos.map((pedido) => pedido.maos)).toEqual([true, true, true, true]);
+    expect(pedidos.map((pedido) => pedido.pose)).toEqual([true, false, true, false]);
+    expect(pedidos.map((pedido) => pedido.deteccao)).toEqual([true, false, true, false]);
+
+    const amostragem = resultado.pacote.metricas.amostragem;
+    expect(amostragem?.janelaMs).toBe(1800);
+    expect(amostragem?.porSubsistema.maos).toMatchObject({
+      amostrados: 4,
+      intervaloAlvoMs: 300,
+    });
+    expect(amostragem?.porSubsistema.pose).toMatchObject({
+      amostrados: 2,
+      intervaloAlvoMs: 1200,
+    });
+
+    // Frame pulado pela cadencia nao e indisponibilidade no registro.
+    expect(registros[0]?.subsistemasIndisponiveis).toEqual([]);
   });
 });

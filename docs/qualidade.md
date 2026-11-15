@@ -111,6 +111,22 @@ node scripts/benchmark-variantes.mjs --anotacoes-dir bench/clipes/eval `
 - **Suficiência estatística:** além de comparável, a rodada precisa de `--min-amostras-estatisticas <n>` (padrão **10**) ciclos concluídos por variante no regime aquecido para ser **CONCLUSIVA**. Abaixo disso ela é **comparável, mas estatisticamente insuficiente**: os números servem para diagnóstico, não para eleger vencedores. Mediana e P95 sempre descrevem a amostra observada; o **IC95% da mediana** só aparece com amostra suficiente (ordem estatística, sem reamostragem) — caso contrário sai `N/A (n<10)`, nunca um intervalo inventado.
 - **Saídas:** `bench/RELATORIO_VARIANTE_{A,B,C,D}_<data>.md` e `bench/COMPARATIVO_A_B_C_D_<data>.md`. Cada relatório registra commit/branch, backend, **modelo multimodal**, **dispositivo efetivo dos adaptadores de detecção, pose e mãos** (ausência vira "não registrado", nunca um dispositivo suposto), a **janela de geração do relatório** (wall-clock do harness, não a duração das inferências), clipes com tamanho e SHA-256 e a contagem de ciclos concluídos. O script **se recusa a escrever em `bench/BASELINE.md`** (proteção coberta por teste).
 
+### Benchmark da cadência independente (Fase 1.4)
+
+`scripts/benchmark-cadencia.mjs` (`npm run bench:cadencia`) lê os ciclos persistidos em `logs/ciclos.jsonl` e responde a uma pergunta diferente do benchmark de variantes: **a cadência alvo foi atingida e a que custo de latência?** Ele usa `metricas.amostragem` — o plano realmente aplicado aos timestamps de captura — e não a intenção declarada na política.
+
+```bash
+npm run bench:cadencia
+node scripts/benchmark-cadencia.mjs --politica benchmark-5fps --fps-alvo 5 `
+  --warmup 1 --min-ciclos 5 --saida bench/RELATORIO_CADENCIA_5FPS.md
+```
+
+- **Entrada:** `RegistroCiclo` (JSONL); linhas inválidas são contadas e ignoradas. `--politica` filtra pela política aplicada, `--warmup` descarta os primeiros ciclos concluídos (carga/compilação) e `--min-ciclos` (padrão **1**) impede veredito com amostra insuficiente.
+- **Amostragem por subsistema:** ciclos, frames do plano, frames amostrados, cobertura, intervalo alvo, intervalo médio e **FPS efetivo** (mediana entre ciclos). O alvo vem de `politica.cadencia`/`intervaloAlvoMs`; sem intervalo medido, o campo fica `null` — nunca zero.
+- **Veredito:** compara o FPS efetivo com **90% do alvo** por subsistema, para absorver jitter de captura. Só existe com ciclos suficientes e ao menos um subsistema medido; um subsistema sem taxa efetiva não "passa" por omissão. O processo retorna código não zero quando não há ciclos suficientes.
+- **Latência:** mediana e P95 por etapa (`capturaMs`, `deteccaoMs`, `poseMs`, `maosMs`, `nsfwMs`, `temporalMs`, `multimodalMs`, `totalMs`) separam "quando o subsistema foi chamado" de "quanto custou".
+- **Como gerar os ciclos:** `e2e/webcam-cadencia.spec.ts` é opt-in (`E2E_WEBCAM_*`) e abre a política `?benchmark=5fps` com clipe real; ele grava o JSONL de ciclos usado pelo script. O teste confere 5 snapshots a 200 ms, a política aplicada, a cadência alvo e que frame não amostrado **não** vira subsistema indisponível.
+
 ### Benchmark reproduzível e decisão por dados (Fase 5)
 
 O harness ganhou três capacidades para a repetição do benchmark com dados reproduzíveis:

@@ -28,6 +28,25 @@ mesmos bytes):
 node scripts/gerar-fixtures-bench.mjs
 ```
 
+## Benchmark da cadência independente
+
+`scripts/benchmark-cadencia.mjs` (`npm run bench:cadencia`) usa os ciclos
+persistidos em `logs/ciclos.jsonl` (não o conjunto de imagens) para medir a
+**amostragem efetiva** da percepção: quanto cada subsistema realmente rodou,
+com que intervalo e a que FPS, além da latência por etapa. Ele responde se a
+meta de 5 FPS da política `benchmark-5fps` foi atingida.
+
+```bash
+npm run bench:cadencia
+node scripts/benchmark-cadencia.mjs --politica benchmark-5fps --fps-alvo 5 `
+  --warmup 1 --min-ciclos 5 --saida bench/RELATORIO_CADENCIA_5FPS.md
+```
+
+Sem amostra o campo sai `null` (nunca zero) e o veredito só existe com ciclos
+suficientes. Para gerar os ciclos, use o E2E opt-in `e2e/webcam-cadencia.spec.ts`
+com `E2E_WEBCAM_*`; ele abre `?benchmark=5fps` e grava o JSONL lido pelo script.
+Critérios e semântica estão em [`../docs/qualidade.md`](../docs/qualidade.md).
+
 ## Substituindo pelo seu conjunto
 
 Para medir com cenas reais e representativas do seu uso, coloque arquivos

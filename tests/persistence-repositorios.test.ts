@@ -5,6 +5,7 @@ import path from "node:path";
 import type { AddressInfo } from "node:net";
 import type { ObservacaoFrame } from "../src/domain/observation";
 import { criarRegistroCiclo } from "../src/domain/cycle";
+import { naoAmostrado } from "../src/domain/perception";
 import type { ResultadoCiclo } from "../src/domain/cycle";
 import type { EntradaLog, EventoVisual } from "../src/types";
 import {
@@ -177,6 +178,16 @@ describe("criarRegistroCiclo", () => {
       cancelado: false,
       registroEm: "2026-10-17T12:00:02.000Z",
     });
+  });
+
+  it("nao trata frame pulado pela cadencia como subsistema indisponivel", () => {
+    const pulado = {
+      ...observacao("f1"),
+      pose: naoAmostrado("pose"),
+      maos: naoAmostrado("maos"),
+    };
+    const registro = criarRegistroCiclo(resultadoCiclo([pulado]));
+    expect(registro.subsistemasIndisponiveis).toEqual([]);
   });
 
   it("mantem o erro de etapa e o cancelamento no registro", () => {

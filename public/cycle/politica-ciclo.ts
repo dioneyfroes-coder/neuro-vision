@@ -1,4 +1,4 @@
-import type { ResumoTemporal, TipoEventoTemporal } from "../../src/domain";
+import type { CadenciaPercepcao, ResumoTemporal, TipoEventoTemporal } from "../../src/domain";
 import type {
   FrequenciaInterpretacao,
   FinalidadePoliticaCiclo,
@@ -33,6 +33,12 @@ export interface PoliticaCiclo {
   pausaAposCicloMs: number;
   /** Frequencia da interpretacao multimodal. */
   interpretacao: FrequenciaInterpretacao;
+  /**
+   * Cadencia independente por subsistema (Fase 1.3). Ausente = todos executam
+   * em todos os snapshots. O intervalo entre snapshots continua sendo o teto:
+   * um subsistema nunca e amostrado mais rapido que a captura.
+   */
+  cadencia?: CadenciaPercepcao;
 }
 
 /**
@@ -89,6 +95,30 @@ export const POLITICA_CICLO_BENCHMARK_RAPIDO: PoliticaCiclo = {
   quantidadeSnapshots: 4,
   pausaAposCicloMs: 6000,
   interpretacao: "a_cada_ciclo",
+};
+
+/**
+ * Politica de benchmark com **cadencia independente** (Fase 1.3/1.4).
+ *
+ * Captura 5 snapshots a 200 ms (janela de 0,8 s) e tenta amostrar as maos a
+ * **5 FPS**, enquanto pose e deteccao rodam a 1 Hz. O alvo de 5 FPS e uma meta
+ * de amostragem, nao uma garantia: o FPS efetivo de inferencia depende do
+ * hardware e fica registrado em `metricas.amostragem` de cada ciclo. A pausa
+ * pos-ciclo e zero para que o benchmark encadeie ciclos sobre movimentos curtos.
+ */
+export const POLITICA_CICLO_BENCHMARK_5FPS: PoliticaCiclo = {
+  id: "benchmark-5fps",
+  finalidade: "benchmark",
+  referencia: "5fps",
+  intervaloEntreSnapshotsMs: 200,
+  quantidadeSnapshots: 5,
+  pausaAposCicloMs: 0,
+  interpretacao: "a_cada_ciclo",
+  cadencia: {
+    maosMs: 200,
+    poseMs: 1000,
+    deteccaoMs: 1000,
+  },
 };
 
 /**

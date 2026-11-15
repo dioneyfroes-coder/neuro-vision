@@ -21,13 +21,20 @@ export interface Caixa {
  * Regra 8 do roteiro: falha nao significa ausencia. Este valor **nao** pode ser
  * convertido em lista vazia indistinguivel de uma inferencia valida sem
  * resultados — use `estaIndisponivel` para distinguir.
+ *
+ * `naoAmostrado` marca o terceiro caso: o subsistema **nao foi executado neste
+ * frame** por causa da cadencia independente (`src/domain/cadencia.ts`). Nao e
+ * falha nem ausencia: o motor temporal preserva o estado das maquinas de sinal
+ * em vez de contar um frame sem sinal. Use `naoFoiAmostrado` para distinguir.
  */
 export interface ResultadoIndisponivel {
   indisponivel: true;
   /** Subsistema que falhou/faltou. */
   subsistema: "deteccao" | "pose" | "maos" | "nsfw";
-  /** Motivo legivel (erro, timeout, desativado por config). */
+  /** Motivo legivel (erro, timeout, desativado por config, cadencia). */
   motivo: string;
+  /** `true` quando o frame foi pulado de proposito pela cadencia (nao e falha). */
+  naoAmostrado?: true;
 }
 
 export function indisponivel(
@@ -37,6 +44,14 @@ export function indisponivel(
   return { indisponivel: true, subsistema, motivo };
 }
 
+/** Resultado de um subsistema que a cadencia decidiu nao executar neste frame. */
+export function naoAmostrado(
+  subsistema: ResultadoIndisponivel["subsistema"],
+  motivo = "nao amostrado pela cadencia de percepcao"
+): ResultadoIndisponivel {
+  return { indisponivel: true, subsistema, motivo, naoAmostrado: true };
+}
+
 export function estaIndisponivel<T>(
   valor: T | ResultadoIndisponivel | null | undefined
 ): valor is ResultadoIndisponivel {
@@ -44,6 +59,16 @@ export function estaIndisponivel<T>(
     valor !== null &&
     valor !== undefined &&
     (valor as { indisponivel?: boolean }).indisponivel === true
+  );
+}
+
+/** `true` quando o resultado foi pulado pela cadencia (nao e falha). */
+export function naoFoiAmostrado(
+  valor: unknown
+): valor is ResultadoIndisponivel & { naoAmostrado: true } {
+  return (
+    estaIndisponivel(valor as ResultadoIndisponivel) &&
+    (valor as ResultadoIndisponivel).naoAmostrado === true
   );
 }
 
@@ -210,11 +235,17 @@ export type ResultadoOuIndisponivel<T> = T | ResultadoIndisponivel;
 /**
  * Estado observado de um subsistema num frame (Fase 2/3).
  *
- * Distingue "rodou e entregou", "rodou sem resultado", "tentou e falhou" e
- * "nao foi carregado" — nunca uma lista vazia indistinguivel. Reproduz a
- * telemetria do adaptador (`MetricasAdaptador`) sem depender do SDK.
+ * Distingue "rodou e entregou", "rodou sem resultado", "tentou e falhou",
+ * "nao foi carregado" e "pulado pela cadencia" — nunca uma lista vazia
+ * indistinguivel. Reproduz a telemetria do adaptador (`MetricasAdaptador`) sem
+ * depender do SDK.
  */
-export type EstadoSubsistema = "ok" | "sem_resultado" | "indisponivel" | "nao_carregado";
+export type EstadoSubsistema =
+  | "ok"
+  | "sem_resultado"
+  | "indisponivel"
+  | "nao_carregado"
+  | "nao_amostrado";
 
 /**
  * Telemetria de um subsistema num frame, pronta para o contexto/registro.
