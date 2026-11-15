@@ -8,6 +8,7 @@
 | [`modos.md`](./modos.md) | Os 7 modos (Detecção, Roteiro, Descrição, Eventos + os 3 multiframe B/C/D), como os motores funcionam e como o modelo é escolhido (detecção no navegador + backend de visão: LM Studio, llama.cpp ou vLLM). |
 | [`api.md`](./api.md) | Referência completa da API HTTP, formato das entradas, retenção de snapshots e memória persistente (JSONL + contexto). |
 | [`eventos.md`](./eventos.md) | Fluxo orientado a eventos: política de análise (cooldown, janela, motivos), cancelamento de inferência, ciclos multiframe e consulta ao histórico. |
+| [`monitoramento.md`](./monitoramento.md) | Núcleo da Fase 3: sessões, segmentos de vídeo de 5 minutos sem perda/sobreposição, lacunas explícitas, buffer circular pré-evento e o que ainda falta para gravar bytes. |
 | [`arquitetura.md`](./arquitetura.md) | Estrutura de arquivos e como as partes conversam (servidor, cliente, motores, memória, variantes A–D). |
 | [`seguranca.md`](./seguranca.md) | Exposição na rede, origem cruzada, limites de corpo e validação de payloads. |
 | [`qualidade.md`](./qualidade.md) | Benchmark do modelo, avaliação de eventos (precisão/recall), benchmark das variantes A–D, benchmark da cadência independente (5 FPS), carregamento do modelo e fluxo de regressão. |

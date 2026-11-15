@@ -6,7 +6,8 @@ Estrutura de arquivos e como as partes conversam.
 
 - **Servidor Node** (`src/server.ts`) — arquivos estáticos + API REST + snapshots + proxy para o backend de visão local. É o **ponto de composição** da persistência: expõe as rotas e delega a leitura/escrita aos repositórios.
 - **Camada de persistência** (`src/persistence/`) — primitivas JSONL (`armazenamento-jsonl.ts`) e um repositório por tipo de registro (observações, eventos, registros operacionais e ciclos). Cada repositório só conhece o seu arquivo; o servidor HTTP não carrega detalhes de armazenamento.
-- **Domínio** (`src/domain/`) — contratos puros (IDs de sessão/ciclo/frame, observação, resultados de percepção, evento temporal, pacote de ciclo, resultado de interpretação e métricas) sem dependência de SDK de modelo.
+- **Domínio** (`src/domain/`) — contratos puros (IDs de sessão/ciclo/frame, observação, resultados de percepção, evento temporal, pacote de ciclo, resultado de interpretação, métricas e monitoramento) sem dependência de SDK de modelo.
+- **Monitoramento** (`src/monitoramento/` + `src/domain/monitoramento.ts`) — núcleo puro da Fase 3: sessões de câmera de segurança, rotação de segmentos de vídeo de 5 minutos no limite exato (sem perder nem sobrepor quadros), lacunas explícitas (`incompleto`/`lacuna`) quando a captura para além do limiar, pausa/encerramento ancorados no último quadro real e buffer circular pré-evento por tempo de captura. Não grava bytes, não conhece codec/disco/HTTP e ainda não está ligado à interface; o vínculo evento→segmento é feito por `segmentosParaIntervalo`/`segmentoParaTimestamp`. Ver [`monitoramento.md`](./monitoramento.md).
 - **Controlador do ciclo** (`public/cycle/cycle-controller.ts`) — regra de negócio do ciclo de frame único (captura, inferência, rastreamento, persistência e progresso) com dependências injetadas; emite `EventoUi` em vez de tocar o DOM.
 - **Ciclo multiframe** (`public/cycle/ciclo-multiframe.ts`) — captura 4 snapshots identificados (~1,5 s), guarda-os sem inferência, processa-os com concorrência limitada entre frames (padrão 2 por vez, ordem preservada), roda a leitura temporal e envia o `PacoteCiclo` à interpretação multimodal. As imagens que chegam ao interpretador são as mesmas capturadas (sem recaptura). Sem frame disponível o ciclo retorna vazio, sem interpretar nem persistir (não é falha). A cadência é definida pela **política do ciclo** (`public/cycle/politica-ciclo.ts`): intervalo e quantidade de snapshots, pausa pós-ciclo contada do fim efetivo e frequência da interpretação.
 - **Controlador multiframe** (`public/cycle/ciclo-percepcao-controller.ts`) — liga o pipeline completo (captura + percepção local + motor temporal + interpretação) à interface, como `ControladorCiclo` do modo `percepcao`; emite `EventoUi`, persiste o diagnóstico do ciclo (best-effort), grava os **eventos temporais confirmados** de fato visual em `eventos.jsonl` (uma gravação por identidade) e os **gestos/posturas** em `eventos-temporais.jsonl` (uma atualização por `eventoId:estado`) — ver [`eventos.md`](./eventos.md).
@@ -46,7 +47,11 @@ src/
     temporal-event.ts  evento temporal (transições, IDs de frames de evidência, encerramento e diagnóstico)
     cycle.ts           pacote do ciclo e métricas por etapa
     interpretation.ts  resultado de interpretação (narrativa, evidências, incertezas)
+    monitoramento.ts   sessão/segmentos/lacunas/quadros da câmera de segurança (Fase 3)
     index.ts           reexporta os contratos
+  monitoramento/       núcleo puro da Fase 3 (sem codec, disco, HTTP ou relógio)
+    gerenciador-gravacao.ts  sessão + rotação de segmentos de 5 min, lacunas, pausa/encerramento e consultas
+    buffer-circular.ts       buffer pré-evento por tempo de captura, com teto opcional e cópia defensiva
   persistence/         camada de persistência (Etapa 8): primitivas JSONL + repositórios por registro
     armazenamento-jsonl.ts      append com rotação, leitura das últimas linhas e limpeza de arquivos JSONL
     repositorio-observacoes.ts  histórico de observações (`EntradaLog`)
