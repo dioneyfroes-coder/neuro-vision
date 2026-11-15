@@ -142,6 +142,12 @@ export interface ClassificacaoGesto {
 export interface MaoDetectada {
   /** Id estavel dentro da sessao (atribuido pelo rastreador de maos). */
   entidadeId?: string;
+  /**
+   * Id da pessoa (track de pose) associada a esta mao, quando a associacao por
+   * punho/lateralidade foi possivel. E uma inferencia de proximidade, nao uma
+   * identidade fisica: pode ficar ausente quando a mao esta ambigua.
+   */
+  pessoaEntidadeId?: string;
   lateralidade: "esquerda" | "direita" | "desconhecida";
   landmarks: LandmarkMao[];
   /** Classificacao de gesto do modelo, quando o classificador esta disponivel. */

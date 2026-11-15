@@ -127,6 +127,8 @@ node scripts/benchmark-cadencia.mjs --politica benchmark-5fps --fps-alvo 5 `
 - **Latência:** mediana e P95 por etapa (`capturaMs`, `deteccaoMs`, `poseMs`, `maosMs`, `nsfwMs`, `temporalMs`, `multimodalMs`, `totalMs`) separam "quando o subsistema foi chamado" de "quanto custou".
 - **Como gerar os ciclos:** `e2e/webcam-cadencia.spec.ts` é opt-in (`E2E_WEBCAM_*`) e abre a política `?benchmark=5fps` com clipe real; ele grava o JSONL de ciclos usado pelo script. O teste confere 5 snapshots a 200 ms, a política aplicada, a cadência alvo e que frame não amostrado **não** vira subsistema indisponível.
 
+A avaliação de **qualidade dos gestos com vídeos reais anotados** (precisão, recall, falsos positivos/negativos e atraso de detecção) está registrada como pendência em [`pendencias.md`](./pendencias.md), com protocolo e critério de aceite. Ela depende de gravação e anotação, não de código determinístico.
+
 ### Benchmark reproduzível e decisão por dados (Fase 5)
 
 O harness ganhou três capacidades para a repetição do benchmark com dados reproduzíveis:

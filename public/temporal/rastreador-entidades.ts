@@ -23,6 +23,16 @@ export interface Sonda {
 }
 
 /**
+ * Estado explicito do ciclo de vida do track.
+ *
+ * - `ativa`: observada no frame corrente;
+ * - `ausente`: ainda dentro da janela de tolerancia por frames, mas nao vista;
+ * - `perdida`: saiu da janela ativa; permanece reassociavel enquanto
+ *   `maxTempoAusenteMs` nao expirar.
+ */
+export type EstadoEntidade = "ativa" | "ausente" | "perdida";
+
+/**
  * Entidade rastreada com ID estavel dentro da sessao.
  *
  * O centro e suavizado exponencialmente; `deslocamento` e a magnitude do
@@ -30,6 +40,8 @@ export interface Sonda {
  */
 export interface Entidade {
   entidadeId: string;
+  /** Estado corrente do ciclo de vida do track. */
+  estado: EstadoEntidade;
   x: number;
   y: number;
   deslocamento: number;
@@ -50,6 +62,8 @@ export interface Entidade {
   confianca: number;
   framesVisto: number;
   framesAusente: number;
+  /** Quantas vezes o track foi reassociado depois de ter sido dado como perdido. */
+  reassociacoes: number;
   primeiraObservacaoMs: number;
   ultimaObservacaoMs: number;
   meta: Record<string, unknown>;
@@ -77,9 +91,12 @@ export interface ResultadoRastreamento {
  * Rastreador generico de entidades com IDs estaveis na sessao.
  *
  * Associa sondas a entidades vivas pela menor distancia (guloso), desde que
- * abaixo de `distanciaMaxima`. A expiracao e **temporal** e explicita: em cada
- * atualizacao, entidades sem observacao ha mais de `maxTempoAusenteMs` sao
- * descartadas; a contagem de `maxFramesAusente` continua como guarda adicional.
+ * abaixo de `distanciaMaxima`. Entidades que passam de `maxFramesAusente` saem
+ * da janela ativa para um **buffer de perdidas**, onde continuam reassociaveis
+ * dentro de `maxTempoAusenteMs` e de `distanciaReassociacaoMaxima`; reassociar
+ * preserva o ID, mas nao presume movimento/velocidade atraves da lacuna.
+ * A expiracao e **temporal** e explicita: tanto ativas quanto perdidas sem
+ * observacao ha mais de `maxTempoAusenteMs` sao descartadas em cada atualizacao.
  * O estado persiste entre chamadas (entre ciclos) ate `limpar()` ser chamado.
  */
 export class RastreadorEntidades {
@@ -87,6 +104,8 @@ export class RastreadorEntidades {
   private readonly prefixo: string;
   private contador = 0;
   private readonly entidades = new Map<string, Entidade>();
+  /** Entidades fora da janela ativa, ainda reassociaveis dentro do tempo maximo. */
+  private readonly entidadesPerdidas = new Map<string, Entidade>();
   /** Posicoes brutas (nao suavizadas) para medir deslocamento. */
   private readonly posicoesBrutas = new Map<string, Ponto2D>();
 
@@ -95,9 +114,14 @@ export class RastreadorEntidades {
     this.prefixo = prefixo;
   }
 
-  /** Entidades vivas na ordem em que foram atualizadas. */
+  /** Entidades vivas (ativas ou ausentes dentro da tolerancia) na ordem de atualizacao. */
   get vivas(): Entidade[] {
     return [...this.entidades.values()];
+  }
+
+  /** Entidades perdidas, ainda reassociaveis enquanto nao expirarem por tempo. */
+  get perdidas(): Entidade[] {
+    return [...this.entidadesPerdidas.values()];
   }
 
   /**
@@ -114,52 +138,64 @@ export class RastreadorEntidades {
     podeAssociar?: (entidade: Entidade, sonda: Sonda) => boolean
   ): ResultadoRastreamento {
     // Expiracao temporal no inicio da atualizacao: uma entidade nao observada
-    // por tempo demais nao deve sobreviver a lacunas longas entre ciclos.
+    // por tempo demais nao deve sobreviver a lacunas longas entre ciclos. Vale
+    // para ativas e para o buffer de perdidas.
     this.expirarPorTempo(tempoMs);
 
     const naoAssociadas = sondas.map((sonda, indice) => ({ sonda, indice }));
-    const entidadesVivas = this.vivas;
     const atualizadas = new Set<string>();
     const associacoes: AssociacaoSonda[] = [];
 
-    // Guloso: para cada entidade viva, associa a sonda mais proxima disponivel.
-    for (const entidade of entidadesVivas) {
-      let melhor: (typeof naoAssociadas)[number] | null = null;
-      let melhorDist = Infinity;
-      let melhorIdx = -1;
-      for (let i = 0; i < naoAssociadas.length; i += 1) {
-        const item = naoAssociadas[i];
-        if (podeAssociar && !podeAssociar(entidade, item.sonda)) continue;
-        const d = distanciaPontos(entidade, item.sonda);
-        if (d < melhorDist) {
-          melhorDist = d;
-          melhor = item;
-          melhorIdx = i;
-        }
-      }
-      if (melhor && melhorDist <= this.config.distanciaMaxima) {
-        naoAssociadas.splice(melhorIdx, 1);
-        this.aplicar(entidade, melhor.sonda, tempoMs);
+    // 1. Entidades ativas: guloso pela menor distancia dentro de `distanciaMaxima`.
+    for (const entidade of this.vivas) {
+      const melhor = this.escolherSonda(
+        entidade,
+        naoAssociadas,
+        this.config.distanciaMaxima,
+        podeAssociar
+      );
+      if (melhor) {
+        naoAssociadas.splice(melhor.indiceLista, 1);
+        this.aplicar(entidade, melhor.item.sonda, tempoMs);
         atualizadas.add(entidade.entidadeId);
-        associacoes.push({ indice: melhor.indice, entidadeId: entidade.entidadeId });
+        associacoes.push({ indice: melhor.item.indice, entidadeId: entidade.entidadeId });
       } else {
         entidade.framesAusente += 1;
+        entidade.estado = "ausente";
       }
     }
 
-    // Descarta entidades ausentes ha tempo demais.
-    for (const entidade of entidadesVivas) {
-      if (entidade.framesAusente > this.config.maxFramesAusente) {
-        this.entidades.delete(entidade.entidadeId);
-        this.posicoesBrutas.delete(entidade.entidadeId);
-      }
+    // 2. Entidades perdidas: reassociacao explicita com raio maior, ainda
+    //    limitada por `maxTempoAusenteMs` (ja expirado acima). Preserva o ID,
+    //    mas zera velocidade/deslocamento: a lacuna nao vira movimento.
+    for (const entidade of [...this.entidadesPerdidas.values()]) {
+      const melhor = this.escolherSonda(
+        entidade,
+        naoAssociadas,
+        this.config.distanciaReassociacaoMaxima,
+        podeAssociar
+      );
+      if (!melhor) continue;
+      naoAssociadas.splice(melhor.indiceLista, 1);
+      this.reassociar(entidade, melhor.item.sonda, tempoMs);
+      atualizadas.add(entidade.entidadeId);
+      associacoes.push({ indice: melhor.item.indice, entidadeId: entidade.entidadeId });
     }
 
-    // Cria entidades novas para as sondas restantes.
+    // 3. Sondas restantes viram entidades novas.
     for (const item of naoAssociadas) {
       const nova = this.criar(item.sonda, tempoMs);
       atualizadas.add(nova.entidadeId);
       associacoes.push({ indice: item.indice, entidadeId: nova.entidadeId });
+    }
+
+    // 4. So agora entidades que passaram da tolerancia por frames viram
+    //    perdidas. No mesmo frame, uma sonda distante continua exigindo
+    //    `distanciaMaxima` (nao reassocia por um salto grande isolado).
+    for (const entidade of this.vivas) {
+      if (entidade.framesAusente > this.config.maxFramesAusente) {
+        this.moverParaPerdidas(entidade);
+      }
     }
 
     associacoes.sort((a, b) => a.indice - b.indice);
@@ -167,6 +203,30 @@ export class RastreadorEntidades {
       entidades: this.vivas.filter((e) => atualizadas.has(e.entidadeId)),
       associacoes,
     };
+  }
+
+  /** Escolhe a sonda mais proxima de uma entidade dentro do raio informado. */
+  private escolherSonda(
+    entidade: Entidade,
+    candidatas: Array<{ sonda: Sonda; indice: number }>,
+    distanciaMaxima: number,
+    podeAssociar?: (entidade: Entidade, sonda: Sonda) => boolean
+  ): { item: { sonda: Sonda; indice: number }; indiceLista: number } | null {
+    let melhor: { sonda: Sonda; indice: number } | null = null;
+    let melhorDist = Infinity;
+    let indiceLista = -1;
+    for (let i = 0; i < candidatas.length; i += 1) {
+      const item = candidatas[i];
+      if (podeAssociar && !podeAssociar(entidade, item.sonda)) continue;
+      const d = distanciaPontos(entidade, item.sonda);
+      if (d < melhorDist) {
+        melhorDist = d;
+        melhor = item;
+        indiceLista = i;
+      }
+    }
+    if (!melhor || melhorDist > distanciaMaxima) return null;
+    return { item: melhor, indiceLista };
   }
 
   /**
@@ -178,19 +238,20 @@ export class RastreadorEntidades {
     return this.atualizarComAssociacoes(sondas, tempoMs).entidades;
   }
 
-  /** Busca uma entidade viva por ID. */
+  /** Busca uma entidade por ID, ativa ou perdida. */
   obter(entidadeId: string): Entidade | undefined {
-    return this.entidades.get(entidadeId);
+    return this.entidades.get(entidadeId) ?? this.entidadesPerdidas.get(entidadeId);
   }
 
   /** Limpa todo o estado (reset explicito de sessao). */
   limpar(): void {
     this.entidades.clear();
+    this.entidadesPerdidas.clear();
     this.posicoesBrutas.clear();
     this.contador = 0;
   }
 
-  /** Remove entidades sem observacao ha mais de `maxTempoAusenteMs`. */
+  /** Remove entidades (ativas ou perdidas) sem observacao ha mais de `maxTempoAusenteMs`. */
   private expirarPorTempo(tempoMs: number): void {
     for (const entidade of [...this.entidades.values()]) {
       if (tempoMs - entidade.ultimaObservacaoMs > this.config.maxTempoAusenteMs) {
@@ -198,12 +259,26 @@ export class RastreadorEntidades {
         this.posicoesBrutas.delete(entidade.entidadeId);
       }
     }
+    for (const entidade of [...this.entidadesPerdidas.values()]) {
+      if (tempoMs - entidade.ultimaObservacaoMs > this.config.maxTempoAusenteMs) {
+        this.entidadesPerdidas.delete(entidade.entidadeId);
+      }
+    }
+  }
+
+  /** Move uma entidade da janela ativa para o buffer de perdidas. */
+  private moverParaPerdidas(entidade: Entidade): void {
+    this.entidades.delete(entidade.entidadeId);
+    this.posicoesBrutas.delete(entidade.entidadeId);
+    entidade.estado = "perdida";
+    this.entidadesPerdidas.set(entidade.entidadeId, entidade);
   }
 
   private criar(sonda: Sonda, tempoMs: number): Entidade {
     this.contador += 1;
     const entidade: Entidade = {
       entidadeId: `${this.prefixo}-${this.contador}`,
+      estado: "ativa",
       x: sonda.x,
       y: sonda.y,
       deslocamento: 0,
@@ -214,6 +289,7 @@ export class RastreadorEntidades {
       confianca: sonda.confianca,
       framesVisto: 1,
       framesAusente: 0,
+      reassociacoes: 0,
       primeiraObservacaoMs: tempoMs,
       ultimaObservacaoMs: tempoMs,
       meta: { ...sonda.meta },
@@ -246,6 +322,7 @@ export class RastreadorEntidades {
       entidade.intervaloVelocidadeMs = undefined;
     }
     const suavizado = suavizarPonto(this.config.alphaSuavizacao, anterior, bruto);
+    entidade.estado = "ativa";
     entidade.x = suavizado.x;
     entidade.y = suavizado.y;
     entidade.confianca = sonda.confianca;
@@ -254,5 +331,33 @@ export class RastreadorEntidades {
     entidade.ultimaObservacaoMs = tempoMs;
     if (sonda.meta) entidade.meta = { ...entidade.meta, ...sonda.meta };
     this.posicoesBrutas.set(entidade.entidadeId, bruto);
+  }
+
+  /**
+   * Reassocia uma entidade perdida: preserva o ID e reinicia a continuidade.
+   *
+   * Diferente de `aplicar`, nao usa a posicao anterior para medir deslocamento
+   * nem velocidade — a lacuna nao e movimento observado. O centro volta ao
+   * ponto atual para nao herdar suavizacao de um instante antigo.
+   */
+  private reassociar(entidade: Entidade, sonda: Sonda, tempoMs: number): void {
+    this.entidadesPerdidas.delete(entidade.entidadeId);
+    entidade.estado = "ativa";
+    entidade.reassociacoes += 1;
+    entidade.x = sonda.x;
+    entidade.y = sonda.y;
+    entidade.deslocamento = 0;
+    entidade.deslocamentoY = 0;
+    entidade.velocidade = 0;
+    entidade.velocidadeY = 0;
+    entidade.velocidadeValida = false;
+    entidade.intervaloVelocidadeMs = undefined;
+    entidade.confianca = sonda.confianca;
+    entidade.framesVisto += 1;
+    entidade.framesAusente = 0;
+    entidade.ultimaObservacaoMs = tempoMs;
+    if (sonda.meta) entidade.meta = { ...entidade.meta, ...sonda.meta };
+    this.posicoesBrutas.set(entidade.entidadeId, { x: sonda.x, y: sonda.y });
+    this.entidades.set(entidade.entidadeId, entidade);
   }
 }

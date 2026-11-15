@@ -134,6 +134,11 @@ export interface PessoaObservada {
 export interface MaoObservada {
   indice: number;
   trackId?: string;
+  /**
+   * Track da pessoa a que a mao foi associada por proximidade ao punho. E uma
+   * inferencia do motor temporal; ausente quando a associacao e ambigua.
+   */
+  pessoaTrackId?: string;
   lateralidade: "esquerda" | "direita" | "desconhecida";
   /** Gesto classificado pelo modelo, quando houver. */
   gesto?: { nome: string; confianca: number };
@@ -545,6 +550,7 @@ export function serializarMaos(
       landmarksCompletos: opcoes.landmarksCompletos,
     };
     if (mao.entidadeId) observada.trackId = mao.entidadeId;
+    if (mao.pessoaEntidadeId) observada.pessoaTrackId = mao.pessoaEntidadeId;
     if (mao.gesto) {
       observada.gesto = {
         nome: mao.gesto.nome,

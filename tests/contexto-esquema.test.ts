@@ -147,6 +147,33 @@ describe("schema versionado (contexto-1)", () => {
     expect(contexto.frames[0].maos[0].geometria).toBeUndefined();
   });
 
+  it("serializa pessoaTrackId quando a mao foi associada a uma pessoa", () => {
+    const { contexto } = montarContextoCiclo(
+      pacote([
+        observacao({
+          maos: {
+            maos: [
+              {
+                entidadeId: "mao-1",
+                pessoaEntidadeId: "pes-1",
+                lateralidade: "direita",
+                landmarks: [{ x: 0.5, y: 0.6 }],
+              },
+            ],
+          },
+        }),
+      ])
+    );
+    expect(contexto.frames[0].maos[0]).toMatchObject({
+      trackId: "mao-1",
+      pessoaTrackId: "pes-1",
+    });
+
+    // Sem associacao, o campo nao e inventado.
+    const { contexto: semAssociacao } = montarContextoCiclo(pacote([observacao()]));
+    expect(semAssociacao.frames[0].maos[0].pessoaTrackId).toBeUndefined();
+  });
+
   it("calcula movimento (deslocamento/direcao) entre frames da mesma entidade", () => {
     const o1 = observacao({ frameId: "f1", capturadoEmMs: 0 });
     const o2 = observacao({

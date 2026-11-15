@@ -18,6 +18,14 @@ import {
 export interface ConfigRastreador {
   /** Distancia maxima (coordenadas normalizadas) para associar a mesma entidade. */
   distanciaMaxima: number;
+  /**
+   * Distancia maxima (coordenadas normalizadas) para reassociar uma sonda a uma
+   * entidade **perdida** (fora da janela ativa, mas ainda dentro de
+   * `maxTempoAusenteMs`). Pode ser maior que `distanciaMaxima`: a entidade ficou
+   * sem observacao por alguns frames e pode ter se deslocado. Reassociar preserva
+   * o `entidadeId`, mas nao presume movimento/velocidade atraves da lacuna.
+   */
+  distanciaReassociacaoMaxima: number;
   /** Frames consecutivos ausentes antes de descartar a entidade. */
   maxFramesAusente: number;
   /**
@@ -33,6 +41,9 @@ export interface ConfigRastreador {
 
 export const CONFIG_RASTREADOR_PADRAO: ConfigRastreador = {
   distanciaMaxima: 0.25,
+  // Maior que `distanciaMaxima`: a entidade perdeu alguns frames e pode ter se
+  // deslocado. O raio so vale dentro de `maxTempoAusenteMs` e preserva o ID.
+  distanciaReassociacaoMaxima: 0.4,
   maxFramesAusente: 5,
   maxTempoAusenteMs: 2000,
   alphaSuavizacao: 0.6,
@@ -112,6 +123,13 @@ export interface ConfigMotorTemporal {
    */
   limiarVelocidadeTransicaoBraco: number;
   /**
+   * Distancia maxima (coordenadas normalizadas) entre o punho da mao (landmark
+   * 0) e o punho da pose (COCO 9/10) para associar a mao a uma pessoa. E uma
+   * heuristica de proximidade com preferencia de lateralidade; quando ha apenas
+   * uma pessoa ativa, ela e usada como fallback mesmo fora do raio.
+   */
+  distanciaMaximaMaoPessoa: number;
+  /**
    * Histerese angular (graus) por dedo: um dedo ja estendido continua
    * estendido ate `limiar - histerese`, evitando cintilacao na fronteira.
    */
@@ -145,6 +163,7 @@ export const CONFIG_MOTOR_TEMPORAL_PADRAO: ConfigMotorTemporal = {
   confiancaMinimaPontoBraco: 0.5,
   limiarVelocidadeCorporal: 0.03,
   limiarVelocidadeTransicaoBraco: 0.2,
+  distanciaMaximaMaoPessoa: 0.2,
   histereseAnguloDedoGraus: 12,
   limiarPeriodoCegoMs: 1200,
   avaliarPoseSexual: false,

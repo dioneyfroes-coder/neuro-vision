@@ -73,6 +73,7 @@ describe("integracao rastreamento -> contexto", () => {
     // As observacoes originais nao sao mutadas: o enriquecimento e por copia.
     expect(originais[0].pose).not.toHaveProperty("pessoas.0.entidadeId");
     expect(originais[0].maos).not.toHaveProperty("maos.0.entidadeId");
+    expect(originais[0].maos).not.toHaveProperty("maos.0.pessoaEntidadeId");
 
     const idsPessoa = resultado.observacoes.map((obs) => {
       if (estaIndisponivel(obs.pose)) return undefined;
@@ -97,6 +98,9 @@ describe("integracao rastreamento -> contexto", () => {
     for (const frame of contexto.frames) {
       expect(frame.pessoas[0]?.trackId).toBe(idsPessoa[0]);
       expect(frame.maos[0]?.trackId).toBe(idsMao[0]);
+      // A associação mão↔pessoa atravessa o schema: a mão carrega o trackId da
+      // pessoa, e não só o próprio track.
+      expect(frame.maos[0]?.pessoaTrackId).toBe(idsPessoa[0]);
     }
 
     // Primeiro frame nao tem posicao anterior; os seguintes acumulam movimento.
