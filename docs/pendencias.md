@@ -106,6 +106,8 @@ As metas são **proposta inicial**: quando a primeira linha de base for medida, 
 - houver relatório com as métricas acima e veredito explícito contra o critério de aceite;
 - estiver registrado o que o sistema **não** reconhece, em vez de deixar a limitação implícita.
 
+> **Cobertura determinística já existente (Fase 2.6):** o motor temporal tem testes sintéticos para oclusão curta, movimento rápido, queda de confiança/iluminação e troca de gesto — listados em [`qualidade.md`](./qualidade.md#testes-de-estresse-do-motor-temporal-fase-26). Eles validam a **regra** (não duplicar, não encerrar sem substituto confirmado, não herdar track após salto); não substituem a medição de precisão e recall em vídeo real descrita acima.
+
 ## Outras pendências registradas
 
 Nenhuma outra no momento. Novas avaliações adiadas devem entrar aqui com o mesmo formato: motivação, dados necessários, métricas e critério de aceite.

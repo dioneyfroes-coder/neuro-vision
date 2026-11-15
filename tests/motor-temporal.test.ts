@@ -62,14 +62,18 @@ function posePessoa(
   return { pessoas: [{ pontos, confianca: 0.9 } as PessoaPose] };
 }
 
-function maoComGesto(nome: string, confianca = 0.9): ObservacaoFrame["maos"] {
+function maoComGesto(
+  nome: string,
+  confianca = 0.9,
+  x = 0.5
+): ObservacaoFrame["maos"] {
   return {
     maos: [
       {
         lateralidade: "direita",
         landmarks: [
-          { x: 0.5, y: 0.4 },
-          { x: 0.52, y: 0.38 },
+          { x, y: 0.4 },
+          { x: x + 0.02, y: 0.38 },
         ],
         gesto: { nome, confianca },
       },
@@ -810,6 +814,68 @@ describe("MaquinaSinais", () => {
     expect(m.estaAtivo("e1")).toBe(true);
   });
 
+  it("troca de sinal so encerra o ativo quando o novo sinal e confirmado", () => {
+    const m = new MaquinaSinais({ framesParaConfirmar: 2, framesParaEncerrar: 2 });
+    const leitura = (rotulo: string, frame: number) => ({
+      entidadeId: "e1",
+      rotulo,
+      confianca: 0.9,
+      frameId: `f${frame}`,
+      timestamp: new Date(1700000000000 + frame * 100).toISOString(),
+      cycleId: "c1",
+    });
+
+    m.processar([leitura("gesto_a", 1)]);
+    const confirmados = m.processar([leitura("gesto_a", 2)]);
+    expect(confirmados).toHaveLength(1);
+    const idA = confirmados[0].eventoId;
+
+    // Um unico frame com outro rotulo nao encerra o ativo: o substituto ainda
+    // nao foi observado o bastante para afirmar uma transicao.
+    expect(m.processar([leitura("gesto_b", 3)])).toHaveLength(0);
+    expect(m.estaAtivo("e1")).toBe(true);
+    const diag = m.diagnosticos().find((d) => d.entidadeId === "e1");
+    expect(diag?.rotuloAtivo).toBe("gesto_a");
+    expect(diag?.rotuloCandidato).toBe("gesto_b");
+    expect(diag?.framesCandidato).toBe(1);
+
+    // Segundo frame de B: a troca e observada e o ativo encerra por troca_sinal.
+    const eventos = m.processar([leitura("gesto_b", 4)]);
+    const encerrado = eventos.find((e) => e.estado === "encerrado");
+    const novo = eventos.find((e) => e.estado === "confirmado");
+    expect(encerrado?.eventoId).toBe(idA);
+    expect(encerrado?.motivoEncerramento).toBe("troca_sinal");
+    expect(encerrado?.fimEm).toBe(leitura("gesto_a", 2).timestamp);
+    expect(novo?.eventoId).not.toBe(idA);
+    expect(novo?.rotulo).toBe("gesto_b");
+    // O novo evento comeca no primeiro frame do candidato, nao na confirmacao.
+    expect(novo?.inicioEm).toBe(leitura("gesto_b", 3).timestamp);
+  });
+
+  it("rotulo instavel nao trunca o evento ativo", () => {
+    const m = new MaquinaSinais({ framesParaConfirmar: 2, framesParaEncerrar: 2 });
+    const leitura = (rotulo: string, frame: number) => ({
+      entidadeId: "e1",
+      rotulo,
+      confianca: 0.9,
+      frameId: `f${frame}`,
+      timestamp: `t${frame}`,
+      cycleId: "c1",
+    });
+
+    m.processar([leitura("gesto_a", 1)]);
+    const confirmados = m.processar([leitura("gesto_a", 2)]);
+    const idA = confirmados[0].eventoId;
+
+    // Flicker de um frame e volta ao sinal original: nada e emitido e o mesmo
+    // evento continua, com a evidencia do frame 3 preservada.
+    expect(m.processar([leitura("gesto_b", 3)])).toHaveLength(0);
+    expect(m.processar([leitura("gesto_a", 4)])).toHaveLength(0);
+    expect(m.estaAtivo("e1")).toBe(true);
+    expect(m.ativos()[0].eventoId).toBe(idA);
+    expect(m.ativos()[0].framesSinal).toBe(3);
+  });
+
   it("interromperPorPeriodoCego encerra na ultima evidencia com motivo e lacuna", () => {
     const m = new MaquinaSinais({ framesParaConfirmar: 2, framesParaEncerrar: 2 });
     const leitura = (frame: number) => ({
@@ -1198,6 +1264,137 @@ describe("MotorTemporalImpl — gestos", () => {
     );
     const diag = r.diagnosticos?.find((d) => d.sinal === "gesto");
     expect(diag?.estado).toBe("inferencia_indisponivel");
+  });
+
+  it("troca de gesto confirmada nao duplica eventos e preserva a evidencia", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    motor.processar([obs({ ms: 0, maos: maoComGesto("mao_aberta") })]);
+    const r2 = motor.processar([obs({ ms: 100, maos: maoComGesto("mao_aberta") })]);
+    const confA = r2.eventos.find(
+      (e) => e.tipo === "gesto_detectado" && e.estado === "confirmado"
+    );
+    expect(confA).toBeDefined();
+
+    // Primeiro frame do novo gesto: candidato, sem encerrar o ativo.
+    const r3 = motor.processar([obs({ ms: 200, maos: maoComGesto("punho_fechado") })]);
+    expect(r3.eventos.filter((e) => e.tipo === "gesto_detectado")).toHaveLength(0);
+
+    // Segundo frame: a troca se sustenta e vira um par encerrado/confirmado.
+    const r4 = motor.processar([obs({ ms: 300, maos: maoComGesto("punho_fechado") })]);
+    const eventos = r4.eventos.filter((e) => e.tipo === "gesto_detectado");
+    const encerrado = eventos.find((e) => e.estado === "encerrado");
+    const confB = eventos.find((e) => e.estado === "confirmado");
+    expect(encerrado?.eventoId).toBe(confA?.eventoId);
+    expect(encerrado?.motivoEncerramento).toBe("troca_sinal");
+    expect(encerrado?.fimEm).toBe(new Date(1700000000000 + 100).toISOString());
+    expect(confB?.descricao).toContain("punho_fechado");
+    expect(confB?.eventoId).not.toBe(confA?.eventoId);
+    // O novo evento comeca na primeira evidencia, nao na confirmacao.
+    expect(confB?.inicioEm).toBe(new Date(1700000000000 + 200).toISOString());
+    // A mao continua sendo o mesmo track: a troca e de gesto, nao de entidade.
+    expect(confB?.entidadeId).toBe(confA?.entidadeId);
+  });
+
+  it("oclusao curta nao encerra nem duplica o gesto ativo", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    motor.processar([obs({ ms: 0, maos: maoComGesto("mao_aberta") })]);
+    const r2 = motor.processar([obs({ ms: 100, maos: maoComGesto("mao_aberta") })]);
+    const confirmado = r2.eventos.find(
+      (e) => e.tipo === "gesto_detectado" && e.estado === "confirmado"
+    );
+    const idMao = confirmado?.entidadeId;
+    expect(idMao).toBeDefined();
+
+    // Mao oculta por um frame (abaixo de `framesParaEncerrar`).
+    const r3 = motor.processar([obs({ ms: 200, maos: { maos: [] } })]);
+    expect(r3.eventos.filter((e) => e.tipo === "gesto_detectado")).toHaveLength(0);
+    expect(r3.diagnosticos?.some((d) => d.sinal === "gesto" && d.estado === "ocluido")).toBe(true);
+
+    // Recuperacao: mesmo track, mesmo evento, sem re-confirmar.
+    const r4 = motor.processar([obs({ ms: 300, maos: maoComGesto("mao_aberta") })]);
+    expect(r4.eventos.filter((e) => e.tipo === "gesto_detectado")).toHaveLength(0);
+    expect(motor.maosVivas[0].entidadeId).toBe(idMao);
+    expect(r4.diagnosticos?.some((d) => d.sinal === "gesto" && d.estado === "confirmado")).toBe(
+      true
+    );
+  });
+
+  it("movimento rapido entre snapshots nao herda o track nem confirma em 1 frame", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    motor.processar([obs({ ms: 0, maos: maoComGesto("mao_aberta", 0.9, 0.2) })]);
+    const r2 = motor.processar([obs({ ms: 100, maos: maoComGesto("mao_aberta", 0.9, 0.2) })]);
+    const confAntigo = r2.eventos.find(
+      (e) => e.tipo === "gesto_detectado" && e.estado === "confirmado"
+    );
+    expect(confAntigo).toBeDefined();
+
+    // Salto de 0.7 > `distanciaMaxima` (0.3): e outro track, nao o mesmo.
+    const r3 = motor.processar([obs({ ms: 200, maos: maoComGesto("mao_aberta", 0.9, 0.9) })]);
+    expect(r3.eventos.filter((e) => e.tipo === "gesto_detectado")).toHaveLength(0);
+
+    const r4 = motor.processar([obs({ ms: 300, maos: maoComGesto("mao_aberta", 0.9, 0.9) })]);
+    const eventos = r4.eventos.filter((e) => e.tipo === "gesto_detectado");
+    const encerrado = eventos.find((e) => e.estado === "encerrado");
+    const confNovo = eventos.find((e) => e.estado === "confirmado");
+    // O track antigo sai por oclusao (nao foi visto), na ultima evidencia.
+    expect(encerrado?.eventoId).toBe(confAntigo?.eventoId);
+    expect(encerrado?.motivoEncerramento).toBe("oclusao");
+    expect(encerrado?.fimEm).toBe(new Date(1700000000000 + 100).toISOString());
+    // O novo track so confirma depois de 2 frames e tem outro ID.
+    expect(confNovo).toBeDefined();
+    expect(confNovo?.entidadeId).not.toBe(confAntigo?.entidadeId);
+    expect(confNovo?.inicioEm).toBe(new Date(1700000000000 + 200).toISOString());
+  });
+
+  it("queda de confianca (iluminacao) nao encerra nem confirma antes da janela", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    motor.processar([obs({ ms: 0, maos: maoComGesto("mao_aberta", 0.9) })]);
+    const r2 = motor.processar([obs({ ms: 100, maos: maoComGesto("mao_aberta", 0.9) })]);
+    expect(
+      r2.eventos.some((e) => e.tipo === "gesto_detectado" && e.estado === "confirmado")
+    ).toBe(true);
+
+    // Confianca abaixo do limiar: sinal deixa de ser valido, mas o evento nao
+    // encerra no primeiro frame (histerese de `framesParaEncerrar`).
+    const r3 = motor.processar([obs({ ms: 200, maos: maoComGesto("mao_aberta", 0.2) })]);
+    expect(r3.eventos.filter((e) => e.tipo === "gesto_detectado")).toHaveLength(0);
+
+    const r4 = motor.processar([obs({ ms: 300, maos: maoComGesto("mao_aberta", 0.2) })]);
+    const encerrado = r4.eventos.find(
+      (e) => e.tipo === "gesto_detectado" && e.estado === "encerrado"
+    );
+    expect(encerrado?.motivoEncerramento).toBe("sem_sinal");
+    expect(encerrado?.fimEm).toBe(new Date(1700000000000 + 100).toISOString());
+
+    // Sem evento ativo, confianca baixa nunca confirma.
+    reiniciarContador();
+    const outro = criarMotor();
+    for (let i = 0; i < 3; i += 1) {
+      const r = outro.processar([obs({ ms: i * 100, maos: maoComGesto("mao_aberta", 0.2) })]);
+      expect(r.eventos.filter((e) => e.tipo === "gesto_detectado")).toHaveLength(0);
+    }
+  });
+
+  it("mudanca brusca de iluminacao nao interrompe gesto ativo", () => {
+    reiniciarContador();
+    const motor = criarMotor();
+    const escuro = Array(9).fill(0);
+    const claro = Array(9).fill(255);
+    motor.processar([obs({ ms: 0, maos: maoComGesto("mao_aberta"), assinaturaCena: escuro })]);
+    motor.processar([obs({ ms: 100, maos: maoComGesto("mao_aberta"), assinaturaCena: escuro })]);
+    const r = motor.processar([
+      obs({ ms: 200, maos: maoComGesto("mao_aberta"), assinaturaCena: claro }),
+    ]);
+    // A cena muda, mas a mao continua observada: o gesto nao e interrompido.
+    expect(r.eventos.some((e) => e.tipo === "mudanca_de_cena")).toBe(true);
+    expect(r.eventos.filter((e) => e.tipo === "gesto_detectado")).toHaveLength(0);
+    expect(r.diagnosticos?.some((d) => d.sinal === "gesto" && d.estado === "confirmado")).toBe(
+      true
+    );
   });
 });
 

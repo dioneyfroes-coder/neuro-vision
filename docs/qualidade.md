@@ -129,6 +129,17 @@ node scripts/benchmark-cadencia.mjs --politica benchmark-5fps --fps-alvo 5 `
 
 A avaliação de **qualidade dos gestos com vídeos reais anotados** (precisão, recall, falsos positivos/negativos e atraso de detecção) está registrada como pendência em [`pendencias.md`](./pendencias.md), com protocolo e critério de aceite. Ela depende de gravação e anotação, não de código determinístico.
 
+### Testes de estresse do motor temporal (Fase 2.6)
+
+Os cenários adversos da Fase 2 têm cobertura **determinística** em `tests/motor-temporal.test.ts`, com sequências sintéticas que exercitam o mesmo caminho de produção (rastreador → máquinas de sinal → eventos):
+
+- **Oclusão curta:** mão oculta por menos que `framesParaEncerrar` mantém o evento e o `entidadeId`, sem re-confirmar nem duplicar; o diagnóstico passa por `ocluido` e volta a `confirmado`.
+- **Movimento rápido:** salto maior que `distanciaMaxima` cria outro track (não herda o ID), o antigo encerra por `oclusao` na última evidência e o novo só confirma após `framesParaConfirmar` — um frame isolado nunca vira evento.
+- **Iluminação/confiança:** queda de confiança abaixo de `confiancaMinima` não confirma o gesto e não encerra o ativo antes da janela; confiança baixa não é tratada como falha de inferência. Mudança brusca de assinatura de cena emite `mudanca_de_cena` sem interromper o gesto em curso.
+- **Troca de gesto:** um único frame com outro rótulo não trunca o evento; a troca (`troca_sinal`) só é registrada quando o substituto se sustenta, e o novo evento começa na primeira evidência do candidato.
+
+Esses testes provam a **regra**, não o desempenho em vídeo real: precisão/recall sob iluminação e oclusão reais continuam na avaliação registrada em [`pendencias.md`](./pendencias.md).
+
 ### Benchmark reproduzível e decisão por dados (Fase 5)
 
 O harness ganhou três capacidades para a repetição do benchmark com dados reproduzíveis:

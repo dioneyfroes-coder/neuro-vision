@@ -153,6 +153,9 @@ export interface OpcoesProcessarSinais {
  *   ser confirmado (filtra gestos instaveis de um unico frame).
  * - Um evento confirmado so encerra apos `framesParaEncerrar` frames validos
  *   sem o sinal (filtra ocultacoes breves).
+ * - A **troca de sinal** (`troca_sinal`) so encerra o ativo quando o novo sinal
+ *   se sustenta por `framesParaConfirmar` frames: um unico frame com rotulo
+ *   diferente nao trunca o evento nem afirma uma transicao nao observada.
  * - `fimEm` e sempre a ultima evidencia positiva; a identidade (`eventoId`) e
  *   estavel.
  * - Uma inferencia indisponivel nao conta como ausencia: o evento ativo e
@@ -205,18 +208,22 @@ export class MaquinaSinais {
       if (valida && leitura.rotulo !== null) {
         estado.framesSemSinal = 0;
 
-        // O sinal ativo continua: apenas estende a evidencia.
+        // O sinal ativo continua: apenas estende a evidencia. Um candidato de
+        // outro rotulo visto antes nao sobrevive a volta do sinal original.
         if (estado.ativo && estado.ativo.rotulo === leitura.rotulo) {
+          this.resetarCandidato(estado);
           this.estender(estado.ativo, leitura);
           continue;
         }
 
-        // Troca de sinal encerra o ativo anterior antes de avaliar o novo. A
-        // entidade foi observada neste frame (ainda que com outro sinal), entao
-        // `ultimaObservacaoEm` avanca sem alterar a ultima evidencia positiva.
+        // Outro sinal valido no mesmo track. A entidade foi observada neste
+        // frame (ainda que com outro sinal), entao `ultimaObservacaoEm` avanca
+        // sem alterar a ultima evidencia positiva do ativo.
         if (estado.ativo) {
           estado.ativo.ultimaObservacaoEm = leitura.timestamp;
-          emitidos.push(this.encerrar(estado, "troca_sinal"));
+          if (leitura.continuidadeValida === false) {
+            estado.ativo.continuidadeValida = false;
+          }
         }
 
         if (estado.rotuloCandidato === leitura.rotulo) {
@@ -237,7 +244,12 @@ export class MaquinaSinais {
           estado.evidenciasCandidato = [...(leitura.evidencias ?? [])];
         }
 
-        if (!estado.ativo && estado.framesCandidato >= this.config.framesParaConfirmar) {
+        // A troca so acontece quando o **novo** sinal se sustenta por
+        // `framesParaConfirmar`. Um unico frame com rotulo diferente (flicker do
+        // classificador) nao encerra o ativo: encerrar por `troca_sinal` sem que
+        // o substituto exista afirmaria uma transicao que nao foi observada.
+        if (estado.framesCandidato >= this.config.framesParaConfirmar) {
+          if (estado.ativo) emitidos.push(this.encerrar(estado, "troca_sinal"));
           estado.ativo = this.iniciar(leitura, estado);
           emitidos.push(this.eventoDe(estado.ativo, "confirmado"));
         }
