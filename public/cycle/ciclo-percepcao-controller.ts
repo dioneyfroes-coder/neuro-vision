@@ -589,9 +589,10 @@ export class CicloPercepcaoController implements ControladorCiclo {
    * stream temporal (`eventos-temporais.jsonl`), separado dos fatos visuais.
    *
    * - so `gesto_detectado`, `braco_levantado`, `transicao_acao`,
-   *   `movimento_corporal` e `pose_compativel_sexual` entram;
-   * - `candidato` nunca vira memoria; `confirmado`, `encerrado` e `incerto`
-   *   entram, cada um uma unica vez por `eventoId:estado`;
+   *   `movimento_corporal`, `pose_compativel_sexual` e `interacao_objeto`
+   *   entram;
+   * - `candidato` nunca vira memoria; `provavel`, `confirmado`, `encerrado` e
+   *   `incerto` entram, cada um uma unica vez por `eventoId:estado`;
    * - `incerto` preserva `intervaloSemObservacaoMs`, para distinguir "o sinal
    *   parou" de "a observacao parou";
    * - a chave de idempotencia e estavel (`eventoId:estado`), entao uma
@@ -604,11 +605,17 @@ export class CicloPercepcaoController implements ControladorCiclo {
         evt.tipo !== "braco_levantado" &&
         evt.tipo !== "transicao_acao" &&
         evt.tipo !== "movimento_corporal" &&
-        evt.tipo !== "pose_compativel_sexual"
+        evt.tipo !== "pose_compativel_sexual" &&
+        evt.tipo !== "interacao_objeto"
       ) {
         continue;
       }
-      if (evt.estado !== "confirmado" && evt.estado !== "encerrado" && evt.estado !== "incerto") {
+      if (
+        evt.estado !== "provavel" &&
+        evt.estado !== "confirmado" &&
+        evt.estado !== "encerrado" &&
+        evt.estado !== "incerto"
+      ) {
         continue;
       }
       const chave = `${evt.eventoId}:${evt.estado}`;
@@ -625,6 +632,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
         ultimaEvidenciaEm: evt.ultimaEvidenciaEm,
         ultimaObservacaoEm: evt.ultimaObservacaoEm,
         entidadeId: evt.entidadeId,
+        participantes: evt.participantes,
         descricao: evt.descricao,
         confianca: evt.confianca,
         origens: evt.origens,

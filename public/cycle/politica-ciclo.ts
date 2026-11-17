@@ -44,9 +44,10 @@ export interface PoliticaCiclo {
 /**
  * Tipos de evento considerados "relevantes" para justificar uma nova
  * interpretacao: mudancas de cena/entidades e gestos/posturas que o modelo
- * precisa narrar. Estados nao confirmados (`candidato`) e eventos apenas
- * interrompidos por lacuna (`incerto`) **nao** contam — evita chamar o modelo
- * por um sinal ainda nao sustentado por evidencia.
+ * precisa narrar. `provavel` conta: ha evidencia sustentada, mas nao o bastante
+ * para afirmar contato — justamente o caso em que a interpretacao multimodal
+ * pode ajudar. `candidato` e eventos apenas interrompidos por lacuna (`incerto`)
+ * **nao** contam — evita chamar o modelo por um sinal ainda nao sustentado.
  */
 export const TIPOS_EVENTO_RELEVANTES: readonly TipoEventoTemporal[] = [
   "aparicao",
@@ -57,6 +58,7 @@ export const TIPOS_EVENTO_RELEVANTES: readonly TipoEventoTemporal[] = [
   "transicao_acao",
   "movimento_corporal",
   "pose_compativel_sexual",
+  "interacao_objeto",
 ];
 
 /** Politica padrao do modo operacional (producao/uso real). */
@@ -152,13 +154,18 @@ export interface DecisaoInterpretacao {
   eventosRelevantes: string[];
 }
 
-/** Eventos do resumo temporal que contam como "mudanca relevante". */
+/**
+ * Eventos do resumo temporal que contam como "mudanca relevante": `provavel`,
+ * `confirmado` e `encerrado` (o grau `incerto` nao sustenta interpretacao).
+ */
 export function eventosRelevantes(resumo: ResumoTemporal): string[] {
   return resumo.eventos
     .filter(
       (evento) =>
         TIPOS_EVENTO_RELEVANTES.includes(evento.tipo) &&
-        (evento.estado === "confirmado" || evento.estado === "encerrado")
+        (evento.estado === "provavel" ||
+          evento.estado === "confirmado" ||
+          evento.estado === "encerrado")
     )
     .map((evento) => evento.eventoId);
 }

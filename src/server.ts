@@ -544,6 +544,7 @@ export const TIPOS_EVENTO_TEMPORAL_PERSISTIDOS: TipoEventoTemporal[] = [
   "transicao_acao",
   "movimento_corporal",
   "pose_compativel_sexual",
+  "interacao_objeto",
 ];
 const MOTIVOS_ENCERRAMENTO_TEMPORAL: MotivoEncerramentoEvento[] = [
   "sem_sinal",
@@ -554,6 +555,7 @@ const MOTIVOS_ENCERRAMENTO_TEMPORAL: MotivoEncerramentoEvento[] = [
   "ponto",
 ];
 const ESTADOS_EVENTO_TEMPORAL_PERSISTIDOS: EstadoEventoTemporal[] = [
+  "provavel",
   "confirmado",
   "encerrado",
   "incerto",
@@ -659,6 +661,9 @@ export function montarEventoTemporal(payload: unknown): EventoTemporalPersistido
   const evidencias = Array.isArray(p.evidencias)
     ? p.evidencias.filter((e): e is string => typeof e === "string")
     : undefined;
+  const participantes = Array.isArray(p.participantes)
+    ? p.participantes.filter((id): id is string => typeof id === "string" && id.length > 0)
+    : undefined;
 
   return {
     eventoId: p.eventoId,
@@ -672,6 +677,7 @@ export function montarEventoTemporal(payload: unknown): EventoTemporalPersistido
     ultimaObservacaoEm:
       typeof p.ultimaObservacaoEm === "string" ? p.ultimaObservacaoEm : undefined,
     entidadeId: typeof p.entidadeId === "string" ? p.entidadeId : undefined,
+    participantes,
     descricao: p.descricao,
     confianca,
     origens,

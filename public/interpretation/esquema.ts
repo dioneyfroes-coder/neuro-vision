@@ -237,8 +237,10 @@ export interface EventoTemporalSerializavel {
   ultimaObservacaoEm?: string;
   /** Ciclo de vida: `candidato`/`confirmado`/`encerrado`/`incerto`. */
   status: string;
-  /** Id de entidade associada, quando houver. */
+  /** Id de entidade associada, quando houver (objeto em `interacao_objeto`). */
   trackId?: string;
+  /** Pares de entidades participantes (mão↔objeto em `interacao_objeto`). */
+  participantes?: string[];
   confianca?: number;
   /** Frames de evidencia, em ordem cronologica. */
   evidencias: string[];

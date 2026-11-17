@@ -33,6 +33,7 @@ import { MaquinaSinais, type EventoSinal } from "./maquina-sinais";
 import { centroidePontos, pontoReferenciaPose } from "./referencia-pose";
 import { distanciaPontos } from "./suavizador";
 import { AvaliadorPoseSexual } from "./regras-pose";
+import { DetectorInteracao, type AmostraInteracao } from "./interacao";
 
 /**
  * Motor temporal (Etapa 6 do roteiro de modularizacao).
@@ -64,6 +65,8 @@ export class MotorTemporalImpl implements MotorTemporal {
   private readonly poseSexual: MaquinaSinais;
   /** Regras geometricas de pose compativel (Fase 7.2). */
   private readonly avaliadorPose: AvaliadorPoseSexual;
+  /** Interacoes mao↔objeto com grau de evidencia explicito (Fase 4). */
+  private readonly interacoes: DetectorInteracao;
   /** Histerese dos cinco dedos por track de mao. */
   private readonly dedosPorEntidade = new Map<string, EstadoDedos>();
   /** Ultima amostra vertical de cada punho por pessoa/lado, para transicao. */
@@ -86,6 +89,7 @@ export class MotorTemporalImpl implements MotorTemporal {
         ...CONFIG_MOTOR_TEMPORAL_PADRAO.regrasPoseSexual,
         ...config?.regrasPoseSexual,
       },
+      interacao: { ...CONFIG_MOTOR_TEMPORAL_PADRAO.interacao, ...config?.interacao },
     };
     this.objetos = new RastreadorObjetos();
     this.cena = new DetectorMudancaDeCena();
@@ -97,6 +101,7 @@ export class MotorTemporalImpl implements MotorTemporal {
     this.movimento = new MaquinaSinais(this.config.movimento);
     this.poseSexual = new MaquinaSinais(this.config.poseSexual);
     this.avaliadorPose = new AvaliadorPoseSexual(this.config.regrasPoseSexual);
+    this.interacoes = new DetectorInteracao(this.config.interacao);
   }
 
   /**
@@ -173,6 +178,11 @@ export class MotorTemporalImpl implements MotorTemporal {
             )
           );
         }
+      }
+      // Interacoes em curso tambem nao afirmam continuidade atraves da lacuna:
+      // encerram na ultima evidencia positiva com estado `incerto`.
+      for (const evento of this.interacoes.interromperPorPeriodoCego(gapMs)) {
+        eventos.push(evento);
       }
       // Uma lacuna invalida a continuidade de todos os punhos conhecidos.
       this.punhos.clear();
@@ -421,6 +431,34 @@ export class MotorTemporalImpl implements MotorTemporal {
         }
       }
 
+      // 7a. Interacoes mao↔objeto (Fase 4). Proximidade, sobreposicao e mudanca
+      // de estado do objeto viram evidencia explicitamente graduada; so a
+      // combinacao de sobreposicao sustentada + movimento do objeto confirma
+      // contato. Frame pulado pela cadencia e preservado, e falha de inferencia
+      // nao conta como "sem interacao".
+      const deteccoesNaoAmostradas = naoFoiAmostrado(obs.deteccoes);
+      if (!maosNaoAmostradas && !deteccoesNaoAmostradas) {
+        const deteccoesIndisponivel = estaIndisponivel(obs.deteccoes);
+        const maosIndisponivel = estaIndisponivel(obs.maos);
+        const amostras = deteccoesIndisponivel
+          ? []
+          : this.montarAmostrasInteracao(
+              maosComTrackId,
+              deteccoesObservadas,
+              !estaIndisponivel(obs.deteccoes) ? obs.deteccoes.dimensoes : undefined,
+              sessionId,
+              tempoMs,
+              obs.capturadoEm,
+              frameId,
+              obs.cycleId
+            );
+        for (const evento of this.interacoes.processar(amostras, {
+          indisponivel: deteccoesIndisponivel || maosIndisponivel,
+        })) {
+          eventos.push(evento);
+        }
+      }
+
       // Diagnostico corrente: diferencia confirmado, ocluido, inferencia
       // indisponivel e observacao insuficiente mesmo sem evento emitido.
       if (!maosNaoAmostradas) this.registrarDiagnosticos("gesto", this.gestos, !maosDisponivel);
@@ -475,6 +513,7 @@ export class MotorTemporalImpl implements MotorTemporal {
     this.movimento.limpar();
     this.poseSexual.limpar();
     this.avaliadorPose.limpar();
+    this.interacoes.limpar();
     this.dedosPorEntidade.clear();
     this.punhos.clear();
     this.diagnosticos.clear();
@@ -489,6 +528,62 @@ export class MotorTemporalImpl implements MotorTemporal {
   /** Entidades vivas de maos (exposto para observabilidade/testes). */
   get maosVivas() {
     return this.maos.vivas;
+  }
+
+  /**
+   * Monta uma amostra por par (mao, objeto) no frame. As caixas vem em pixels
+   * e sao normalizadas pelas dimensoes da deteccao para compartilhar o espaco
+   * dos landmarks da mao. Sem dimensoes, a comparacao nao e confiavel e o par
+   * e descartado (melhor abster que afirmar proximidade em escalas distintas).
+   */
+  private montarAmostrasInteracao(
+    maos: MaoDetectada[],
+    deteccoes: ObservacaoFrame["deteccoes"],
+    dimensoes: { largura: number; altura: number } | undefined,
+    sessionId: string,
+    tempoMs: number,
+    timestamp: string,
+    frameId: string,
+    cycleId: string
+  ): AmostraInteracao[] {
+    if (!dimensoes || estaIndisponivel(deteccoes)) return [];
+    const { largura, altura } = dimensoes;
+    if (!(largura > 0) || !(altura > 0)) return [];
+    const continuidadePorMao = new Map<string, boolean>();
+    for (const entidade of this.maos.vivas) {
+      continuidadePorMao.set(entidade.entidadeId, continuidadeDaEntidade(entidade));
+    }
+    const amostras: AmostraInteracao[] = [];
+    for (const mao of maos) {
+      if (!mao.entidadeId) continue;
+      const punho = mao.landmarks[0];
+      if (!punho || typeof punho.x !== "number" || typeof punho.y !== "number") continue;
+      const confiancaMao = mao.gesto?.confianca ?? 0.8;
+      for (const deteccao of deteccoes.deteccoes) {
+        if (!deteccao.entidadeId) continue;
+        amostras.push({
+          sessionId,
+          maoEntidadeId: mao.entidadeId,
+          objetoEntidadeId: deteccao.entidadeId,
+          rotuloObjeto: deteccao.nome || deteccao.rotulo || undefined,
+          punhoMao: { x: punho.x, y: punho.y },
+          caixaObjeto: {
+            xmin: deteccao.caixa.xmin / largura,
+            ymin: deteccao.caixa.ymin / altura,
+            xmax: deteccao.caixa.xmax / largura,
+            ymax: deteccao.caixa.ymax / altura,
+          },
+          confianca: Math.min(confiancaMao, deteccao.score),
+          frameId,
+          timestamp,
+          tempoMs,
+          cycleId,
+          observado: true,
+          continuidadeValida: continuidadePorMao.get(mao.entidadeId) ?? true,
+        });
+      }
+    }
+    return amostras;
   }
 
   private montarLeiturasBraco(

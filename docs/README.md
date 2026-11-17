@@ -7,13 +7,13 @@
 | [`uso.md`](./uso.md) | Instalação, execução (dev/prod), variáveis de ambiente, funcionamento offline e diagnóstico da interface. |
 | [`modos.md`](./modos.md) | Os 7 modos (Detecção, Roteiro, Descrição, Eventos + os 3 multiframe B/C/D), como os motores funcionam e como o modelo é escolhido (detecção no navegador + backend de visão: LM Studio, llama.cpp ou vLLM). |
 | [`api.md`](./api.md) | Referência completa da API HTTP, formato das entradas, retenção de snapshots e memória persistente (JSONL + contexto). |
-| [`eventos.md`](./eventos.md) | Fluxo orientado a eventos: política de análise (cooldown, janela, motivos), cancelamento de inferência, ciclos multiframe e consulta ao histórico. |
+| [`eventos.md`](./eventos.md) | Fluxo orientado a eventos: política de análise (cooldown, janela, motivos), cancelamento de inferência, ciclos multiframe, interação mão↔objeto (graus `provavel`/`confirmado`/`incerto`) e consulta ao histórico. |
 | [`monitoramento.md`](./monitoramento.md) | Núcleo da Fase 3: sessões, segmentos de vídeo de 5 minutos sem perda/sobreposição, lacunas explícitas, buffer circular pré-evento, gravação no cliente e o que ainda falta. |
 | [`cena.md`](./cena.md) | Referência do ambiente (inventário parcial), estados de confirmação e regras de detecção de mudanças com `mudancaId` estável. |
 | [`arquitetura.md`](./arquitetura.md) | Estrutura de arquivos e como as partes conversam (servidor, cliente, motores, memória, variantes A–D). |
 | [`seguranca.md`](./seguranca.md) | Exposição na rede, origem cruzada, limites de corpo e validação de payloads. |
 | [`qualidade.md`](./qualidade.md) | Benchmark do modelo, avaliação de eventos (precisão/recall), benchmark das variantes A–D, benchmark da cadência independente (5 FPS), carregamento do modelo e fluxo de regressão. |
-| [`pendencias.md`](./pendencias.md) | Avaliações adiadas de propósito, com protocolo e critério de aceite — hoje: a avaliação real de gestos estáticos/dinâmicos (Fase 1.5–1.6). |
+| [`pendencias.md`](./pendencias.md) | Avaliações adiadas de propósito, com protocolo e critério de aceite — hoje: a avaliação real de gestos estáticos/dinâmicos (Fase 1.5–1.6) e os itens restantes da Fase 4 (entrada/saída de pessoas, frequência adaptativa, priorização de objetos próximos). |
 | [`limites.md`](./limites.md) | Limitações conhecidas (classes COCO, oclusão, iluminação, alucinações, CPU/WASM, latência multiframe, dados sensíveis) e **como desligar cada componente**. |
 
 Documentação correlata fora de `docs/`:

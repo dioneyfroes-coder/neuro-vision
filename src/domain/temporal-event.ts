@@ -13,13 +13,25 @@ export type TipoEventoTemporal =
   | "transicao_acao"
   | "movimento_corporal"
   | "pose_compativel_sexual"
+  | "interacao_objeto"
   | "movimento_objeto"
   | "aparicao"
   | "desaparecimento"
   | "mudanca_de_cena";
 
-/** Ciclo de vida de um evento. */
-export type EstadoEventoTemporal = "candidato" | "confirmado" | "encerrado" | "incerto";
+/**
+ * Ciclo de vida de um evento.
+ *
+ * `provavel` e o grau intermediario de eventos de interacao: ha evidencia
+ * sustentada de proximidade/sobreposicao, mas **nao** ha corroboracao suficiente
+ * para afirmar contato. So vira `confirmado` com sinais adicionais explicitos.
+ */
+export type EstadoEventoTemporal =
+  | "candidato"
+  | "provavel"
+  | "confirmado"
+  | "encerrado"
+  | "incerto";
 
 /** Origem dos sinais que sustentam o evento (qual subsistema contribuiu). */
 export type OrigemSinalTemporal = "objetos" | "pose" | "maos" | "cena" | "movimento";
@@ -110,6 +122,12 @@ export interface EventoTemporal {
   ultimaObservacaoEm?: string;
   /** Entidade associada (objeto, pessoa ou mao rastreada), quando houver. */
   entidadeId?: string;
+  /**
+   * Para eventos de interacao: as entidades participantes (mao e objeto). O
+   * `entidadeId` continua apontando para a entidade principal (o objeto); este
+   * campo explicita o par sem codificar identidade em texto livre.
+   */
+  participantes?: string[];
   /** Rotulo do detector da entidade associada, quando for um objeto rastreado. */
   rotuloObjeto?: string;
   /** Descricao legivel em portugues. */

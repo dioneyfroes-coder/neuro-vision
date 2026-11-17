@@ -251,6 +251,9 @@ function serializarEvento(
     serializado.ultimaObservacaoEm = evento.ultimaObservacaoEm;
   }
   if (evento.entidadeId !== undefined) serializado.trackId = evento.entidadeId;
+  if (evento.participantes !== undefined && evento.participantes.length > 0) {
+    serializado.participantes = [...evento.participantes];
+  }
   if (evento.confianca !== undefined) serializado.confianca = arredondar(evento.confianca, decimais);
   if (evento.intervaloSemObservacaoMs !== undefined) {
     serializado.gapMs = evento.intervaloSemObservacaoMs;

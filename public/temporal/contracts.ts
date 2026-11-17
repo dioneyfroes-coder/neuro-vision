@@ -3,6 +3,7 @@ import {
   CONFIG_REGRAS_POSE_SEXUAL_PADRAO,
   type ConfigRegrasPoseSexual,
 } from "./regras-pose";
+import { CONFIG_INTERACAO_PADRAO, type ConfigInteracao } from "./interacao";
 
 /**
  * Contratos do motor temporal (Etapa 6 do roteiro de modularizacao).
@@ -149,6 +150,11 @@ export interface ConfigMotorTemporal {
   poseSexual: ConfigMaquinaSinais;
   /** Limiares geometricos da pose compativel. */
   regrasPoseSexual: ConfigRegrasPoseSexual;
+  /**
+   * Regras de interacao mao↔objeto (Fase 4). Proximidade isolada nunca confirma
+   * contato: e preciso sobreposicao sustentada + mudanca de estado do objeto.
+   */
+  interacao: ConfigInteracao;
 }
 
 export const CONFIG_MOTOR_TEMPORAL_PADRAO: ConfigMotorTemporal = {
@@ -169,6 +175,7 @@ export const CONFIG_MOTOR_TEMPORAL_PADRAO: ConfigMotorTemporal = {
   avaliarPoseSexual: false,
   poseSexual: { framesParaConfirmar: 3, framesParaEncerrar: 3, confiancaMinima: 0.5 },
   regrasPoseSexual: CONFIG_REGRAS_POSE_SEXUAL_PADRAO,
+  interacao: CONFIG_INTERACAO_PADRAO,
 };
 
 /** Configuracao parcial aceita na construcao do motor. */
@@ -182,6 +189,7 @@ export type ConfiguracaoParcialMotorTemporal = Partial<
     | "movimento"
     | "poseSexual"
     | "regrasPoseSexual"
+    | "interacao"
   >
 > & {
   rastreador?: Partial<ConfigRastreador>;
@@ -191,6 +199,7 @@ export type ConfiguracaoParcialMotorTemporal = Partial<
   movimento?: Partial<ConfigMaquinaSinais>;
   poseSexual?: Partial<ConfigMaquinaSinais>;
   regrasPoseSexual?: Partial<ConfigRegrasPoseSexual>;
+  interacao?: Partial<ConfigInteracao>;
 };
 
 /** Leitura consolidada + observacoes enriquecidas com os IDs de rastreamento. */

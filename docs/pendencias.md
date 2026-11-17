@@ -108,6 +108,20 @@ As metas são **proposta inicial**: quando a primeira linha de base for medida, 
 
 > **Cobertura determinística já existente (Fase 2.6):** o motor temporal tem testes sintéticos para oclusão curta, movimento rápido, queda de confiança/iluminação e troca de gesto — listados em [`qualidade.md`](./qualidade.md#testes-de-estresse-do-motor-temporal-fase-26). Eles validam a **regra** (não duplicar, não encerrar sem substituto confirmado, não herdar track após salto); não substituem a medição de precisão e recall em vídeo real descrita acima.
 
+## Fase 4 — Itens de atenção orientada a eventos ainda abertos
+
+**Status:** em andamento. O slice de **interação mão↔objeto** (itens 5–7 do roteiro) já está implementado e coberto por testes determinísticos: eventos `interacao_objeto` com graus `incerto`/`provavel`/`confirmado`, início/fim, `participantes` e frames de evidência, sem transformar proximidade em contato confirmado (ver [`eventos.md`](./eventos.md#interação-mãoobjeto-fase-4)). O item 2 (IDs temporários de rastreamento) veio da Fase 2.
+
+Os itens abaixo permanecem **em aberto** — não são avaliações adiadas, mas funções ainda não implementadas. Registrá-los aqui evita que o slice concluído pareça ter fechado a Fase 4 inteira:
+
+| Item do roteiro | O que falta | Critério de aceite |
+| --- | --- | --- |
+| 1 — Entrada e saída de pessoas | Emitir eventos `aparicao`/`desaparecimento` de **pessoas** a partir do track de pose, com o mesmo `entidadeId` e histerese curta para não cintilar em oclusão. Hoje o rastreador de pose mantém IDs, mas não emite esses eventos. | Em clipe controlado, uma pessoa entrando/saindo gera exatamente um par entrada/saída com `frameIds` e timestamps corretos; oclusão curta não gera saída falsa. |
+| 3 — Frequência adaptativa na entrada de pessoas | Elevar a frequência de captura/análise quando uma pessoa entra, com histerese e volta ao ritmo base após a saída — sem depender do relogio de parede nos núcleos puros. | Aumento observável no `fpsEfetivo` no intervalo da entrada, sem duplicar eventos nem introduzir lacunas; política configurável e determinística por timestamps. |
+| 4 — Priorização de objetos próximos | Ordenar/filtrar objetos no contexto multimodal por proximidade a mãos e ao torso, preservando os demais como Evidence reduzida (nunca descartada em silêncio). | Em cena com vários objetos, os próximos às mãos/corpo aparecem primeiro no contexto e a poda é declarada em `truncamento`, sem remover NSFW nem frames de evidência. |
+
+Ao concluir cada item, atualizar esta tabela e a seção de interação em [`eventos.md`](./eventos.md). O critério geral da Fase 4 — “registrar sequências simples de interação sem transformar proximidade em contato confirmado” — **já é atendido** pelo slice implementado.
+
 ## Outras pendências registradas
 
-Nenhuma outra no momento. Novas avaliações adiadas devem entrar aqui com o mesmo formato: motivação, dados necessários, métricas e critério de aceite.
+Novas avaliações adiadas devem entrar neste documento com o mesmo formato da Fase 1.5–1.6: motivação, dados necessários, métricas e critério de aceite. Itens de implementação ainda abertos (como os da Fase 4 acima) ficam registrados com o mesmo nível de detalhe, mas marcados como tal.

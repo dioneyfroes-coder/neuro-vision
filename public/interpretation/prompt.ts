@@ -48,6 +48,9 @@ export function montarPromptInterpretacao(
         (e.fimEm ? `, fim ${e.fimEm}` : "") +
         `, status ${e.status}` +
         (e.trackId ? `, track ${e.trackId}` : "") +
+        (e.participantes?.length
+          ? `, participantes ${e.participantes.join("+")}`
+          : "") +
         (e.confianca !== undefined ? `, conf ${e.confianca}` : "") +
         (e.ultimaEvidenciaEm ? `, ultimaEvidencia ${e.ultimaEvidenciaEm}` : "") +
         (e.ultimaObservacaoEm ? `, ultimaObservacao ${e.ultimaObservacaoEm}` : "") +
@@ -138,7 +141,8 @@ export function montarPromptInterpretacao(
     "Frames (em ordem cronologica, cada um corresponde a uma imagem; coordenadas normalizadas em [0,1]):",
     frames,
     "",
-    "Eventos temporais (motor local; status `incerto` = interrompido por lacuna, nao por ausencia observada):",
+    "Eventos temporais (motor local; status `incerto` = interrompido por lacuna, nao por ausencia observada; `provavel` = evidencia sustentada mas contato NAO confirmado):",
+    "Em `interacao_objeto`, `participantes` lista mao+objeto e `status provavel` significa APENAS proximidade/sobreposicao — nao afirme contato ou acao sobre o objeto sem evidencia nas imagens; so `confirmado` traz sobreposicao sustentada e deslocamento observado.",
     eventos.length ? eventos : "- nenhum",
     "",
     ...(blocoNsfw ? [blocoNsfw, ""] : []),
