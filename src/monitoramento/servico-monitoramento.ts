@@ -203,6 +203,23 @@ export class ServicoMonitoramento {
     return this.gerenciador.obterSessao();
   }
 
+  /**
+   * Segmento pelo id, consultando primeiro a sessão viva e depois o índice
+   * durável. Usado pelo upload de bytes para validar que o arquivo corresponde a
+   * um segmento conhecido (e que já foi fechado).
+   */
+  async segmentoPorId(
+    segmentoId: string,
+    limit = LIMITE_INDICE_MONITORAMENTO_PADRAO
+  ): Promise<VideoSegment | null> {
+    const vivo = this.gerenciador
+      .listarSegmentos()
+      .find((segmento) => segmento.segmentoId === segmentoId);
+    if (vivo) return vivo;
+    const duraveis = await lerSegmentosMonitoramento(this.opcoes.segmentosFile, limit);
+    return duraveis.find((segmento) => segmento.segmentoId === segmentoId) ?? null;
+  }
+
   /** Sessões do índice durável, da mais recente para a mais antiga. */
   async listarSessoes(limit = LIMITE_INDICE_MONITORAMENTO_PADRAO): Promise<SessaoMonitoramento[]> {
     return lerSessoesMonitoramento(this.opcoes.sessoesFile, limit);

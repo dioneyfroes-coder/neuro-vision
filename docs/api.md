@@ -27,12 +27,18 @@ Referência completa da API HTTP, formato das entradas, retenção de snapshots 
 | `GET` | `/api/monitoramento/sessoes?limit=100` | Lista as sessões do índice, da mais recente para a mais antiga. |
 | `GET` | `/api/monitoramento/sessoes/:id/segmentos?limit=2000` | Segmentos de uma sessão, com o segmento vivo sobreposto ao índice (contadores atuais antes do fechamento). |
 | `GET` | `/api/monitoramento/segmentos?inicio=&fim=&limit=2000` | Segmentos que tocam o intervalo (extremos inclusivos); sem filtros, devolve o índice cronológico. |
+| `POST` | `/api/monitoramento/videos/:segmentoId?criadoEmMs=` | Upload binário do vídeo de um segmento fechado (`Content-Type: video/webm`, `video/mp4` ou `video/ogg`); segmento aberto/desconhecido responde `409`/`404`. |
+| `GET` | `/api/monitoramento/videos?sessaoId=` | Lista metadados dos vídeos gravados, opcionalmente filtrados por sessão. |
+| `GET` | `/api/monitoramento/videos/:segmentoId` | Serve os bytes brutos com o `Content-Type` registrado (`no-store`). |
+| `DELETE` | `/api/monitoramento/videos/:segmentoId` | Apaga um vídeo. |
+| `DELETE` | `/api/monitoramento/videos?sessaoId=` | Apaga todos os vídeos da sessão (parâmetro obrigatório). |
+| `POST` | `/api/monitoramento/videos/retencao?agoraMs=` | Aplica a política de retenção e devolve `{ ok, total, removidos }`. |
 | `GET` | `/api/contexto` | Reidrata um contexto curto do estado recente (`{ resumo, roteiro, ultimaDescricao, entradas, eventos }`) com janela por `maxEntradas`/`maxEventos`/`maxCaracteres`. |
 | `GET` | `/api/health` | Status do backend de visão (`{ visao: { online, solicitado, modelo, modelos, carregados, erro } }`). `modelo` é o efetivo (o solicitado ou o melhor disponível quando o solicitado não está instalado). |
 | `GET` | `/snapshots/<arquivo>` | Serve os snapshots (thumbnails) gravados. |
 | `GET` | `/yolonsfw/<arquivo>` | Serve pesos/catálogo NSFW locais (`.onnx`/`.json`) de `modelos/yolonsfw/`; demais arquivos são recusados. |
 
-As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jsonl`, os registros operacionais em `logs/operacional.jsonl` e os diagnósticos de ciclo em `logs/ciclos.jsonl` (uma linha JSON por registro, própria política de rotação); os snapshots ficam em `logs/snapshots/`. O índice de monitoramento usa `logs/monitoramento-sessoes.jsonl` e `logs/monitoramento-segmentos.jsonl` (append-only, com deduplicação da versão mais recente por id) — ele descreve sessões e segmentos, **não** grava os bytes do vídeo, que continuam pendentes. O corpo de `/api/log` e o de `/api/visao` aceitam `nsfw` — lista de `{ rotulo, score, caixa }` com caixa normalizada em [0,1] — validada e preservada no JSONL; o `done` do stream devolve as mesmas marcações.
+As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jsonl`, os registros operacionais em `logs/operacional.jsonl` e os diagnósticos de ciclo em `logs/ciclos.jsonl` (uma linha JSON por registro, própria política de rotação); os snapshots ficam em `logs/snapshots/`. O índice de monitoramento usa `logs/monitoramento-sessoes.jsonl` e `logs/monitoramento-segmentos.jsonl` (append-only, com deduplicação da versão mais recente por id) — ele descreve sessões e segmentos. Os bytes dos segmentos ficam em `logs/videos/` (um `.video` + um `.json` por segmento, escritos de forma atômica), com retenção por idade/quantidade configurável em `VIDEO_RETENCAO_MS`/`VIDEO_MAX_ARQUIVOS` e teto por arquivo em `VIDEO_MAX_BYTES`. O corpo de `/api/log` e o de `/api/visao` aceitam `nsfw` — lista de `{ rotulo, score, caixa }` com caixa normalizada em [0,1] — validada e preservada no JSONL; o `done` do stream devolve as mesmas marcações.
 
 ## Falhas de gravação e fila do cliente
 

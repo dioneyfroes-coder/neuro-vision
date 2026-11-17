@@ -66,6 +66,14 @@ import {
   MAX_QUADROS_POR_LOTE,
   ServicoMonitoramento,
 } from "./monitoramento/servico-monitoramento";
+import {
+  ArmazenadorVideos,
+  ArquivoVideoError,
+} from "./persistence/armazenador-videos";
+import type {
+  ArquivoVideoSegmento,
+  DadosUploadVideo,
+} from "./persistence/armazenador-videos";
 import type {
   QuadroGravado,
   SessaoMonitoramento,
@@ -116,6 +124,8 @@ export const CICLOS_FILE = path.join(LOG_DIR, "ciclos.jsonl");
 /** Indice duravel de sessoes e segmentos do modo Camera de Seguranca (Fase 3). */
 export const MONITORAMENTO_SESSOES_FILE = path.join(LOG_DIR, "monitoramento-sessoes.jsonl");
 export const MONITORAMENTO_SEGMENTOS_FILE = path.join(LOG_DIR, "monitoramento-segmentos.jsonl");
+/** Bytes dos segmentos. Fora do git (`logs/*`); videos com pessoas sao sensiveis. */
+export const VIDEOS_DIR = path.join(LOG_DIR, "videos");
 import { env } from "./env";
 export const LOG_MAX_BYTES = env.LOG_MAX_BYTES || 5_000_000;
 export const SNAP_DIR = path.join(LOG_DIR, "snapshots");
@@ -155,6 +165,8 @@ export const SNAP_CLEAN_INTERVAL_MS = env.SNAP_CLEAN_INTERVAL_MS;
 export const BODY_MAX_BYTES = env.BODY_MAX_BYTES;
 /** Limite do corpo JSON de `POST /api/visao` (imagem base64 + snapshot). */
 export const VISAO_BODY_MAX_BYTES = env.VISAO_BODY_MAX_BYTES;
+/** Limite do corpo binario de `POST /api/monitoramento/videos/:id`. */
+export const VIDEO_UPLOAD_MAX_BYTES = env.VIDEO_MAX_BYTES;
 /** Limite de um unico snapshot (data URL/base64) aceito para gravacao. */
 export function limiteUploadSnapshot(): number {
   return env.SNAP_UPLOAD_MAX_BYTES;
@@ -271,6 +283,25 @@ function readBody(req: IncomingMessage, limit = 1_000_000): Promise<string> {
       chunks.push(chunk);
     });
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
+/** Le um corpo binario (upload de video) sem converter para texto. */
+function readBodyBuffer(req: IncomingMessage, limit: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Error("Payload muito grande"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
     req.on("error", reject);
   });
 }
@@ -1696,6 +1727,170 @@ function rotaSessaoMonitoramento(
   };
 }
 
+/* ------------------------------------------------------------------------- *
+ * Bytes de video (Fase 3) - upload, download, retencao e exclusao
+ * ------------------------------------------------------------------------- */
+
+/** Motivos de validacao viram 400/404/409; o resto e falha interna. */
+function responderErroVideo(res: ServerResponse, err: unknown): void {
+  if (err instanceof ArquivoVideoError) {
+    const status =
+      err.motivo === "nao_encontrado"
+        ? 404
+        : err.motivo === "conflito" || err.motivo === "segmento_aberto"
+          ? 409
+          : 400;
+    sendJson(res, status, { ok: false, erro: err.message, motivo: err.motivo });
+    return;
+  }
+  logEvent("error", "video_monitoramento_falhou", { erro: (err as Error).message });
+  sendJson(res, 500, { ok: false, erro: (err as Error).message });
+}
+
+/** `POST /api/monitoramento/videos/:segmentoId` - corpo binario + Content-Type. */
+async function handleUploadVideo(
+  req: IncomingMessage,
+  res: ServerResponse,
+  monitoramento: ServicoMonitoramento,
+  armazenador: ArmazenadorVideos,
+  segmentoId: string
+): Promise<void> {
+  try {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const lido = lerInstanteDoCorpo(url.searchParams.get("criadoEmMs") ?? undefined);
+    if (lido !== undefined && !Number.isFinite(lido)) {
+      sendJson(res, 400, { ok: false, erro: "parametro 'criadoEmMs' deve ser finito" });
+      return;
+    }
+    const segmento = await monitoramento.segmentoPorId(segmentoId);
+    if (!segmento) {
+      sendJson(res, 404, { ok: false, erro: "Segmento de monitoramento desconhecido" });
+      return;
+    }
+    const cabecalho = req.headers["content-type"];
+    const contentType = Array.isArray(cabecalho) ? (cabecalho[0] ?? "") : (cabecalho ?? "");
+    let bytes: Buffer;
+    try {
+      bytes = await readBodyBuffer(req, VIDEO_UPLOAD_MAX_BYTES);
+    } catch (err) {
+      sendJson(res, 400, { ok: false, erro: (err as Error).message });
+      return;
+    }
+    const dados: DadosUploadVideo = {
+      bytes,
+      contentType,
+      criadoEmMs: lido ?? Date.now(),
+    };
+    const arquivo = await armazenador.guardar(segmento, dados);
+    // Retencao e operacao de limpeza: falha nela nao invalida o upload feito,
+    // mas a limpeza termina antes da resposta para que uma consulta imediata
+    // já reflita o estado final do diretorio.
+    await armazenador.aplicarRetencao(Date.now()).catch((err: unknown) => {
+      logEvent("error", "retencao_videos_falhou", { erro: (err as Error).message });
+    });
+    sendJson(res, 201, { ok: true, arquivo });
+  } catch (err) {
+    responderErroVideo(res, err);
+  }
+}
+
+/** `GET /api/monitoramento/videos` - metadados, com filtro opcional por sessao. */
+async function handleListarVideos(
+  req: IncomingMessage,
+  res: ServerResponse,
+  armazenador: ArmazenadorVideos
+): Promise<void> {
+  try {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const sessaoId = url.searchParams.get("sessaoId") ?? undefined;
+    const arquivos: ArquivoVideoSegmento[] = await armazenador.listar(sessaoId);
+    sendJson(res, 200, { ok: true, total: arquivos.length, arquivos });
+  } catch (err) {
+    responderErroVideo(res, err);
+  }
+}
+
+/** `GET /api/monitoramento/videos/:id` - bytes brutos do segmento. */
+async function handleObterVideo(
+  res: ServerResponse,
+  armazenador: ArmazenadorVideos,
+  segmentoId: string
+): Promise<void> {
+  try {
+    const encontrado = await armazenador.obter(segmentoId);
+    if (!encontrado) {
+      sendJson(res, 404, { ok: false, erro: "Video nao encontrado" });
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": encontrado.arquivo.contentType,
+      "Content-Length": encontrado.bytes.length,
+      "Cache-Control": "no-store",
+    });
+    res.end(encontrado.bytes);
+  } catch (err) {
+    responderErroVideo(res, err);
+  }
+}
+
+/** `DELETE /api/monitoramento/videos/:id` - apaga um segmento. */
+async function handleExcluirVideo(
+  res: ServerResponse,
+  armazenador: ArmazenadorVideos,
+  segmentoId: string
+): Promise<void> {
+  try {
+    const excluido = await armazenador.excluir(segmentoId);
+    if (!excluido) {
+      sendJson(res, 404, { ok: false, erro: "Video nao encontrado" });
+      return;
+    }
+    sendJson(res, 200, { ok: true, excluido: true });
+  } catch (err) {
+    responderErroVideo(res, err);
+  }
+}
+
+/** `DELETE /api/monitoramento/videos?sessaoId=` - apaga todos os videos da sessao. */
+async function handleExcluirVideosSessao(
+  req: IncomingMessage,
+  res: ServerResponse,
+  armazenador: ArmazenadorVideos
+): Promise<void> {
+  try {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const sessaoId = url.searchParams.get("sessaoId");
+    if (!sessaoId) {
+      sendJson(res, 400, { ok: false, erro: "parametro 'sessaoId' obrigatorio" });
+      return;
+    }
+    const removidos = await armazenador.excluirSessao(sessaoId);
+    sendJson(res, 200, { ok: true, total: removidos.length, removidos });
+  } catch (err) {
+    responderErroVideo(res, err);
+  }
+}
+
+/** `POST /api/monitoramento/videos/retencao?agoraMs=` - aplica a politica. */
+async function handleRetencaoVideos(
+  req: IncomingMessage,
+  res: ServerResponse,
+  armazenador: ArmazenadorVideos
+): Promise<void> {
+  try {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const lido = lerInstanteDoCorpo(url.searchParams.get("agoraMs") ?? undefined);
+    if (lido !== undefined && !Number.isFinite(lido)) {
+      sendJson(res, 400, { ok: false, erro: "parametro 'agoraMs' deve ser finito" });
+      return;
+    }
+    const removidos = await armazenador.aplicarRetencao(lido ?? Date.now());
+    sendJson(res, 200, { ok: true, total: removidos.length, removidos });
+  } catch (err) {
+    responderErroVideo(res, err);
+  }
+}
+
 async function streamVisao(
   res: ServerResponse,
   imagem: string | string[],
@@ -2235,6 +2430,14 @@ export interface ServerConfig {
   monitoramentoSessoesFile?: string;
   /** Indice de segmentos de monitoramento. Padrao: `monitoramento-segmentos.jsonl`. */
   monitoramentoSegmentosFile?: string;
+  /** Diretorio dos bytes de video. Padrao: `videos/` ao lado do log. */
+  videosDir?: string;
+  /** Teto por arquivo de video. Padrao: `VIDEO_MAX_BYTES`. */
+  videoMaxBytes?: number;
+  /** Retencao por idade em ms (0 desativa). Padrao: `VIDEO_RETENCAO_MS`. */
+  videoRetencaoMs?: number;
+  /** Numero maximo de arquivos (0 desativa). Padrao: `VIDEO_MAX_ARQUIVOS`. */
+  videoMaxArquivos?: number;
   /** Diretorio dos pesos NSFW experimentais. Padrao: `modelos/yolonsfw/` na raiz. */
   nsfwDir?: string;
   /** Diretorio das bibliotecas do modo offline. Padrao: `vendor/` na raiz. */
@@ -2263,6 +2466,12 @@ export function createServer(config: ServerConfig = {}): http.Server {
     sessoesFile: monitoramentoSessoesFile,
     segmentosFile: monitoramentoSegmentosFile,
     maxBytes: LOG_MAX_BYTES,
+  });
+  const armazenadorVideos = new ArmazenadorVideos({
+    dir: config.videosDir ?? path.join(path.dirname(logFile), "videos"),
+    maxBytesPorArquivo: config.videoMaxBytes ?? VIDEO_UPLOAD_MAX_BYTES,
+    retencaoMs: config.videoRetencaoMs ?? env.VIDEO_RETENCAO_MS,
+    maxArquivos: config.videoMaxArquivos ?? env.VIDEO_MAX_ARQUIVOS,
   });
   const permitidas = origensPermitidas(env.NEURO_ALLOWED_ORIGINS);
 
@@ -2345,6 +2554,42 @@ export function createServer(config: ServerConfig = {}): http.Server {
     }
     if (req.method === "GET" && pathname === "/api/monitoramento/segmentos") {
       void handleListarSegmentosMonitoramento(req, res, monitoramento);
+      return;
+    }
+    if (pathname === "/api/monitoramento/videos") {
+      if (req.method === "GET") {
+        void handleListarVideos(req, res, armazenadorVideos);
+        return;
+      }
+      if (req.method === "DELETE") {
+        void handleExcluirVideosSessao(req, res, armazenadorVideos);
+        return;
+      }
+      res.writeHead(405, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Metodo nao permitido");
+      return;
+    }
+    if (req.method === "POST" && pathname === "/api/monitoramento/videos/retencao") {
+      void handleRetencaoVideos(req, res, armazenadorVideos);
+      return;
+    }
+    const rotaVideo = /^\/api\/monitoramento\/videos\/([^/]+)$/.exec(pathname);
+    if (rotaVideo) {
+      const segmentoId = decodeURIComponent(rotaVideo[1]);
+      if (req.method === "POST") {
+        void handleUploadVideo(req, res, monitoramento, armazenadorVideos, segmentoId);
+        return;
+      }
+      if (req.method === "GET") {
+        void handleObterVideo(res, armazenadorVideos, segmentoId);
+        return;
+      }
+      if (req.method === "DELETE") {
+        void handleExcluirVideo(res, armazenadorVideos, segmentoId);
+        return;
+      }
+      res.writeHead(405, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Metodo nao permitido");
       return;
     }
     const rotaSessaoMonitoramentoAtual = rotaSessaoMonitoramento(pathname);

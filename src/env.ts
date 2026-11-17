@@ -154,6 +154,17 @@ export const env = {
     return numPos("VISAO_BODY_MAX_BYTES", 12_000_000);
   },
 
+  // Videos de monitoramento (Fase 3). 0 desativa idade/quantidade maxima.
+  get VIDEO_MAX_BYTES(): number {
+    return numPos("VIDEO_MAX_BYTES", 200 * 1024 * 1024);
+  },
+  get VIDEO_RETENCAO_MS(): number {
+    return numPos("VIDEO_RETENCAO_MS", 0);
+  },
+  get VIDEO_MAX_ARQUIVOS(): number {
+    return numPos("VIDEO_MAX_ARQUIVOS", 0);
+  },
+
   // E2E
   get E2E_WEBCAM_CLIP(): string {
     return str("E2E_WEBCAM_CLIP", "");
