@@ -1,5 +1,12 @@
 import type { EntradaLog, EventoTemporalEnvio, EventoVisual, MarcacaoNsfwLog, MotivoAnalise, TipoEventoVisual } from "../src/types";
 import type { RegistroCiclo } from "../src/domain/cycle";
+import type {
+  MotivoRejeicaoQuadro,
+  QuadroAtribuido,
+  QuadroGravado,
+  SessaoMonitoramento,
+  VideoSegment,
+} from "../src/domain/monitoramento";
 import { ErroPercepcao } from "../src/erros";
 
 export interface InfoVisao {
@@ -249,6 +256,186 @@ export async function gravarOperacional(registro: {
   } catch {
     // Registro operacional e best-effort: nao interrompe a captura.
   }
+}
+
+/* ------------------------------------------------------------------------- *
+ * Monitoramento (Fase 3) - sessoes, quadros e segmentos
+ * ------------------------------------------------------------------------- */
+
+/** Corpo de `POST /api/monitoramento/sessoes`. */
+export interface OpcoesIniciarMonitoramento {
+  ambiente: string;
+  agoraMs?: number;
+  duracaoSegmentoMs?: number;
+  retencaoPreEventoMs?: number;
+  limiarLacunaMs?: number;
+}
+
+/** Quadro recusado dentro de um lote (o restante do lote segue). */
+export interface RejeicaoQuadroMonitoramento {
+  frameId: string;
+  motivo: MotivoRejeicaoQuadro;
+  erro: string;
+}
+
+export interface ResultadoQuadrosMonitoramento {
+  sessao: SessaoMonitoramento | null;
+  atribuicoes: QuadroAtribuido[];
+  rejeitados: RejeicaoQuadroMonitoramento[];
+}
+
+function urlSessaoMonitoramento(sessaoId: string): string {
+  return `/api/monitoramento/sessoes/${encodeURIComponent(sessaoId)}`;
+}
+
+async function postMonitoramento<T>(url: string, corpo: unknown, msgPadrao: string): Promise<T> {
+  let resposta: Response;
+  try {
+    resposta = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpo ?? {}),
+    });
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", msgPadrao, { cause: err });
+  }
+  await exigirRespostaOk(resposta, msgPadrao);
+  return (await resposta.json()) as T;
+}
+
+/** `POST /api/monitoramento/sessoes` - abre uma sessao de gravacao. */
+export async function iniciarMonitoramento(
+  opcoes: OpcoesIniciarMonitoramento
+): Promise<SessaoMonitoramento> {
+  const dados = await postMonitoramento<{ sessao: SessaoMonitoramento }>(
+    "/api/monitoramento/sessoes",
+    opcoes,
+    "Falha ao iniciar o monitoramento"
+  );
+  return dados.sessao;
+}
+
+/**
+ * `POST /api/monitoramento/quadros` - atribui os instantes de captura ao
+ * segmento correspondente. Rejeicoes vem em `rejeitados`, sem descartar o
+ * restante do lote.
+ */
+export async function enviarQuadrosMonitoramento(
+  quadros: QuadroGravado[]
+): Promise<ResultadoQuadrosMonitoramento> {
+  const dados = await postMonitoramento<ResultadoQuadrosMonitoramento>(
+    "/api/monitoramento/quadros",
+    { quadros },
+    "Falha ao registrar quadros do monitoramento"
+  );
+  return {
+    sessao: dados.sessao ?? null,
+    atribuicoes: dados.atribuicoes ?? [],
+    rejeitados: dados.rejeitados ?? [],
+  };
+}
+
+/** `POST /api/monitoramento/sessoes/:id/pausar`. */
+export async function pausarMonitoramento(sessaoId: string): Promise<SessaoMonitoramento> {
+  const dados = await postMonitoramento<{ sessao: SessaoMonitoramento }>(
+    `${urlSessaoMonitoramento(sessaoId)}/pausar`,
+    {},
+    "Falha ao pausar o monitoramento"
+  );
+  return dados.sessao;
+}
+
+/** `POST /api/monitoramento/sessoes/:id/retomar`. */
+export async function retomarMonitoramento(sessaoId: string): Promise<SessaoMonitoramento> {
+  const dados = await postMonitoramento<{ sessao: SessaoMonitoramento }>(
+    `${urlSessaoMonitoramento(sessaoId)}/retomar`,
+    {},
+    "Falha ao retomar o monitoramento"
+  );
+  return dados.sessao;
+}
+
+/** `POST /api/monitoramento/sessoes/:id/encerrar`. */
+export async function encerrarMonitoramento(
+  sessaoId: string,
+  agoraMs?: number
+): Promise<SessaoMonitoramento> {
+  const dados = await postMonitoramento<{ sessao: SessaoMonitoramento }>(
+    `${urlSessaoMonitoramento(sessaoId)}/encerrar`,
+    agoraMs === undefined ? {} : { agoraMs },
+    "Falha ao encerrar o monitoramento"
+  );
+  return dados.sessao;
+}
+
+/** `POST /api/monitoramento/sessoes/:id/interromper` (falha de gravacao). */
+export async function interromperMonitoramento(
+  sessaoId: string,
+  agoraMs?: number,
+  motivo: "falha" | "sem_quadros" = "falha"
+): Promise<SessaoMonitoramento> {
+  const dados = await postMonitoramento<{ sessao: SessaoMonitoramento }>(
+    `${urlSessaoMonitoramento(sessaoId)}/interromper`,
+    { ...(agoraMs === undefined ? {} : { agoraMs }), motivo },
+    "Falha ao interromper o monitoramento"
+  );
+  return dados.sessao;
+}
+
+/** `GET /api/monitoramento/sessoes` - sessoes conhecidas (mais recente primeiro). */
+export async function listarSessoesMonitoramento(limite = 100): Promise<SessaoMonitoramento[]> {
+  let resposta: Response;
+  try {
+    resposta = await fetch(`/api/monitoramento/sessoes?limit=${limite}`);
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao ler as sessoes de monitoramento", {
+      cause: err,
+    });
+  }
+  if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
+  const dados = (await resposta.json()) as { sessoes?: SessaoMonitoramento[] };
+  return dados.sessoes ?? [];
+}
+
+/** `GET /api/monitoramento/sessoes/:id/segmentos` - segmentos de uma sessao. */
+export async function listarSegmentosDaSessao(
+  sessaoId: string,
+  limite = 2000
+): Promise<VideoSegment[]> {
+  let resposta: Response;
+  try {
+    resposta = await fetch(`${urlSessaoMonitoramento(sessaoId)}/segmentos?limit=${limite}`);
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao ler os segmentos da sessao", { cause: err });
+  }
+  if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
+  const dados = (await resposta.json()) as { segmentos?: VideoSegment[] };
+  return dados.segmentos ?? [];
+}
+
+/**
+ * `GET /api/monitoramento/segmentos` - segmentos que tocam o intervalo
+ * (extremos inclusivos). Sem `inicio`/`fim`, devolve o indice cronologico.
+ */
+export async function listarSegmentosMonitoramento(opcoes: {
+  inicio?: number;
+  fim?: number;
+  limite?: number;
+} = {}): Promise<VideoSegment[]> {
+  const params = new URLSearchParams({ limit: String(opcoes.limite ?? 2000) });
+  if (opcoes.inicio !== undefined) params.set("inicio", String(opcoes.inicio));
+  if (opcoes.fim !== undefined) params.set("fim", String(opcoes.fim));
+  let resposta: Response;
+  try {
+    resposta = await fetch(`/api/monitoramento/segmentos?${params.toString()}`);
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao ler os segmentos de monitoramento", {
+      cause: err,
+    });
+  }
+  if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
+  const dados = (await resposta.json()) as { segmentos?: VideoSegment[] };
+  return dados.segmentos ?? [];
 }
 
 /** Contexto recente reconstruido pelo servidor a partir da memoria persistida. */

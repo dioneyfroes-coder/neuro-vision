@@ -61,6 +61,16 @@ import {
   lerCiclos as lerCiclosRepo,
   limparCiclos,
 } from "./persistence/repositorio-ciclos";
+import {
+  ConflitoMonitoramentoError,
+  MAX_QUADROS_POR_LOTE,
+  ServicoMonitoramento,
+} from "./monitoramento/servico-monitoramento";
+import type {
+  QuadroGravado,
+  SessaoMonitoramento,
+  VideoSegment,
+} from "./domain/monitoramento";
 import type {
   Caixa,
   EntradaLog,
@@ -103,6 +113,9 @@ export const EVENTOS_FILE = path.join(LOG_DIR, "eventos.jsonl");
 export const EVENTOS_TEMPORAIS_FILE = path.join(LOG_DIR, "eventos-temporais.jsonl");
 export const OPERACIONAL_FILE = path.join(LOG_DIR, "operacional.jsonl");
 export const CICLOS_FILE = path.join(LOG_DIR, "ciclos.jsonl");
+/** Indice duravel de sessoes e segmentos do modo Camera de Seguranca (Fase 3). */
+export const MONITORAMENTO_SESSOES_FILE = path.join(LOG_DIR, "monitoramento-sessoes.jsonl");
+export const MONITORAMENTO_SEGMENTOS_FILE = path.join(LOG_DIR, "monitoramento-segmentos.jsonl");
 import { env } from "./env";
 export const LOG_MAX_BYTES = env.LOG_MAX_BYTES || 5_000_000;
 export const SNAP_DIR = path.join(LOG_DIR, "snapshots");
@@ -1136,6 +1149,7 @@ async function handleClearEventos(
 }
 
 function inteiroLimitado(valor: string | null, padrao: number, min: number, max: number): number {
+  if (valor === null || valor.trim() === "") return padrao;
   const n = Number(valor);
   if (!Number.isFinite(n)) return padrao;
   return Math.min(Math.max(Math.trunc(n), min), max);
@@ -1365,6 +1379,321 @@ async function handleClearEventosTemporais(
     logEvent("error", "limpar_eventos_temporais_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }
+}
+
+/* ------------------------------------------------------------------------- *
+ * Monitoramento (Fase 3) - sessoes, segmentos e indice duravel
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Corpo de `POST /api/monitoramento/sessoes`. `ambiente` e obrigatorio; os
+ * parametros de segmentacao sao opcionais e validados antes de abrir a sessao.
+ */
+export interface OpcoesInicioMonitoramento {
+  ambiente: string;
+  agoraMs: number;
+  duracaoSegmentoMs?: number;
+  retencaoPreEventoMs?: number;
+  limiarLacunaMs?: number;
+}
+
+/**
+ * Le um instante do corpo (epoch ms ou ISO). `undefined` quando o campo nao
+ * veio; `NaN` quando veio presente e invalido - o chamador decide se o padrao
+ * vale ou se o payload deve ser recusado.
+ */
+function lerInstanteDoCorpo(valor: unknown): number | undefined {
+  if (valor === undefined || valor === null) return undefined;
+  if (typeof valor === "number") return Number.isFinite(valor) ? valor : Number.NaN;
+  if (typeof valor === "string") {
+    const texto = valor.trim();
+    if (!texto) return Number.NaN;
+    return parsearInstante(texto) ?? Number.NaN;
+  }
+  return Number.NaN;
+}
+
+function numeroPositivoOuErro(valor: unknown, nome: string): number | string | undefined {
+  if (valor === undefined || valor === null) return undefined;
+  const n = typeof valor === "number" ? valor : Number(valor);
+  if (!Number.isFinite(n) || n <= 0) return `${nome} deve ser finito e maior que zero`;
+  return n;
+}
+
+/** Valida e normaliza o corpo de `POST /api/monitoramento/sessoes`. */
+export function montarInicioMonitoramento(
+  payload: unknown,
+  agoraPadrao: number
+): OpcoesInicioMonitoramento | string {
+  const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
+    string,
+    unknown
+  >;
+  const ambiente = typeof p.ambiente === "string" ? p.ambiente.trim() : "";
+  if (!ambiente) return "campo 'ambiente' obrigatorio";
+
+  const lido = lerInstanteDoCorpo(p.agoraMs);
+  if (lido !== undefined && !Number.isFinite(lido)) {
+    return "campo 'agoraMs' deve ser um instante finito em epoch ms ou ISO";
+  }
+
+  const duracaoSegmentoMs = numeroPositivoOuErro(p.duracaoSegmentoMs, "duracaoSegmentoMs");
+  if (typeof duracaoSegmentoMs === "string") return duracaoSegmentoMs;
+  const retencaoPreEventoMs = numeroPositivoOuErro(p.retencaoPreEventoMs, "retencaoPreEventoMs");
+  if (typeof retencaoPreEventoMs === "string") return retencaoPreEventoMs;
+  const limiarLacunaMs = numeroPositivoOuErro(p.limiarLacunaMs, "limiarLacunaMs");
+  if (typeof limiarLacunaMs === "string") return limiarLacunaMs;
+
+  return {
+    ambiente,
+    agoraMs: lido ?? agoraPadrao,
+    ...(duracaoSegmentoMs !== undefined ? { duracaoSegmentoMs } : {}),
+    ...(retencaoPreEventoMs !== undefined ? { retencaoPreEventoMs } : {}),
+    ...(limiarLacunaMs !== undefined ? { limiarLacunaMs } : {}),
+  };
+}
+
+/** Instante do corpo para encerrar/interromper; cai no padrao quando ausente. */
+export function montarAgoraMonitoramento(payload: unknown, agoraPadrao: number): number | string {
+  const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
+    string,
+    unknown
+  >;
+  const lido = lerInstanteDoCorpo(p.agoraMs);
+  if (lido !== undefined && !Number.isFinite(lido)) {
+    return "campo 'agoraMs' deve ser um instante finito em epoch ms ou ISO";
+  }
+  return lido ?? agoraPadrao;
+}
+
+/**
+ * Valida e normaliza o corpo de `POST /api/monitoramento/quadros`.
+ *
+ * O lote chega em ordem de chegada; o servico atribui cada quadro ao segmento
+ * pelo instante de **captura**. Um lote vazio ou acima de
+ * `MAX_QUADROS_POR_LOTE` e recusado inteiro, antes de qualquer atribuicao.
+ */
+export function montarQuadrosMonitoramento(payload: unknown): QuadroGravado[] | string {
+  const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
+    string,
+    unknown
+  >;
+  if (!Array.isArray(p.quadros) || p.quadros.length === 0) {
+    return "campo 'quadros' obrigatorio (lista nao vazia)";
+  }
+  if (p.quadros.length > MAX_QUADROS_POR_LOTE) {
+    return `no maximo ${MAX_QUADROS_POR_LOTE} quadros por lote`;
+  }
+  const quadros: QuadroGravado[] = [];
+  for (const item of p.quadros) {
+    const q = (typeof item === "object" && item !== null ? item : {}) as Record<string, unknown>;
+    if (typeof q.frameId !== "string" || !q.frameId.trim()) {
+      return "cada quadro exige 'frameId' (string nao vazia)";
+    }
+    const capturadoEmMs = lerInstanteDoCorpo(q.capturadoEmMs);
+    if (capturadoEmMs === undefined || !Number.isFinite(capturadoEmMs)) {
+      return `quadro ${q.frameId} exige 'capturadoEmMs' finito em epoch ms`;
+    }
+    quadros.push({ frameId: q.frameId, capturadoEmMs });
+  }
+  return quadros;
+}
+
+/** Conflito de estado responde 409; falha inesperada responde 500. */
+function responderErroMonitoramento(res: ServerResponse, err: unknown): void {
+  const mensagem = (err as Error).message;
+  if (err instanceof ConflitoMonitoramentoError) {
+    sendJson(res, 409, { ok: false, erro: mensagem });
+    return;
+  }
+  logEvent("error", "monitoramento_falhou", { erro: mensagem });
+  sendJson(res, 500, { ok: false, erro: mensagem });
+}
+
+/** `POST /api/monitoramento/sessoes` - abre uma sessao de monitoramento. */
+async function handleIniciarMonitoramento(
+  req: IncomingMessage,
+  res: ServerResponse,
+  monitoramento: ServicoMonitoramento
+): Promise<void> {
+  let payload: unknown;
+  try {
+    payload = JSON.parse((await readBody(req, BODY_MAX_BYTES)) || "{}");
+  } catch (err) {
+    sendJson(res, 400, { ok: false, erro: (err as Error).message });
+    return;
+  }
+  const opcoes = montarInicioMonitoramento(payload, Date.now());
+  if (typeof opcoes === "string") {
+    sendJson(res, 400, { ok: false, erro: opcoes });
+    return;
+  }
+  try {
+    const sessao = await monitoramento.iniciar(opcoes);
+    sendJson(res, 200, { ok: true, sessao });
+  } catch (err) {
+    responderErroMonitoramento(res, err);
+  }
+}
+
+/** `POST /api/monitoramento/quadros` - atribui um lote de quadros ao segmento. */
+async function handleQuadrosMonitoramento(
+  req: IncomingMessage,
+  res: ServerResponse,
+  monitoramento: ServicoMonitoramento
+): Promise<void> {
+  let payload: unknown;
+  try {
+    payload = JSON.parse((await readBody(req, BODY_MAX_BYTES)) || "{}");
+  } catch (err) {
+    sendJson(res, 400, { ok: false, erro: (err as Error).message });
+    return;
+  }
+  const quadros = montarQuadrosMonitoramento(payload);
+  if (typeof quadros === "string") {
+    sendJson(res, 400, { ok: false, erro: quadros });
+    return;
+  }
+  try {
+    const resultado = await monitoramento.enviarQuadros(quadros);
+    sendJson(res, 200, { ok: true, ...resultado });
+  } catch (err) {
+    responderErroMonitoramento(res, err);
+  }
+}
+
+/** `POST /api/monitoramento/sessoes/:id/{pausar,retomar,encerrar,interromper}`. */
+async function handleComandoMonitoramento(
+  req: IncomingMessage,
+  res: ServerResponse,
+  monitoramento: ServicoMonitoramento,
+  sessaoId: string,
+  acao: "pausar" | "retomar" | "encerrar" | "interromper"
+): Promise<void> {
+  let agoraMs = Date.now();
+  let motivo: "falha" | "sem_quadros" = "falha";
+  if (acao === "encerrar" || acao === "interromper") {
+    let payload: unknown;
+    try {
+      payload = JSON.parse((await readBody(req, BODY_MAX_BYTES)) || "{}");
+    } catch (err) {
+      sendJson(res, 400, { ok: false, erro: (err as Error).message });
+      return;
+    }
+    const lido = montarAgoraMonitoramento(payload, agoraMs);
+    if (typeof lido === "string") {
+      sendJson(res, 400, { ok: false, erro: lido });
+      return;
+    }
+    agoraMs = lido;
+    const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
+      string,
+      unknown
+    >;
+    if (p.motivo === "sem_quadros") motivo = "sem_quadros";
+  }
+  try {
+    const sessao =
+      acao === "pausar"
+        ? await monitoramento.pausar(sessaoId)
+        : acao === "retomar"
+          ? await monitoramento.retomar(sessaoId)
+          : acao === "encerrar"
+            ? await monitoramento.encerrar(sessaoId, agoraMs)
+            : await monitoramento.interromper(sessaoId, agoraMs, motivo);
+    sendJson(res, 200, { ok: true, sessao });
+  } catch (err) {
+    responderErroMonitoramento(res, err);
+  }
+}
+
+/** `GET /api/monitoramento/sessoes` - sessoes conhecidas (mais recente primeiro). */
+async function handleListarSessoesMonitoramento(
+  req: IncomingMessage,
+  res: ServerResponse,
+  monitoramento: ServicoMonitoramento
+): Promise<void> {
+  try {
+    const url = new URL(req.url ?? "/api/monitoramento/sessoes", "http://localhost");
+    const limite = inteiroLimitado(url.searchParams.get("limit"), 100, 1, 500);
+    const sessoes: SessaoMonitoramento[] = await monitoramento.listarSessoes(limite);
+    sendJson(res, 200, { ok: true, total: sessoes.length, sessoes });
+  } catch (err) {
+    logEvent("error", "listar_sessoes_monitoramento_falhou", { erro: (err as Error).message });
+    sendJson(res, 500, { ok: false, erro: (err as Error).message });
+  }
+}
+
+/** `GET /api/monitoramento/sessoes/:id/segmentos` - segmentos de uma sessao. */
+async function handleSegmentosDaSessaoMonitoramento(
+  req: IncomingMessage,
+  res: ServerResponse,
+  monitoramento: ServicoMonitoramento,
+  sessaoId: string
+): Promise<void> {
+  try {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const limite = inteiroLimitado(url.searchParams.get("limit"), 2000, 1, 5000);
+    const segmentos: VideoSegment[] = await monitoramento.segmentosDaSessao(sessaoId, limite);
+    sendJson(res, 200, { ok: true, total: segmentos.length, segmentos });
+  } catch (err) {
+    logEvent("error", "listar_segmentos_monitoramento_falhou", { erro: (err as Error).message });
+    sendJson(res, 500, { ok: false, erro: (err as Error).message });
+  }
+}
+
+/**
+ * `GET /api/monitoramento/segmentos?inicio=&fim=` - segmentos que tocam o
+ * intervalo, com extremos inclusivos. Sem `inicio`/`fim`, devolve o indice
+ * inteiro em ordem cronologica.
+ */
+async function handleListarSegmentosMonitoramento(
+  req: IncomingMessage,
+  res: ServerResponse,
+  monitoramento: ServicoMonitoramento
+): Promise<void> {
+  try {
+    const url = new URL(req.url ?? "/api/monitoramento/segmentos", "http://localhost");
+    const inicioBruto = url.searchParams.get("inicio");
+    const fimBruto = url.searchParams.get("fim");
+    const inicioLido = inicioBruto === null ? undefined : parsearInstante(inicioBruto);
+    const fimLido = fimBruto === null ? undefined : parsearInstante(fimBruto);
+    if ((inicioBruto !== null && inicioLido === undefined) || (fimBruto !== null && fimLido === undefined)) {
+      sendJson(res, 400, { ok: false, erro: "parametros 'inicio'/'fim' devem ser epoch ms ou ISO" });
+      return;
+    }
+    const inicioMs = inicioLido ?? -Number.MAX_SAFE_INTEGER;
+    const fimMs = fimLido ?? Number.MAX_SAFE_INTEGER;
+    if (inicioMs > fimMs) {
+      sendJson(res, 400, { ok: false, erro: "intervalo invertido" });
+      return;
+    }
+    const limite = inteiroLimitado(url.searchParams.get("limit"), 2000, 1, 5000);
+    const segmentos: VideoSegment[] = await monitoramento.segmentosParaIntervalo(
+      inicioMs,
+      fimMs,
+      limite
+    );
+    sendJson(res, 200, { ok: true, total: segmentos.length, segmentos });
+  } catch (err) {
+    logEvent("error", "listar_segmentos_monitoramento_falhou", { erro: (err as Error).message });
+    sendJson(res, 500, { ok: false, erro: (err as Error).message });
+  }
+}
+
+/** Reconhece `/api/monitoramento/sessoes/:id/{acao}` e devolve id + acao. */
+function rotaSessaoMonitoramento(
+  pathname: string
+): { sessaoId: string; acao: "pausar" | "retomar" | "encerrar" | "interromper" | "segmentos" } | null {
+  const encontrada =
+    /^\/api\/monitoramento\/sessoes\/([^/]+)\/(pausar|retomar|encerrar|interromper|segmentos)$/.exec(
+      pathname
+    );
+  if (!encontrada) return null;
+  return {
+    sessaoId: decodeURIComponent(encontrada[1]),
+    acao: encontrada[2] as "pausar" | "retomar" | "encerrar" | "interromper" | "segmentos",
+  };
 }
 
 async function streamVisao(
@@ -1902,6 +2231,10 @@ export interface ServerConfig {
   operacionalFile?: string;
   /** Arquivo de diagnosticos de ciclo. Padrao: `ciclos.jsonl` ao lado do log. */
   ciclosFile?: string;
+  /** Indice de sessoes de monitoramento. Padrao: `monitoramento-sessoes.jsonl`. */
+  monitoramentoSessoesFile?: string;
+  /** Indice de segmentos de monitoramento. Padrao: `monitoramento-segmentos.jsonl`. */
+  monitoramentoSegmentosFile?: string;
   /** Diretorio dos pesos NSFW experimentais. Padrao: `modelos/yolonsfw/` na raiz. */
   nsfwDir?: string;
   /** Diretorio das bibliotecas do modo offline. Padrao: `vendor/` na raiz. */
@@ -1920,6 +2253,17 @@ export function createServer(config: ServerConfig = {}): http.Server {
   const operacionalFile =
     config.operacionalFile ?? path.join(path.dirname(logFile), "operacional.jsonl");
   const ciclosFile = config.ciclosFile ?? path.join(path.dirname(logFile), "ciclos.jsonl");
+  const monitoramentoSessoesFile =
+    config.monitoramentoSessoesFile ??
+    path.join(path.dirname(logFile), "monitoramento-sessoes.jsonl");
+  const monitoramentoSegmentosFile =
+    config.monitoramentoSegmentosFile ??
+    path.join(path.dirname(logFile), "monitoramento-segmentos.jsonl");
+  const monitoramento = new ServicoMonitoramento({
+    sessoesFile: monitoramentoSessoesFile,
+    segmentosFile: monitoramentoSegmentosFile,
+    maxBytes: LOG_MAX_BYTES,
+  });
   const permitidas = origensPermitidas(env.NEURO_ALLOWED_ORIGINS);
 
   return http.createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -1983,6 +2327,50 @@ export function createServer(config: ServerConfig = {}): http.Server {
     }
     if (req.method === "DELETE" && pathname === "/api/ciclos") {
       void handleClearCiclos(res, ciclosFile);
+      return;
+    }
+    if (pathname === "/api/monitoramento/sessoes") {
+      if (req.method === "POST") {
+        void handleIniciarMonitoramento(req, res, monitoramento);
+        return;
+      }
+      if (req.method === "GET") {
+        void handleListarSessoesMonitoramento(req, res, monitoramento);
+        return;
+      }
+    }
+    if (req.method === "POST" && pathname === "/api/monitoramento/quadros") {
+      void handleQuadrosMonitoramento(req, res, monitoramento);
+      return;
+    }
+    if (req.method === "GET" && pathname === "/api/monitoramento/segmentos") {
+      void handleListarSegmentosMonitoramento(req, res, monitoramento);
+      return;
+    }
+    const rotaSessaoMonitoramentoAtual = rotaSessaoMonitoramento(pathname);
+    if (rotaSessaoMonitoramentoAtual) {
+      if (rotaSessaoMonitoramentoAtual.acao === "segmentos") {
+        if (req.method === "GET") {
+          void handleSegmentosDaSessaoMonitoramento(
+            req,
+            res,
+            monitoramento,
+            rotaSessaoMonitoramentoAtual.sessaoId
+          );
+          return;
+        }
+      } else if (req.method === "POST") {
+        void handleComandoMonitoramento(
+          req,
+          res,
+          monitoramento,
+          rotaSessaoMonitoramentoAtual.sessaoId,
+          rotaSessaoMonitoramentoAtual.acao
+        );
+        return;
+      }
+      res.writeHead(405, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Metodo nao permitido");
       return;
     }
     if (req.method === "GET" && pathname === "/api/contexto") {

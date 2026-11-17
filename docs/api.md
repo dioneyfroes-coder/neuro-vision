@@ -18,12 +18,21 @@ Referência completa da API HTTP, formato das entradas, retenção de snapshots 
 | `POST` | `/api/ciclos` | Grava o diagnóstico de um ciclo (`RegistroCiclo`): métricas, configuração efetiva da variante/captura/interpretador, política, erros, subsistemas indisponíveis e IDs de sessão/ciclo/frames. Ciclos incompletos também preservam essa configuração. |
 | `GET` | `/api/ciclos?limit=100` | Lista os diagnósticos de ciclo mais recentes (limite máx. 500). |
 | `DELETE` | `/api/ciclos` | Limpa os diagnósticos de ciclo persistidos. |
+| `POST` | `/api/monitoramento/sessoes` | Abre uma sessão de monitoramento (`ambiente` obrigatório; `agoraMs`, `duracaoSegmentoMs`, `retencaoPreEventoMs`, `limiarLacunaMs` opcionais). Sessão já em andamento responde `409`. |
+| `POST` | `/api/monitoramento/quadros` | Atribui um lote de `{ frameId, capturadoEmMs }` (até 600) ao segmento correspondente e devolve `atribuicoes` + `rejeitados`. Quadro recusado não impede os demais; sem sessão iniciada responde `409`. |
+| `POST` | `/api/monitoramento/sessoes/:id/pausar` | Pausa a sessão informada. |
+| `POST` | `/api/monitoramento/sessoes/:id/retomar` | Retoma a sessão pausada. |
+| `POST` | `/api/monitoramento/sessoes/:id/encerrar` | Encerra a sessão (aceita `agoraMs`); o intervalo sem quadros não é coberto. |
+| `POST` | `/api/monitoramento/sessoes/:id/interromper` | Interrompe por falha de gravação (aceita `agoraMs` e `motivo`: `falha` ou `sem_quadros`). |
+| `GET` | `/api/monitoramento/sessoes?limit=100` | Lista as sessões do índice, da mais recente para a mais antiga. |
+| `GET` | `/api/monitoramento/sessoes/:id/segmentos?limit=2000` | Segmentos de uma sessão, com o segmento vivo sobreposto ao índice (contadores atuais antes do fechamento). |
+| `GET` | `/api/monitoramento/segmentos?inicio=&fim=&limit=2000` | Segmentos que tocam o intervalo (extremos inclusivos); sem filtros, devolve o índice cronológico. |
 | `GET` | `/api/contexto` | Reidrata um contexto curto do estado recente (`{ resumo, roteiro, ultimaDescricao, entradas, eventos }`) com janela por `maxEntradas`/`maxEventos`/`maxCaracteres`. |
 | `GET` | `/api/health` | Status do backend de visão (`{ visao: { online, solicitado, modelo, modelos, carregados, erro } }`). `modelo` é o efetivo (o solicitado ou o melhor disponível quando o solicitado não está instalado). |
 | `GET` | `/snapshots/<arquivo>` | Serve os snapshots (thumbnails) gravados. |
 | `GET` | `/yolonsfw/<arquivo>` | Serve pesos/catálogo NSFW locais (`.onnx`/`.json`) de `modelos/yolonsfw/`; demais arquivos são recusados. |
 
-As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jsonl`, os registros operacionais em `logs/operacional.jsonl` e os diagnósticos de ciclo em `logs/ciclos.jsonl` (uma linha JSON por registro, própria política de rotação); os snapshots ficam em `logs/snapshots/`. O corpo de `/api/log` e o de `/api/visao` aceitam `nsfw` — lista de `{ rotulo, score, caixa }` com caixa normalizada em [0,1] — validada e preservada no JSONL; o `done` do stream devolve as mesmas marcações.
+As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jsonl`, os registros operacionais em `logs/operacional.jsonl` e os diagnósticos de ciclo em `logs/ciclos.jsonl` (uma linha JSON por registro, própria política de rotação); os snapshots ficam em `logs/snapshots/`. O índice de monitoramento usa `logs/monitoramento-sessoes.jsonl` e `logs/monitoramento-segmentos.jsonl` (append-only, com deduplicação da versão mais recente por id) — ele descreve sessões e segmentos, **não** grava os bytes do vídeo, que continuam pendentes. O corpo de `/api/log` e o de `/api/visao` aceitam `nsfw` — lista de `{ rotulo, score, caixa }` com caixa normalizada em [0,1] — validada e preservada no JSONL; o `done` do stream devolve as mesmas marcações.
 
 ## Falhas de gravação e fila do cliente
 

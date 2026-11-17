@@ -2,7 +2,7 @@
 
 Núcleo determinístico do modo **Câmera de Segurança**: sessões de monitoramento, segmentos de vídeo de 5 minutos, lacunas explícitas e buffer circular pré-evento. O objetivo é que a gravação rode **independente** do ciclo de snapshots da interface — a análise multimodal pode atrasar ou falhar sem interromper a linha do tempo de vídeo.
 
-> **Escopo atual.** Esta página documenta o que já existe: os contratos de domínio (`src/domain/monitoramento.ts`) e as duas classes puras (`src/monitoramento/gerenciador-gravacao.ts` e `src/monitoramento/buffer-circular.ts`). A gravação dos **bytes** de vídeo, o armazenamento em disco, a retenção automática, a criptografia, as rotas HTTP e a interface ainda **não** foram implementados. Nada aqui deve ser lido como "o vídeo já é gravado em produção".
+> **Escopo atual.** Esta página documenta o que já existe: os contratos de domínio (`src/domain/monitoramento.ts`), as classes puras (`src/monitoramento/gerenciador-gravacao.ts` e `src/monitoramento/buffer-circular.ts`), o serviço que compõe a sessão com um índice durável (`src/monitoramento/servico-monitoramento.ts`) e as rotas `/api/monitoramento/*`. A gravação dos **bytes** de vídeo, o armazenamento dos arquivos, a retenção automática, a criptografia e a interface ainda **não** foram implementados. Nada aqui deve ser lido como "o vídeo já é gravado em produção": o índice descreve sessões e segmentos, não conteúdo de vídeo.
 
 ## Contratos
 
@@ -80,16 +80,60 @@ const janela = buffer.instantaneo(); // mais antigo → mais recente
 - `instantaneo()` devolve um novo array e novos envelopes; `clonarItem` permite copiar também o conteúdo do item. Sem ele, a cópia é estrutural — o item em si continua compartilhado.
 - `limpar()` zera a janela; `maisRecenteMs` e `maisAntigoMs` expõem os extremos.
 
+## Índice durável de sessões e segmentos
+
+`ServicoMonitoramento` mantém **uma** sessão viva no `GerenciadorGravacao` e grava o índice em JSONL append-only (`src/persistence/repositorio-monitoramento.ts`):
+
+- `logs/monitoramento-sessoes.jsonl` — uma linha por transição de sessão (início, pausa, retomada, encerramento/interrupção);
+- `logs/monitoramento-segmentos.jsonl` — uma linha na abertura (`gravando`) e outra no desfecho de cada segmento (`fechado`/`incompleto`), com `motivoFim` e lacunas.
+
+A leitura mantém a **versão mais recente por `sessaoId`/`segmentoId`** e ordena sessões da mais recente para a mais antiga e segmentos em ordem cronológica. Reiniciar o processo perde a sessão viva (o gerenciador não é reidratado), mas o histórico do índice continua consultável — inclusive as lacunas. Uma sessão que ficou `ativa` no índice após uma queda permanece registrada como estava; a recuperação automática desse estado ainda não existe (ver pendências).
+
+Regras de escrita que valem registrar:
+
+- **Nenhuma linha por quadro.** `quadros`/`fimMs` do segmento em gravação mudam a cada frame, mas a assinatura publicada ignora esses campos enquanto o segmento está `gravando`; os contadores finais entram no fechamento. O arquivo cresce com o número de segmentos, não com o número de frames.
+- **Cópia defensiva.** O índice grava o que o gerenciador devolve; alterar o objeto recebido pela API não muda o estado interno.
+- **`limit` conta atualizações**, não registros únicos: uma sessão com várias transições consome mais de uma linha do limite. A consulta devolve no máximo `limit` atualizações deduplicadas.
+
+```ts
+const servico = new ServicoMonitoramento({
+  sessoesFile: "logs/monitoramento-sessoes.jsonl",
+  segmentosFile: "logs/monitoramento-segmentos.jsonl",
+});
+const sessao = await servico.iniciar({ ambiente: "sala", agoraMs: Date.now() });
+await servico.enviarQuadros([{ frameId: "f-1", capturadoEmMs: Date.now() }]);
+await servico.encerrar(sessao.sessaoId, Date.now());
+```
+
+## Rotas HTTP
+
+O serviço é exposto pelas rotas abaixo. Como o serviço não lê o relógio, `agoraMs` e `capturadoEmMs` podem ser enviados no corpo (epoch ms ou ISO); quando omitidos, o servidor usa o relógio de parede. Rotas de comando e de índice não gravam bytes de vídeo.
+
+| Método | Rota | Papel |
+| --- | --- | --- |
+| `POST` | `/api/monitoramento/sessoes` | Abre uma sessão (`ambiente` obrigatório; `agoraMs`, `duracaoSegmentoMs`, `retencaoPreEventoMs`, `limiarLacunaMs` opcionais). Sessão já em andamento responde `409`. |
+| `POST` | `/api/monitoramento/quadros` | Atribui um lote (`quadros: [{ frameId, capturadoEmMs }]`, até 600) e devolve `atribuicoes` + `rejeitados`. Um quadro recusado não impede os demais. |
+| `POST` | `/api/monitoramento/sessoes/:id/pausar` | Pausa a sessão informada. |
+| `POST` | `/api/monitoramento/sessoes/:id/retomar` | Retoma a sessão pausada. |
+| `POST` | `/api/monitoramento/sessoes/:id/encerrar` | Encerra; o intervalo sem quadros não é coberto. |
+| `POST` | `/api/monitoramento/sessoes/:id/interromper` | Falha de gravação; aceita `motivo` (`falha` padrão ou `sem_quadros`). |
+| `GET` | `/api/monitoramento/sessoes?limit=` | Sessões do índice (mais recente primeiro). |
+| `GET` | `/api/monitoramento/sessoes/:id/segmentos?limit=` | Segmentos da sessão, com o segmento vivo sobreposto ao índice. |
+| `GET` | `/api/monitoramento/segmentos?inicio=&fim=&limit=` | Segmentos que tocam o intervalo (extremos inclusivos); sem filtros, devolve o índice cronológico. |
+
+A sobreposição do segmento vivo faz a consulta mostrar `quadros` atualizados mesmo antes do fechamento ser persistido. Ela **não** inventa cobertura: o intervalo entre o último quadro e o comando de encerramento continua fora de todos os segmentos. Enviar quadros sem nenhuma sessão iniciada, comandar uma sessão inexistente/divergente ou abrir uma segunda sessão responde `409`; payload inválido responde `400`; falha inesperada responde `500`.
+
 ## O que ainda falta (por honestidade)
 
 A Fase 3 do roteiro também pede:
 
 - gravar os bytes em segmentos de 5 minutos, com container/codec e recuperação após falha;
-- armazenamento seguro, criptografia e política de retenção;
-- endpoints HTTP e interface de sessão (iniciar/pausar/retomar/encerrar), com relógio real;
-- associar eventos persistidos aos segmentos e reproduzir o trecho correspondente;
+- armazenamento seguro, criptografia e política de retenção dos arquivos;
+- interface de sessão (iniciar/pausar/retomar/encerrar) e indicador de gravação;
+- recuperar uma sessão que ficou `ativa` no índice após queda do processo;
+- associar eventos persistidos aos segmentos (`segmentoId`) e reproduzir o trecho correspondente;
 - medição de perda/sobreposição com captura real e falhas de disco.
 
-Até lá, o que está garantido é a **regra** de segmentação e a janela pré-evento, cobertas por testes determinísticos em `tests/monitoramento.test.ts`.
+Até lá, o que está garantido é a **regra** de segmentação, a janela pré-evento, o índice durável e as rotas de consulta, cobertos por testes determinísticos em `tests/monitoramento.test.ts`, `tests/monitoramento-persistencia.test.ts` e `tests/server-monitoramento.test.ts`.
 
 Vídeos com pessoas são dados sensíveis: quando a gravação real for implementada, os arquivos devem ficar **fora do versionamento** sempre que houver pessoas. Ver [`limites.md`](./limites.md) e [`seguranca.md`](./seguranca.md).
