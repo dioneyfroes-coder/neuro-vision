@@ -8,6 +8,12 @@ import type {
   VideoSegment,
 } from "../src/domain/monitoramento";
 import type { ArquivoVideoSegmento } from "../src/persistence/armazenador-videos";
+import type {
+  ItemCena,
+  MudancaCena,
+  OpcoesComparacaoCena,
+  ReferenciaCena,
+} from "../src/domain/cena";
 import { ErroPercepcao } from "../src/erros";
 
 export interface InfoVisao {
@@ -547,6 +553,78 @@ export async function aplicarRetencaoVideos(agoraMs?: number): Promise<ArquivoVi
   await exigirRespostaOk(resposta, "Falha ao aplicar a retencao dos videos");
   const dados = (await resposta.json()) as { removidos?: ArquivoVideoSegmento[] };
   return dados.removidos ?? [];
+}
+
+/* ------------------------------------------------------------------------- *
+ * Monitoramento (Fase 3) - referencia do ambiente e mudancas
+ * ------------------------------------------------------------------------- */
+
+function urlCenaMonitoramento(sessaoId: string, acao: string): string {
+  return `${urlSessaoMonitoramento(sessaoId)}/cena/${acao}`;
+}
+
+/** `POST .../cena/referencia` - consolida o inventario inicial. */
+export async function definirReferenciaCena(opcoes: {
+  sessaoId: string;
+  itens: ItemCena[];
+  criadaEmMs?: number;
+  quadros?: number;
+}): Promise<ReferenciaCena> {
+  const dados = await postMonitoramento<{ referencia: ReferenciaCena }>(
+    urlCenaMonitoramento(opcoes.sessaoId, "referencia"),
+    opcoes,
+    "Falha ao salvar a referencia do ambiente"
+  );
+  return dados.referencia;
+}
+
+/** `GET .../cena/referencia` - referencia atual ou `null`. */
+export async function obterReferenciaCena(sessaoId: string): Promise<ReferenciaCena | null> {
+  let resposta: Response;
+  try {
+    resposta = await fetch(urlCenaMonitoramento(sessaoId, "referencia"));
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao ler a referencia do ambiente", {
+      cause: err,
+    });
+  }
+  if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
+  const dados = (await resposta.json()) as { referencia?: ReferenciaCena | null };
+  return dados.referencia ?? null;
+}
+
+/** `POST .../cena/comparar` - detecta e persiste mudancas. */
+export async function compararCenaMonitoramento(opcoes: {
+  sessaoId: string;
+  itens: ItemCena[];
+  agoraMs?: number;
+  comparacao?: OpcoesComparacaoCena;
+}): Promise<{ mudancas: MudancaCena[]; novas: MudancaCena[] }> {
+  const dados = await postMonitoramento<{
+    mudancas: MudancaCena[];
+    novas: MudancaCena[];
+  }>(
+    urlCenaMonitoramento(opcoes.sessaoId, "comparar"),
+    opcoes,
+    "Falha ao comparar a cena com a referencia"
+  );
+  return { mudancas: dados.mudancas ?? [], novas: dados.novas ?? [] };
+}
+
+/** `GET .../cena/mudancas?limit=` - linha do tempo de mudancas. */
+export async function listarMudancasCena(
+  sessaoId: string,
+  limite = 2000
+): Promise<MudancaCena[]> {
+  let resposta: Response;
+  try {
+    resposta = await fetch(`${urlCenaMonitoramento(sessaoId, "mudancas")}?limit=${limite}`);
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao ler as mudancas da cena", { cause: err });
+  }
+  if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
+  const dados = (await resposta.json()) as { mudancas?: MudancaCena[] };
+  return dados.mudancas ?? [];
 }
 
 /** Contexto recente reconstruido pelo servidor a partir da memoria persistida. */

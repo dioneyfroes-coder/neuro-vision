@@ -74,6 +74,12 @@ import type {
   ArquivoVideoSegmento,
   DadosUploadVideo,
 } from "./persistence/armazenador-videos";
+import { SemReferenciaCenaError, ServicoCena } from "./monitoramento/servico-cena";
+import type {
+  ItemCena,
+  OpcoesComparacaoCena,
+} from "./domain/cena";
+import { itemCenaValido } from "./domain/cena";
 import type {
   QuadroGravado,
   SessaoMonitoramento,
@@ -126,6 +132,9 @@ export const MONITORAMENTO_SESSOES_FILE = path.join(LOG_DIR, "monitoramento-sess
 export const MONITORAMENTO_SEGMENTOS_FILE = path.join(LOG_DIR, "monitoramento-segmentos.jsonl");
 /** Bytes dos segmentos. Fora do git (`logs/*`); videos com pessoas sao sensiveis. */
 export const VIDEOS_DIR = path.join(LOG_DIR, "videos");
+/** Referencia do ambiente e linha do tempo de mudancas (Fase 3). */
+export const CENA_REFERENCIAS_FILE = path.join(LOG_DIR, "cena-referencias.jsonl");
+export const CENA_MUDANCAS_FILE = path.join(LOG_DIR, "cena-mudancas.jsonl");
 import { env } from "./env";
 export const LOG_MAX_BYTES = env.LOG_MAX_BYTES || 5_000_000;
 export const SNAP_DIR = path.join(LOG_DIR, "snapshots");
@@ -1891,6 +1900,207 @@ async function handleRetencaoVideos(
   }
 }
 
+/* ------------------------------------------------------------------------- *
+ * Referencia do ambiente e mudancas (Fase 3)
+ * ------------------------------------------------------------------------- */
+
+/** Corpo de `POST .../cena/referencia` e `POST .../cena/comparar`. */
+function montarItensCena(payload: unknown): ItemCena[] | string {
+  const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
+    string,
+    unknown
+  >;
+  if (!Array.isArray(p.itens)) return "campo 'itens' obrigatorio (lista)";
+  for (const item of p.itens) {
+    if (!itemCenaValido(item)) {
+      return `item de cena invalido: ${JSON.stringify(item)}`;
+    }
+  }
+  return p.itens as ItemCena[];
+}
+
+/** Opcoes numericas da comparacao, cada uma dentro do intervalo permitido. */
+function montarComparacaoCena(payload: unknown): OpcoesComparacaoCena | string {
+  const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
+    string,
+    unknown
+  >;
+  const opcoes: OpcoesComparacaoCena = {};
+  for (const [chave, maximo] of [
+    ["iouMinimo", 1],
+    ["distanciaMaxima", 2],
+  ] as const) {
+    const valor = p[chave];
+    if (valor === undefined || valor === null) continue;
+    const n = typeof valor === "number" ? valor : Number(valor);
+    if (!Number.isFinite(n) || n < 0 || n > maximo) {
+      return `campo '${chave}' deve estar em [0, ${maximo}]`;
+    }
+    opcoes[chave] = n;
+  }
+  return opcoes;
+}
+
+function responderErroCena(res: ServerResponse, err: unknown): void {
+  if (err instanceof SemReferenciaCenaError) {
+    sendJson(res, 409, { ok: false, erro: err.message });
+    return;
+  }
+  logEvent("error", "cena_monitoramento_falhou", { erro: (err as Error).message });
+  sendJson(res, 500, { ok: false, erro: (err as Error).message });
+}
+
+async function exigirSessaoMonitoramento(
+  res: ServerResponse,
+  monitoramento: ServicoMonitoramento,
+  sessaoId: string
+): Promise<boolean> {
+  const sessoes = await monitoramento.listarSessoes();
+  if (sessoes.some((sessao) => sessao.sessaoId === sessaoId)) return true;
+  sendJson(res, 404, { ok: false, erro: "Sessao de monitoramento desconhecida" });
+  return false;
+}
+
+/** `POST .../cena/referencia` - consolida o inventario inicial. */
+async function handleReferenciaCena(
+  req: IncomingMessage,
+  res: ServerResponse,
+  cena: ServicoCena,
+  monitoramento: ServicoMonitoramento,
+  sessaoId: string
+): Promise<void> {
+  let payload: unknown;
+  try {
+    payload = JSON.parse((await readBody(req, BODY_MAX_BYTES)) || "{}");
+  } catch (err) {
+    sendJson(res, 400, { ok: false, erro: (err as Error).message });
+    return;
+  }
+  const itens = montarItensCena(payload);
+  if (typeof itens === "string") {
+    sendJson(res, 400, { ok: false, erro: itens });
+    return;
+  }
+  const p = payload as Record<string, unknown>;
+  const criado = lerInstanteDoCorpo(p.criadaEmMs);
+  if (criado !== undefined && !Number.isFinite(criado)) {
+    sendJson(res, 400, { ok: false, erro: "campo 'criadaEmMs' deve ser finito" });
+    return;
+  }
+  const quadros = numeroPositivoOuErro(p.quadros, "quadros");
+  if (typeof quadros === "string") {
+    sendJson(res, 400, { ok: false, erro: quadros });
+    return;
+  }
+  try {
+    if (!(await exigirSessaoMonitoramento(res, monitoramento, sessaoId))) return;
+    const referencia = await cena.definirReferencia({
+      sessaoId,
+      itens,
+      criadaEmMs: criado ?? Date.now(),
+      ...(quadros !== undefined ? { quadros } : {}),
+    });
+    sendJson(res, 200, { ok: true, referencia });
+  } catch (err) {
+    responderErroCena(res, err);
+  }
+}
+
+/** `GET .../cena/referencia` - ultima referencia conhecida (pode ser `null`). */
+async function handleObterReferenciaCena(
+  res: ServerResponse,
+  cena: ServicoCena,
+  monitoramento: ServicoMonitoramento,
+  sessaoId: string
+): Promise<void> {
+  try {
+    if (!(await exigirSessaoMonitoramento(res, monitoramento, sessaoId))) return;
+    const referencia = await cena.obterReferencia(sessaoId);
+    sendJson(res, 200, { ok: true, referencia });
+  } catch (err) {
+    responderErroCena(res, err);
+  }
+}
+
+/** `POST .../cena/comparar` - compara, persiste mudancas novas e devolve ambas. */
+async function handleCompararCena(
+  req: IncomingMessage,
+  res: ServerResponse,
+  cena: ServicoCena,
+  monitoramento: ServicoMonitoramento,
+  sessaoId: string
+): Promise<void> {
+  let payload: unknown;
+  try {
+    payload = JSON.parse((await readBody(req, BODY_MAX_BYTES)) || "{}");
+  } catch (err) {
+    sendJson(res, 400, { ok: false, erro: (err as Error).message });
+    return;
+  }
+  const itens = montarItensCena(payload);
+  if (typeof itens === "string") {
+    sendJson(res, 400, { ok: false, erro: itens });
+    return;
+  }
+  const p = payload as Record<string, unknown>;
+  const agora = lerInstanteDoCorpo(p.agoraMs);
+  if (agora !== undefined && !Number.isFinite(agora)) {
+    sendJson(res, 400, { ok: false, erro: "campo 'agoraMs' deve ser finito" });
+    return;
+  }
+  const comparacao = montarComparacaoCena(payload);
+  if (typeof comparacao === "string") {
+    sendJson(res, 400, { ok: false, erro: comparacao });
+    return;
+  }
+  try {
+    if (!(await exigirSessaoMonitoramento(res, monitoramento, sessaoId))) return;
+    const resultado = await cena.comparar({
+      sessaoId,
+      itens,
+      detectadoEmMs: agora ?? Date.now(),
+      comparacao,
+    });
+    sendJson(res, 200, { ok: true, ...resultado });
+  } catch (err) {
+    responderErroCena(res, err);
+  }
+}
+
+/** `GET .../cena/mudancas?limit=` - linha do tempo de mudancas da sessao. */
+async function handleListarMudancasCena(
+  req: IncomingMessage,
+  res: ServerResponse,
+  cena: ServicoCena,
+  monitoramento: ServicoMonitoramento,
+  sessaoId: string
+): Promise<void> {
+  try {
+    if (!(await exigirSessaoMonitoramento(res, monitoramento, sessaoId))) return;
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const limite = inteiroLimitado(url.searchParams.get("limit"), 2000, 1, 5000);
+    const mudancas = await cena.listarMudancas(sessaoId, limite);
+    sendJson(res, 200, { ok: true, total: mudancas.length, mudancas });
+  } catch (err) {
+    responderErroCena(res, err);
+  }
+}
+
+/** Reconhece `/api/monitoramento/sessoes/:id/cena/{referencia,comparar,mudancas}`. */
+function rotaCenaMonitoramento(
+  pathname: string
+): { sessaoId: string; acao: "referencia" | "comparar" | "mudancas" } | null {
+  const encontrada =
+    /^\/api\/monitoramento\/sessoes\/([^/]+)\/cena\/(referencia|comparar|mudancas)$/.exec(
+      pathname
+    );
+  if (!encontrada) return null;
+  return {
+    sessaoId: decodeURIComponent(encontrada[1]),
+    acao: encontrada[2] as "referencia" | "comparar" | "mudancas",
+  };
+}
+
 async function streamVisao(
   res: ServerResponse,
   imagem: string | string[],
@@ -2438,6 +2648,10 @@ export interface ServerConfig {
   videoRetencaoMs?: number;
   /** Numero maximo de arquivos (0 desativa). Padrao: `VIDEO_MAX_ARQUIVOS`. */
   videoMaxArquivos?: number;
+  /** Indice da referencia do ambiente. Padrao: `cena-referencias.jsonl`. */
+  cenaReferenciasFile?: string;
+  /** Linha do tempo de mudancas da cena. Padrao: `cena-mudancas.jsonl`. */
+  cenaMudancasFile?: string;
   /** Diretorio dos pesos NSFW experimentais. Padrao: `modelos/yolonsfw/` na raiz. */
   nsfwDir?: string;
   /** Diretorio das bibliotecas do modo offline. Padrao: `vendor/` na raiz. */
@@ -2472,6 +2686,13 @@ export function createServer(config: ServerConfig = {}): http.Server {
     maxBytesPorArquivo: config.videoMaxBytes ?? VIDEO_UPLOAD_MAX_BYTES,
     retencaoMs: config.videoRetencaoMs ?? env.VIDEO_RETENCAO_MS,
     maxArquivos: config.videoMaxArquivos ?? env.VIDEO_MAX_ARQUIVOS,
+  });
+  const cena = new ServicoCena({
+    referenciasFile:
+      config.cenaReferenciasFile ?? path.join(path.dirname(logFile), "cena-referencias.jsonl"),
+    mudancasFile:
+      config.cenaMudancasFile ?? path.join(path.dirname(logFile), "cena-mudancas.jsonl"),
+    maxBytes: LOG_MAX_BYTES,
   });
   const permitidas = origensPermitidas(env.NEURO_ALLOWED_ORIGINS);
 
@@ -2586,6 +2807,30 @@ export function createServer(config: ServerConfig = {}): http.Server {
       }
       if (req.method === "DELETE") {
         void handleExcluirVideo(res, armazenadorVideos, segmentoId);
+        return;
+      }
+      res.writeHead(405, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Metodo nao permitido");
+      return;
+    }
+    const rotaCena = rotaCenaMonitoramento(pathname);
+    if (rotaCena) {
+      if (rotaCena.acao === "referencia") {
+        if (req.method === "POST") {
+          void handleReferenciaCena(req, res, cena, monitoramento, rotaCena.sessaoId);
+          return;
+        }
+        if (req.method === "GET") {
+          void handleObterReferenciaCena(res, cena, monitoramento, rotaCena.sessaoId);
+          return;
+        }
+      } else if (rotaCena.acao === "comparar") {
+        if (req.method === "POST") {
+          void handleCompararCena(req, res, cena, monitoramento, rotaCena.sessaoId);
+          return;
+        }
+      } else if (req.method === "GET") {
+        void handleListarMudancasCena(req, res, cena, monitoramento, rotaCena.sessaoId);
         return;
       }
       res.writeHead(405, { "Content-Type": "text/plain; charset=utf-8" });

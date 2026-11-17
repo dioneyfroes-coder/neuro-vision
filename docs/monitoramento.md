@@ -2,7 +2,7 @@
 
 Núcleo determinístico do modo **Câmera de Segurança**: sessões de monitoramento, segmentos de vídeo de 5 minutos, lacunas explícitas e buffer circular pré-evento. O objetivo é que a gravação rode **independente** do ciclo de snapshots da interface — a análise multimodal pode atrasar ou falhar sem interromper a linha do tempo de vídeo.
 
-> **Escopo atual.** Esta página documenta o que já existe: os contratos de domínio (`src/domain/monitoramento.ts`), as classes puras (`src/monitoramento/gerenciador-gravacao.ts` e `src/monitoramento/buffer-circular.ts`), o serviço com índice durável (`src/monitoramento/servico-monitoramento.ts`), as rotas `/api/monitoramento/*` e o armazenamento dos **bytes** em `logs/videos/` (`src/persistence/armazenador-videos.ts`), com upload, download, retenção e exclusão. Ainda **não** há gravador `MediaRecorder` na interface, criptografia em repouso nem recuperação de sessão ativa após queda. O servidor aceita e persiste bytes, mas quem os produz ainda precisa ser integrado ao cliente; nada aqui deve ser lido como "a câmera já grava sozinha em produção".
+> **Escopo atual.** Esta página documenta o que já existe: os contratos de domínio (`src/domain/monitoramento.ts` e `src/domain/cena.ts`), as classes puras (`src/monitoramento/gerenciador-gravacao.ts` e `src/monitoramento/buffer-circular.ts`), os serviços com índice durável (`src/monitoramento/servico-monitoramento.ts` e `src/monitoramento/servico-cena.ts`), as rotas `/api/monitoramento/*`, o armazenamento dos **bytes** em `logs/videos/` (`src/persistence/armazenador-videos.ts`) e a **referência do ambiente** com detecção de mudanças. Ainda **não** há gravador `MediaRecorder` na interface, criptografia em repouso nem recuperação de sessão ativa após queda. O servidor aceita e persiste bytes e recebe os itens do inventário pela API, mas quem os produz a partir de detecções reais ainda precisa ser integrado; nada aqui deve ser lido como "a câmera já grava e reconhece a cena sozinha em produção".
 
 ## Contratos
 
@@ -115,9 +115,32 @@ await servico.encerrar(sessao.sessaoId, Date.now());
 - **Sem relógio no domínio.** O armazenador recebe `criadoEmMs`/`agoraMs` de quem chama; o servidor usa `Date.now()` apenas no limite HTTP.
 - **Privacidade.** Arquivos ficam em `logs/videos/`, coberto por `logs/*` no `.gitignore`; vídeos com pessoas nunca devem ser versionados. O conteúdo não é criptografado em repouso nesta versão.
 
+## Referência do ambiente e mudanças
+
+`ServicoCena` (`src/monitoramento/servico-cena.ts`) compõe as regras puras de `src/domain/cena.ts` com um índice JSONL append-only: `logs/cena-referencias.jsonl` (uma linha por versão do inventário) e `logs/cena-mudancas.jsonl` (uma linha por mudança deduplicada). Como o gerenciador de gravação, o serviço **não lê o relógio** — `criadaEmMs` e `detectadoEmMs` vêm de quem chama; as mutações são serializadas por fila interna. A sessão precisa existir no índice de `ServicoMonitoramento`, senão a rota responde `404`; comparar sem referência responde `409`. Ver [`cena.md`](./cena.md) para as regras completas.
+
+- **Inventário parcial.** Cada item traz `objetoId`, `rotulo`, `caixa` normalizada em `[0,1]`, `confirmacao`, `confianca` e, opcionalmente, `estadoObjeto`/`frameId`/`observadoEmMs`. `construirReferencia` guarda um item por rótulo (o de maior confiança; desempate por `objetoId`, independente da ordem do lote).
+- **Confirmação não é estado físico.** `confirmado`/`possivel` sustentam comparação; `possivel` limita a confiança da mudança a `0,6`. `ocluido`/`nao_confirmado` não produzem mudança. `nao_observado` é ausência explícita e gera hipótese com confiança máxima `0,55` (`observado: false`); **falta de menção não é mudança**.
+- **`mudancaId` estável.** `sessaoId|tipo|objetoId|referenciaEmMs` — deriva da referência, não do instante da detecção. Comparar o mesmo quadro em outros instantes não cria nova mudança; a leitura deduplica por id e mantém a versão mais recente.
+- **Limites configuráveis.** `iouMinimo` (padrão `0,25`) define "mesmo lugar"; `distanciaMaxima` entre centros (padrão `0,25`, em coordenadas normalizadas) permite reconhecer um objeto que saiu da região mas segue próximo como `objeto_movido`.
+
+```ts
+const cena = new ServicoCena({ referenciasFile, mudancasFile, maxBytes });
+await cena.definirReferencia({
+  sessaoId: sessao.sessaoId,
+  itens: [{ objetoId: "c1", rotulo: "cadeira", caixa: { xmin: 0.2, ymin: 0.2, xmax: 0.4, ymax: 0.4 }, confirmacao: "confirmado", confianca: 0.9 }],
+  criadaEmMs: BASE,
+});
+const { mudancas, novas } = await cena.comparar({
+  sessaoId: sessao.sessaoId,
+  itens: observados,
+  detectadoEmMs: BASE + 100,
+});
+```
+
 ## Rotas HTTP
 
-O serviço é exposto pelas rotas abaixo. Como o serviço não lê o relógio, `agoraMs` e `capturadoEmMs` podem ser enviados no corpo (epoch ms ou ISO); quando omitidos, o servidor usa o relógio de parede. As rotas de comando, índice e vídeo não executam análise multimodal.
+O serviço é exposto pelas rotas abaixo. Como o serviço não lê o relógio, `agoraMs`, `criadaEmMs` e `capturadoEmMs` podem ser enviados no corpo (epoch ms ou ISO); quando omitidos, o servidor usa o relógio de parede. As rotas de comando, índice, vídeo e cena não executam análise multimodal.
 
 | Método | Rota | Papel |
 | --- | --- | --- |
@@ -136,21 +159,25 @@ O serviço é exposto pelas rotas abaixo. Como o serviço não lê o relógio, `
 | `DELETE` | `/api/monitoramento/videos/:segmentoId` | Apaga um vídeo. |
 | `DELETE` | `/api/monitoramento/videos?sessaoId=` | Apaga todos os vídeos da sessão (exige `sessaoId`). |
 | `POST` | `/api/monitoramento/videos/retencao?agoraMs=` | Aplica a retenção e devolve os metadados removidos. |
+| `POST` | `/api/monitoramento/sessoes/:id/cena/referencia` | Consolida o inventário inicial (`itens`, `criadaEmMs`, `quadros`). |
+| `GET` | `/api/monitoramento/sessoes/:id/cena/referencia` | Referência atual da sessão (`referencia: null` quando ainda não definida). |
+| `POST` | `/api/monitoramento/sessoes/:id/cena/comparar` | Compara `itens` com a referência (`agoraMs`, `iouMinimo`, `distanciaMaxima`); devolve `mudancas` e `novas`. |
+| `GET` | `/api/monitoramento/sessoes/:id/cena/mudancas?limit=` | Linha do tempo de mudanças, sem duplicatas. |
 
-A sobreposição do segmento vivo faz a consulta mostrar `quadros` atualizados mesmo antes do fechamento ser persistido. Ela **não** inventa cobertura: o intervalo entre o último quadro e o comando de encerramento continua fora de todos os segmentos. Enviar quadros sem nenhuma sessão iniciada, comandar uma sessão inexistente/divergente ou abrir uma segunda sessão responde `409`; payload inválido responde `400`; falha inesperada responde `500`.
+A sobreposição do segmento vivo faz a consulta mostrar `quadros` atualizados mesmo antes do fechamento ser persistido. Ela **não** inventa cobertura: o intervalo entre o último quadro e o comando de encerramento continua fora de todos os segmentos. Enviar quadros sem nenhuma sessão iniciada, comandar uma sessão inexistente/divergente ou abrir uma segunda sessão responde `409`; payload inválido responde `400`; falha inesperada responde `500`. Nas rotas de cena, sessão desconhecida responde `404`, comparação sem referência responde `409` e payload inválido responde `400`.
 
 ## O que ainda falta (por honestidade)
 
 A Fase 3 do roteiro também pede:
 
 - produzir os bytes na interface (`MediaRecorder`) e enviá-los automaticamente ao servidor, incluindo a retomada após falha de upload;
-- inventário inicial da cena, referência visual e detecção de mudanças controladas;
+- popular o inventário a partir de detecções reais (hoje os itens são injetados pela API) e validar a detecção de mudanças controladas com captura real;
 - criptografia em repouso e controle de acesso aos arquivos;
 - interface de sessão (iniciar/pausar/retomar/encerrar) e indicador de gravação;
 - recuperar uma sessão que ficou `ativa` no índice após queda do processo;
 - associar eventos persistidos aos segmentos (`segmentoId`) e reproduzir o trecho correspondente;
 - medição de perda/sobreposição com captura real e falhas de disco.
 
-Até lá, o que está garantido é a **regra** de segmentação, a janela pré-evento, o índice durável, as rotas de consulta e o armazenamento/exclusão/retenção de bytes recebidos, cobertos por testes determinísticos em `tests/monitoramento.test.ts`, `tests/monitoramento-persistencia.test.ts`, `tests/server-monitoramento.test.ts`, `tests/armazenamento-videos.test.ts` e `tests/server-videos.test.ts`.
+Até lá, o que está garantido é a **regra** de segmentação, a janela pré-evento, o índice durável, as rotas de consulta, o armazenamento/exclusão/retenção de bytes recebidos e a comparação de cena a partir de itens injetados, cobertos por testes determinísticos em `tests/monitoramento.test.ts`, `tests/monitoramento-persistencia.test.ts`, `tests/server-monitoramento.test.ts`, `tests/armazenamento-videos.test.ts`, `tests/server-videos.test.ts`, `tests/cena.test.ts`, `tests/cena-persistencia.test.ts` e `tests/server-cena.test.ts`.
 
 Vídeos com pessoas são dados sensíveis: os arquivos ficam em `logs/videos/`, fora do versionamento. Ver [`limites.md`](./limites.md) e [`seguranca.md`](./seguranca.md).
