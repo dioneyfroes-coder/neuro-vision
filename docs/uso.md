@@ -27,6 +27,8 @@ npm run dev
 
 Depois abra http://localhost:3000 e clique em **Iniciar**. Autorize o acesso à webcam.
 
+Para gravar a sessão, use os botões **Gravar / Pausar / Retomar / Encerrar** da seção *Câmera de Segurança* (a webcam precisa estar ligada). O indicador mostra o segmento corrente. Vídeos com pessoas são dados sensíveis: ficam em `logs/videos/`, fora do versionamento. Detalhes em [`monitoramento.md`](./monitoramento.md).
+
 Produção:
 
 ```bash

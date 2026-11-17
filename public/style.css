@@ -184,6 +184,85 @@ button.ghost:hover:not(:disabled) {
   border-color: var(--accent);
 }
 
+.monitor {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.monitor-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.monitor-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.gravacao-indicador {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #ff8a80;
+  border: 1px solid rgba(179, 64, 58, 0.5);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+.gravacao-ponto {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f85149;
+  box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.6);
+  animation: gravacao-pulso 1.6s infinite;
+}
+
+@keyframes gravacao-pulso {
+  0% { box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.6); }
+  70% { box-shadow: 0 0 0 7px rgba(248, 81, 73, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(248, 81, 73, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gravacao-ponto { animation: none; }
+}
+
+.monitor-controles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.monitor-controles label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.monitor-controles input[type="text"] {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  width: 130px;
+}
+
+.monitor-aviso {
+  display: block;
+  margin-top: 10px;
+}
+
 .status {
   margin-top: 12px;
   font-size: 13px;

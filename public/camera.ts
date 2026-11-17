@@ -34,6 +34,16 @@ export class Camera {
     return this.stream !== null;
   }
 
+  /**
+   * Stream bruto usado pelo elemento `<video>` e pelo `MediaRecorder`.
+   * É o **mesmo** objeto atribuído a `video.srcObject`: parar as trilhas em
+   * `encerrar()` invalida também a gravação. `null` quando a câmera não foi
+   * iniciada.
+   */
+  obterStream(): MediaStream | null {
+    return this.stream;
+  }
+
   get largura(): number {
     return this.video.videoWidth;
   }

@@ -27,6 +27,15 @@ import {
 import type { PoliticaCiclo } from "./cycle/politica-ciclo";
 import { CONFIG_CAPTURA_PADRAO } from "./capture/webcam-capture";
 import type { ConfigCaptura } from "./capture/webcam-capture";
+import { ControladorMonitoramento } from "./monitoramento/controlador-monitoramento";
+import type { EstadoMonitoramento } from "./monitoramento/controlador-monitoramento";
+import { apiMonitoramentoCliente } from "./monitoramento/adaptador-api";
+import {
+  ErroGravacaoSegmento,
+  GravadorSegmentos,
+  escolherMimeTypeVideo,
+  type RecorderLike,
+} from "./monitoramento/gravador-segmentos";
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -65,6 +74,15 @@ const thresholdInput = el<HTMLInputElement>("threshold");
 const thresholdValue = el<HTMLSpanElement>("thresholdValue");
 const nsfwToggle = el<HTMLInputElement>("nsfw");
 const contextoInput = el<HTMLInputElement>("contexto");
+const monitorAmbienteInput = el<HTMLInputElement>("monitorAmbiente");
+const monitorIniciarBtn = el<HTMLButtonElement>("monitorIniciar");
+const monitorPausarBtn = el<HTMLButtonElement>("monitorPausar");
+const monitorRetomarBtn = el<HTMLButtonElement>("monitorRetomar");
+const monitorEncerrarBtn = el<HTMLButtonElement>("monitorEncerrar");
+const monitorReenviarBtn = el<HTMLButtonElement>("monitorReenviar");
+const gravacaoIndicadorEl = el<HTMLSpanElement>("gravacaoIndicador");
+const gravacaoTextoEl = el<HTMLSpanElement>("gravacaoTexto");
+const monitorAvisoEl = el<HTMLSpanElement>("monitorAviso");
 
 /**
  * Politica do ciclo (Fase 4): fonte unica de espacamento/quantidade de
@@ -110,6 +128,103 @@ const filaPersistencia = new FilaPersistencia({
 /** Ultimo status do backend de visao conhecido (motor/modelos/carregados), para o diagnostico. */
 let infoVisao: api.InfoVisao | null = null;
 
+/** MediaRecorder nativo adaptado à superfície injetável do gravador de segmentos. */
+function criarRecorderNativo(stream: unknown, mimeType: string): RecorderLike {
+  const recorder = new MediaRecorder(stream as MediaStream, { mimeType });
+  // BlobEvent/ErrorEvent são estruturalmente compatíveis em tempo de execução;
+  // as typings do DOM não casam com a assinatura simplificada e injetável.
+  return recorder as unknown as RecorderLike;
+}
+
+/**
+ * Câmera de Segurança (Fase 3): gravação em segmentos, independente do ciclo de
+ * análise. A câmera precisa estar ligada porque o `MediaRecorder` usa o mesmo
+ * stream do elemento `<video>`.
+ */
+const monitoramento = new ControladorMonitoramento({
+  api: apiMonitoramentoCliente,
+  agoraMs: () => Date.now(),
+  criarGravador: () => {
+    const stream = camera.obterStream();
+    if (!stream) throw new ErroGravacaoSegmento("Ligue a webcam antes de gravar");
+    const mimeType = escolherMimeTypeVideo();
+    return new GravadorSegmentos({
+      stream,
+      criarRecorder: criarRecorderNativo,
+      agoraMs: () => Date.now(),
+      mimeType,
+    });
+  },
+  agendarTick: (tick, periodoMs) => {
+    const id = window.setInterval(() => void tick(), periodoMs);
+    return () => window.clearInterval(id);
+  },
+  aoEstado: (estado) => {
+    atualizarIndicadorGravacao(estado);
+    atualizarBotoesMonitoramento();
+    atualizarDiagnostico();
+  },
+  aoSegmento: () => {
+    atualizarIndicadorGravacao(monitoramento.estadoAtual);
+    atualizarDiagnostico();
+  },
+  aoErro: (erro) => {
+    monitorAvisoEl.textContent = erro.message;
+    monitorAvisoEl.hidden = false;
+    // Uma falha de upload cria um pendente sem mudar o estado da sessão.
+    atualizarBotoesMonitoramento();
+    atualizarDiagnostico();
+  },
+});
+
+function monitorAtivo(): boolean {
+  const estado = monitoramento.estadoAtual;
+  return estado === "iniciando" || estado === "gravando" || estado === "pausada";
+}
+
+function atualizarIndicadorGravacao(estado: EstadoMonitoramento): void {
+  if (estado !== "gravando") {
+    gravacaoIndicadorEl.hidden = true;
+    return;
+  }
+  gravacaoIndicadorEl.hidden = false;
+  const segmento = monitoramento.segmentoAtual;
+  gravacaoTextoEl.textContent = segmento
+    ? `Gravando · segmento ${segmento}`
+    : "Gravando · aguardando primeiro quadro";
+}
+
+function atualizarBotoesMonitoramento(): void {
+  const estado = monitoramento.estadoAtual;
+  const cameraPronta = running && camera.ativa;
+  const podeIniciar = estado === "parada" || estado === "erro" || estado === "encerrada";
+  monitorIniciarBtn.disabled = !cameraPronta || !podeIniciar;
+  monitorPausarBtn.disabled = estado !== "gravando";
+  monitorRetomarBtn.disabled = estado !== "pausada";
+  monitorEncerrarBtn.disabled = estado !== "gravando" && estado !== "pausada";
+  monitorReenviarBtn.disabled = monitoramento.uploadsPendentes === 0;
+}
+
+async function iniciarMonitoramento(): Promise<void> {
+  monitorAvisoEl.hidden = true;
+  const ambiente = monitorAmbienteInput.value.trim() || "sala";
+  try {
+    await monitoramento.iniciar(ambiente);
+    setStatus(`Gravando a sessão "${ambiente}" — segmentos de 5 minutos.`);
+  } catch (err) {
+    setStatus(`Falha ao iniciar a gravação: ${(err as Error).message}`);
+  }
+}
+
+async function encerrarMonitoramento(): Promise<void> {
+  try {
+    await monitoramento.encerrar();
+    setStatus("Gravação encerrada.");
+  } catch (err) {
+    setStatus(`Falha ao encerrar a gravação: ${(err as Error).message}`);
+  }
+}
+
 /** Renderizacao do progresso emitido pelo `CycleController` (sem logica de negocio aqui). */
 function aoUi(evento: EventoUi): ItemHistorico | void {
   switch (evento.tipo) {
@@ -149,6 +264,7 @@ function aoUi(evento: EventoUi): ItemHistorico | void {
       running = true;
       stopBtn.disabled = false;
       atualizarBotoesAnalise();
+      atualizarBotoesMonitoramento();
       atualizarDiagnostico();
       // O modelo de visao pode ter subido junto com a inicializacao.
       void verificarVisao();
@@ -156,12 +272,14 @@ function aoUi(evento: EventoUi): ItemHistorico | void {
     case "falha_inicializacao":
       running = false;
       restaurarInterfaceIdle();
+      atualizarBotoesMonitoramento();
       atualizarDiagnostico();
       setStatus(evento.mensagem);
       return;
     case "parado":
       running = false;
       restaurarInterfaceIdle();
+      atualizarBotoesMonitoramento();
       atualizarDiagnostico();
       setStatus("Parado.");
       return;
@@ -446,6 +564,15 @@ function atualizarDiagnostico(): void {
   const fila = filaPersistencia.estado;
   if (fila.pendentes > 0) partes.push(`fila ${fila.pendentes}`);
   if (fila.falhas > 0) partes.push(`falhas de persistencia ${fila.falhas}`);
+
+  const estadoGravacao = monitoramento.estadoAtual;
+  if (estadoGravacao !== "parada") {
+    partes.push(`gravacao ${estadoGravacao}`);
+    if (monitoramento.segmentoAtual) partes.push(`segmento ${monitoramento.segmentoAtual}`);
+    if (monitoramento.uploadsPendentes > 0) {
+      partes.push(`uploads pendentes ${monitoramento.uploadsPendentes}`);
+    }
+  }
 
   diagInfoEl.textContent = `Diagnostico: ${partes.join(" · ")}`;
   diagInfoEl.title = partes.join("\n");
@@ -785,7 +912,43 @@ detectorCoco.aoStatus = (mensagem) => {
 };
 
 startBtn.addEventListener("click", () => void controlador().iniciar());
-stopBtn.addEventListener("click", () => controlador().parar());
+stopBtn.addEventListener("click", () => {
+  void (async () => {
+    // O stream da câmera será interrompido: feche a gravação antes disso.
+    if (monitorAtivo()) await encerrarMonitoramento();
+    controlador().parar();
+  })();
+});
+
+/** Executa um comando de gravação e mantém botões/diagnóstico sincronizados. */
+async function comandoMonitoramento(acao: () => Promise<void>, mensagem: string): Promise<void> {
+  monitorAvisoEl.hidden = true;
+  try {
+    await acao();
+    atualizarBotoesMonitoramento();
+    atualizarDiagnostico();
+    setStatus(mensagem);
+  } catch (err) {
+    setStatus(`Falha no comando de gravação: ${(err as Error).message}`);
+  }
+}
+
+monitorIniciarBtn.addEventListener("click", () => void iniciarMonitoramento());
+monitorPausarBtn.addEventListener("click", () =>
+  void comandoMonitoramento(() => monitoramento.pausar(), "Gravação pausada.")
+);
+monitorRetomarBtn.addEventListener("click", () =>
+  void comandoMonitoramento(() => monitoramento.retomar(), "Gravação retomada.")
+);
+monitorEncerrarBtn.addEventListener("click", () => void encerrarMonitoramento());
+monitorReenviarBtn.addEventListener("click", () =>
+  void (async () => {
+    const enviados = await monitoramento.reenviarPendentes();
+    atualizarBotoesMonitoramento();
+    atualizarDiagnostico();
+    setStatus(`${enviados} gravação(ões) reenviada(s).`);
+  })()
+);
 analisarAgoraBtn.addEventListener("click", () => {
   if (!running || motorSelect.value !== "eventos") return;
   controlador().solicitarManual();
@@ -845,6 +1008,7 @@ nsfwToggle.addEventListener("change", () => {
 
 carregarModeloVisaoSalvo();
 atualizarContagem();
+atualizarBotoesMonitoramento();
 atualizarDiagnostico();
 void carregarHistorico();
 void carregarContexto();

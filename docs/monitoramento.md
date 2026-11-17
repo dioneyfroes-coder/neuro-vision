@@ -2,7 +2,7 @@
 
 Núcleo determinístico do modo **Câmera de Segurança**: sessões de monitoramento, segmentos de vídeo de 5 minutos, lacunas explícitas e buffer circular pré-evento. O objetivo é que a gravação rode **independente** do ciclo de snapshots da interface — a análise multimodal pode atrasar ou falhar sem interromper a linha do tempo de vídeo.
 
-> **Escopo atual.** Esta página documenta o que já existe: os contratos de domínio (`src/domain/monitoramento.ts` e `src/domain/cena.ts`), as classes puras (`src/monitoramento/gerenciador-gravacao.ts` e `src/monitoramento/buffer-circular.ts`), os serviços com índice durável (`src/monitoramento/servico-monitoramento.ts` e `src/monitoramento/servico-cena.ts`), as rotas `/api/monitoramento/*`, o armazenamento dos **bytes** em `logs/videos/` (`src/persistence/armazenador-videos.ts`) e a **referência do ambiente** com detecção de mudanças. Ainda **não** há gravador `MediaRecorder` na interface, criptografia em repouso nem recuperação de sessão ativa após queda. O servidor aceita e persiste bytes e recebe os itens do inventário pela API, mas quem os produz a partir de detecções reais ainda precisa ser integrado; nada aqui deve ser lido como "a câmera já grava e reconhece a cena sozinha em produção".
+> **Escopo atual.** Esta página documenta o que já existe: os contratos de domínio (`src/domain/monitoramento.ts` e `src/domain/cena.ts`), as classes puras (`src/monitoramento/gerenciador-gravacao.ts` e `src/monitoramento/buffer-circular.ts`), os serviços com índice durável (`src/monitoramento/servico-monitoramento.ts` e `src/monitoramento/servico-cena.ts`), as rotas `/api/monitoramento/*`, o armazenamento dos **bytes** em `logs/videos/` (`src/persistence/armazenador-videos.ts`), a **referência do ambiente** e o **gravador do cliente** com interface de sessão (`public/monitoramento/`). Ainda **não** há criptografia em repouso nem recuperação de sessão ativa após queda. O inventário é injetado pela API — quem o produz a partir de detecções reais ainda precisa ser integrado; nada aqui deve ser lido como "a câmera já reconhece a cena sozinha em produção".
 
 ## Contratos
 
@@ -115,6 +115,24 @@ await servico.encerrar(sessao.sessaoId, Date.now());
 - **Sem relógio no domínio.** O armazenador recebe `criadoEmMs`/`agoraMs` de quem chama; o servidor usa `Date.now()` apenas no limite HTTP.
 - **Privacidade.** Arquivos ficam em `logs/videos/`, coberto por `logs/*` no `.gitignore`; vídeos com pessoas nunca devem ser versionados. O conteúdo não é criptografado em repouso nesta versão.
 
+## Gravador do cliente (MediaRecorder)
+
+A interface grava com `MediaRecorder` sobre o **mesmo** `MediaStream` do elemento `<video>` (`Camera.obterStream()`). O código vive em `public/monitoramento/`:
+
+| Arquivo | Papel |
+| --- | --- |
+| `gravador-segmentos.ts` | Abre/fecha um gravador por segmento, junta os pedaços em um `Blob` e espera o evento `stop` antes de devolver os bytes. |
+| `controlador-monitoramento.ts` | Dono da sessão: ticks reportam **só metadados** (`frameId` + `capturadoEmMs`), rotacionam o gravador quando o servidor troca de `segmentoId` e enviam cada blob com o id do segmento que **termina**. |
+| `adaptador-api.ts` | Liga o controlador às funções HTTP de `public/api.ts`, sem `fetch` no controlador. |
+
+- **Injeção total.** Relógio, fábrica do gravador, API e agendador são parâmetros do construtor. Em produção são `Date.now()`, `new MediaRecorder(...)`, o adaptador HTTP e `setInterval`; nos testes são falsos, com tick disparado e aguardado manualmente. Nenhum teste depende do relógio de parede.
+- **Rotação sem lacuna.** O gravador do segmento novo começa **antes** de o antigo ser fechado, para não perder quadros no intervalo. O blob antigo é enviado com o `segmentoId` antigo — nunca com o novo. A linha do tempo de cobertura continua sendo decidida pelo servidor, a partir dos timestamps dos quadros.
+- **Falhas não param a gravação.** Se o índice recusar quadros ou o upload falhar, o erro é notificado, o gravador segue gravando e o blob entra em `pendentes`; `reenviarPendentes()` tenta de novo. Se o próprio `MediaRecorder` não consegue iniciar (na abertura ou na rotação), a sessão é interrompida com motivo `falha`, preservando os segmentos já enviados. Comandos, ticks e reenvio são serializados por uma fila interna para evitar corrida na troca de gravador.
+- **Pausa/encerramento/interromper.** Pausa fecha o segmento sem iniciar outro; retomada abre um gravador novo; encerramento e interrupção fecham o último e param o agendador. Ao parar a análise pela interface, a sessão de gravação é encerrada antes de as trilhas da câmera serem interrompidas.
+- **UI.** Os botões *Gravar / Pausar / Retomar / Encerrar / Reenviar pendentes* e o indicador de gravação (com o `segmentoId` corrente) ficam em `public/index.html`, com estilos em `public/style.css` e composição em `public/app.ts`. A câmera precisa estar ligada para gravar.
+
+> **Limite de precisão.** A troca de gravador acontece no tick que **observa** o novo segmento (intervalo padrão de 1 s), não no limite exato dos 5 minutos calculado pelo servidor. Isso pode deslocar o início dos bytes em até um período de tick. Os metadados de cobertura (`[inicioMs, fimMs)`) continuam exatos no índice do servidor; o blob é apenas a evidência de vídeo associada àquele segmento.
+
 ## Referência do ambiente e mudanças
 
 `ServicoCena` (`src/monitoramento/servico-cena.ts`) compõe as regras puras de `src/domain/cena.ts` com um índice JSONL append-only: `logs/cena-referencias.jsonl` (uma linha por versão do inventário) e `logs/cena-mudancas.jsonl` (uma linha por mudança deduplicada). Como o gerenciador de gravação, o serviço **não lê o relógio** — `criadaEmMs` e `detectadoEmMs` vêm de quem chama; as mutações são serializadas por fila interna. A sessão precisa existir no índice de `ServicoMonitoramento`, senão a rota responde `404`; comparar sem referência responde `409`. Ver [`cena.md`](./cena.md) para as regras completas.
@@ -170,14 +188,13 @@ A sobreposição do segmento vivo faz a consulta mostrar `quadros` atualizados m
 
 A Fase 3 do roteiro também pede:
 
-- produzir os bytes na interface (`MediaRecorder`) e enviá-los automaticamente ao servidor, incluindo a retomada após falha de upload;
 - popular o inventário a partir de detecções reais (hoje os itens são injetados pela API) e validar a detecção de mudanças controladas com captura real;
 - criptografia em repouso e controle de acesso aos arquivos;
-- interface de sessão (iniciar/pausar/retomar/encerrar) e indicador de gravação;
+- sincronizar o início dos bytes do `MediaRecorder` com o limite exato do segmento (hoje a troca acontece no tick que observa a mudança);
 - recuperar uma sessão que ficou `ativa` no índice após queda do processo;
 - associar eventos persistidos aos segmentos (`segmentoId`) e reproduzir o trecho correspondente;
 - medição de perda/sobreposição com captura real e falhas de disco.
 
-Até lá, o que está garantido é a **regra** de segmentação, a janela pré-evento, o índice durável, as rotas de consulta, o armazenamento/exclusão/retenção de bytes recebidos e a comparação de cena a partir de itens injetados, cobertos por testes determinísticos em `tests/monitoramento.test.ts`, `tests/monitoramento-persistencia.test.ts`, `tests/server-monitoramento.test.ts`, `tests/armazenamento-videos.test.ts`, `tests/server-videos.test.ts`, `tests/cena.test.ts`, `tests/cena-persistencia.test.ts` e `tests/server-cena.test.ts`.
+Até lá, o que está garantido é a **regra** de segmentação, a janela pré-evento, o índice durável, as rotas de consulta, o armazenamento/exclusão/retenção de bytes, a gravação no cliente com reenvio de falhas e a comparação de cena a partir de itens injetados, cobertos por testes determinísticos em `tests/monitoramento.test.ts`, `tests/monitoramento-persistencia.test.ts`, `tests/server-monitoramento.test.ts`, `tests/armazenamento-videos.test.ts`, `tests/server-videos.test.ts`, `tests/cena.test.ts`, `tests/cena-persistencia.test.ts`, `tests/server-cena.test.ts` e `tests/gravador-cliente.test.ts`.
 
 Vídeos com pessoas são dados sensíveis: os arquivos ficam em `logs/videos/`, fora do versionamento. Ver [`limites.md`](./limites.md) e [`seguranca.md`](./seguranca.md).

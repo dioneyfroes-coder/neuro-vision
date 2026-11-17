@@ -76,6 +76,10 @@ public/
   capture/
     webcam-capture.ts    coleta snapshots identificados em intervalo (sem inferência; cancelável)
     snapshot-store.ts    buffer de snapshots com retenção limitada e limpeza
+  monitoramento/
+    gravador-segmentos.ts       MediaRecorder por segmento → Blob (fecha no evento `stop`)
+    controlador-monitoramento.ts sessão, ticks de metadados, rotação, upload e pendentes
+    adaptador-api.ts            liga o controlador às funções HTTP de `api.ts`
   perception/
     contracts.ts       portas `DetectorObjetos`, `EstimadorPose`, `ReconhecedorGestos` e `ClassificadorNsfw` (sem SDK de modelo)
     local-perception-pipeline.ts  pipeline paralelo por snapshot (subsistemas) com isolamento de falhas
@@ -309,7 +313,7 @@ A persistência é separada do servidor HTTP (`src/persistence/`), com uma primi
 - **IDs únicos.** `sessionId`, `cycleId` e `frameId` são gerados em `src/domain/ids.ts` com um componente aleatório/sequencial de sessão, o que evita colisão com o histórico de execuções anteriores.
 - **Idempotência.** Os eventos guardam uma `idempotencyKey` por arquivo (`repositorio-eventos.ts`), de modo que o reenvio da fila de persistência do cliente após uma falha transitória não duplica o evento. A memória temporal usa a mesma chave por arquivo com `eventoId:estado`; limpar qualquer um dos streams invalida as chaves antigas daquele arquivo.
 - **Idempotência de leitura/`response.ok`.** O cliente (`public/api.ts`) só trata uma operação como concluída após `response.ok`; `gravarCiclo`/`listarCiclos` seguem o mesmo contrato das demais rotas.
-- **Monitoramento separa índice de vídeo.** `ServicoMonitoramento` compõe o `GerenciadorGravacao` com o índice append-only e publica sessões/segmentos nas transições (abertura/fechamento de segmento), sem uma linha por quadro. As rotas `/api/monitoramento/*` expõem esse índice; os bytes são gravados por `ArmazenadorVideos` em `logs/videos/`, com upload idempotente, retenção configurável e exclusão por segmento/sessão. O gravador `MediaRecorder` do cliente ainda não foi integrado — ver [`monitoramento.md`](./monitoramento.md).
+- **Monitoramento separa índice de vídeo.** `ServicoMonitoramento` compõe o `GerenciadorGravacao` com o índice append-only e publica sessões/segmentos nas transições (abertura/fechamento de segmento), sem uma linha por quadro. As rotas `/api/monitoramento/*` expõem esse índice; os bytes são gravados por `ArmazenadorVideos` em `logs/videos/`, com upload idempotente, retenção configurável e exclusão por segmento/sessão. No cliente, `public/monitoramento/` grava com `MediaRecorder` sobre o stream da câmera, rotaciona no tick que observa a troca de segmento e reenvia uploads falhos, com relógio/gravador/API/agendador injetados — ver [`monitoramento.md`](./monitoramento.md).
 - **Cena: baseline estático, não sinal por frame.** `ServicoCena` compara os itens injetados com uma referência persistida e deduplica por `mudancaId` estável (`sessaoId|tipo|objetoId|referenciaEmMs`). Ausência explícita (`nao_observado`) gera hipótese com confiança limitada; falta de menção não gera mudança. É distinto do `DetectorMudancaDeCena` do motor temporal, que emite sinais por frame — ver [`cena.md`](./cena.md).
 - **Semântica de "limpar histórico".** `DELETE /api/logs` apaga os **dados persistidos** (observações, eventos visuais, memória temporal de gestos/postura, registros de ciclo e os snapshots que ficaram órfãos) — não é o mesmo que **resetar o estado temporal em memória** do cliente, que é uma ação separada. `DELETE /api/eventos`, `DELETE /api/eventos-temporais` e `DELETE /api/ciclos` limpam apenas o seu próprio arquivo.
 

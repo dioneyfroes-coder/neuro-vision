@@ -77,6 +77,27 @@
           />
         </label>
       </div>
+      <div class="monitor">
+        <div class="monitor-head">
+          <h2>Câmera de Segurança</h2>
+          <span id="gravacaoIndicador" class="gravacao-indicador" hidden>
+            <span class="gravacao-ponto" aria-hidden="true"></span>
+            <span id="gravacaoTexto">Gravando</span>
+          </span>
+        </div>
+        <div class="monitor-controles">
+          <label>
+            Ambiente
+            <input id="monitorAmbiente" type="text" maxlength="80" value="sala" title="Rótulo livre da sessão de gravação" />
+          </label>
+          <button id="monitorIniciar" type="button" disabled>Gravar</button>
+          <button id="monitorPausar" type="button" disabled>Pausar</button>
+          <button id="monitorRetomar" type="button" disabled>Retomar</button>
+          <button id="monitorEncerrar" type="button" disabled>Encerrar</button>
+          <button id="monitorReenviar" class="ghost" type="button" disabled>Reenviar pendentes</button>
+        </div>
+        <span id="monitorAviso" class="aviso monitor-aviso" role="alert" hidden></span>
+      </div>
       <div id="status" class="status">Pronto.</div>
     </section>
 
