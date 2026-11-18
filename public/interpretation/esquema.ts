@@ -100,6 +100,29 @@ export interface CaixaNormalizada {
   ymax: number;
 }
 
+/**
+ * Atencao por proximidade a maos/corpo (Fase 4). Ordena a evidencia; nao muda
+ * o grau de certeza da deteccao nem afirma contato.
+ */
+export interface ProximidadeObjeto {
+  /** `mao`/`corpo` quando dentro do raio configurado; `contexto` caso contrario. */
+  prioridade: "mao" | "corpo" | "contexto";
+  /** Distancia normalizada ate o punho mais proximo, quando ha maos. */
+  mao?: number;
+  /** Distancia normalizada ate o torso mais proximo, quando ha pose. */
+  corpo?: number;
+}
+
+/** Resumo de deteccoes compactadas por teto (evidencia reduzida, nao ausencia). */
+export interface DeteccoesReduzidas {
+  rotulo: string;
+  quantidade: number;
+  /** Faixas de prioridade presentes no grupo compactado. */
+  prioridades: Array<ProximidadeObjeto["prioridade"]>;
+  /** IDs rastreados preservados, quando disponiveis. */
+  trackIds: string[];
+}
+
 /** Deteccao observada pelo detector de objetos. */
 export interface DeteccaoObservada {
   /** Rotulo do detector, em portugues quando traduzivel (ex.: `pessoa`). */
@@ -110,6 +133,8 @@ export interface DeteccaoObservada {
   caixa: CaixaNormalizada;
   /** ID da instancia rastreada, nao do rotulo/classe do detector. */
   trackId?: string;
+  /** Ordem por proximidade a maos/corpo; ausente na variante sem dados locais. */
+  proximidade?: ProximidadeObjeto;
 }
 
 /** Keypoint nomeado com confianca por ponto. */
@@ -265,6 +290,7 @@ export type GrupoTruncamento =
   | "evidencias_eventos"
   | "eventos_nao_confirmados"
   | "deteccoes"
+  | "deteccoes_reduzidas"
   | "pessoas"
   | "maos";
 
@@ -328,6 +354,11 @@ export interface ContextoCicloSerializavel {
   };
   /** Subsistemas indisponiveis (sinalizacao de falha != ausencia). */
   indisponibilidades: string[];
+  /**
+   * Deteccoes observadas e compactadas por teto, agrupadas por rotulo. Evidencia
+   * reduzida: o objeto foi visto, mas os detalhes nao couberam no payload.
+   */
+  deteccoesReduzidas?: DeteccoesReduzidas[];
   /**
    * Registro explicito de compactacao: presente quando qualquer grupo foi
    * podado, mesmo que o payload final caiba no teto. Ausente quando nada foi

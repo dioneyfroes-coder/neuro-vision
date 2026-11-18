@@ -1,4 +1,11 @@
-import type { CadenciaPercepcao, ResumoTemporal, TipoEventoTemporal } from "../../src/domain";
+import {
+  cadenciaParaModo,
+  type CadenciaPercepcao,
+  type ConfigFrequenciaAdaptativa,
+  type ModoFrequencia,
+  type ResumoTemporal,
+  type TipoEventoTemporal,
+} from "../../src/domain";
 import type {
   FrequenciaInterpretacao,
   FinalidadePoliticaCiclo,
@@ -39,6 +46,13 @@ export interface PoliticaCiclo {
    * um subsistema nunca e amostrado mais rapido que a captura.
    */
   cadencia?: CadenciaPercepcao;
+  /**
+   * Eleva a cadencia quando o motor confirma a entrada de uma pessoa (Fase 4).
+   * O redutor e puro e determinístico por timestamps; a volta ao ritmo base tem
+   * histerese por quantidade de ciclos e por tempo desde a ultima evidencia.
+   * Ausente = frequencia fixa (comportamento anterior preservado).
+   */
+  frequenciaAdaptativa?: ConfigFrequenciaAdaptativa;
 }
 
 /**
@@ -124,6 +138,31 @@ export const POLITICA_CICLO_BENCHMARK_5FPS: PoliticaCiclo = {
 };
 
 /**
+ * Politica de benchmark da frequencia adaptativa (Fase 4, item 3).
+ *
+ * Base: 5 snapshots a 200 ms com maos a 2,5 FPS e pose/deteccao a 1 Hz. Depois
+ * de uma entrada confirmada, maos passam a 5 FPS e pose a 2 Hz ate a saida ser
+ * confirmada e a histerese terminar. O ganho aparece em
+ * `metricas.amostragem.porSubsistema.maos.fpsEfetivo` do ciclo seguinte.
+ */
+export const POLITICA_CICLO_BENCHMARK_ADAPTATIVA: PoliticaCiclo = {
+  id: "benchmark-adaptativa",
+  finalidade: "benchmark",
+  referencia: "200ms-adaptativa",
+  intervaloEntreSnapshotsMs: 200,
+  quantidadeSnapshots: 5,
+  pausaAposCicloMs: 1000,
+  interpretacao: "a_cada_ciclo",
+  cadencia: { maosMs: 400, poseMs: 1000, deteccaoMs: 1000 },
+  frequenciaAdaptativa: {
+    cadenciaAtencao: { maosMs: 200, poseMs: 500 },
+    framesParaEntrar: 1,
+    framesParaSair: 3,
+    manterAposUltimaEvidenciaMs: 1500,
+  },
+};
+
+/**
  * Politica padrao mantida para compatibilidade com codigo existente.
  * O modo operacional da interface deve passar explicitamente sua politica.
  */
@@ -134,14 +173,26 @@ export { POLITICA_CICLO_OPERACIONAL as POLITICA_CICLO_PADRAO_OPERACIONAL };
  * Usa a definicao completa quando disponivel, senao deriva os campos basicos.
  */
 export function aplicarPolitica(
-  politica: PoliticaCiclo | PoliticaCicloAplicada
+  politica: PoliticaCiclo | PoliticaCicloAplicada,
+  modoFrequencia: ModoFrequencia = "base"
 ): PoliticaCicloAplicada {
   if ("janelaNominalMs" in politica) return politica;
   const janelaNominalMs =
     politica.quantidadeSnapshots > 0
       ? politica.intervaloEntreSnapshotsMs * Math.max(0, politica.quantidadeSnapshots - 1)
       : 0;
-  return { ...politica, janelaNominalMs };
+  const { frequenciaAdaptativa, ...base } = politica;
+  const cadencia = frequenciaAdaptativa
+    ? cadenciaParaModo(frequenciaAdaptativa, modoFrequencia, politica.cadencia)
+    : politica.cadencia;
+  return {
+    ...base,
+    janelaNominalMs,
+    ...(cadencia ? { cadencia } : {}),
+    ...(frequenciaAdaptativa
+      ? { frequenciaAdaptativa: { config: frequenciaAdaptativa, estado: modoFrequencia } }
+      : {}),
+  };
 }
 
 /** Decisao da politica sobre a etapa multimodal, com motivo explicito. */

@@ -34,6 +34,10 @@ import { centroidePontos, pontoReferenciaPose } from "./referencia-pose";
 import { distanciaPontos } from "./suavizador";
 import { AvaliadorPoseSexual } from "./regras-pose";
 import { DetectorInteracao, type AmostraInteracao } from "./interacao";
+import {
+  DetectorPresencaPessoas,
+  type AmostraPresenca,
+} from "./presenca-pessoas";
 
 /**
  * Motor temporal (Etapa 6 do roteiro de modularizacao).
@@ -67,6 +71,8 @@ export class MotorTemporalImpl implements MotorTemporal {
   private readonly avaliadorPose: AvaliadorPoseSexual;
   /** Interacoes mao↔objeto com grau de evidencia explicito (Fase 4). */
   private readonly interacoes: DetectorInteracao;
+  /** Entrada/saida de pessoas pelo track de pose (Fase 4). */
+  private readonly presencas: DetectorPresencaPessoas;
   /** Histerese dos cinco dedos por track de mao. */
   private readonly dedosPorEntidade = new Map<string, EstadoDedos>();
   /** Ultima amostra vertical de cada punho por pessoa/lado, para transicao. */
@@ -90,6 +96,7 @@ export class MotorTemporalImpl implements MotorTemporal {
         ...config?.regrasPoseSexual,
       },
       interacao: { ...CONFIG_MOTOR_TEMPORAL_PADRAO.interacao, ...config?.interacao },
+      presenca: { ...CONFIG_MOTOR_TEMPORAL_PADRAO.presenca, ...config?.presenca },
     };
     this.objetos = new RastreadorObjetos();
     this.cena = new DetectorMudancaDeCena();
@@ -102,6 +109,7 @@ export class MotorTemporalImpl implements MotorTemporal {
     this.poseSexual = new MaquinaSinais(this.config.poseSexual);
     this.avaliadorPose = new AvaliadorPoseSexual(this.config.regrasPoseSexual);
     this.interacoes = new DetectorInteracao(this.config.interacao);
+    this.presencas = new DetectorPresencaPessoas(this.config.presenca);
   }
 
   /**
@@ -184,6 +192,10 @@ export class MotorTemporalImpl implements MotorTemporal {
       for (const evento of this.interacoes.interromperPorPeriodoCego(gapMs)) {
         eventos.push(evento);
       }
+      // A presenca tambem nao presume saida atraves da lacuna.
+      for (const evento of this.presencas.interromperPorPeriodoCego(gapMs)) {
+        eventos.push(evento);
+      }
       // Uma lacuna invalida a continuidade de todos os punhos conhecidos.
       this.punhos.clear();
       this.avaliadorPose.limpar();
@@ -192,6 +204,7 @@ export class MotorTemporalImpl implements MotorTemporal {
     for (const obs of observacoes) {
       const tempoMs = obs.capturadoEmMs;
       const frameId = obs.frameId;
+      const indiceEventosDoFrame = eventos.length;
 
       // 1. Rastreamento de objetos (logica existente de rastreamento.ts).
       let deteccoesObservadas = obs.deteccoes;
@@ -275,6 +288,48 @@ export class MotorTemporalImpl implements MotorTemporal {
       // as maquinas de sinal ignoram o frame por completo, preservando
       // candidatos e eventos ativos como se a observacao nao existisse.
       const poseNaoAmostrada = naoFoiAmostrado(obs.pose);
+
+      // 3a. Entrada/saida de pessoas (Fase 4). O detector e alimentado pelo
+      // track de pose enriquecido, entao `entidadeId` e o mesmo usado nos demais
+      // eventos de pose. Frame pulado pela cadencia e preservado; falha de
+      // inferencia nao conta como "a pessoa saiu".
+      if (!poseNaoAmostrada) {
+        const amostras = this.montarAmostrasPresenca(
+          posesComTrackId,
+          sessionId,
+          tempoMs,
+          obs.capturadoEm,
+          frameId,
+          obs.cycleId
+        );
+        for (const evento of this.presencas.processar(
+          amostras,
+          {
+            sessionId,
+            frameId,
+            timestamp: obs.capturadoEm,
+            tempoMs,
+            cycleId: obs.cycleId,
+          },
+          { indisponivel: !poseDisponivel }
+        )) {
+          eventos.push(evento);
+        }
+
+        // Quando a pose esta disponivel, ela e a fonte autoritativa de presenca
+        // de pessoas: o evento de caixa COCO `person` do rastreador de objetos
+        // seria um segundo par entrada/saida para a mesma entidade fisica.
+        if (poseDisponivel && this.pessoas.vivas.length > 0) {
+          for (let i = eventos.length - 1; i >= indiceEventosDoFrame; i -= 1) {
+            const evento = eventos[i];
+            const ehPresencaDeObjeto =
+              (evento.tipo === "aparicao" || evento.tipo === "desaparecimento") &&
+              evento.origens.includes("objetos") &&
+              evento.rotuloObjeto === "person";
+            if (ehPresencaDeObjeto) eventos.splice(i, 1);
+          }
+        }
+      }
 
       // 4. Rastreamento de maos em coordenadas normalizadas.
       let maosObservadas = obs.maos;
@@ -514,6 +569,7 @@ export class MotorTemporalImpl implements MotorTemporal {
     this.poseSexual.limpar();
     this.avaliadorPose.limpar();
     this.interacoes.limpar();
+    this.presencas.limpar();
     this.dedosPorEntidade.clear();
     this.punhos.clear();
     this.diagnosticos.clear();
@@ -528,6 +584,66 @@ export class MotorTemporalImpl implements MotorTemporal {
   /** Entidades vivas de maos (exposto para observabilidade/testes). */
   get maosVivas() {
     return this.maos.vivas;
+  }
+
+  /**
+   * Monta uma amostra por track de pose no frame. Tracks que continuam vivos
+   * mas nao foram associados a nenhuma sonda entram como `observado: false`:
+   * e essa distincao que permite histerese sem confundir oclusao com falha.
+   */
+  private montarAmostrasPresenca(
+    pessoas: PessoaPose[],
+    sessionId: string,
+    tempoMs: number,
+    timestamp: string,
+    frameId: string,
+    cycleId: string
+  ): AmostraPresenca[] {
+    const porId = new Map<string, Entidade>();
+    for (const entidade of this.pessoas.vivas) {
+      porId.set(entidade.entidadeId, entidade);
+    }
+
+    const amostras: AmostraPresenca[] = [];
+    const vistos = new Set<string>();
+    for (const pessoa of pessoas) {
+      if (!pessoa.entidadeId) continue;
+      const entidade = porId.get(pessoa.entidadeId);
+      if (!entidade) continue;
+      vistos.add(pessoa.entidadeId);
+      const referencia = entidade.meta.referenciaPose;
+      amostras.push({
+        sessionId,
+        entidadeId: pessoa.entidadeId,
+        frameId,
+        timestamp,
+        tempoMs,
+        cycleId,
+        observado: entidade.estado === "ativa",
+        continuidadeValida: continuidadeDaEntidade(entidade),
+        confianca: pessoa.confianca ?? entidade.confianca,
+        fonteReferencia: typeof referencia === "string" ? referencia : undefined,
+      });
+    }
+
+    for (const entidade of this.pessoas.vivas) {
+      if (vistos.has(entidade.entidadeId)) continue;
+      const referencia = entidade.meta.referenciaPose;
+      amostras.push({
+        sessionId,
+        entidadeId: entidade.entidadeId,
+        frameId,
+        timestamp,
+        tempoMs,
+        cycleId,
+        observado: false,
+        continuidadeValida: continuidadeDaEntidade(entidade),
+        confianca: entidade.confianca,
+        fonteReferencia: typeof referencia === "string" ? referencia : undefined,
+      });
+    }
+
+    return amostras;
   }
 
   /**

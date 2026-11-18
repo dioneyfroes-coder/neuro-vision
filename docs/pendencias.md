@@ -108,19 +108,17 @@ As metas são **proposta inicial**: quando a primeira linha de base for medida, 
 
 > **Cobertura determinística já existente (Fase 2.6):** o motor temporal tem testes sintéticos para oclusão curta, movimento rápido, queda de confiança/iluminação e troca de gesto — listados em [`qualidade.md`](./qualidade.md#testes-de-estresse-do-motor-temporal-fase-26). Eles validam a **regra** (não duplicar, não encerrar sem substituto confirmado, não herdar track após salto); não substituem a medição de precisão e recall em vídeo real descrita acima.
 
-## Fase 4 — Itens de atenção orientada a eventos ainda abertos
+## Fase 4 — Itens de atenção orientada a eventos
 
-**Status:** em andamento. O slice de **interação mão↔objeto** (itens 5–7 do roteiro) já está implementado e coberto por testes determinísticos: eventos `interacao_objeto` com graus `incerto`/`provavel`/`confirmado`, início/fim, `participantes` e frames de evidência, sem transformar proximidade em contato confirmado (ver [`eventos.md`](./eventos.md#interação-mãoobjeto-fase-4)). O item 2 (IDs temporários de rastreamento) veio da Fase 2.
+**Status:** concluída em 2026-11-18. Os itens 1, 3 e 4, que permaneciam abertos, foram implementados e cobertos por testes determinísticos; o item 2 (IDs temporários de rastreamento) veio da Fase 2 e o slice de **interação mão↔objeto** (itens 5–7) já estava concluído.
 
-Os itens abaixo permanecem **em aberto** — não são avaliações adiadas, mas funções ainda não implementadas. Registrá-los aqui evita que o slice concluído pareça ter fechado a Fase 4 inteira:
-
-| Item do roteiro | O que falta | Critério de aceite |
+| Item do roteiro | Implementação | Verificação determinística |
 | --- | --- | --- |
-| 1 — Entrada e saída de pessoas | Emitir eventos `aparicao`/`desaparecimento` de **pessoas** a partir do track de pose, com o mesmo `entidadeId` e histerese curta para não cintilar em oclusão. Hoje o rastreador de pose mantém IDs, mas não emite esses eventos. | Em clipe controlado, uma pessoa entrando/saindo gera exatamente um par entrada/saída com `frameIds` e timestamps corretos; oclusão curta não gera saída falsa. |
-| 3 — Frequência adaptativa na entrada de pessoas | Elevar a frequência de captura/análise quando uma pessoa entra, com histerese e volta ao ritmo base após a saída — sem depender do relogio de parede nos núcleos puros. | Aumento observável no `fpsEfetivo` no intervalo da entrada, sem duplicar eventos nem introduzir lacunas; política configurável e determinística por timestamps. |
-| 4 — Priorização de objetos próximos | Ordenar/filtrar objetos no contexto multimodal por proximidade a mãos e ao torso, preservando os demais como Evidence reduzida (nunca descartada em silêncio). | Em cena com vários objetos, os próximos às mãos/corpo aparecem primeiro no contexto e a poda é declarada em `truncamento`, sem remover NSFW nem frames de evidência. |
+| 1 — Entrada e saída de pessoas | `DetectorPresencaPessoas` (`public/temporal/presenca-pessoas.ts`) emite `aparicao`/`desaparecimento` a partir do track de pose, com `entidadeId` estável, histerese de entrada/saída, preservação da última evidência e supressão da duplicata `person` do detector de objetos. | `tests/presenca-pessoas.test.ts` e `tests/motor-temporal.test.ts` cobrem o par entrada/saída, `frameIds`/timestamps, oclusão curta, período cego, pose não amostrada e estabilidade do ID. |
+| 3 — Frequência adaptativa na entrada de pessoas | `src/domain/frequencia-adaptativa.ts` reduz o estado por timestamps, sem relógio de parede. `politicaCiclo.frequenciaAdaptativa` e `POLITICA_CICLO_BENCHMARK_ADAPTATIVA` (`?benchmark=adaptativa`) aplicam a cadência efetiva antes de `planejarAmostragem`; a histerese combina `framesParaSair` e `manterAposUltimaEvidenciaMs`. | `tests/frequencia-adaptativa.test.ts` cobre entrada, oclusão, saída com histerese e determinismo; `tests/ciclo-percepcao-controller.test.ts` confere `fpsEfetivo` 2,5 → 5 no intervalo da entrada e a volta à base. |
+| 4 — Priorização de objetos próximos | `public/interpretation/proximidade-objetos.ts` ordena detecções por distância ao punho/torso (`proximidade`), mantém as demais e registra o excedente compactado em `deteccoesReduzidas` e `truncamento.gruposRemovidos`. NSFW e frames de evidência nunca entram na poda. | `tests/proximidade-objetos.test.ts` e `tests/contexto-esquema.test.ts` cobrem ordem, não descarte silencioso, poda declarada e preservação de NSFW/evidência. |
 
-Ao concluir cada item, atualizar esta tabela e a seção de interação em [`eventos.md`](./eventos.md). O critério geral da Fase 4 — “registrar sequências simples de interação sem transformar proximidade em contato confirmado” — **já é atendido** pelo slice implementado.
+A documentação do comportamento implementado está em [`eventos.md`](./eventos.md#entrada-e-saída-de-pessoas-fase-4), [`eventos.md`](./eventos.md#interação-mãoobjeto-fase-4) e [`arquitetura.md`](./arquitetura.md#frequência-adaptativa-na-entrada-de-pessoas-fase-4). O critério geral da Fase 4 — “registrar sequências simples de interação sem transformar proximidade em contato confirmado” — continua atendido. A validação com vídeos reais anotados da Fase 1.5–1.6 segue adiada e **não** é pré-requisito para esta conclusão técnica.
 
 ## Outras pendências registradas
 

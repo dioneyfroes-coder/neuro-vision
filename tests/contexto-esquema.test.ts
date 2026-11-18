@@ -461,6 +461,66 @@ describe("Fase 3 — compactacao preserva a evidencia", () => {
     ).toBe(true);
   });
 
+  it("ordena por proximidade e registra objetos podados como evidencia reduzida", () => {
+    const distante = {
+      nome: "livro",
+      rotulo: "book",
+      score: 0.9,
+      caixa: { xmin: 185, ymin: 375, xmax: 195, ymax: 385 },
+    };
+    const pertoCorpo = {
+      nome: "garfo",
+      rotulo: "fork",
+      score: 0.6,
+      caixa: { xmin: 55, ymin: 155, xmax: 65, ymax: 165 },
+    };
+    const pertoMao = {
+      nome: "copo",
+      rotulo: "cup",
+      score: 0.7,
+      caixa: { xmin: 95, ymin: 235, xmax: 105, ymax: 245 },
+    };
+    const o = observacao({
+      deteccoes: {
+        deteccoes: [distante, pertoCorpo, pertoMao],
+        dimensoes: { largura: 200, altura: 400 },
+      },
+      nsfw: {
+        marcacoes: [
+          { rotulo: "porn", score: 0.9, caixa: { xmin: 20, ymin: 40, xmax: 100, ymax: 200 } },
+        ],
+      },
+    });
+    const confirmado = evento({
+      eventoId: "e-evidencia",
+      estado: "confirmado",
+      frameIds: ["f1"],
+    });
+
+    const completo = montarContextoCiclo(pacote([o], [confirmado])).contexto;
+    expect(completo.frames[0].deteccoes.map((d) => d.rotulo)).toEqual([
+      "cup",
+      "fork",
+      "book",
+    ]);
+    expect(completo.frames[0].deteccoes[0].proximidade?.prioridade).toBe("mao");
+    expect(completo.frames[0].deteccoes[1].proximidade?.prioridade).toBe("corpo");
+
+    const { contexto } = montarContextoCiclo(pacote([o], [confirmado]), {
+      maxBytesContexto: tamanhoBytesUtf8(completo) - 700,
+    });
+    expect(contexto.frames[0].deteccoes.map((d) => d.rotulo)).toEqual(["cup"]);
+    expect(contexto.deteccoesReduzidas?.map((g) => g.rotulo)).toContain("book");
+    expect(
+      contexto.truncamento?.gruposRemovidos.some((g) => g.grupo === "deteccoes_reduzidas")
+    ).toBe(true);
+    // NSFW e a unica evidencia do evento confirmado nunca entram na poda.
+    expect(contexto.frames[0].nsfw).toHaveLength(1);
+    expect(contexto.eventosTemporais.find((e) => e.eventoId === "e-evidencia")?.evidencias).toEqual([
+      "f1",
+    ]);
+  });
+
   it("nunca perde silenciosamente a unica evidencia de um evento confirmado", () => {
     const confirmado = evento({
       eventoId: "e-unica",

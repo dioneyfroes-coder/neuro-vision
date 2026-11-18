@@ -34,6 +34,10 @@ exports[`Fase 3 — compactacao preserva a evidencia > snapshot do payload multi
               "ymin": 0.05,
             },
             "label": "pessoa",
+            "proximidade": {
+              "corpo": 0.09,
+              "prioridade": "corpo",
+            },
             "rotulo": "person",
             "score": 0.8,
           },

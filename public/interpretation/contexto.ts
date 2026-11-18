@@ -22,6 +22,10 @@ import {
   type ObservacaoLocalSerializavel,
   type OpcoesSerializacao,
 } from "./esquema";
+import {
+  priorizarDeteccoes,
+  type ConfigProximidadeObjetos,
+} from "./proximidade-objetos";
 
 /** Reexporta o schema versionado para consumidores do contexto. */
 export * from "./esquema";
@@ -85,6 +89,11 @@ export interface OpcoesContexto {
    * `OPCOES_SERIALIZACAO_PADRAO`, com `decimais` herdado de `LimitesContexto`.
    */
   serializacao?: Partial<OpcoesSerializacao>;
+  /**
+   * Raios de atencao para ordenar objetos por proximidade a maos/corpo (Fase 4).
+   * Nao altera certeza: apenas a ordem em que a evidencia e apresentada.
+   */
+  proximidadeObjetos?: Partial<ConfigProximidadeObjetos>;
 }
 
 /**
@@ -116,6 +125,7 @@ export function montarContextoCiclo(
       incluirDadosLocais,
       serializacao,
       posicoesAnteriores,
+      proximidadeObjetos: opcoes.proximidadeObjetos,
     });
     posicoesAnteriores = montado.posicoes;
     frames.push(montado.observacao);
@@ -176,6 +186,7 @@ function montarObservacao(
     incluirDadosLocais: boolean;
     serializacao: OpcoesSerializacao;
     posicoesAnteriores: Map<string, { x: number; y: number; tMs: number }>;
+    proximidadeObjetos?: Partial<ConfigProximidadeObjetos>;
   }
 ): FrameMontado {
   const { incluirDadosLocais, serializacao } = ctx;
@@ -213,6 +224,15 @@ function montarObservacao(
 
   const movimento = calcularMovimento(obs, ctx.posicoesAnteriores, serializacao.decimais);
 
+  const pessoas = serializarPessoas(obs.pose, serializacao);
+  const maos = serializarMaos(obs.maos, serializacao, dimensoes);
+  const deteccoes = priorizarDeteccoes(
+    serializarDeteccoes(obs.deteccoes, serializacao),
+    maos,
+    pessoas,
+    { decimais: serializacao.decimais, ...ctx.proximidadeObjetos }
+  );
+
   const observacao: ObservacaoLocalSerializavel = {
     versao: VERSAO_ESQUEMA_CONTEXTO,
     frameId: obs.frameId,
@@ -220,9 +240,9 @@ function montarObservacao(
     capturadoEm: obs.capturadoEm,
     offsetMs,
     subsistemas,
-    deteccoes: serializarDeteccoes(obs.deteccoes, serializacao),
-    pessoas: serializarPessoas(obs.pose, serializacao),
-    maos: serializarMaos(obs.maos, serializacao, dimensoes),
+    deteccoes,
+    pessoas,
+    maos,
     movimento: movimento.movimentos,
   };
   if (obs.nsfw !== undefined) {
@@ -423,13 +443,12 @@ function limitarPorBytes(contexto: ContextoCicloSerializavel, maxBytes: number):
   if (cabe()) return finalizar();
 
   // 6. Deteccoes/pessoas/maos. Maos com gesto ou geometria tem prioridade: sao a
-  // evidencia direta de configuracao de dedos/gesto.
-  let removidosDeteccoes = 0;
+  // evidencia direta de configuracao de dedos/gesto. Deteccoes cortadas viram
+  // `deteccoesReduzidas`: evidencia compactada, nunca ausencia silenciosa.
   let removidosPessoas = 0;
   let removidosMaos = 0;
   for (const frame of contexto.frames) {
-    removidosDeteccoes += Math.max(0, frame.deteccoes.length - 3);
-    frame.deteccoes = frame.deteccoes.slice(0, 3);
+    compactarDeteccoes(frame, 3);
     removidosPessoas += Math.max(0, frame.pessoas.length - 2);
     frame.pessoas = frame.pessoas.slice(0, 2);
     const maosPriorizadas = [
@@ -439,28 +458,51 @@ function limitarPorBytes(contexto: ContextoCicloSerializavel, maxBytes: number):
     removidosMaos += Math.max(0, maosPriorizadas.length - 2);
     frame.maos = maosPriorizadas.slice(0, 2);
   }
-  registrar("deteccoes", removidosDeteccoes);
   registrar("pessoas", removidosPessoas);
   registrar("maos", removidosMaos);
   if (cabe()) return finalizar();
 
-  // 7. Ultimo passo nao destrutivo: mantem uma deteccao/pessoa/mao por frame,
-  // ainda priorizando maos com gesto/geometria.
-  removidosDeteccoes = 0;
+  // 7. Ultimo passo: mantem uma deteccao/pessoa/mao por frame, ainda
+  // priorizando maos com gesto/geometria.
   removidosPessoas = 0;
   removidosMaos = 0;
   for (const frame of contexto.frames) {
-    removidosDeteccoes += Math.max(0, frame.deteccoes.length - 1);
-    frame.deteccoes = frame.deteccoes.slice(0, 1);
+    compactarDeteccoes(frame, 1);
     removidosPessoas += Math.max(0, frame.pessoas.length - 1);
     frame.pessoas = frame.pessoas.slice(0, 1);
     removidosMaos += Math.max(0, frame.maos.length - 1);
     frame.maos = frame.maos.slice(0, 1);
   }
-  registrar("deteccoes", removidosDeteccoes);
   registrar("pessoas", removidosPessoas);
   registrar("maos", removidosMaos);
   finalizar();
+
+  /** Move o excedente para o resumo de evidencia reduzida no nivel do contexto. */
+  function compactarDeteccoes(
+    frame: ObservacaoLocalSerializavel,
+    limite: number
+  ): void {
+    const excedente = frame.deteccoes.slice(limite);
+    if (excedente.length === 0) return;
+    frame.deteccoes = frame.deteccoes.slice(0, limite);
+    const resumo = contexto.deteccoesReduzidas ?? [];
+    for (const deteccao of excedente) {
+      const rotulo = deteccao.rotulo;
+      let grupo = resumo.find((item) => item.rotulo === rotulo);
+      if (!grupo) {
+        grupo = { rotulo, quantidade: 0, prioridades: [], trackIds: [] };
+        resumo.push(grupo);
+      }
+      grupo.quantidade += 1;
+      const prioridade = deteccao.proximidade?.prioridade ?? "contexto";
+      if (!grupo.prioridades.includes(prioridade)) grupo.prioridades.push(prioridade);
+      if (deteccao.trackId && !grupo.trackIds.includes(deteccao.trackId)) {
+        grupo.trackIds.push(deteccao.trackId);
+      }
+    }
+    contexto.deteccoesReduzidas = resumo;
+    registrar("deteccoes_reduzidas", excedente.length);
+  }
 
   function finalizar(): void {
     if (remocoes.size === 0) {

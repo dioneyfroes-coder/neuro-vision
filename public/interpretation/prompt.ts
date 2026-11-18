@@ -120,6 +120,10 @@ export function montarPromptInterpretacao(
       : []),
     "",
     "Legenda dos dados locais (evidencia observada, nao inferencia):",
+    "- `deteccoes[]` vem ordenado por proximidade a maos/corpo: `proximidade.prioridade` e `mao`, `corpo` ou `contexto`. " +
+      "Essa ordem e apenas atencao/compactacao; nao muda a certeza da deteccao e proximidade NUNCA prova contato ou acao.",
+    "- `deteccoesReduzidas` lista objetos que foram observados mas compactados por limite de tamanho. " +
+      "Sao evidencia reduzida, nao ausencia: nao os apague da narrativa sem dizer que foram compactados.",
     "- `pessoas[].keypoints` sao keypoints corporais nomeados (ombro, cotovelo, punho, quadril, etc.) com confianca. " +
       "`x`/`y` sao coordenadas 2D normalizadas em [0,1].",
     "- `maos[].landmarks` sao pontos 2D normalizados da mao (subconjunto compacto ou 21 pontos). " +

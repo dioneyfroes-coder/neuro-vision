@@ -7,6 +7,7 @@
 export * from "./ids";
 export * from "./perception";
 export * from "./cadencia";
+export * from "./frequencia-adaptativa";
 export * from "./hand-geometry";
 export * from "./hand-gestures";
 export * from "./observation";

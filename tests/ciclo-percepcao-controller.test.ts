@@ -13,14 +13,17 @@ import type { ConfiguracaoParcial, ModelosPercepcao } from "../public/perception
 import type { DefinicaoModo } from "../public/modos";
 import { VARIANTES_PERCEPCAO } from "../public/perception/variantes";
 import { CONFIG_CAPTURA_PADRAO } from "../public/capture/webcam-capture";
+import type { ConfigCaptura } from "../public/capture/webcam-capture";
 import type { TarefaPersistencia } from "../public/persistencia";
 import type { RegistroCiclo } from "../src/domain/cycle";
 import type { ResultadoInterpretacao } from "../src/domain/interpretation";
 import type { EntradaLog, EventoTemporalEnvio, EventoVisual } from "../src/types";
 import type { EventoTemporal } from "../src/domain/temporal-event";
+import type { ResumoTemporal } from "../src/domain";
 import type { PoliticaCiclo } from "../public/cycle/politica-ciclo";
 import {
   POLITICA_CICLO_BENCHMARK_ALVO,
+  POLITICA_CICLO_BENCHMARK_ADAPTATIVA,
   POLITICA_CICLO_OPERACIONAL,
 } from "../public/cycle/politica-ciclo";
 
@@ -157,6 +160,12 @@ function montar(
     politica?: PoliticaCiclo;
     /** Diagnostico de compactacao devolvido pelo interpretador falso. */
     contextoMultimodal?: ResultadoInterpretacao["contextoMultimodal"];
+    /** Resumo temporal por ciclo, para simular entrada/saida de pessoas. */
+    resumoPorCiclo?: (indice: number) => ResumoTemporal;
+    /** Relogio monotonico injetado na captura (testes de cadencia). */
+    capturaAgora?: () => number;
+    /** Configuracao de captura (quantidade/intervalo de snapshots). */
+    configCaptura?: Partial<ConfigCaptura>;
   } = {}
 ): Contexto {
   const eventos: EventoUi[] = [];
@@ -199,14 +208,20 @@ function montar(
   };
 
   const resetes = vi.fn();
+  let indiceResumo = 0;
   const motorTemporal: MotorTemporal = {
-    processar: () => ({
-      eventos: (opcoes.eventosTemporais ?? []).map((e) => ({ ...e })),
-      tracksAtivos: 0,
-      pessoasAtivas: 0,
-      maosAtivas: 0,
-      objetosAtivos: 0,
-    }),
+    processar: () => {
+      const resumo = opcoes.resumoPorCiclo?.(indiceResumo++) ?? {
+        eventos: (opcoes.eventosTemporais ?? []).map((e) => ({ ...e })),
+        tracksAtivos: 0,
+        pessoasAtivas: 0,
+        maosAtivas: 0,
+        objetosAtivos: 0,
+      };
+      // O motor falso nao enriquece observacoes: omitir o campo preserva o
+      // fallback do ciclo (usar as observacoes originais).
+      return resumo as ReturnType<MotorTemporal["processar"]>;
+    },
     resetar: resetes,
   };
   const modosTemporais: string[] = [];
@@ -276,8 +291,11 @@ function montar(
     }),
     obterIntervaloMs: () => 4000,
     politicaCiclo: opcoes.politica,
-    configuracaoCaptura: CONFIG_CAPTURA,
-    dependenciasCaptura: DEPS_CAPTURA,
+    configuracaoCaptura: { ...CONFIG_CAPTURA, ...opcoes.configCaptura },
+    dependenciasCaptura: {
+      ...DEPS_CAPTURA,
+      ...(opcoes.capturaAgora ? { agora: opcoes.capturaAgora } : {}),
+    },
   };
 
   return {
@@ -799,6 +817,71 @@ describe("CicloPercepcaoController", () => {
     ctx.controle.solicitarManual();
     await ctx.controle.aguardarExecucao();
     expect(ctx.interpretacoes()).toBe(1);
+    ctx.controle.parar();
+  });
+
+  it("eleva o fpsEfetivo apos a entrada e volta a base com histerese (Fase 4)", async () => {
+    const base = { maosMs: 400, poseMs: 1000, deteccaoMs: 1000 };
+    const entrada: EventoTemporal = {
+      eventoId: "pres-entrada",
+      sessionId: "s",
+      tipo: "aparicao",
+      inicioEm: "2026-11-18T12:00:00.000Z",
+      descricao: "pessoa entra no quadro",
+      origens: ["pose"],
+      frameIds: ["f1"],
+      estado: "confirmado",
+    };
+    const saida: EventoTemporal = {
+      ...entrada,
+      eventoId: "pres-saida",
+      tipo: "desaparecimento",
+      descricao: "pessoa sai do quadro",
+      estado: "confirmado",
+    };
+    const resumoVazio: ResumoTemporal = {
+      eventos: [],
+      tracksAtivos: 0,
+      pessoasAtivas: 0,
+      maosAtivas: 0,
+      objetosAtivos: 0,
+    };
+    let relogio = 0;
+    const ctx = montar({
+      politica: POLITICA_CICLO_BENCHMARK_ADAPTATIVA,
+      configCaptura: { quadros: 5, intervaloMs: 200 },
+      capturaAgora: () => {
+        const valor = relogio;
+        relogio += 100;
+        return valor;
+      },
+      resumoPorCiclo: (indice) => {
+        if (indice === 0) return { ...resumoVazio, eventos: [entrada], pessoasAtivas: 1 };
+        if (indice === 1) return { ...resumoVazio, pessoasAtivas: 1 };
+        if (indice === 2) return { ...resumoVazio, eventos: [saida] };
+        return resumoVazio;
+      },
+    });
+
+    await ctx.controle.iniciar();
+    ctx.controle.pararAgendamento();
+    for (let i = 0; i < 5; i += 1) await ctx.controle.executarCiclo();
+
+    const fps = (indice: number) =>
+      ctx.ciclos[indice].metricas.amostragem?.porSubsistema.maos?.fpsEfetivo;
+    expect(ctx.ciclos[0].politica?.cadencia).toEqual(base);
+    expect(fps(0)).toBe(2.5);
+
+    // A entrada confirmada no primeiro ciclo afeta o plano do proximo.
+    expect(ctx.ciclos[1].politica?.cadencia).toMatchObject({ maosMs: 200, poseMs: 500 });
+    expect(fps(1)).toBe(5);
+    expect(fps(2)).toBe(5);
+
+    // A saida so volta ao ritmo base depois dos 3 ciclos de histerese.
+    expect(ctx.ciclos[3].politica?.cadencia).toMatchObject({ maosMs: 200 });
+    expect(ctx.ciclos[4].politica?.cadencia).toMatchObject({ maosMs: 200 });
+    expect(ctx.ciclos[5].politica?.cadencia).toEqual(base);
+    expect(fps(5)).toBe(2.5);
     ctx.controle.parar();
   });
 });

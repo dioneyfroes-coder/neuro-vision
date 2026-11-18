@@ -7,6 +7,12 @@ import type {
   ResultadoCiclo,
 } from "../../src/domain/cycle";
 import type { ObservacaoFrame } from "../../src/domain/observation";
+import {
+  estadoInicialFrequenciaAdaptativa,
+  reduzirFrequenciaAdaptativa,
+  type EstadoFrequenciaAdaptativa,
+  type SinalFrequenciaAdaptativa,
+} from "../../src/domain/frequencia-adaptativa";
 import { criarCycleId, criarSessionId, uuid } from "../../src/domain/ids";
 import { estaIndisponivel } from "../../src/domain/perception";
 import { ehCancelamento } from "../../src/erros";
@@ -179,6 +185,13 @@ export class CicloPercepcaoController implements ControladorCiclo {
    * Consumido uma vez por ciclo; alimenta a decisao `sob_demanda`.
    */
   private disparoManualPendente = false;
+  /**
+   * Estado da frequencia adaptativa (Fase 4). Atualizado depois de cada ciclo
+   * com o resumo temporal e os timestamps ja medidos; nunca com relogio de
+   * parede. Zerado junto com a sessao logica.
+   */
+  private estadoFrequencia: EstadoFrequenciaAdaptativa =
+    estadoInicialFrequenciaAdaptativa();
 
   constructor(private readonly deps: DependenciasCicloPercepcao) {
     const config = deps.configuracaoCaptura ?? CONFIG_CAPTURA_PADRAO;
@@ -250,6 +263,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
     this.ultimoFimCicloMs = null;
     this.ciclosInterpretados = 0;
     this.ciclosComTruncamento = 0;
+    this.estadoFrequencia = estadoInicialFrequenciaAdaptativa();
     this.motorTemporal?.resetar();
     this.store.limpar();
   }
@@ -305,6 +319,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
     this.memoriaTemporalPersistida.clear();
     this.ciclosInterpretados = 0;
     this.ciclosComTruncamento = 0;
+    this.estadoFrequencia = estadoInicialFrequenciaAdaptativa();
     this.motorTemporal?.resetar();
     this.store.limpar();
 
@@ -421,7 +436,8 @@ export class CicloPercepcaoController implements ControladorCiclo {
         });
         return { interpretar: decisao.interpretar, motivo: decisao.motivo };
       },
-      obterPolitica: () => aplicarPolitica(this.politicaCiclo),
+      obterPolitica: () =>
+        aplicarPolitica(this.politicaCiclo, this.estadoFrequencia.modo),
       obterConfiguracaoCiclo: (): ConfiguracaoCiclo => ({
         varianteId: this.variante().id,
         quantidadeSnapshotsConfigurada: this.configuracaoCaptura.quadros,
@@ -450,6 +466,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
    */
   private apresentarResultado(resultado: ResultadoCiclo): void {
     const { pacote } = resultado;
+    this.atualizarFrequencia(pacote);
     this.ultimaDuracaoMsValor = pacote.metricas.totalMs ?? 0;
     this.ultimaPersistenciaMsValor = pacote.metricas.persistenciaMs ?? 0;
     const contextoMultimodal = pacote.metricas.contextoMultimodal;
@@ -504,6 +521,45 @@ export class CicloPercepcaoController implements ControladorCiclo {
     this.persistirEventosTemporais(pacote);
     this.persistirMemoriaTemporal(pacote);
     this.status(this.resumoStatus(pacote.cycleId, resumo, pacote.metricas.totalMs));
+  }
+
+  /**
+   * Alimenta o redutor de frequencia com o resumo do ciclo que terminou. A
+   * entrada/saida de pessoas vem do track de pose (`origens: ["pose"]`); o
+   * `desaparecimento` tambem desconta o track que ainda pode estar em memoria
+   * temporaria no resumo. Sem frame nao ha timestamp de referencia e o estado
+   * fica congelado — ausencia de observacao nao e saida confirmada.
+   */
+  private atualizarFrequencia(pacote: PacoteCiclo): void {
+    const config = this.politicaCiclo.frequenciaAdaptativa;
+    if (!config) return;
+    const ultimo = pacote.observacoes[pacote.observacoes.length - 1];
+    if (!ultimo || !Number.isFinite(ultimo.capturadoEmMs)) return;
+
+    const eventos = pacote.eventosTemporais;
+    const entradas = eventos.filter(
+      (evento) =>
+        evento.tipo === "aparicao" &&
+        evento.origens.includes("pose") &&
+        (evento.estado === "confirmado" || evento.estado === "provavel")
+    );
+    const saidas = eventos.filter(
+      (evento) =>
+        evento.tipo === "desaparecimento" &&
+        evento.origens.includes("pose") &&
+        evento.estado === "confirmado"
+    );
+    const sinal: SinalFrequenciaAdaptativa = {
+      tempoMs: ultimo.capturadoEmMs,
+      pessoasAtivas: Math.max(0, pacote.resumoTemporal.pessoasAtivas - saidas.length),
+      entrouPessoa: entradas.length > 0,
+      saiuPessoa: saidas.length > 0,
+    };
+    this.estadoFrequencia = reduzirFrequenciaAdaptativa(
+      this.estadoFrequencia,
+      sinal,
+      config
+    );
   }
 
   private resumoStatus(cycleId: string, resumo: string | undefined, totalMs?: number): string {

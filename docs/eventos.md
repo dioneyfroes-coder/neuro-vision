@@ -57,6 +57,14 @@ Eventos `interacao_objeto` são produzidos pelo detector puro `public/temporal/i
 
 Os coeficientes (`raioProximidade`, `margemCaixa`, `confiancaMinima`, `framesParaProvavel`, `framesParaContato`, `deslocamentoMinimoObjeto`, `intervaloMaximoMs`, `framesParaEncerrar`) vivem em `CONFIG_INTERACAO_PADRAO` e podem ser sobrescritos por `config.interacao` no motor. A detectora é pura: não lê relógio, DOM ou API de navegador — tempo vem de `capturadoEmMs`/`capturadoEm` da observação, o que mantém os testes determinísticos.
 
+## Entrada e saída de pessoas (Fase 4)
+
+A presença de pessoas é derivada do **track de pose** por `public/temporal/presenca-pessoas.ts` e integrada ao `MotorTemporalImpl`. Cada evento usa o `entidadeId` estável do `RastreadorEntidades` e `origens: ["pose"]`; a caixa COCO `person` do detector de objetos é suprimida como fonte de presença quando a pose está disponível, evitando um segundo par entrada/saída para a mesma pessoa.
+
+- **Histerese curta.** A entrada é confirmada após `framesParaEntrada: 2` observações positivas (`CONFIG_PRESENCA_PESSOAS_PADRAO`); a saída, após `framesParaSaida: 3` amostras sem sinal. `inicioEm` e `frameIds` apontam para o **frame de confirmação**, enquanto `ultimaEvidenciaEm` guarda o último frame em que a pessoa foi realmente vista. Na saída, `ultimaObservacaoEm` registra o frame que percebeu a ausência e `motivoEncerramento: "oclusao"`.
+- **Ausência observada ≠ falha ≠ lacuna.** Frame pulado pela cadência (`naoAmostrado`) não entra no detector, e inferência indisponível congela o estado sem incrementar a contagem de ausência. Um período cego entre ciclos encerra a presença como `incerto` com `motivoEncerramento: "periodo_cego"` e `continuidadeValida: false`: a lacuna não autoriza afirmar que a pessoa saiu. `incerto` não é gravado como fato visual em `eventos.jsonl`.
+- **Persistência.** Como os demais fatos visuais confirmados, `aparicao`/`desaparecimento` entram em `eventos.jsonl` uma vez por `eventoId`, com `timestamp = inicioEm` (o instante real do acontecimento, não o da confirmação) e `origensSinal` derivado da pose. O mesmo par é reutilizado pela política de frequência adaptativa (`?benchmark=adaptativa`): a entrada confirmada eleva a cadência do ciclo seguinte e a volta ao ritmo base só acontece após a histerese configurada. Ver [`arquitetura.md`](./arquitetura.md#frequência-adaptativa-na-entrada-de-pessoas-fase-4).
+
 ## Consulta ao histórico
 
 `GET /api/eventos` aceita filtros:

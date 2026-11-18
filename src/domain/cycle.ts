@@ -2,6 +2,10 @@ import type { ObservacaoFrame } from "./observation";
 import type { ResultadoIndisponivel, TelemetriaSubsistema } from "./perception";
 import { estaIndisponivel, naoFoiAmostrado } from "./perception";
 import type { AmostragemCiclo, CadenciaPercepcao } from "./cadencia";
+import type {
+  ConfigFrequenciaAdaptativa,
+  ModoFrequencia,
+} from "./frequencia-adaptativa";
 import type { DiagnosticoSinalTemporal, EventoTemporal } from "./temporal-event";
 import type { DiagnosticoContextoMultimodal } from "./interpretation";
 
@@ -43,6 +47,14 @@ export interface PoliticaCicloAplicada {
    * Ausente = todos os subsistemas executam em todos os snapshots.
    */
   cadencia?: CadenciaPercepcao;
+  /**
+   * Frequencia adaptativa por presenca de pessoa (Fase 4), com a cadencia ja
+   * efetiva do modo e o estado que a produziu — o diagnostico fica reproduzivel.
+   */
+  frequenciaAdaptativa?: {
+    config: ConfigFrequenciaAdaptativa;
+    estado: ModoFrequencia;
+  };
 }
 
 /** Leitura consolidada do motor temporal para um ciclo. */

@@ -21,6 +21,7 @@ import { InterpretadorCiclo } from "./interpretation/interpretador-ciclo";
 import { criarTransporteServidor } from "./interpretation/transporte-servidor";
 import {
   POLITICA_CICLO_BENCHMARK_5FPS,
+  POLITICA_CICLO_BENCHMARK_ADAPTATIVA,
   POLITICA_CICLO_BENCHMARK_ALVO,
   POLITICA_CICLO_OPERACIONAL,
 } from "./cycle/politica-ciclo";
@@ -92,15 +93,19 @@ const monitorAvisoEl = el<HTMLSpanElement>("monitorAviso");
  *
  * `?benchmark=5fps` ativa a politica de cadencia independente (Fase 1.3/1.4):
  * maos a 5 FPS alvo, pose/deteccao a 1 Hz, 5 snapshots a 200 ms.
+ * `?benchmark=adaptativa` usa a mesma janela, mas sobe maos/pose apos a entrada
+ * confirmada de uma pessoa e volta ao ritmo base com histerese (Fase 4).
  */
 const parametrosUrl = new URLSearchParams(window.location.search);
 const benchmark = parametrosUrl.get("benchmark");
 const politicaCiclo: PoliticaCiclo =
   benchmark === "5fps"
     ? POLITICA_CICLO_BENCHMARK_5FPS
-    : benchmark === "eval"
-      ? POLITICA_CICLO_BENCHMARK_ALVO
-      : POLITICA_CICLO_OPERACIONAL;
+    : benchmark === "adaptativa"
+      ? POLITICA_CICLO_BENCHMARK_ADAPTATIVA
+      : benchmark === "eval"
+        ? POLITICA_CICLO_BENCHMARK_ALVO
+        : POLITICA_CICLO_OPERACIONAL;
 
 /** Captura derivada da politica: quantidade e espacamento dos snapshots. */
 const configuracaoCaptura: ConfigCaptura = {
