@@ -131,7 +131,8 @@ public/
     suavizador.ts      suavização exponencial e métricas de movimento (coordenadas normalizadas)
     rastreador-entidades.ts  rastreador genérico (pose/mãos) com IDs estáveis, ciclo de vida (ativa/ausente/perdida), reassociação e restrição de associação
     referencia-pose.ts  ponto de referência estável do torso para associar pessoas (COCO 5/6/11/12)
-    maquina-sinais.ts  máquina de estados com confirmação/encerramento, evidências e continuidade (gestos, braço, transição, movimento)
+    maquina-sinais.ts  fachada da máquina de estados de sinais (re-exports)
+    maquina-sinais/    módulos: tipos/contratos, base (estado, diagnóstico, helpers de evento) e processamento (fluxo por frame)
     regras-pose.ts     regras geométricas de pose compatível (indício, não prova)
     interacao.ts       detector puro de interação mão↔objeto: proximidade → `provavel`; sobreposição + movimento do objeto → `confirmado`
     motor-temporal.ts  fachada: state + orquestração (objetos + cena + pose + mãos + máquinas + interações) → `ResumoTemporal` com diagnósticos
