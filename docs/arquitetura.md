@@ -65,7 +65,7 @@ src/
     cena.ts            inventário parcial, confirmação e mudanças da referência (Fase 3)
     index.ts           reexporta os contratos
   monitoramento/       núcleo puro da Fase 3 (sem codec, disco, HTTP ou relógio)
-    gerenciador-gravacao.ts  sessão + rotação de segmentos de 5 min, lacunas, pausa/encerramento e consultas
+    gerenciador-gravacao.ts  fachada: sessão + rotação de segmentos de 5 min, lacunas e consultas (impl. em gerenciador-gravacao/tipos|util|base|gerenciador)
     buffer-circular.ts       buffer pré-evento por tempo de captura, com teto opcional e cópia defensiva
     servico-monitoramento.ts composição com índice durável e fila de mutações
     servico-cena.ts          referência/comparação de cena com dedupe por mudancaId
