@@ -156,7 +156,7 @@ public/
   scheduler.ts         agendador do próximo ciclo (ritmo `max(intervalo, duração + 500 ms, pausa pós-ciclo)`)
   style.css            estilos
 e2e/
-  app.spec.ts          fluxos de interface (com o transformers.js substituído)
+  app-*.spec.ts        fluxos de interface por domínio (histórico, modelo/status, webcam/falhas, concorrência); stubs e setup em e2e/helpers/app-fixtures.ts
   webcam.spec.ts       avaliação com clipe real de webcam (opt-in; modelo real)
   webcam-multiframe.spec.ts  3 modos multiframe com clipe na webcam (opt-in; grava eventos/entradas/ciclos em `logs/e2e-multiframe-*`)
 tests/
@@ -371,5 +371,5 @@ A persistência é separada do servidor HTTP (`src/persistence/`), com uma primi
 
 - Unitários/integração: `npm test` (vitest, incluindo `percepcao`, `motores`, `rastreamento`, `cena`, `motor-temporal`, `memoria`, `persistence`, `server`, `politica-analise`, `provedor`, `visao`, ciclos multiframe e os testes dos scripts `tests/scripts/*.test.mjs`).
 - Build: `npm run build` gera servidor, `public/app.js` e os três bundles de worker (`npm run build:workers`); `npm run clean` remove todos os artefatos.
-- E2E: `npm run test:e2e` (Playwright; o transformers.js é substituído por stubs em `e2e/app.spec.ts`; `e2e/webcam.spec.ts`, `e2e/webcam-multiframe.spec.ts` e `e2e/webcam-cadencia.spec.ts` são **opt-in** com modelo real e clipe via `E2E_WEBCAM_*`). O `webServer` do Playwright roda `npm run build`, então os workers são exercitados no E2E. O E2E de cadência abre `?benchmark=5fps`, confere os 5 snapshots a 200 ms, a política aplicada e a amostragem de mãos (sem confundir frame pulado com indisponibilidade) e grava os ciclos para `npm run bench:cadencia`.
+- E2E: `npm run test:e2e` (Playwright; o transformers.js é substituído por stubs em `e2e/helpers/app-fixtures.ts`; `e2e/webcam.spec.ts`, `e2e/webcam-multiframe.spec.ts` e `e2e/webcam-cadencia.spec.ts` são **opt-in** com modelo real e clipe via `E2E_WEBCAM_*`). O `webServer` do Playwright roda `npm run build`, então os workers são exercitados no E2E. O E2E de cadência abre `?benchmark=5fps`, confere os 5 snapshots a 200 ms, a política aplicada e a amostragem de mãos (sem confundir frame pulado com indisponibilidade) e grava os ciclos para `npm run bench:cadencia`.
 - Desempenho/qualidade: ver [`qualidade.md`](./qualidade.md).
