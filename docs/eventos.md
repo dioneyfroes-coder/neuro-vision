@@ -57,6 +57,8 @@ Eventos no limite exato de uma rotação referenciam os dois segmentos: o trecho
 
 A interface expõe uma **linha do tempo** com filtros por período, entidade, objeto e `segmentoId`. Cada evento mostra seus metadados e, quando há vídeo, botões de trecho que abrem o player no `offsetMs` correspondente. Eventos sem cobertura exibem "Sem vídeo coberto para este intervalo".
 
+O mesmo contrato cobre os demais registros: `GET /api/eventos` devolve `segmentos` para cada fato visual (`timestamp`) e `GET /api/logs` para cada descrição (`capturadoEm`, com fallback para `timestamp`). Para registros pontuais, apenas segmentos que **cobrem o instante** entram; a janela de 2 s antes/5 s depois é recortada dentro deles, então uma descrição em pausa/lacuna não recebe vídeo das bordas da janela. No histórico da interface, cada descrição com vídeo ganha o mesmo botão de trecho, ligando o texto produzido pelo modelo a evidência recuperável.
+
 ## Interação mão↔objeto (Fase 4)
 
 Eventos `interacao_objeto` são produzidos pelo detector puro `public/temporal/interacao.ts`, integrado ao `MotorTemporalImpl`. A regra central é **proximidade não é contato**: chegar a mão perto de um objeto — mesmo por vários frames — no máximo sustenta um evento `provavel`, nunca `confirmado`.
@@ -86,7 +88,7 @@ A presença de pessoas é derivada do **track de pose** por `public/temporal/pre
 - `objetoId` — rastrear um objeto específico;
 - `desde`/`ate` — janela temporal (epoch ms ou ISO).
 
-Cada evento traz `confianca` e `snapshot` como evidência, respondendo **o que mudou**, **quando** e com quais **evidências**. Os filtros incidem sobre os eventos mais recentes dentro de `limit`.
+Cada evento traz `confianca` e `snapshot` como evidência, respondendo **o que mudou**, **quando** e com quais **evidências**. Os filtros incidem sobre os eventos mais recentes dentro de `limit`. Assim como os eventos temporais, cada fato visual carrega `segmentos` com o trecho de vídeo que cobre seu `timestamp`; cada descrição em `GET /api/logs` traz o trecho que cobre `capturadoEm` (ou `timestamp`, se ausente). O vínculo é derivado do índice na leitura, usa uma janela de contexto fixa de 2 s antes a 5 s depois **dentro dos segmentos que cobrem o instante**, e devolve `segmentos: []` quando o ponto cai em pausa/lacuna. A interface mostra botões de trecho no histórico e na linha do tempo; ver [`eventos.md`](./eventos.md#vínculo-com-o-vídeo-e-linha-do-tempo-fase-5).
 
 ## Persistência e idempotência
 

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  JANELA_EVIDENCIA_ANTES_MS,
+  JANELA_EVIDENCIA_DEPOIS_MS,
   janelaEvento,
   vincularEventoASegmentos,
+  vincularInstanteAosSegmentos,
   type VideoSegment,
 } from "../src/domain";
 
@@ -106,5 +109,26 @@ describe("vinculo evento → video (Fase 5)", () => {
     const executar = () => vincularEventoASegmentos(iso(BASE + 900), iso(BASE + 1_100), segmentos);
     expect(executar()).toEqual(executar());
     expect(JSON.stringify(segmentos)).toBe(antes);
+  });
+});
+
+describe("vinculo de descricoes e fatos visuais pontuais", () => {
+  it("abre contexto fixo ao redor do instante, recortado pela cobertura real", () => {
+    const refs = vincularInstanteAosSegmentos(BASE + 500, segmentos);
+    expect(refs.map((ref) => ref.segmentoId)).toEqual(["seg-1"]);
+    expect(refs[0]).toMatchObject({ offsetMs: 0, ateMs: 1_000, duracaoTrechoMs: 1_000 });
+  });
+
+  it("usa os limites de contexto injetados sem relogio", () => {
+    const refs = vincularInstanteAosSegmentos(BASE + 500, segmentos, 100, 100);
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({ offsetMs: 400, ateMs: 600, duracaoTrechoMs: 200 });
+    expect(JANELA_EVIDENCIA_ANTES_MS).toBe(2_000);
+    expect(JANELA_EVIDENCIA_DEPOIS_MS).toBe(5_000);
+  });
+
+  it("nao devolve video para instante em lacuna nem para instante invalido", () => {
+    expect(vincularInstanteAosSegmentos(BASE + 2_500, segmentos, 100, 100)).toEqual([]);
+    expect(vincularInstanteAosSegmentos(Number.NaN, segmentos)).toEqual([]);
   });
 });

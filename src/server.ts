@@ -85,16 +85,25 @@ import type {
   SessaoMonitoramento,
   VideoSegment,
 } from "./domain/monitoramento";
-import { janelaEvento, vincularEventoASegmentos } from "./domain/vinculo-evento-video";
+import {
+  JANELA_EVIDENCIA_ANTES_MS,
+  JANELA_EVIDENCIA_DEPOIS_MS,
+  janelaEvento,
+  vincularEventoASegmentos,
+  vincularInstanteAosSegmentos,
+} from "./domain/vinculo-evento-video";
 import type {
   Caixa,
   EntradaLog,
+  EntradaLogComVideo,
   EventoTemporalComVideo,
   EventoTemporalPersistido,
   EventoVisual,
+  EventoVisualComVideo,
   MarcacaoNsfwLog,
   MotivoAnalise,
   ObjetoVisto,
+  ReferenciaVideoEventoApi,
   TipoEntrada,
   TipoEventoVisual,
 } from "./types";
@@ -1156,7 +1165,8 @@ async function handleEventos(
 async function handleListEventos(
   req: IncomingMessage,
   res: ServerResponse,
-  eventosFile: string
+  eventosFile: string,
+  monitoramento: ServicoMonitoramento
 ): Promise<void> {
   try {
     const url = new URL(req.url ?? "/api/eventos", "http://localhost");
@@ -1165,12 +1175,17 @@ async function handleListEventos(
     // Filtros (Fase 4): "o que mudou" (`tipo`/`objetoId`) e "quando"
     // (`desde`/`ate`, aceitando epoch ms ou ISO). Aplicados aos eventos mais
     // recentes dentro de `limit`.
-    const eventos = filtrarEventos(await lerEventos(eventosFile, limite), {
+    const filtrados = filtrarEventos(await lerEventos(eventosFile, limite), {
       tipos: parsearTiposEvento(url.searchParams.get("tipo")),
       objetoId: url.searchParams.get("objetoId")?.trim() || undefined,
       desdeMs: parsearInstante(url.searchParams.get("desde")),
       ateMs: parsearInstante(url.searchParams.get("ate")),
     });
+    const eventos: EventoVisualComVideo[] = await anexarTrechosDeVideo(
+      filtrados,
+      (evento) => evento.timestamp,
+      monitoramento
+    );
     sendJson(res, 200, { ok: true, total: eventos.length, eventos });
   } catch (err) {
     logEvent("error", "listar_eventos_falhou", { erro: (err as Error).message });
@@ -1217,6 +1232,44 @@ export function parsearInstante(valor: string | null): number | undefined {
   if (Number.isFinite(numero)) return numero;
   const data = Date.parse(texto);
   return Number.isFinite(data) ? data : undefined;
+}
+
+/**
+ * Anexa a cada registro da pagina os trechos de video que cobrem seu instante.
+ * O indice e consultado uma unica vez com a janela da pagina; o vinculo e
+ * derivado na leitura, entao segmentos gravados depois passam a aparecer.
+ */
+async function anexarTrechosDeVideo<T extends object>(
+  registros: readonly T[],
+  instante: (registro: T) => string | undefined,
+  monitoramento: ServicoMonitoramento
+): Promise<Array<T & { segmentos: ReferenciaVideoEventoApi[] }>> {
+  if (registros.length === 0) return [];
+  const instantes = registros.map((registro) => parsearInstante(instante(registro) ?? null));
+  let inicioJanela = Number.POSITIVE_INFINITY;
+  let fimJanela = Number.NEGATIVE_INFINITY;
+  for (const ms of instantes) {
+    if (ms === undefined) continue;
+    inicioJanela = Math.min(inicioJanela, ms - JANELA_EVIDENCIA_ANTES_MS);
+    fimJanela = Math.max(fimJanela, ms + JANELA_EVIDENCIA_DEPOIS_MS);
+  }
+  const segmentos = Number.isFinite(inicioJanela)
+    ? await monitoramento.segmentosParaIntervalo(inicioJanela, fimJanela, 5000)
+    : [];
+
+  return registros.map((registro, i) => {
+    const ms = instantes[i];
+    return {
+      ...registro,
+      segmentos:
+        ms === undefined
+          ? []
+          : vincularInstanteAosSegmentos(ms, segmentos).map((ref) => ({
+              ...ref,
+              url: `/api/monitoramento/videos/${encodeURIComponent(ref.segmentoId)}`,
+            })),
+    };
+  });
 }
 
 /** Le a lista de tipos de evento de `?tipo=aparicao,movimento`, descartando invalidos. */
@@ -2392,13 +2445,18 @@ async function handleVisao(
 async function handleListLogs(
   req: IncomingMessage,
   res: ServerResponse,
-  logFile: string
+  logFile: string,
+  monitoramento: ServicoMonitoramento
 ): Promise<void> {
   try {
     const url = new URL(req.url ?? "/api/logs", "http://localhost");
     const limitParam = Number(url.searchParams.get("limit"));
     const limite = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 500) : 100;
-    const entradas = await lerLogEntries(logFile, limite);
+    const entradas: EntradaLogComVideo[] = await anexarTrechosDeVideo(
+      await lerLogEntries(logFile, limite),
+      (entrada) => entrada.capturadoEm ?? entrada.timestamp,
+      monitoramento
+    );
     sendJson(res, 200, { ok: true, total: entradas.length, entradas });
   } catch (err) {
     logEvent("error", "listar_logs_falhou", { erro: (err as Error).message });
@@ -2780,7 +2838,7 @@ export function createServer(config: ServerConfig = {}): http.Server {
       return;
     }
     if (req.method === "GET" && pathname === "/api/eventos") {
-      void handleListEventos(req, res, eventosFile);
+      void handleListEventos(req, res, eventosFile, monitoramento);
       return;
     }
     if (req.method === "DELETE" && pathname === "/api/eventos") {
@@ -2929,7 +2987,7 @@ export function createServer(config: ServerConfig = {}): http.Server {
       return;
     }
     if (req.method === "GET" && pathname === "/api/logs") {
-      void handleListLogs(req, res, logFile);
+      void handleListLogs(req, res, logFile, monitoramento);
       return;
     }
     if (req.method === "DELETE" && pathname === "/api/logs") {

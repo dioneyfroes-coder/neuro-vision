@@ -1,4 +1,9 @@
-import type { Caixa, EntradaLog, MarcacaoNsfwLog } from "../src/types";
+import type {
+  Caixa,
+  EntradaLog,
+  MarcacaoNsfwLog,
+  ReferenciaVideoEventoApi,
+} from "../src/types";
 import { AdaptadorDetectorObjetos } from "./perception/adapters/object-detector.adapter";
 import { AdaptadorNsfwConjunto } from "./perception/adapters/nsfw-classifier.adapter";
 import { Camera } from "./camera";
@@ -672,7 +677,67 @@ function atualizarContagem(): void {
   exportBtn.disabled = total === 0;
 }
 
-function criarItem(entry: EntradaLog): HTMLLIElement {
+/** Entradas novas ainda nao passaram pelo servidor: `segmentos` e opcional. */
+type EntradaComVideoOpcional = EntradaLog & {
+  segmentos?: readonly ReferenciaVideoEventoApi[];
+};
+
+/**
+ * Abre o trecho evidenciado no player compartilhado. O offset vem do servidor;
+ * a interface nao calcula segmento nem usa relogio proprio.
+ */
+function reproduzirTrecho(ref: ReferenciaVideoEventoApi, rotulo: string): void {
+  evidenciaVideoEl.pause();
+  const inicioS = ref.offsetMs / 1000;
+  const fimS = ref.ateMs / 1000;
+  const descrever = () => {
+    evidenciaVideoEl.currentTime = inicioS;
+    const trecho = `${rotulo} · trecho ${ref.sequencia} de ${ref.segmentoId}: ${formatarMs(ref.offsetMs)}–${formatarMs(ref.ateMs)}`;
+    evidenciaInfoEl.textContent = ref.incompleto
+      ? `${trecho} · segmento incompleto: há lacuna de gravação registrada.`
+      : trecho;
+  };
+
+  if (evidenciaVideoEl.dataset.segmentoId === ref.segmentoId) {
+    descrever();
+  } else {
+    evidenciaVideoEl.addEventListener("loadedmetadata", descrever, { once: true });
+    evidenciaVideoEl.dataset.segmentoId = ref.segmentoId;
+    evidenciaVideoEl.src = ref.url;
+    evidenciaVideoEl.load();
+  }
+
+  evidenciaVideoEl.ontimeupdate = () => {
+    if (evidenciaVideoEl.currentTime >= fimS) {
+      evidenciaVideoEl.pause();
+      evidenciaVideoEl.ontimeupdate = null;
+    }
+  };
+  void evidenciaVideoEl.play().catch(() => undefined);
+}
+
+/** Botoes de trecho reaproveitados pela linha do tempo e pelo historico. */
+function adicionarBotoesEvidencia(
+  container: HTMLElement,
+  segmentos: readonly ReferenciaVideoEventoApi[],
+  rotulo: string
+): void {
+  if (segmentos.length === 0) return;
+  const trechos = document.createElement("div");
+  trechos.className = "timeline-trechos";
+  for (const ref of segmentos) {
+    const botao = document.createElement("button");
+    botao.type = "button";
+    botao.className = "ghost";
+    botao.textContent = `Vídeo · trecho ${ref.sequencia} · ${formatarMs(ref.offsetMs)}–${formatarMs(ref.ateMs)}`;
+    botao.title = `${ref.segmentoId}${ref.incompleto ? " (segmento incompleto)" : ""}`;
+    botao.addEventListener("click", () => reproduzirTrecho(ref, rotulo));
+    trechos.appendChild(botao);
+  }
+  container.appendChild(trechos);
+}
+
+function criarItem(entry: EntradaComVideoOpcional): HTMLLIElement {
   const li = document.createElement("li");
 
   if (entry.snapshot) {
@@ -763,11 +828,14 @@ function criarItem(entry: EntradaLog): HTMLLIElement {
     }
     corpo.appendChild(nsfw);
   }
+  const rotuloEvidencia =
+    entry.tipo === "descricao" || entry.tipo === "roteiro" ? "Descrição" : "Detecção";
+  adicionarBotoesEvidencia(corpo, entry.segmentos ?? [], rotuloEvidencia);
   li.appendChild(corpo);
   return li;
 }
 
-function addLogEntry(entry: EntradaLog): HTMLLIElement {
+function addLogEntry(entry: EntradaComVideoOpcional): HTMLLIElement {
   const item = criarItem(entry);
   logEl.prepend(item);
   atualizarContagem();
@@ -924,31 +992,7 @@ async function carregarLinhaDoTempo(): Promise<void> {
         semVideo.textContent = "Sem vídeo coberto para este intervalo";
         item.append(semVideo);
       } else {
-        const trechos = document.createElement("div");
-        trechos.className = "timeline-trechos";
-        for (const ref of evt.segmentos) {
-          const botao = document.createElement("button");
-          botao.type = "button";
-          botao.className = "ghost";
-          botao.textContent = `Trecho ${ref.sequencia} · ${formatarMs(ref.offsetMs)}–${formatarMs(ref.ateMs)}`;
-          botao.title = `${ref.segmentoId}${ref.incompleto ? " (segmento incompleto)" : ""}`;
-          botao.addEventListener("click", () => {
-            evidenciaVideoEl.addEventListener(
-              "loadedmetadata",
-              () => {
-                evidenciaVideoEl.currentTime = ref.offsetMs / 1000;
-              },
-              { once: true }
-            );
-            evidenciaVideoEl.src = ref.url;
-            const trecho = `Trecho ${ref.sequencia} de ${ref.segmentoId}: ${formatarMs(ref.offsetMs)}–${formatarMs(ref.ateMs)}`;
-            evidenciaInfoEl.textContent = ref.incompleto
-              ? `${trecho} · segmento incompleto: há lacuna de gravação registrada.`
-              : trecho;
-          });
-          trechos.append(botao);
-        }
-        item.append(trechos);
+        adicionarBotoesEvidencia(item, evt.segmentos, evt.tipo);
       }
       timelineEventosEl.append(item);
     }

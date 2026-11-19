@@ -184,3 +184,17 @@ export interface ReferenciaVideoEventoApi extends ReferenciaVideoEvento {
 export interface EventoTemporalComVideo extends EventoTemporalPersistido {
   segmentos: ReferenciaVideoEventoApi[];
 }
+
+/**
+ * Descricao/entrada do historico devolvida por `GET /api/logs`, com o trecho de
+ * video que cobre `capturadoEm` (ou `timestamp`, quando ausente). O vinculo e
+ * derivado na leitura, pelo mesmo indice usado nos eventos temporais.
+ */
+export interface EntradaLogComVideo extends EntradaLog {
+  segmentos: ReferenciaVideoEventoApi[];
+}
+
+/** Fato visual de `GET /api/eventos`, com o trecho que cobre `timestamp`. */
+export interface EventoVisualComVideo extends EventoVisual {
+  segmentos: ReferenciaVideoEventoApi[];
+}

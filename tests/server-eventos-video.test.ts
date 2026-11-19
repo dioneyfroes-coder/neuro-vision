@@ -5,7 +5,12 @@ import path from "node:path";
 import type { AddressInfo } from "node:net";
 import type http from "node:http";
 import { createServer } from "../src/server";
-import type { EventoTemporalComVideo, VideoSegment } from "../src";
+import type {
+  EntradaLogComVideo,
+  EventoTemporalComVideo,
+  EventoVisualComVideo,
+  VideoSegment,
+} from "../src";
 
 /**
  * Integracao Fase 5: a consulta da linha do tempo devolve cada evento com os
@@ -190,5 +195,89 @@ describe("GET /api/eventos-temporais com vinculo de video (Fase 5)", () => {
     await prepararCena(base);
     const depois = await getJson(base, "/api/eventos-temporais");
     expect((depois.eventos as EventoTemporalComVideo[])[0].segmentos).toHaveLength(1);
+  });
+});
+
+describe("GET /api/logs e /api/eventos com evidencia de video (Fase 5)", () => {
+  it("anexa trechos as descricoes usando capturadoEm e, na ausencia, timestamp", async () => {
+    const base = await subirServidor();
+    const { segmentos } = await prepararCena(base);
+
+    await postJson(base, "/api/log", {
+      resumo: "captura com capturadoEm",
+      modelo: "modelo-teste",
+      tipo: "descricao",
+      capturadoEm: iso(BASE + 500),
+      timestamp: iso(BASE + 2_500),
+      frameIds: ["f-capturado"],
+    });
+    await postJson(base, "/api/log", {
+      resumo: "captura sem capturadoEm",
+      modelo: "modelo-teste",
+      tipo: "descricao",
+      timestamp: iso(BASE + 1_050),
+      frameIds: ["f-timestamp"],
+    });
+
+    const dados = await getJson(base, "/api/logs?limit=10");
+    const entradas = dados.entradas as EntradaLogComVideo[];
+    const porResumo = new Map(entradas.map((entrada) => [entrada.resumo, entrada]));
+
+    const comCaptura = porResumo.get("captura com capturadoEm")?.segmentos ?? [];
+    expect(comCaptura.map((ref) => ref.segmentoId)).toEqual([segmentos[0].segmentoId]);
+    expect(comCaptura[0]).toMatchObject({
+      offsetMs: 0,
+      ateMs: 1_000,
+      duracaoTrechoMs: 1_000,
+      url: `/api/monitoramento/videos/${encodeURIComponent(segmentos[0].segmentoId)}`,
+    });
+
+    const comTimestamp = porResumo.get("captura sem capturadoEm")?.segmentos ?? [];
+    expect(comTimestamp).toHaveLength(1);
+    expect(comTimestamp[0]).toMatchObject({
+      segmentoId: segmentos[1].segmentoId,
+      offsetMs: 0,
+      ateMs: 100,
+      duracaoTrechoMs: 100,
+    });
+  });
+
+  it("anexa trecho ao fato visual derivado do indice atual", async () => {
+    const base = await subirServidor();
+    await postJson(base, "/api/eventos", {
+      id: "ev-visual-1",
+      timestamp: iso(BASE + 500),
+      tipo: "aparicao",
+      descricao: "pessoa entrou",
+      origem: "visao",
+      frameId: "f-visual",
+    });
+
+    const antes = await getJson(base, "/api/eventos?limit=10");
+    expect((antes.eventos as EventoVisualComVideo[])[0].segmentos).toEqual([]);
+
+    await prepararCena(base);
+    const depois = await getJson(base, "/api/eventos?limit=10");
+    const [evento] = depois.eventos as EventoVisualComVideo[];
+    expect(evento.id).toBe("ev-visual-1");
+    expect(evento.segmentos).toHaveLength(1);
+    expect(evento.segmentos[0]).toMatchObject({ offsetMs: 0, ateMs: 1_000 });
+  });
+
+  it("nao inventa video para descricao em lacuna de gravacao", async () => {
+    const base = await subirServidor();
+    await prepararCena(base);
+    await postJson(base, "/api/log", {
+      resumo: "fora da cobertura",
+      modelo: "modelo-teste",
+      tipo: "descricao",
+      capturadoEm: iso(BASE + 2_500),
+    });
+
+    const dados = await getJson(base, "/api/logs?limit=10");
+    const entrada = (dados.entradas as EntradaLogComVideo[]).find(
+      (item) => item.resumo === "fora da cobertura"
+    );
+    expect(entrada?.segmentos).toEqual([]);
   });
 });

@@ -57,7 +57,7 @@ gravacao.encerrar(Date.now());
 - `segmentoParaTimestamp(instante)` devolve o segmento que contém o instante (no limite, o posterior) ou `undefined` quando o instante cai em pausa/lacuna. Ele nunca inventa cobertura.
 - `listarSegmentos()`, `segmentoEmGravacao()` e `obterSessao()` devolvem cópias defensivas: o chamador não altera o estado interno.
 
-O vínculo com eventos temporais está implementado na leitura (Fase 5): `GET /api/eventos-temporais` devolve cada evento com `segmentos`, derivado de `segmentosParaIntervalo(inicioEm, fimEm)`. Eventos que cruzam a rotação referenciam os dois segmentos; eventos em pausa/lacuna não recebem referência. A interface posiciona o player no `offsetMs` do trecho. Os detalhes do contrato e os filtros da linha do tempo estão em [`eventos.md`](./eventos.md#vínculo-com-o-vídeo-e-linha-do-tempo-fase-5).
+O vínculo está implementado na leitura (Fase 5) para eventos temporais (`GET /api/eventos-temporais`), fatos visuais (`GET /api/eventos`) e descrições (`GET /api/logs`), derivado de `segmentosParaIntervalo` e da regra pura em `src/domain/vinculo-evento-video.ts`. Eventos que cruzam a rotação referenciam os dois segmentos; pontos em pausa/lacuna não recebem referência. A interface posiciona o player no `offsetMs` do trecho. Os detalhes do contrato e os filtros da linha do tempo estão em [`eventos.md`](./eventos.md#vínculo-com-o-vídeo-e-linha-do-tempo-fase-5).
 
 ## Buffer circular pré-evento
 

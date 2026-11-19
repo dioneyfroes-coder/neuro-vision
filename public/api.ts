@@ -1,4 +1,4 @@
-import type { EntradaLog, EventoTemporalComVideo, EventoTemporalEnvio, EventoVisual, MarcacaoNsfwLog, MotivoAnalise, TipoEventoVisual } from "../src/types";
+import type { EntradaLog, EntradaLogComVideo, EventoTemporalComVideo, EventoTemporalEnvio, EventoVisual, EventoVisualComVideo, MarcacaoNsfwLog, MotivoAnalise, TipoEventoVisual } from "../src/types";
 import type { RegistroCiclo } from "../src/domain/cycle";
 import type { EstadoEventoTemporal, TipoEventoTemporal } from "../src/domain/temporal-event";
 import type {
@@ -125,7 +125,7 @@ export async function gravarEntrada(entrada: EntradaLog): Promise<void> {
 }
 
 /** `GET /api/logs` — lista as entradas mais recentes (mais nova primeiro). */
-export async function listarEntradas(limite = 100): Promise<EntradaLog[]> {
+export async function listarEntradas(limite = 100): Promise<EntradaLogComVideo[]> {
   let resposta: Response;
   try {
     resposta = await fetch(`/api/logs?limit=${limite}`);
@@ -133,7 +133,7 @@ export async function listarEntradas(limite = 100): Promise<EntradaLog[]> {
     throw new ErroPercepcao("armazenamento", "Falha ao ler o historico", { cause: err });
   }
   if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
-  const dados = (await resposta.json()) as { entradas?: EntradaLog[] };
+  const dados = (await resposta.json()) as { entradas?: EntradaLogComVideo[] };
   return dados.entradas ?? [];
 }
 
@@ -179,7 +179,7 @@ export interface FiltrosEventos {
 export async function listarEventos(
   limite = 100,
   filtros: FiltrosEventos = {}
-): Promise<EventoVisual[]> {
+): Promise<EventoVisualComVideo[]> {
   const params = new URLSearchParams({ limit: String(limite) });
   if (filtros.tipos?.length) params.set("tipo", filtros.tipos.join(","));
   if (filtros.objetoId) params.set("objetoId", filtros.objetoId);
@@ -193,7 +193,7 @@ export async function listarEventos(
     throw new ErroPercepcao("armazenamento", "Falha ao ler os eventos", { cause: err });
   }
   if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
-  const dados = (await resposta.json()) as { eventos?: EventoVisual[] };
+  const dados = (await resposta.json()) as { eventos?: EventoVisualComVideo[] };
   return dados.eventos ?? [];
 }
 
