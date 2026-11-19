@@ -145,6 +145,8 @@ e2e/
   webcam-multiframe.spec.ts  3 modos multiframe com clipe na webcam (opt-in; grava eventos/entradas/ciclos em `logs/e2e-multiframe-*`)
 tests/
   *.test.ts            testes unitários/integração (vitest)
+  helpers/             setup e fixtures compartilhados entre arquivos de teste
+  motor-temporal-*.test.ts  motor temporal dividido por domínio (rastreador, lateralidade, gestos, braço, sinais, cena, cadência, entrada/saída etc.)
   scripts/*.test.mjs   testes dos scripts de benchmark/qualidade
 logs/
   visao.jsonl          observações gravadas (ignorado no git)
