@@ -1,4 +1,4 @@
-# Arquitetura — Neuro Vision
+﻿# Arquitetura — Neuro Vision
 
 Estrutura de arquivos e como as partes conversam.
 
@@ -134,7 +134,7 @@ public/
     maquina-sinais.ts  fachada da máquina de estados de sinais (re-exports)
     maquina-sinais/    módulos: tipos/contratos, base (estado, diagnóstico, helpers de evento) e processamento (fluxo por frame)
     regras-pose.ts     regras geométricas de pose compatível (indício, não prova)
-    interacao.ts       detector puro de interação mão↔objeto: proximidade → `provavel`; sobreposição + movimento do objeto → `confirmado`
+    interacao.ts       fachada: detector puro de interação mão↔objeto (impl. em interacao/tipos|geometria|evento|base|processamento)
     motor-temporal.ts  fachada: state + orquestração (objetos + cena + pose + mãos + máquinas + interações) → `ResumoTemporal` com diagnósticos
     motor-temporal-regras.ts  constantes e helpers puros (articulações, lateralidade, continuidade, geometria)
     motor-temporal-associacao.ts  associação mão↔pessoa por proximidade ao punho e lateralidade
