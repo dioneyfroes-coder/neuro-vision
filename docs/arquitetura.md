@@ -182,7 +182,8 @@ scripts/
   gravar-webcam.mjs         grava alguns segundos da webcam em .webm (clipe de avaliação)
   extrair-frames.mjs        extrai quadros de um clipe para anotação
   exportar-yolo-nsfw.mjs    exporta o modelo NSFW (.pt → .onnx + sidecar de rótulos) via venv Python local
-  verificar-yolo-nsfw.mjs   verificação empírica do .onnx exportado (dims, labels, inferência real)
+  verificar-yolo-nsfw.mjs   verificação empírica do .onnx exportado (fachada + re-exports; dims, labels, inferência real)
+    verificar-yolo-nsfw/    módulos: constantes/args/fixtures/servidor/relatorio/avaliacao/cli + pagina.html estática
 ```
 
 ## Percepção local em workers
