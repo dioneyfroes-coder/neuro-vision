@@ -160,7 +160,16 @@ bench/
 scripts/
   benchmark.mjs        benchmark comparativo dos modelos do backend de visão (latência, tok/s, inferências/min)
   benchmark-cadencia.mjs  amostragem efetiva e latência por etapa a partir dos ciclos persistidos
-  benchmark-variantes.mjs  compara as variantes A–D sobre os mesmos clipes (desempenho + qualidade + verificação de modelo)
+  benchmark-variantes.mjs  fachada: CLI/re-exports e bootstrap; a implementação está em scripts/benchmark/
+  benchmark/               módulos do harness A–D (constantes, estatística, args, artefatos, métricas, comparabilidade, relatórios e execução)
+    constantes.mjs         ROOT, matriz de variantes, USO e limites/etapas compartilhadas
+    estatistica.mjs        mediana/P95/IC, F1 e formatação de números
+    args.mjs               parser da CLI
+    artefatos.mjs         descoberta de clipes e leitura/resolução de JSONL
+    metricas.mjs          agregação por ciclo, warm-up, etapas isoladas e gate
+    comparabilidade.mjs   verificação de modelo e execução da qualidade
+    relatorio.mjs          gravadores seguros e geradores de Markdown
+    execucao.mjs          main() e montagem do ambiente
   gerar-fixtures-bench.mjs  gera o conjunto fixo de imagens sintéticas
   avaliar-qualidade.mjs     compara eventos gravados com a anotação (precisão/recall/FP por minuto)
   gravar-webcam.mjs         grava alguns segundos da webcam em .webm (clipe de avaliação)
