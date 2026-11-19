@@ -117,7 +117,8 @@ public/
     interpretador-ciclo.ts  interpretador do ciclo multiframe (monta a mensagem do `PacoteCiclo` e valida as referências do modelo)
     esquema.ts         fachada do schema JSON versionado do contexto local (re-exports)
     esquema/           módulos: tipos/serializacao/movimento/validacao
-    contexto.ts        montagem do contexto estruturado (frames no schema versionado + eventos temporais)
+    contexto.ts        fachada do contexto estruturado (frames no schema versionado + eventos temporais)
+    contexto/          módulos: tipos/montagem/compactacao/diagnostico
     prompt.ts          instruções do prompt (orientação a eventos, evidência × inferência, resposta em PT-BR)
     normalizar.ts      normalização da resposta (JSON estruturado; falha vira texto bruto, sem mascarar erros)
     transporte-servidor.ts  transporte `POST /api/visao` (stream NDJSON)
