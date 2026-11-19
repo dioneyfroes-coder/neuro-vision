@@ -83,7 +83,8 @@ public/
   desempenho.ts        ajustes para o hardware-alvo: threads do WASM, detecção de WebGPU e isolamento
   workers/             bundles gerados por `npm run build:workers` (não versionados)
   cycle/
-    cycle-controller.ts  controlador do ciclo de frame único (captura, inferência, rastreamento, persistência, progresso)
+    cycle-controller.ts  fachada do controlador do ciclo de frame único (re-exports)
+    cycle-controller/    módulos: tipos/base (estado, sessão, agendamento, persistência, NSFW)/analise (visão, detecção, eventos)
     ciclo-multiframe.ts  fachada do ciclo de 4 snapshots: captura → processamento local concorrente → temporal → pacote → interpretação
     ciclo-multiframe/    módulos: tipos/concorrencia/persistencia/execucao
     ciclo-percepcao-controller.ts  controlador do modo multiframe (liga pipeline + temporal + interpretação à interface)
