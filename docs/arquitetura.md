@@ -190,7 +190,8 @@ scripts/
     relatorio.mjs          gravadores seguros e geradores de Markdown
     execucao.mjs          main() e montagem do ambiente
   gerar-fixtures-bench.mjs  gera o conjunto fixo de imagens sintéticas
-  avaliar-qualidade.mjs     compara eventos gravados com a anotação (precisão/recall/FP por minuto)
+  avaliar-qualidade.mjs     fachada do avaliador (re-exports + bootstrap CLI)
+  avaliar-qualidade/        módulos: constantes/argumentos, anotação, eventos/base temporal, comparação/métricas, relatório e CLI
   gravar-webcam.mjs         grava alguns segundos da webcam em .webm (clipe de avaliação)
   extrair-frames.mjs        extrai quadros de um clipe para anotação
   exportar-yolo-nsfw.mjs    exporta o modelo NSFW (.pt → .onnx + sidecar de rótulos) via venv Python local
