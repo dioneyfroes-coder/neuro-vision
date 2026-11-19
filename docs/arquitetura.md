@@ -44,7 +44,8 @@ src/
   rastreamento.ts      rastreador de objetos (IDs estáveis, aparição/desaparecimento/movimento)
   cena.ts              detecção de mudança de cena (sinal)
   provedor.ts          camada de protocolo do backend de visão (chat completions / LM Studio)
-  visao.ts             cliente de visão (modelos, prompts de descrição/roteiro, geração e tradução)
+  visao.ts             fachada do cliente de visão (re-exports)
+  visao/               módulos: prompts, comum (constantes/erros/helpers), modelos, tradução, memória e descrição (stream)
   nsfw-prompt.ts       instrução e formatação do bloco NSFW compartilhadas entre cliente e servidor (módulo puro)
   texto.ts             pós-processamento: colapsa repetições, detecta "sem mudança", corta frase incompleta
   types.ts             tipos compartilhados (EntradaLog, ObjetoVisto, EventoVisual, ...)
