@@ -151,6 +151,16 @@ São testes de **política**, não medição de precisão com vídeo real: a ava
 
 A operação contínua é observada por `/api/health`: CPU/RAM do processo e bytes de vídeo são medidos; sessões longas, queda/retorno de câmera e falha de workers/IA são cobertos por testes determinísticos sem depender do relógio de parede. GPU só aparece quando há medição real no backend; caso contrário o campo é `null` com `motivo`, nunca zero.
 
+### Validação real dos casos degradados (Fase 7)
+
+A Fase 7 não acrescenta nova política: acrescenta **instrumentos de medição** para o que antes era só regra testada com sintéticos.
+
+- **Iluminação/oclusão com verdade-base:** a regra pura em `src/domain/avaliacao-condicoes.ts` casa anotações revisadas com eventos observados por coeficiente de sobreposição temporal (padrão `0,5`, tolerância de 2 s). Classificar um trecho degradado como `movimento`, `nova_entidade` ou `desaparecimento` é **violação** e reprova. Falsos positivos por minuto, precisão e recall têm limites no manifesto. `npm run validar:condicoes` aplica o gate e grava `logs/condicoes/relatorio-*.json`; sem clipes revisados ele termina `INCONCLUSIVO` — ver protocolo em [`bench/clipes/oclusao-iluminacao/README.md`](../bench/clipes/oclusao-iluminacao/README.md) e testes em `tests/avaliacao-condicoes.test.ts`.
+- **Operação contínua:** `npm run validar:soak` exercita o servidor real com telemetria e verifica cobertura sem sobreposição/perda, lacunas injetadas explicadas, bytes para cada segmento fechado e estabilidade de memória. O modo acelerado é diagnóstico e nunca vira aceite; ver [`soak.md`](./soak.md).
+- **Câmera:** o E2E `e2e/monitoramento-camera.spec.ts` troca a `MediaStream` de verdade no navegador e confere a renovação do segmento (fechado como `pausa`), a retomada com quadros e o registro operacional, fechando a diferença entre o teste unitário com fontes falsas e o comportamento no browser.
+
+Nenhum desses instrumentos produz "precisão real" sem dados coletados: os números aparecem somente quando houver clipes anotados e revisados e execução de 30 min em tempo real.
+
 ### Benchmark reproduzível e decisão por dados (Fase 5)
 
 O harness ganhou três capacidades para a repetição do benchmark com dados reproduzíveis:

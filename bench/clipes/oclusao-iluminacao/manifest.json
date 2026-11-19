@@ -1,0 +1,12 @@
+{
+  "versaoEsquema": 1,
+  "condicoes": ["oclusao_parcial", "contraluz", "ambiente_escuro"],
+  "ocorrenciasMinimasPorCondicao": 3,
+  "clipesNegativosMinimos": 2,
+  "sobreposicaoMinima": 0.5,
+  "toleranciaMs": 2000,
+  "maxFalsosPositivosPorMinuto": 1,
+  "minPrecisao": 0.9,
+  "minRecall": 0.8,
+  "eventos": "logs/condicoes/eventos.jsonl"
+}

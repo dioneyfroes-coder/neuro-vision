@@ -93,7 +93,7 @@ revisão humana**; nenhum resultado deve ser inventado a partir do EVAL atual:
 | `gestos_mao` | ⏳ | clipes com gestos distintos + anotação EVAL revisada |
 | `postura_corporal` | ⏳ | clipes de postura (em pé/sentado/inclinado) + anotação revisada |
 | `transicao_acao` | ⏳ | clipes com início/fim de ação e anotação revisada |
-| `oclusao_iluminacao` | ⏳ | clipes com oclusão parcial e iluminação ruim + anotação revisada |
+| `oclusao_iluminacao` | ⏳ | clipes com oclusão parcial e iluminação ruim + anotação revisada. Gate pronto em [`oclusao-iluminacao/`](./oclusao-iluminacao/README.md) (`npm run validar:condicoes`), hoje `INCONCLUSIVO` por falta de dados |
 
 Movimentos rápidos (gestos e transições) exigem anotação em **resolução melhor
 que 1 fps** (idealmente quadro a quadro ou ≥ 5 fps); a amostragem de 1 fps só é

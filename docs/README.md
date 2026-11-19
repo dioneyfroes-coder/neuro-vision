@@ -14,6 +14,7 @@
 | [`seguranca.md`](./seguranca.md) | Exposição na rede, origem cruzada, limites de corpo e validação de payloads. |
 | [`qualidade.md`](./qualidade.md) | Benchmark do modelo, avaliação de eventos (precisão/recall), benchmark das variantes A–D, benchmark da cadência independente (5 FPS), carregamento do modelo e fluxo de regressão. |
 | [`pendencias.md`](./pendencias.md) | Avaliações adiadas de propósito, com protocolo e critério de aceite — gestos (Fase 1.5–1.6) e validação real da Fase 6 (soak test, troca de stream, iluminação/oclusão anotadas). |
+| [`soak.md`](./soak.md) | Soak test do servidor de monitoramento com telemetria: como rodar em tempo real ou acelerado, invariantes verificados e interpretação do veredito. |
 | [`limites.md`](./limites.md) | Limitações conhecidas (classes COCO, oclusão, iluminação, alucinações, CPU/WASM, latência multiframe, dados sensíveis) e **como desligar cada componente**. |
 
 Documentação correlata fora de `docs/`:
@@ -22,4 +23,5 @@ Documentação correlata fora de `docs/`:
 - [`bench/BASELINE.md`](../bench/BASELINE.md) — máquina de referência, números e metas realistas por hardware.
 - [`bench/videos/README.md`](../bench/videos/README.md) — anotação de clipes, fluxo de captura e regras de casamento da avaliação de eventos.
 - [`bench/clipes/MATRIZ_COBERTURA.md`](../bench/clipes/MATRIZ_COBERTURA.md) — separação dos clipes em `tuning/` e `eval/` com a cobertura mínima de cenários.
+- [`bench/clipes/oclusao-iluminacao/README.md`](../bench/clipes/oclusao-iluminacao/README.md) — protocolo e gate de iluminação/oclusão (ainda sem clipes revisados, portanto `INCONCLUSIVO`).
 - [`bench/RELATORIO_TESTE_NSFW_20261112.md`](../bench/RELATORIO_TESTE_NSFW_20261112.md) — teste completo do conjunto NSFW: execução dos 6 modelos, contrato, E2E e varredura temporal.

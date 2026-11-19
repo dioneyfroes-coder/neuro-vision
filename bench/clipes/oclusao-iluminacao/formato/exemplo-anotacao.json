@@ -1,0 +1,32 @@
+{
+  "versaoEsquema": 1,
+  "clip": "oclusao-parcial.mp4",
+  "conjunto": "eval-condicoes",
+  "duracaoMs": 20000,
+  "revisao": {
+    "status": "rascunho",
+    "metodo": "AMOSTRA DE FORMATO — NAO E VIDADE-BASE"
+  },
+  "negativos": [],
+  "notas": "Exemplo de formato. NAO conta como evidencia: para valer, o status deve ser 'revisada' e os intervalos precisam ser conferidos no video real.",
+  "eventos": [
+    {
+      "condicao": "oclusao_parcial",
+      "em": 5000,
+      "inicioMs": 3500,
+      "fimMs": 6500,
+      "visibilidade": "parcial",
+      "determinavel": true,
+      "descricao": "mao da pessoa passa atras de um objeto; score cai sem mudar de posicao"
+    },
+    {
+      "condicao": "contraluz",
+      "em": 13000,
+      "inicioMs": 12000,
+      "fimMs": 15000,
+      "visibilidade": "ocluida",
+      "determinavel": true,
+      "descricao": "luz forte atras da pessoa; rastro permanece, confianca cai"
+    }
+  ]
+}

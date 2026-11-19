@@ -18,6 +18,8 @@
     "bench:cadencia": "node scripts/benchmark-cadencia.mjs",
     "qualidade": "node scripts/avaliar-qualidade.mjs",
     "validar:eval": "node scripts/validar-eval.mjs",
+    "validar:soak": "node --import tsx scripts/soak-monitoramento.mjs",
+    "validar:condicoes": "node --import tsx scripts/validar-condicoes.mjs",
     "preparar:offline": "node scripts/preparar-offline.mjs",
     "baixar:nsfw": "node scripts/baixar-modelos-nsfw.mjs",
     "gravar:webcam": "node scripts/gravar-webcam.mjs",

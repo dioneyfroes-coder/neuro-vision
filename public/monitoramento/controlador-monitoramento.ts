@@ -109,7 +109,9 @@ export class ControladorMonitoramento {
   /**
    * Suspende apenas os metadados de captura durante uma queda da camera. Os
    * bytes ja gravados nao sao descartados e a sessao continua ativa; quando o
-   * sinal voltar, o intervalo aparecera como lacuna real no indice.
+   * sinal voltar, `renovarGravador` fecha o segmento anterior como `pausa` e
+   * abre outro. Pausa intencional nao e lacuna: lacunas com motivo `sem_quadros`
+   * surgem apenas quando o servidor detecta ausencia de quadros sem pausa.
    */
   suspenderCaptura(motivo: string): void {
     if (this.estado !== "gravando" || this.capturaSuspensa) return;
@@ -127,14 +129,15 @@ export class ControladorMonitoramento {
   /**
    * Troca o `MediaRecorder` depois de uma reconexao da camera: pausa e retoma o
    * indice para abrir um segmento novo, fecha o anterior no ultimo quadro real e
-   * cria o gravador com o stream atual. A lacuna continua sendo calculada pelo
-   * servidor com base nos quadros que deixaram de ser relatados.
+   * cria o gravador com o stream atual. A pausa explicita fecha o segmento como
+   * `pausa` (sem lacunas[]); o servidor so calcula `lacuna` quando ha ausencia de
+   * quadros sem essa pausa.
    */
   renovarGravador(): Promise<void> {
     return this.enfileirar(() => this.renovarGravadorNaFila());
   }
 
-  /** Retoma os relatorios e dispara um tick imediato para fechar a lacuna. */
+  /** Retoma os relatorios e dispara um tick imediato no novo segmento. */
   retomarCaptura(): Promise<void> {
     if (this.estado !== "gravando" || !this.capturaSuspensa) return Promise.resolve();
     this.capturaSuspensa = false;

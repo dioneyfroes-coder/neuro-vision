@@ -1673,7 +1673,13 @@ describe("createServer", () => {
       })
     );
 
-    const server = createServer({ publicDir: tmpDir, backendUrl: "http://localhost:1234" });
+    // Diretorio de videos isolado: logs/videos/ é compartilhado com execucoes
+    // E2E, entao nao pode determinar a contagem esperada de arquivos.
+    const server = createServer({
+      publicDir: tmpDir,
+      videosDir: path.join(tmpDir, "videos-health"),
+      backendUrl: "http://localhost:1234",
+    });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const { port } = server.address() as AddressInfo;
 

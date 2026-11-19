@@ -473,7 +473,7 @@ describe("ControladorMonitoramento", () => {
     expect(h.quadros).toHaveLength(1);
     expect(h.uploads).toEqual([]);
 
-    // Analise e camera voltam: o proximo quadro fecha a lacuna e rotaciona.
+    // Analise e camera voltam: o proximo quadro rotaciona para um novo segmento.
     h.cfg.falharQuadros = false;
     await h.controlador.retomarCaptura();
 
