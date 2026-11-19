@@ -41,7 +41,7 @@ Referência completa da API HTTP, formato das entradas, retenção de snapshots 
 | `POST` | `/api/monitoramento/sessoes/:id/cena/comparar` | Compara `itens` com a referência (`agoraMs`, `iouMinimo`, `distanciaMaxima` opcionais); devolve `{ ok, mudancas, novas }`. Sem referência responde `409`. |
 | `GET` | `/api/monitoramento/sessoes/:id/cena/mudancas?limit=2000` | Devolve `{ ok, total, mudancas }` sem duplicatas por `mudancaId`. |
 | `GET` | `/api/contexto` | Reidrata um contexto curto do estado recente (`{ resumo, roteiro, ultimaDescricao, entradas, eventos }`) com janela por `maxEntradas`/`maxEventos`/`maxCaracteres`. |
-| `GET` | `/api/health` | Status do backend de visão (`{ visao: { online, solicitado, modelo, modelos, carregados, erro } }`). `modelo` é o efetivo (o solicitado ou o melhor disponível quando o solicitado não está instalado). |
+| `GET` | `/api/health` | `{ ok, visao, sistema, monitoramento }`. `visao` mantém `{ online, backend, solicitado, modelo, modelos, carregados, erro }` (`modelo` é o efetivo). `sistema` traz CPU/RAM do processo, contagem de núcleos, bytes de vídeo e taxa horária estimada; `gpu.utilizacaoPercentual` é `null` com `motivo` quando não há API real de medição. `monitoramento` traz sessão/estado atuais, segmentos, quadros e lacunas. |
 | `GET` | `/snapshots/<arquivo>` | Serve os snapshots (thumbnails) gravados. |
 | `GET` | `/yolonsfw/<arquivo>` | Serve pesos/catálogo NSFW locais (`.onnx`/`.json`) de `modelos/yolonsfw/`; demais arquivos são recusados. |
 
@@ -49,7 +49,9 @@ As entradas são gravadas em `logs/visao.jsonl`, os eventos em `logs/eventos.jso
 
 ## Falhas de gravação e fila do cliente
 
-As rotas de gravação (`POST /api/log`, `/api/eventos`, `/api/operacional`) respondem com status HTTP de erro quando o payload é inválido ou a escrita falha. O cliente **verifica `response.ok`** e trata `4xx`/`5xx` como falha de persistência (lendo `{ erro }` do corpo quando existir) — uma resposta de erro nunca é tratada como sucesso.
+As rotas de gravação (`POST /api/log`, `/api/eventos`, `/api/operacional`) respondem com status HTTP de erro quando o payload é inválido ou a escrita falha. O cliente **verifica `response.ok`** e trata `4xx`/`5xx` como falha de persistência (lendo `{ erro }` do corpo quando existir) — uma resposta de erro nunca é tratada como sucesso. `gravarOperacional` é best-effort: não interrompe a captura e devolve `false` em falha de rede ou HTTP não-OK, `true` quando o registro foi aceito.
+
+Falhas do servidor e exclusões de vídeo são espelhadas em `logs/operacional.jsonl` pelo mesmo caminho (console + arquivo); a retenção também é aplicada na subida do processo. `DELETE /api/logs` limpa histórico, eventos, ciclos e snapshots, **mas não** apaga `operacional.jsonl`, o índice de monitoramento nem os vídeos — use as rotas específicas para esses dados.
 
 As gravações passam por uma fila serial (`public/persistencia.ts`): mantém a ordem, limita a uma requisição simultânea, faz no máximo 3 tentativas com atraso progressivo e tem teto de itens aguardando. Ao esgotar as tentativas, a falha aparece no aviso do cabeçalho, no diagnóstico (contagem) e no próprio item do log, e o conteúdo pode ser exportado pelo botão **Pendentes**. O `idempotencyKey` é mantido entre as tentativas, então o reenvio não duplica eventos.
 

@@ -12,6 +12,7 @@ import {
   limparHistorico,
   obterContexto,
   prepararVisao,
+  saudeSistema,
   saudeVisao,
 } from "../public/api";
 import type { RegistroCiclo } from "../src/domain/cycle";
@@ -287,7 +288,45 @@ describe("api de eventos e operacional", () => {
       })
     );
 
-    await expect(gravarOperacional({ nivel: "erro", mensagem: "falha" })).resolves.toBeUndefined();
+    await expect(gravarOperacional({ nivel: "erro", mensagem: "falha" })).resolves.toBe(false);
+  });
+
+  it("gravarOperacional detecta HTTP nao-OK sem interromper a captura", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ ok: false, erro: "cheio" }, 500)));
+    await expect(gravarOperacional({ mensagem: "falha" })).resolves.toBe(false);
+
+    vi.stubGlobal("fetch", vi.fn(async () => json({ ok: true }, 200)));
+    await expect(gravarOperacional({ mensagem: "falha" })).resolves.toBe(true);
+  });
+
+  it("saudeSistema devolve visao, recursos e monitoramento do /api/health", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json({
+          ok: true,
+          visao: { online: false, modelos: [], erro: "offline" },
+          sistema: {
+            cpu: { userMs: 1, systemMs: 0, usoPercentual: 12.5, nucleos: 4 },
+            ram: {
+              rssBytes: 10,
+              heapUsedBytes: 5,
+              heapTotalBytes: 8,
+              sistemaTotalBytes: 100,
+              sistemaLivreBytes: 40,
+            },
+            gpu: { utilizacaoPercentual: null, motivo: "indisponivel" },
+            armazenamento: { arquivos: 0, bytesTotal: 0, bytesPorHora: null },
+          },
+          monitoramento: { sessaoId: null, estado: null, segmentos: 0, quadros: 0, lacunas: 0 },
+        })
+      )
+    );
+
+    const saude = await saudeSistema();
+    expect(saude.sistema?.cpu.usoPercentual).toBe(12.5);
+    expect(saude.sistema?.gpu.utilizacaoPercentual).toBeNull();
+    expect(saude.monitoramento?.lacunas).toBe(0);
   });
 
   it("obterContexto normaliza o contexto recuperado", async () => {

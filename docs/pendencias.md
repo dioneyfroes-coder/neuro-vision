@@ -120,6 +120,22 @@ As metas são **proposta inicial**: quando a primeira linha de base for medida, 
 
 A documentação do comportamento implementado está em [`eventos.md`](./eventos.md#entrada-e-saída-de-pessoas-fase-4), [`eventos.md`](./eventos.md#interação-mãoobjeto-fase-4) e [`arquitetura.md`](./arquitetura.md#frequência-adaptativa-na-entrada-de-pessoas-fase-4). O critério geral da Fase 4 — “registrar sequências simples de interação sem transformar proximidade em contato confirmado” — continua atendido. A validação com vídeos reais anotados da Fase 1.5–1.6 segue adiada e **não** é pré-requisito para esta conclusão técnica.
 
+## Fase 6 — robustez, desempenho e operação contínua
+
+**Status:** implementada em 2026-11-18; pendências abaixo são de **validação com dados reais**, não de código.
+
+| Item do roteiro | Implementação | Verificação determinística |
+| --- | --- | --- |
+| 1 — Medir CPU, GPU, RAM e armazenamento | `/api/health` expõe `sistema` (CPU/RAM do processo, núcleos, bytes de vídeo e taxa horária estimada) e `monitoramento` (sessão, segmentos, quadros, lacunas). GPU fica `null` com `motivo` quando não há API real. | `tests/server.test.ts` e `tests/api.test.ts` cobrem o contrato do health e `saudeSistema`. |
+| 2 — Sessões prolongadas | Gravação contínua com rotação de segmentos e índice durável; 30 min em `tests/monitoramento.test.ts`/`tests/monitoramento-persistencia.test.ts` e sessão longa com rotações no gravador cliente. | Sem relógio de parede: timestamps sintéticos. Falta um soak test real com telemetria contínua. |
+| 3 — Queda e retorno da câmera | `public/camera.ts` detecta `ended`/`mute`/`error` e reconecta com backoff injetável; o controlador suspende apenas metadados, renova o gravador no retorno e preserva a lacuna real. | `tests/camera.test.ts` e `tests/gravador-cliente.test.ts`. Um E2E com `__testStream` e troca real de `MediaStream` permanece opt-in. |
+| 4 — Workers/IA indisponíveis | Fallback local e erros de visão já viram registro operacional; a gravação segue independente. | `tests/motores-remotos.test.ts`, `tests/workers-atender.test.ts` e `tests/local-perception-pipeline.test.ts`. Faltam clipes anotados para medir degradação de qualidade. |
+| 5 — Gravação contínua durante falhas | `aoErro` do monitoramento e falhas do servidor gravam em `operacional.jsonl`; `MediaRecorder` trata erro com segmento ativo e renova sem encerrar; uploads falhados ficam pendentes. | `tests/gravador-cliente.test.ts`, `tests/server.test.ts` (registrarFalha) e `tests/api.test.ts` (HTTP não-OK). |
+| 6 — Retenção, exclusão e proteção | Rotas existentes ligadas à UI (**Aplicar retenção** / **Excluir vídeos da sessão**), retenção também na subida, exclusões auditadas, bind em loopback por padrão. | `tests/server-videos.test.ts` e `tests/armazenamento-videos.test.ts`. Sem autenticação/criptografia embutidas: exposição exige reverse proxy. |
+| 7 — Iluminação e oclusão | Roteiros sintéticos de contraluz e oclusão parcial em `tests/qualidade-eventos.test.ts`, documentados em [`qualidade.md`](./qualidade.md#robustez-sob-condições-degradadas-fase-6). | Prova a regra da política; **não** substitui a avaliação com anotações revisadas em `bench/clipes/eval`. |
+
+**Critério de conclusão:** "o monitoramento deve continuar gravando e registrando falhas mesmo quando a análise inteligente estiver degradada" — atendido no código e em testes determinísticos. A validação pendente é: soak test com telemetria real, E2E de troca de `MediaStream` e avaliação de iluminação/oclusão com clipes anotados e revisados (ver protocolo nas seções Fase 1.5–1.6 acima e `bench/clipes/MATRIZ_COBERTURA.md`).
+
 ## Outras pendências registradas
 
 Novas avaliações adiadas devem entrar neste documento com o mesmo formato da Fase 1.5–1.6: motivação, dados necessários, métricas e critério de aceite. Itens de implementação ainda abertos (como os da Fase 4 acima) ficam registrados com o mesmo nível de detalhe, mas marcados como tal.

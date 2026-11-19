@@ -266,6 +266,7 @@ function criarHarness(opcoes: Partial<ConfigHarness> = {}): Harness {
         criarRecorder: () => recorder,
         agoraMs: () => agora,
         mimeType: "video/webm",
+        aoErro: (erro) => erros.push(erro),
       });
     },
     agendarTick: (tick) => {
@@ -435,6 +436,92 @@ describe("ControladorMonitoramento", () => {
     expect(h.controlador.segmentoAtual).toBeNull();
     expect(h.erros).toHaveLength(2);
     expect(h.uploads).toEqual([]);
+  });
+
+  it("sobrevive a sessao prolongada com rotacoes e uploads sucessivos", async () => {
+    const segmentos = Array.from({ length: 30 }, (_, i) => `seg-${i + 1}`);
+    const h = criarHarness({ segmentos });
+    await h.controlador.iniciar("sala");
+
+    for (let minuto = 0; minuto < 30; minuto += 1) {
+      h.adiantar(60_000);
+      await h.tick();
+    }
+
+    expect(h.quadros).toHaveLength(30);
+    expect(h.gravadores).toHaveLength(30);
+    expect(h.uploads.map((u) => u.segmentoId)).toEqual(segmentos.slice(0, 29));
+    expect(h.controlador.uploadsPendentes).toBe(0);
+    expect(h.estados.at(-1)).toBe("gravando");
+    expect(h.controlador.segmentoAtual).toBe("seg-30");
+  });
+
+  it("grava durante queda da camera e indisponibilidade da analise", async () => {
+    const h = criarHarness({ segmentos: ["seg-1", "seg-2"] });
+    await h.controlador.iniciar("sala");
+    await h.tick();
+    expect(h.controlador.segmentoAtual).toBe("seg-1");
+
+    // Workers/IA indisponíveis e camera sem sinal ao mesmo tempo.
+    h.cfg.falharQuadros = true;
+    h.controlador.suspenderCaptura("trilha_encerrada");
+    h.adiantar(5_000);
+    await h.tick();
+
+    expect(h.estados.at(-1)).toBe("gravando");
+    expect(h.controlador.semSinal).toBe(true);
+    expect(h.quadros).toHaveLength(1);
+    expect(h.uploads).toEqual([]);
+
+    // Analise e camera voltam: o proximo quadro fecha a lacuna e rotaciona.
+    h.cfg.falharQuadros = false;
+    await h.controlador.retomarCaptura();
+
+    expect(h.controlador.semSinal).toBe(false);
+    expect(h.quadros.at(-1)?.[0].capturadoEmMs).toBe(BASE + 5_000);
+    expect(h.uploads.map((u) => u.segmentoId)).toEqual(["seg-1"]);
+    expect(h.gravadores).toHaveLength(2);
+    expect(h.estados.at(-1)).toBe("gravando");
+  });
+
+  it("renova o gravador no retorno por reconexao antes de relatar quadros", async () => {
+    const h = criarHarness({ segmentos: ["seg-1", "seg-2"] });
+    await h.controlador.iniciar("sala");
+    await h.tick();
+
+    h.controlador.suspenderCaptura("trilha_encerrada");
+    h.adiantar(5_000);
+    await h.controlador.renovarGravador();
+
+    expect(h.chamadas).toContain("pausar:sessao-1");
+    expect(h.chamadas).toContain("retomar:sessao-1");
+    expect(h.uploads.map((u) => u.segmentoId)).toEqual(["seg-1"]);
+    expect(h.gravadores).toHaveLength(2);
+    expect(h.controlador.segmentoAtual).toBeNull();
+
+    await h.controlador.retomarCaptura();
+    expect(h.controlador.segmentoAtual).toBe("seg-2");
+    expect(h.gravadores).toHaveLength(2);
+    expect(h.estados.at(-1)).toBe("gravando");
+  });
+
+  it("erro do MediaRecorder durante o segmento renova o gravador sem encerrar", async () => {
+    const h = criarHarness({ segmentos: ["seg-1", "seg-2"] });
+    await h.controlador.iniciar("sala");
+    await h.tick();
+    expect(h.controlador.segmentoAtual).toBe("seg-1");
+
+    h.gravadores[0].onerror?.(new Error("MediaRecorder parou"));
+    await h.tick();
+    await h.tick();
+
+    expect(h.chamadas).toContain("pausar:sessao-1");
+    expect(h.chamadas).toContain("retomar:sessao-1");
+    expect(h.uploads.map((u) => u.segmentoId)).toEqual(["seg-1"]);
+    expect(h.gravadores).toHaveLength(2);
+    expect(h.controlador.segmentoAtual).toBe("seg-2");
+    expect(h.estados.at(-1)).toBe("gravando");
+    expect(h.erros.some((erro) => /MediaRecorder parou|gravacao/.test(erro.message))).toBe(true);
   });
 
   it("registra rejeicoes sem descartar o lote", async () => {

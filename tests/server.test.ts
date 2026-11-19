@@ -27,6 +27,7 @@ import {
   origensPermitidas,
   parsearInstante,
   parsearTiposEvento,
+  registrarFalha,
   resolverCaminhoDentroDaBase,
   resolveStaticFile,
   salvarSnapshot,
@@ -1682,10 +1683,22 @@ describe("createServer", () => {
       const corpo = (await res.json()) as {
         ok: boolean;
         visao: { online: boolean; modelos: string[]; modelo: string };
+        sistema: {
+          cpu: { usoPercentual: number | null };
+          ram: { rssBytes: number };
+          gpu: { utilizacaoPercentual: null; motivo: string };
+          armazenamento: { arquivos: number; bytesTotal: number };
+        };
+        monitoramento: { sessaoId: string | null; lacunas: number };
       };
       expect(corpo.visao.online).toBe(true);
       expect(corpo.visao.modelos).toContain("qwen2.5-vl-3b-instruct");
       expect(corpo.visao.modelo).toBeTruthy();
+      expect(corpo.sistema.ram.rssBytes).toBeGreaterThan(0);
+      expect(corpo.sistema.gpu.utilizacaoPercentual).toBeNull();
+      expect(corpo.sistema.gpu.motivo).toContain("indisponivel");
+      expect(corpo.sistema.armazenamento.arquivos).toBe(0);
+      expect(corpo.monitoramento).toEqual({ sessaoId: null, estado: null, segmentos: 0, quadros: 0, lacunas: 0 });
     } finally {
       server.close();
     }
@@ -2380,6 +2393,27 @@ describe("memoria persistente (eventos e operacional)", () => {
     );
     const lidos = await lerOperacional(operacionalFile, 10);
     expect(lidos.map((r) => r.mensagem)).toEqual(["segundo", "primeiro"]);
+  });
+
+  it("registrarFalha espelha console e operacional.jsonl", async () => {
+    const operacionalFile = path.join(tmpDir, "operacional-falha.jsonl");
+    const erro = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      registrarFalha("error", "upload_falhou", { erro: "HTTP 500" }, operacionalFile);
+      await vi.waitFor(async () => {
+        const lidos = await lerOperacional(operacionalFile, 10);
+        expect(lidos).toHaveLength(1);
+        expect(lidos[0]).toMatchObject({
+          nivel: "erro",
+          origem: "servidor",
+          mensagem: "upload_falhou",
+        });
+        expect(lidos[0].detalhe).toContain("HTTP 500");
+      });
+      expect(erro).toHaveBeenCalled();
+    } finally {
+      erro.mockRestore();
+    }
   });
 
   it("POST /api/operacional grava um registro sem virar evento visual", async () => {

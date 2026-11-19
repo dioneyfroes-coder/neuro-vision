@@ -90,6 +90,46 @@ function medir(
   };
 }
 
+/**
+ * Condicoes degradadas nao tem "verdade" binaria: o que importa e quais motivos
+ * acionaram a visao e se a politica respeitou o teto de chamadas por minuto.
+ */
+function medirCondicao(
+  deteccoesPorTick: (tick: number) => ObjetoVisto[],
+  passos = PASSOS
+): { chamadas: Chamada[]; chamadasPorMinuto: number; motivos: string[] } {
+  const rastreador = new RastreadorObjetos();
+  const politica = new PoliticaAnalise(CONFIG_POLITICA_PADRAO);
+  const chamadas: Chamada[] = [];
+
+  for (let tick = 0; tick < passos; tick++) {
+    const agora = tick * INTERVALO_MS;
+    const deteccoes = deteccoesPorTick(tick);
+    const quadro = rastreador.processar(deteccoes, agora, {
+      timestamp: new Date(agora).toISOString(),
+    });
+    const melhorConfianca = deteccoes.length
+      ? Math.min(...deteccoes.map((d) => d.score))
+      : null;
+    const decisao = politica.avaliar({
+      agora,
+      eventos: quadro.eventos,
+      melhorConfianca,
+      percepcaoValida: true,
+    });
+    if (decisao.acionar && decisao.motivo !== "sem_acao") {
+      politica.registrarChamada(agora);
+      chamadas.push({ tick, motivo: decisao.motivo });
+    }
+  }
+
+  return {
+    chamadas,
+    chamadasPorMinuto: chamadas.length / ((passos * INTERVALO_MS) / 60_000),
+    motivos: chamadas.map((c) => c.motivo),
+  };
+}
+
 describe("qualidade dos eventos (percepcao leve + politica)", () => {
   it("cena estatica: nao gera falsos positivos apos a primeira analise", () => {
     const m = medir(() => [pessoa(0)], [[0, 0]]);
@@ -133,5 +173,24 @@ describe("qualidade dos eventos (percepcao leve + politica)", () => {
 
     expect(m.chamadas).toHaveLength(1);
     expect(m.falsosPositivos).toBe(0);
+  });
+
+  it("contraluz: score baixo aciona a visao sem inventar movimento", () => {
+    const m = medirCondicao(() => [pessoa(0, 0.45)]);
+
+    expect(m.motivos[0]).toBe("primeira_analise");
+    expect(m.motivos.slice(1)).toContain("baixa_confianca");
+    expect(m.motivos).not.toContain("movimento");
+    expect(m.motivos).not.toContain("nova_entidade");
+    expect(m.chamadasPorMinuto).toBeLessThanOrEqual(CONFIG_POLITICA_PADRAO.maxChamadasPorJanela);
+  });
+
+  it("oclusao parcial: queda de score na mesma posicao nao vira desaparecimento", () => {
+    const m = medirCondicao((tick) => [pessoa(0, tick >= 40 && tick < 60 ? 0.5 : 0.9)]);
+
+    expect(m.motivos).not.toContain("desaparecimento");
+    expect(m.motivos).not.toContain("movimento");
+    expect(m.motivos.slice(1)).toContain("baixa_confianca");
+    expect(m.chamadasPorMinuto).toBeLessThanOrEqual(CONFIG_POLITICA_PADRAO.maxChamadasPorJanela);
   });
 });

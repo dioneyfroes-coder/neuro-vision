@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import http from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -279,6 +280,13 @@ export function sendJson(res: ServerResponse, status: number, data: unknown): vo
 
 export type NivelLog = "info" | "warn" | "error";
 
+/**
+ * Caminho do log operacional do servidor ativo. Stateful por processo (cada
+ * worker de teste tem o seu); `createServer` atualiza no inicio. Assim funcoes
+ * antigas que so tinham `logEvent` podem persistir falhas sem mudar assinatura.
+ */
+let operacionalFileAtivo: string | undefined;
+
 export function logEvent(
   nivel: NivelLog,
   evento: string,
@@ -287,6 +295,31 @@ export function logEvent(
   const linha = JSON.stringify({ ts: new Date().toISOString(), nivel, evento, ...dados });
   if (nivel === "error") console.error(linha);
   else console.log(linha);
+}
+
+/**
+ * Falha operacional: console + `operacional.jsonl`. O arquivo e opcional para
+ * nao alterar callers antigos; `createServer` sempre fornece o caminho padrao.
+ * Best-effort: falha ao registrar nao pode derrubar a requisicao em andamento.
+ */
+export function registrarFalha(
+  nivel: NivelLog,
+  evento: string,
+  dados: Record<string, unknown> = {},
+  operacionalFile = operacionalFileAtivo
+): void {
+  logEvent(nivel, evento, dados);
+  if (!operacionalFile) return;
+  const registro: RegistroOperacional = {
+    timestamp: new Date().toISOString(),
+    nivel: nivel === "warn" ? "aviso" : nivel === "error" ? "erro" : "info",
+    origem: "servidor",
+    mensagem: evento,
+    detalhe: Object.keys(dados).length > 0 ? JSON.stringify(dados) : undefined,
+  };
+  void gravarOperacional(registro, operacionalFile, LOG_MAX_BYTES).catch((err: unknown) => {
+    logEvent("error", "operacional_falhou", { erro: (err as Error).message });
+  });
 }
 
 function readBody(req: IncomingMessage, limit = 1_000_000): Promise<string> {
@@ -1020,11 +1053,11 @@ function agendarLimpezaSnapshots(
         });
       }
       if (resultado.erros.length > 0) {
-        logEvent("warn", "snapshots_limpeza_parcial", { erros: resultado.erros });
+        registrarFalha("warn", "snapshots_limpeza_parcial", { erros: resultado.erros });
       }
     })
     .catch((err) => {
-      logEvent("warn", "limpeza_snapshots_falhou", { erro: (err as Error).message });
+      registrarFalha("warn", "limpeza_snapshots_falhou", { erro: (err as Error).message });
     });
 }
 
@@ -1188,7 +1221,7 @@ async function handleListEventos(
     );
     sendJson(res, 200, { ok: true, total: eventos.length, eventos });
   } catch (err) {
-    logEvent("error", "listar_eventos_falhou", { erro: (err as Error).message });
+    registrarFalha("error", "listar_eventos_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }
 }
@@ -1207,7 +1240,7 @@ async function handleClearEventos(
     });
     sendJson(res, 200, { ok: true, snapshots });
   } catch (err) {
-    logEvent("error", "limpar_eventos_falhou", { erro: (err as Error).message });
+    registrarFalha("error", "limpar_eventos_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }
 }
@@ -1307,7 +1340,7 @@ async function handleContexto(
     });
     sendJson(res, 200, { ok: true, ...contexto });
   } catch (err) {
-    logEvent("error", "contexto_falhou", { erro: (err as Error).message });
+    registrarFalha("error", "contexto_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }
 }
@@ -1370,7 +1403,7 @@ async function handleListCiclos(
     const ciclos = await lerCiclos(ciclosFile, limite);
     sendJson(res, 200, { ok: true, total: ciclos.length, ciclos });
   } catch (err) {
-    logEvent("error", "listar_ciclos_falhou", { erro: (err as Error).message });
+    registrarFalha("error", "listar_ciclos_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }
 }
@@ -1381,7 +1414,7 @@ async function handleClearCiclos(res: ServerResponse, ciclosFile: string): Promi
     await limparCiclosPersistidos(ciclosFile);
     sendJson(res, 200, { ok: true });
   } catch (err) {
-    logEvent("error", "limpar_ciclos_falhou", { erro: (err as Error).message });
+    registrarFalha("error", "limpar_ciclos_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }
 }
@@ -1511,7 +1544,7 @@ async function handleListEventosTemporais(
 
     sendJson(res, 200, { ok: true, total: visiveis.length, eventos: visiveis });
   } catch (err) {
-    logEvent("error", "listar_eventos_temporais_falhou", { erro: (err as Error).message });
+    registrarFalha("error", "listar_eventos_temporais_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }
 }
@@ -1525,7 +1558,7 @@ async function handleClearEventosTemporais(
     await limparEventosTemporais(eventosTemporaisFile);
     sendJson(res, 200, { ok: true });
   } catch (err) {
-    logEvent("error", "limpar_eventos_temporais_falhou", { erro: (err as Error).message });
+    registrarFalha("error", "limpar_eventos_temporais_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }
 }
@@ -1655,7 +1688,7 @@ function responderErroMonitoramento(res: ServerResponse, err: unknown): void {
     sendJson(res, 409, { ok: false, erro: mensagem });
     return;
   }
-  logEvent("error", "monitoramento_falhou", { erro: mensagem });
+  registrarFalha("error", "monitoramento_falhou", { erro: mensagem });
   sendJson(res, 500, { ok: false, erro: mensagem });
 }
 
@@ -1768,7 +1801,7 @@ async function handleListarSessoesMonitoramento(
     const sessoes: SessaoMonitoramento[] = await monitoramento.listarSessoes(limite);
     sendJson(res, 200, { ok: true, total: sessoes.length, sessoes });
   } catch (err) {
-    logEvent("error", "listar_sessoes_monitoramento_falhou", { erro: (err as Error).message });
+    registrarFalha("error", "listar_sessoes_monitoramento_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }
 }
@@ -1786,7 +1819,7 @@ async function handleSegmentosDaSessaoMonitoramento(
     const segmentos: VideoSegment[] = await monitoramento.segmentosDaSessao(sessaoId, limite);
     sendJson(res, 200, { ok: true, total: segmentos.length, segmentos });
   } catch (err) {
-    logEvent("error", "listar_segmentos_monitoramento_falhou", { erro: (err as Error).message });
+    registrarFalha("error", "listar_segmentos_monitoramento_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }
 }
@@ -1825,7 +1858,7 @@ async function handleListarSegmentosMonitoramento(
     );
     sendJson(res, 200, { ok: true, total: segmentos.length, segmentos });
   } catch (err) {
-    logEvent("error", "listar_segmentos_monitoramento_falhou", { erro: (err as Error).message });
+    registrarFalha("error", "listar_segmentos_monitoramento_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }
 }
@@ -1861,7 +1894,7 @@ function responderErroVideo(res: ServerResponse, err: unknown): void {
     sendJson(res, status, { ok: false, erro: err.message, motivo: err.motivo });
     return;
   }
-  logEvent("error", "video_monitoramento_falhou", { erro: (err as Error).message });
+  registrarFalha("error", "video_monitoramento_falhou", { erro: (err as Error).message });
   sendJson(res, 500, { ok: false, erro: (err as Error).message });
 }
 
@@ -1904,7 +1937,7 @@ async function handleUploadVideo(
     // mas a limpeza termina antes da resposta para que uma consulta imediata
     // já reflita o estado final do diretorio.
     await armazenador.aplicarRetencao(Date.now()).catch((err: unknown) => {
-      logEvent("error", "retencao_videos_falhou", { erro: (err as Error).message });
+      registrarFalha("error", "retencao_videos_falhou", { erro: (err as Error).message });
     });
     sendJson(res, 201, { ok: true, arquivo });
   } catch (err) {
@@ -1963,6 +1996,7 @@ async function handleExcluirVideo(
       sendJson(res, 404, { ok: false, erro: "Video nao encontrado" });
       return;
     }
+    registrarFalha("info", "video_excluido", { segmentoId });
     sendJson(res, 200, { ok: true, excluido: true });
   } catch (err) {
     responderErroVideo(res, err);
@@ -1983,6 +2017,11 @@ async function handleExcluirVideosSessao(
       return;
     }
     const removidos = await armazenador.excluirSessao(sessaoId);
+    registrarFalha("info", "videos_sessao_excluidos", {
+      sessaoId,
+      total: removidos.length,
+      segmentos: removidos.map((arquivo) => arquivo.segmentoId),
+    });
     sendJson(res, 200, { ok: true, total: removidos.length, removidos });
   } catch (err) {
     responderErroVideo(res, err);
@@ -2003,6 +2042,12 @@ async function handleRetencaoVideos(
       return;
     }
     const removidos = await armazenador.aplicarRetencao(lido ?? Date.now());
+    if (removidos.length > 0) {
+      registrarFalha("info", "retencao_videos_aplicada", {
+        total: removidos.length,
+        segmentos: removidos.map((arquivo) => arquivo.segmentoId),
+      });
+    }
     sendJson(res, 200, { ok: true, total: removidos.length, removidos });
   } catch (err) {
     responderErroVideo(res, err);
@@ -2055,7 +2100,7 @@ function responderErroCena(res: ServerResponse, err: unknown): void {
     sendJson(res, 409, { ok: false, erro: err.message });
     return;
   }
-  logEvent("error", "cena_monitoramento_falhou", { erro: (err as Error).message });
+  registrarFalha("error", "cena_monitoramento_falhou", { erro: (err as Error).message });
   sendJson(res, 500, { ok: false, erro: (err as Error).message });
 }
 
@@ -2432,7 +2477,7 @@ async function handleVisao(
     const mensagem = (err as Error).message;
     const timeout = (err as Error).name === "TimeoutError";
     const status = err instanceof TypeError || err instanceof ErroVisao ? 502 : 500;
-    logEvent("error", timeout ? "visao_timeout" : "visao_falhou", { status, erro: mensagem, timeout });
+    registrarFalha("error", timeout ? "visao_timeout" : "visao_falhou", { status, erro: mensagem, timeout });
     if (!res.headersSent) {
       sendJson(res, status, { ok: false, erro: timeout ? `Backend: tempo esgotado — ${mensagem}` : "Backend: " + mensagem });
     } else {
@@ -2459,7 +2504,7 @@ async function handleListLogs(
     );
     sendJson(res, 200, { ok: true, total: entradas.length, entradas });
   } catch (err) {
-    logEvent("error", "listar_logs_falhou", { erro: (err as Error).message });
+    registrarFalha("error", "listar_logs_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }
 }
@@ -2489,7 +2534,7 @@ async function handleClearLogs(
     });
     sendJson(res, 200, { ok: true, snapshots });
   } catch (err) {
-    logEvent("error", "limpar_logs_falhou", { erro: (err as Error).message });
+    registrarFalha("error", "limpar_logs_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }
 }
@@ -2596,14 +2641,110 @@ async function handlePreparar(
     sendJson(res, 200, { ok: true, modelo, carregado: emMemoria, carregandoMs });
     logEvent("info", "modelo_preparado", { modelo, carregandoMs, carregado: emMemoria });
   } catch (err) {
-    logEvent("error", "modelo_preparacao_falhou", { modelo, erro: (err as Error).message });
+    registrarFalha("error", "modelo_preparacao_falhou", { modelo, erro: (err as Error).message });
     sendJson(res, 502, { ok: false, erro: "Backend: " + (err as Error).message });
   }
 }
 
-async function handleHealth(res: ServerResponse, config: ServerConfig): Promise<void> {
+/** Amostra anterior de CPU; a primeira chamada nao tem delta para calcular uso. */
+let amostraCpuAnterior: { uso: NodeJS.CpuUsage; uptimeMs: number } | null = null;
+
+export interface InfoSistemaSaude {
+  cpu: {
+    userMs: number;
+    systemMs: number;
+    /** Uso do processo desde a amostra anterior; null na primeira consulta. */
+    usoPercentual: number | null;
+    nucleos: number;
+  };
+  ram: {
+    rssBytes: number;
+    heapUsedBytes: number;
+    heapTotalBytes: number;
+    sistemaTotalBytes: number;
+    sistemaLivreBytes: number;
+  };
+  gpu: {
+    /** Nunca inventado: sem API real no servidor, fica null. */
+    utilizacaoPercentual: null;
+    motivo: string;
+  };
+  armazenamento: {
+    arquivos: number;
+    bytesTotal: number;
+    /** Estimativa a partir dos arquivos gravados; null sem amostra temporal. */
+    bytesPorHora: number | null;
+  };
+}
+
+/** Mede recursos do processo e do sistema sem depender de biblioteca externa. */
+export async function medirSistemaSaude(
+  armazenador: ArmazenadorVideos
+): Promise<InfoSistemaSaude> {
+  const uso = process.cpuUsage();
+  const uptimeMs = process.uptime() * 1000;
+  let usoPercentual: number | null = null;
+  if (amostraCpuAnterior) {
+    const cpuDeltaUs =
+      uso.user - amostraCpuAnterior.uso.user + (uso.system - amostraCpuAnterior.uso.system);
+    const tempoDeltaMs = uptimeMs - amostraCpuAnterior.uptimeMs;
+    if (tempoDeltaMs > 0) usoPercentual = (cpuDeltaUs / (tempoDeltaMs * 1000)) * 100;
+  }
+  amostraCpuAnterior = { uso, uptimeMs };
+
+  const memoria = process.memoryUsage();
+  const arquivos = await armazenador.listar();
+  const bytesTotal = arquivos.reduce((total, arquivo) => total + arquivo.bytes, 0);
+  const criados = arquivos.map((arquivo) => arquivo.criadoEmMs);
+  const inicio = criados.length > 0 ? Math.min(...criados) : 0;
+  const fim = criados.length > 0 ? Math.max(...criados) : 0;
+  const horas = (fim - inicio) / 3_600_000;
+  const bytesPorHora = arquivos.length > 1 && horas > 0 ? bytesTotal / horas : null;
+
+  return {
+    cpu: {
+      userMs: uso.user / 1000,
+      systemMs: uso.system / 1000,
+      usoPercentual,
+      nucleos: os.cpus().length,
+    },
+    ram: {
+      rssBytes: memoria.rss,
+      heapUsedBytes: memoria.heapUsed,
+      heapTotalBytes: memoria.heapTotal,
+      sistemaTotalBytes: os.totalmem(),
+      sistemaLivreBytes: os.freemem(),
+    },
+    gpu: {
+      utilizacaoPercentual: null,
+      motivo: "indisponivel: nenhuma API de utilizacao de GPU no servidor",
+    },
+    armazenamento: { arquivos: arquivos.length, bytesTotal, bytesPorHora },
+  };
+}
+
+async function handleHealth(
+  res: ServerResponse,
+  config: ServerConfig,
+  monitoramento: ServicoMonitoramento,
+  armazenador: ArmazenadorVideos
+): Promise<void> {
   const visao = await consultarVisao(config.backendUrl);
-  sendJson(res, 200, { ok: true, visao });
+  const sistema = await medirSistemaSaude(armazenador);
+  const sessao = monitoramento.sessaoAtual();
+  const segmentos = sessao ? await monitoramento.segmentosDaSessao(sessao.sessaoId) : [];
+  sendJson(res, 200, {
+    ok: true,
+    visao,
+    sistema,
+    monitoramento: {
+      sessaoId: sessao?.sessaoId ?? null,
+      estado: sessao?.estado ?? null,
+      segmentos: segmentos.length,
+      quadros: segmentos.reduce((total, segmento) => total + segmento.quadros, 0),
+      lacunas: segmentos.reduce((total, segmento) => total + segmento.lacunas.length, 0),
+    },
+  });
 }
 
 function serveSnapshot(
@@ -2762,6 +2903,8 @@ export interface ServerConfig {
   videoRetencaoMs?: number;
   /** Numero maximo de arquivos (0 desativa). Padrao: `VIDEO_MAX_ARQUIVOS`. */
   videoMaxArquivos?: number;
+  /** Instancia pronta (startup aplica retencao antes de abrir a porta). */
+  armazenadorVideos?: ArmazenadorVideos;
   /** Indice da referencia do ambiente. Padrao: `cena-referencias.jsonl`. */
   cenaReferenciasFile?: string;
   /** Linha do tempo de mudancas da cena. Padrao: `cena-mudancas.jsonl`. */
@@ -2783,6 +2926,7 @@ export function createServer(config: ServerConfig = {}): http.Server {
     config.eventosTemporaisFile ?? path.join(path.dirname(logFile), "eventos-temporais.jsonl");
   const operacionalFile =
     config.operacionalFile ?? path.join(path.dirname(logFile), "operacional.jsonl");
+  operacionalFileAtivo = operacionalFile;
   const ciclosFile = config.ciclosFile ?? path.join(path.dirname(logFile), "ciclos.jsonl");
   const monitoramentoSessoesFile =
     config.monitoramentoSessoesFile ??
@@ -2795,12 +2939,14 @@ export function createServer(config: ServerConfig = {}): http.Server {
     segmentosFile: monitoramentoSegmentosFile,
     maxBytes: LOG_MAX_BYTES,
   });
-  const armazenadorVideos = new ArmazenadorVideos({
-    dir: config.videosDir ?? path.join(path.dirname(logFile), "videos"),
-    maxBytesPorArquivo: config.videoMaxBytes ?? VIDEO_UPLOAD_MAX_BYTES,
-    retencaoMs: config.videoRetencaoMs ?? env.VIDEO_RETENCAO_MS,
-    maxArquivos: config.videoMaxArquivos ?? env.VIDEO_MAX_ARQUIVOS,
-  });
+  const armazenadorVideos =
+    config.armazenadorVideos ??
+    new ArmazenadorVideos({
+      dir: config.videosDir ?? path.join(path.dirname(logFile), "videos"),
+      maxBytesPorArquivo: config.videoMaxBytes ?? VIDEO_UPLOAD_MAX_BYTES,
+      retencaoMs: config.videoRetencaoMs ?? env.VIDEO_RETENCAO_MS,
+      maxArquivos: config.videoMaxArquivos ?? env.VIDEO_MAX_ARQUIVOS,
+    });
   const cena = new ServicoCena({
     referenciasFile:
       config.cenaReferenciasFile ?? path.join(path.dirname(logFile), "cena-referencias.jsonl"),
@@ -2995,7 +3141,7 @@ export function createServer(config: ServerConfig = {}): http.Server {
       return;
     }
     if (req.method === "GET" && pathname === "/api/health") {
-      void handleHealth(res, config);
+      void handleHealth(res, config, monitoramento, armazenadorVideos);
       return;
     }
     if (req.method === "GET" && pathname.startsWith("/snapshots/")) {
@@ -3039,8 +3185,9 @@ const entryUrl = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
 if (import.meta.url === entryUrl) {
   const PORT = env.PORT;
   const HOST = env.HOST;
+  const operacionalInicial = path.join(path.dirname(LOG_FILE), "operacional.jsonl");
   if (hostExpostoNaRede(HOST) && !env.NEURO_ALLOW_REMOTE) {
-    logEvent("error", "bind_remoto_bloqueado", { host: HOST });
+    registrarFalha("error", "bind_remoto_bloqueado", { host: HOST }, operacionalInicial);
     console.error(
       `\n  HOST=${HOST} expoe a interface e a API a rede local, sem autenticacao.\n` +
         `  Use HOST=127.0.0.1 (padrao) ou defina NEURO_ALLOW_REMOTE=1 para assumir o risco.\n` +
@@ -3049,7 +3196,7 @@ if (import.meta.url === entryUrl) {
     process.exit(1);
   }
   if (hostExpostoNaRede(HOST)) {
-    logEvent("warn", "bind_remoto_habilitado", { host: HOST });
+    registrarFalha("warn", "bind_remoto_habilitado", { host: HOST }, operacionalInicial);
     console.warn(
       `\n  AVISO: HOST=${HOST} expoe a interface e a API a rede local, sem autenticacao.\n` +
         `  Restrinja o acesso (firewall/reverse proxy com autenticacao) e limite as origens com NEURO_ALLOWED_ORIGINS.\n`
@@ -3065,12 +3212,37 @@ if (import.meta.url === entryUrl) {
         });
       }
     })
-    .catch((err) => logEvent("warn", "limpeza_snapshots_falhou", { erro: (err as Error).message }));
+    .catch((err) =>
+      registrarFalha("warn", "limpeza_snapshots_falhou", { erro: (err as Error).message }, operacionalInicial)
+    );
+  // Retencao de videos tambem na subida: arquivos expirados enquanto o servidor
+  // esteve desligado nao podem ficar para sempre so porque a rota nao foi chamada.
+  const armazenadorInicial = new ArmazenadorVideos({
+    dir: path.join(path.dirname(LOG_FILE), "videos"),
+    maxBytesPorArquivo: VIDEO_UPLOAD_MAX_BYTES,
+    retencaoMs: env.VIDEO_RETENCAO_MS,
+    maxArquivos: env.VIDEO_MAX_ARQUIVOS,
+  });
+  void armazenadorInicial
+    .aplicarRetencao(Date.now())
+    .then((removidos) => {
+      if (removidos.length > 0) {
+        registrarFalha(
+          "info",
+          "retencao_videos_startup",
+          { removidos: removidos.map((arquivo) => arquivo.segmentoId) },
+          operacionalInicial
+        );
+      }
+    })
+    .catch((err) =>
+      registrarFalha("warn", "retencao_videos_falhou", { erro: (err as Error).message }, operacionalInicial)
+    );
   // Registra o backend de visao configurado (URL base resolvida).
   const backendUrl = resolverBackend({}).baseUrl;
   logEvent("info", "backend_configurado", { baseUrl: backendUrl });
   console.log(`  Backend de visao: ${backendUrl}`);
-  createServer().listen(PORT, HOST, () => {
+  createServer({ armazenadorVideos: armazenadorInicial }).listen(PORT, HOST, () => {
     logEvent("info", "servidor_iniciado", { host: HOST, port: PORT, logFile: LOG_FILE });
     console.log(`\n  Neuro Vision rodando em http://${HOST}:${PORT}`);
     console.log(`  Logs em: ${LOG_FILE}\n`);

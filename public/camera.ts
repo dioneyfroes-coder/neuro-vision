@@ -14,24 +14,82 @@ export class ErroCamera extends ErroPercepcao {
   }
 }
 
+/** Por que a camera deixou de fornecer sinal utilis. */
+export type MotivoQuedaCamera =
+  | "trilha_encerrada"
+  | "sem_sinal"
+  | "video_erro"
+  | "video_encerrado"
+  | "reconexao_falhou";
+
+/** Como o sinal voltou (mesma trilha ou nova solicitada). */
+export type MotivoRetornoCamera = "sinal" | "reconexao";
+
+/** Callbacks de disponibilidade; atribuidos pela interface apos a construcao. */
+export interface EventosCamera {
+  aoQueda?: (motivo: MotivoQuedaCamera) => void;
+  aoRetorno?: (motivo: MotivoRetornoCamera) => void;
+}
+
+/**
+ * Fontes e agendadores injetaveis. Em producao, `getUserMedia` vem de
+ * `navigator.mediaDevices` e `agendar` de `setTimeout`; nos testes, ambos sao
+ * falsos e nenhum relogio de parede e necessario.
+ */
+export interface OpcoesCamera extends EventosCamera {
+  getUserMedia?: () => Promise<MediaStream>;
+  agendar?: (callback: () => void, ms: number) => number;
+  cancelarAgendamento?: (id: number) => void;
+  /** Fabrica de canvas; injetada nos testes por nao haver DOM em Node. */
+  criarCanvas?: () => HTMLCanvasElement;
+  /** Tentativas de reconexao apos perda definitiva da trilha. */
+  retentativasMs?: readonly number[];
+}
+
+const RETENTATIVAS_PADRAO = [500, 1_000, 2_000] as const;
+
 /**
  * Controle da webcam: captura o stream, expoe o tamanho atual do video e gera
  * frames como data URL (JPEG) para envio ao servidor ou exibicao como thumbnail.
+ *
+ * A queda de uma trilha nao encerra a sessao de gravacao: a camera avisa a
+ * interface, que suspende os metadados de captura e tenta reconectar. Quando o
+ * sinal volta, o proximo quadro registra a lacuna real no indice do servidor.
  */
 export class Camera {
+  private readonly opcoes: OpcoesCamera;
   private stream: MediaStream | null = null;
-  private readonly frameCanvas = document.createElement("canvas");
+  private readonly frameCanvas: HTMLCanvasElement;
   private readonly frameCtx: CanvasRenderingContext2D | null;
-  private readonly thumbCanvas = document.createElement("canvas");
+  private readonly thumbCanvas: HTMLCanvasElement;
   private assinaturaCanvas: HTMLCanvasElement | null = null;
+  private removerOuvintes: Array<() => void> = [];
+  private agendamento: number | null = null;
+  private reconectando = false;
+  private parada = false;
+  private sinalComprometido = false;
 
-  constructor(private readonly video: HTMLVideoElement) {
+  aoQueda?: (motivo: MotivoQuedaCamera) => void;
+  aoRetorno?: (motivo: MotivoRetornoCamera) => void;
+
+  constructor(
+    private readonly video: HTMLVideoElement,
+    opcoes: OpcoesCamera = {}
+  ) {
+    this.opcoes = opcoes;
+    const criarCanvas = opcoes.criarCanvas ?? (() => document.createElement("canvas"));
+    this.frameCanvas = criarCanvas();
+    this.thumbCanvas = criarCanvas();
     this.frameCtx = this.frameCanvas.getContext("2d");
+    this.aoQueda = opcoes.aoQueda;
+    this.aoRetorno = opcoes.aoRetorno;
   }
 
   /** Ha um stream ativo associado ao elemento de video. */
   get ativa(): boolean {
-    return this.stream !== null;
+    if (!this.stream) return false;
+    const trilhas = this.stream.getTracks();
+    return trilhas.length === 0 || trilhas.some((trilha) => trilha.readyState !== "ended");
   }
 
   /**
@@ -54,31 +112,32 @@ export class Camera {
 
   /** Solicita a webcam e inicia a reproducao no elemento de video. */
   async iniciar(): Promise<void> {
+    this.parada = false;
+    this.cancelarReconexao();
     let capturado: MediaStream;
     try {
-      capturado = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720 },
-      });
+      capturado = await this.adquirir();
     } catch (err) {
       throw new ErroCamera("acesso", err as Error);
     }
-    this.stream = capturado;
-    this.video.srcObject = capturado;
     try {
-      await this.video.play();
+      await this.atribuir(capturado);
     } catch (err) {
-      // Sem reproducao nao ha frame; libera a camera antes de propagar.
-      this.encerrar();
+      capturado.getTracks().forEach((trilha) => trilha.stop());
       throw new ErroCamera("video", err as Error);
     }
   }
 
   /** Para as trilhas e desassocia o stream do elemento de video. */
   encerrar(): void {
+    this.parada = true;
+    this.cancelarReconexao();
     if (this.stream) {
-      this.stream.getTracks().forEach((t) => t.stop());
+      this.stream.getTracks().forEach((trilha) => trilha.stop());
       this.stream = null;
     }
+    this.removerOuvintes.splice(0).forEach((remover) => remover());
+    this.sinalComprometido = false;
     this.video.srcObject = null;
   }
 
@@ -157,6 +216,124 @@ export class Camera {
       return assinatura;
     } catch {
       return null;
+    }
+  }
+
+  private adquirir(): Promise<MediaStream> {
+    if (this.opcoes.getUserMedia) return this.opcoes.getUserMedia();
+    return navigator.mediaDevices.getUserMedia({
+      video: { width: 1280, height: 720 },
+    });
+  }
+
+  /** Atribui um stream novo e passa a observar seus eventos de disponibilidade. */
+  private async atribuir(stream: MediaStream): Promise<void> {
+    const anterior = this.stream;
+    this.stream = stream;
+    this.sinalComprometido = false;
+    this.removerOuvintes.splice(0).forEach((remover) => remover());
+    this.video.srcObject = stream;
+    this.escutar(stream);
+    try {
+      await this.video.play();
+    } catch (err) {
+      if (this.stream === stream) {
+        stream.getTracks().forEach((trilha) => trilha.stop());
+        this.stream = null;
+        this.video.srcObject = null;
+        this.removerOuvintes.splice(0).forEach((remover) => remover());
+      }
+      throw err;
+    }
+    if (anterior && anterior !== stream) {
+      anterior.getTracks().forEach((trilha) => trilha.stop());
+    }
+  }
+
+  private escutar(stream: MediaStream): void {
+    const quedas: Array<[string, MotivoQuedaCamera]> = [
+      ["ended", "trilha_encerrada"],
+      ["mute", "sem_sinal"],
+    ];
+    for (const trilha of stream.getTracks()) {
+      if (trilha.kind && trilha.kind !== "video") continue;
+      for (const [evento, motivo] of quedas) {
+        const ouvinte = () => this.tratarQueda(motivo);
+        trilha.addEventListener?.(evento, ouvinte);
+        this.removerOuvintes.push(() => trilha.removeEventListener?.(evento, ouvinte));
+      }
+      const voltou = () => {
+        if (!this.stream || !this.sinalComprometido) return;
+        this.sinalComprometido = false;
+        this.aoRetorno?.("sinal");
+      };
+      trilha.addEventListener?.("unmute", voltou);
+      this.removerOuvintes.push(() => trilha.removeEventListener?.("unmute", voltou));
+    }
+
+    for (const [evento, motivo] of [
+      ["error", "video_erro"],
+      ["ended", "video_encerrado"],
+    ] as const) {
+      const ouvinte = () => this.tratarQueda(motivo);
+      this.video.addEventListener(evento, ouvinte);
+      this.removerOuvintes.push(() => this.video.removeEventListener(evento, ouvinte));
+    }
+  }
+
+  private tratarQueda(motivo: MotivoQuedaCamera): void {
+    if (!this.stream || this.sinalComprometido || this.parada) return;
+    this.sinalComprometido = true;
+    this.aoQueda?.(motivo);
+    if (
+      motivo === "trilha_encerrada" ||
+      motivo === "video_erro" ||
+      motivo === "video_encerrado"
+    ) {
+      this.agendarReconexao();
+    }
+  }
+
+  /** Tenta reabrir a camera com backoff limitado; nao usa relogio de parede. */
+  private agendarReconexao(): void {
+    if (this.parada || this.reconectando || this.agendamento !== null) return;
+    const tentativas = this.opcoes.retentativasMs ?? RETENTATIVAS_PADRAO;
+    const agendar = this.opcoes.agendar ?? ((cb: () => void, ms: number) => window.setTimeout(cb, ms));
+    let indice = 0;
+
+    const tentar = async (): Promise<void> => {
+      if (this.parada) return;
+      this.reconectando = true;
+      try {
+        const stream = await this.adquirir();
+        await this.atribuir(stream);
+        this.aoRetorno?.("reconexao");
+      } catch {
+        this.aoQueda?.("reconexao_falhou");
+        indice += 1;
+        if (!this.parada && indice < tentativas.length) {
+          this.agendamento = agendar(() => {
+            this.agendamento = null;
+            return tentar();
+          }, tentativas[indice]);
+        }
+      } finally {
+        this.reconectando = false;
+      }
+    };
+
+    this.agendamento = agendar(() => {
+      this.agendamento = null;
+      return tentar();
+    }, tentativas[0] ?? 0);
+  }
+
+  private cancelarReconexao(): void {
+    if (this.agendamento !== null) {
+      const cancelar =
+        this.opcoes.cancelarAgendamento ?? ((id: number) => window.clearTimeout(id));
+      cancelar(this.agendamento);
+      this.agendamento = null;
     }
   }
 }

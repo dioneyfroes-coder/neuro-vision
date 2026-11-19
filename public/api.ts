@@ -303,16 +303,21 @@ export async function gravarOperacional(registro: {
   origem?: string;
   mensagem: string;
   detalhe?: string;
-}): Promise<void> {
+}): Promise<boolean> {
+  let resposta: Response;
   try {
-    await fetch("/api/operacional", {
+    resposta = await fetch("/api/operacional", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(registro),
     });
   } catch {
     // Registro operacional e best-effort: nao interrompe a captura.
+    return false;
   }
+  return exigirRespostaOk(resposta, "Falha ao registrar operacional")
+    .then(() => true)
+    .catch(() => false);
 }
 
 /* ------------------------------------------------------------------------- *
@@ -715,6 +720,55 @@ export async function saudeVisao(): Promise<InfoVisao | null> {
   }
   const dados = (await resposta.json()) as { visao?: InfoVisao };
   return dados.visao ?? null;
+}
+
+/** Recursos medidos pelo servidor (Fase 6). GPU sem API real fica `null`. */
+export interface InfoSistema {
+  cpu: {
+    userMs: number;
+    systemMs: number;
+    usoPercentual: number | null;
+    nucleos: number;
+  };
+  ram: {
+    rssBytes: number;
+    heapUsedBytes: number;
+    heapTotalBytes: number;
+    sistemaTotalBytes: number;
+    sistemaLivreBytes: number;
+  };
+  gpu: { utilizacaoPercentual: number | null; motivo: string };
+  armazenamento: { arquivos: number; bytesTotal: number; bytesPorHora: number | null };
+}
+
+export interface RespostaSaude {
+  ok: boolean;
+  visao: InfoVisao | null;
+  sistema: InfoSistema | null;
+  monitoramento: {
+    sessaoId: string | null;
+    estado: string | null;
+    segmentos: number;
+    quadros: number;
+    lacunas: number;
+  } | null;
+}
+
+/** `GET /api/health` — visao + recursos + monitoramento em uma unica leitura. */
+export async function saudeSistema(): Promise<RespostaSaude> {
+  let resposta: Response;
+  try {
+    resposta = await fetch("/api/health");
+  } catch (err) {
+    throw new ErroPercepcao("visao", "Servidor indisponivel", { cause: err });
+  }
+  const dados = (await resposta.json().catch(() => null)) as Partial<RespostaSaude> | null;
+  return {
+    ok: dados?.ok ?? false,
+    visao: dados?.visao ?? null,
+    sistema: dados?.sistema ?? null,
+    monitoramento: dados?.monitoramento ?? null,
+  };
 }
 
 /** `GET /api/visao/preparar` — garante o modelo de visao em memoria. */

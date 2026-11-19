@@ -46,6 +46,8 @@ export interface OpcoesGravadorSegmentos {
   /** Relógio injetado: usado apenas para o `criadoEmMs` do upload. */
   agoraMs: () => number;
   mimeType: string;
+  /** Falha do `MediaRecorder` com segmento ativo (best-effort, sem parar o ciclo). */
+  aoErro?: (erro: Error) => void;
 }
 
 export interface SegmentoFechado {
@@ -69,11 +71,17 @@ export class ErroGravacaoSegmento extends Error {
 export class GravadorSegmentos {
   private recorder: RecorderLike | null = null;
   private pedacos: Blob[] = [];
+  private falhou = false;
 
   constructor(private readonly opcoes: OpcoesGravadorSegmentos) {}
 
   get ativo(): boolean {
     return this.recorder !== null;
+  }
+
+  /** O recorder falhou durante o segmento; o controlador renova no próximo tick. */
+  get falhouDuranteGravacao(): boolean {
+    return this.falhou;
   }
 
   get mimeType(): string {
@@ -87,8 +95,15 @@ export class GravadorSegmentos {
     }
     const recorder = this.opcoes.criarRecorder(this.opcoes.stream, this.opcoes.mimeType);
     this.pedacos = [];
+    this.falhou = false;
     recorder.ondataavailable = (evento) => {
       if (evento?.data && evento.data.size > 0) this.pedacos.push(evento.data);
+    };
+    // Antes, `onerror` so era ligado em `fechar()`: uma falha no meio do
+    // segmento passava despercebida e o gravador seguia "ativo" sem bytes.
+    recorder.onerror = () => {
+      this.falhou = true;
+      this.opcoes.aoErro?.(new ErroGravacaoSegmento("Falha do MediaRecorder durante a gravacao"));
     };
     try {
       recorder.start();
@@ -105,15 +120,10 @@ export class GravadorSegmentos {
     if (!recorder) return Promise.resolve(null);
     this.recorder = null;
     return new Promise<SegmentoFechado | null>((resolve, reject) => {
-      recorder.onerror = () => {
-        recorder.ondataavailable = null;
-        recorder.onstop = null;
-        this.pedacos = [];
-        reject(new ErroGravacaoSegmento("Falha ao gravar o segmento"));
-      };
-      recorder.onstop = () => {
+      const concluir = () => {
         recorder.ondataavailable = null;
         recorder.onerror = null;
+        recorder.onstop = null;
         const pedacos = this.pedacos;
         this.pedacos = [];
         const bytes = new Blob(pedacos, { type: this.opcoes.mimeType });
@@ -123,6 +133,19 @@ export class GravadorSegmentos {
             : null
         );
       };
+      recorder.onerror = () => {
+        recorder.ondataavailable = null;
+        recorder.onstop = null;
+        this.pedacos = [];
+        reject(new ErroGravacaoSegmento("Falha ao gravar o segmento"));
+      };
+      recorder.onstop = concluir;
+      // Um erro ativo pode ter parado o recorder; ainda assim aproveitamos os
+      // pedacos recebidos em vez de chamar `stop()` em estado inativo.
+      if (recorder.state === "inactive") {
+        concluir();
+        return;
+      }
       try {
         recorder.stop();
       } catch (err) {

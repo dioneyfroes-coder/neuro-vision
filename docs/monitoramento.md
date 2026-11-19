@@ -2,7 +2,7 @@
 
 Núcleo determinístico do modo **Câmera de Segurança**: sessões de monitoramento, segmentos de vídeo de 5 minutos, lacunas explícitas e buffer circular pré-evento. O objetivo é que a gravação rode **independente** do ciclo de snapshots da interface — a análise multimodal pode atrasar ou falhar sem interromper a linha do tempo de vídeo.
 
-> **Escopo atual.** Esta página documenta o que já existe: os contratos de domínio (`src/domain/monitoramento.ts` e `src/domain/cena.ts`), as classes puras (`src/monitoramento/gerenciador-gravacao.ts` e `src/monitoramento/buffer-circular.ts`), os serviços com índice durável (`src/monitoramento/servico-monitoramento.ts` e `src/monitoramento/servico-cena.ts`), as rotas `/api/monitoramento/*`, o armazenamento dos **bytes** em `logs/videos/` (`src/persistence/armazenador-videos.ts`), a **referência do ambiente** e o **gravador do cliente** com interface de sessão (`public/monitoramento/`). Ainda **não** há criptografia em repouso nem recuperação de sessão ativa após queda. O inventário é injetado pela API — quem o produz a partir de detecções reais ainda precisa ser integrado; nada aqui deve ser lido como "a câmera já reconhece a cena sozinha em produção".
+> **Escopo atual.** Esta página documenta o que já existe: os contratos de domínio (`src/domain/monitoramento.ts` e `src/domain/cena.ts`), as classes puras (`src/monitoramento/gerenciador-gravacao.ts` e `src/monitoramento/buffer-circular.ts`), os serviços com índice durável (`src/monitoramento/servico-monitoramento.ts` e `src/monitoramento/servico-cena.ts`), as rotas `/api/monitoramento/*`, o armazenamento dos **bytes** em `logs/videos/` (`src/persistence/armazenador-videos.ts`), a **referência do ambiente** e o **gravador do cliente** com interface de sessão (`public/monitoramento/`). A câmera detecta queda/retorno de trilha e reconecta com backoff; a gravação continua e a lacuna real é registrada no retorno. Ainda **não** há criptografia em repouso nem recuperação de sessão ativa após queda do processo. O inventário é injetado pela API — quem o produz a partir de detecções reais ainda precisa ser integrado; nada aqui deve ser lido como "a câmera já reconhece a cena sozinha em produção".
 
 ## Contratos
 
@@ -184,15 +184,19 @@ O serviço é exposto pelas rotas abaixo. Como o serviço não lê o relógio, `
 
 A sobreposição do segmento vivo faz a consulta mostrar `quadros` atualizados mesmo antes do fechamento ser persistido. Ela **não** inventa cobertura: o intervalo entre o último quadro e o comando de encerramento continua fora de todos os segmentos. Enviar quadros sem nenhuma sessão iniciada, comandar uma sessão inexistente/divergente ou abrir uma segunda sessão responde `409`; payload inválido responde `400`; falha inesperada responde `500`. Nas rotas de cena, sessão desconhecida responde `404`, comparação sem referência responde `409` e payload inválido responde `400`.
 
+## Queda de sinal, falhas e continuidade
+
+A linha de gravação é independente da análise inteligente. Se a visão, os workers ou o índice falharem, o `MediaRecorder` segue gravando; a falha vai para `logs/operacional.jsonl` (cliente via `POST /api/operacional`, servidor pelo mesmo caminho console+arquivo) e os uploads que não chegaram ficam pendentes para reenvio.
+
+Quando a trilha da câmera termina (ou fica `mute`), `public/camera.ts` avisa a interface e tenta reconectar com backoff. `ControladorMonitoramento.suspenderCaptura()` interrompe **apenas os metadados de captura**: a sessão permanece `gravando` e nenhum quadro é inventado para o período sem sinal. No retorno, o controlador renova o `MediaRecorder` com o stream atual antes de retomar os metadados; o servidor calcula a lacuna real a partir do intervalo sem quadros e abre um segmento novo. Um erro do `MediaRecorder` durante o segmento ativo também renova o gravador sem encerrar a sessão.
+
 ## O que ainda falta (por honestidade)
 
-A Fase 3 do roteiro também pede:
-
 - popular o inventário a partir de detecções reais (hoje os itens são injetados pela API) e validar a detecção de mudanças controladas com captura real;
-- criptografia em repouso e controle de acesso aos arquivos;
+- criptografia em repouso e autenticação embutida: o servidor escuta em loopback por padrão e depende de reverse proxy para exposição em rede;
 - sincronizar o início dos bytes do `MediaRecorder` com o limite exato do segmento (hoje a troca acontece no tick que observa a mudança);
 - recuperar uma sessão que ficou `ativa` no índice após queda do processo;
-- medição de perda/sobreposição com captura real e falhas de disco.
+- medição de perda/sobreposição com captura real e falhas de disco, além de validação de iluminação/oclusão com anotações revisadas.
 
 Até lá, o que está garantido é a **regra** de segmentação, a janela pré-evento, o índice durável, as rotas de consulta, o armazenamento/exclusão/retenção de bytes, a gravação no cliente com reenvio de falhas, a comparação de cena a partir de itens injetados e o vínculo evento→vídeo na leitura, cobertos por testes determinísticos em `tests/monitoramento.test.ts`, `tests/monitoramento-persistencia.test.ts`, `tests/server-monitoramento.test.ts`, `tests/armazenamento-videos.test.ts`, `tests/server-videos.test.ts`, `tests/cena.test.ts`, `tests/cena-persistencia.test.ts`, `tests/server-cena.test.ts`, `tests/gravador-cliente.test.ts`, `tests/vinculo-evento-video.test.ts` e `tests/server-eventos-video.test.ts`.
 

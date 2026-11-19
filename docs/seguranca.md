@@ -19,4 +19,6 @@ Controles já aplicados:
 - **Limites de tamanho**: corpo JSON de `/api/log` (`BODY_MAX_BYTES`), de `/api/visao` (`VISAO_BODY_MAX_BYTES`) e de cada snapshot (`SNAP_UPLOAD_MAX_BYTES`).
 - **Validação de tipos**: payloads com campos de tipo inválido (ex.: `objetos` não-lista, `resumo`/`imagem` não-texto, `snapshot` não-texto ou acima do limite, `motivo` fora da lista conhecida) são recusados com `400`.
 
-> **Dados sensíveis:** snapshots e logs podem conter pessoas. Trate-os como dados sensíveis — não os inclua em commits (a pasta `logs/` é ignorada no git).
+- **Retenção e exclusão:** vídeos em `logs/videos/` podem ser removidos por idade/quantidade (`VIDEO_RETENCAO_MS`/`VIDEO_MAX_ARQUIVOS`, desligados por padrão) ou explicitamente pelas rotas `/api/monitoramento/videos/*`, hoje ligadas aos botões **Aplicar retenção** e **Excluir vídeos da sessão**. A política também é aplicada na subida do servidor, e exclusões são auditadas em `logs/operacional.jsonl`. `DELETE /api/logs` não apaga vídeos nem esse arquivo.
+
+> **Dados sensíveis:** snapshots, logs e vídeos podem conter pessoas. Trate-os como dados sensíveis — não os inclua em commits (a pasta `logs/` é ignorada no git). Não há criptografia em repouso nem autenticação embutida; para exposição em rede use reverse proxy com autenticação.

@@ -140,6 +140,17 @@ Os cenários adversos da Fase 2 têm cobertura **determinística** em `tests/mot
 
 Esses testes provam a **regra**, não o desempenho em vídeo real: precisão/recall sob iluminação e oclusão reais continuam na avaliação registrada em [`pendencias.md`](./pendencias.md).
 
+### Robustez sob condições degradadas (Fase 6)
+
+`tests/qualidade-eventos.test.ts` acrescenta roteiros **sintéticos e determinísticos** para dois casos que não têm verdade binária:
+
+- **Contraluz:** score baixo persistente na mesma posição aciona a visão por `baixa_confianca`, sem virar `movimento` nem `nova_entidade`; o limite de chamadas por minuto da política é respeitado.
+- **Oclusão parcial:** queda de score na mesma posição não gera `desaparecimento`; a visão é acionada por `baixa_confianca`, tornando a degradação explícita em vez de silenciosa.
+
+São testes de **política**, não medição de precisão com vídeo real: a avaliação com anotações revisadas segue como pendência em [`pendencias.md`](./pendencias.md) e na matriz `bench/clipes/MATRIZ_COBERTURA.md`.
+
+A operação contínua é observada por `/api/health`: CPU/RAM do processo e bytes de vídeo são medidos; sessões longas, queda/retorno de câmera e falha de workers/IA são cobertos por testes determinísticos sem depender do relógio de parede. GPU só aparece quando há medição real no backend; caso contrário o campo é `null` com `motivo`, nunca zero.
+
 ### Benchmark reproduzível e decisão por dados (Fase 5)
 
 O harness ganhou três capacidades para a repetição do benchmark com dados reproduzíveis:

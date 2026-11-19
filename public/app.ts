@@ -95,6 +95,8 @@ const monitorPausarBtn = el<HTMLButtonElement>("monitorPausar");
 const monitorRetomarBtn = el<HTMLButtonElement>("monitorRetomar");
 const monitorEncerrarBtn = el<HTMLButtonElement>("monitorEncerrar");
 const monitorReenviarBtn = el<HTMLButtonElement>("monitorReenviar");
+const monitorRetencaoBtn = el<HTMLButtonElement>("monitorRetencao");
+const monitorExcluirSessaoBtn = el<HTMLButtonElement>("monitorExcluirSessao");
 const gravacaoIndicadorEl = el<HTMLSpanElement>("gravacaoIndicador");
 const gravacaoTextoEl = el<HTMLSpanElement>("gravacaoTexto");
 const monitorAvisoEl = el<HTMLSpanElement>("monitorAviso");
@@ -146,6 +148,11 @@ const filaPersistencia = new FilaPersistencia({
 
 /** Ultimo status do backend de visao conhecido (motor/modelos/carregados), para o diagnostico. */
 let infoVisao: api.InfoVisao | null = null;
+/** Recursos do servidor medidos no health (Fase 6). */
+let infoSistema: api.InfoSistema | null = null;
+
+/** Ultima sessao de gravacao conhecida, para exclusao protegida de vídeos. */
+let ultimaSessaoMonitoramentoId: string | null = null;
 
 /** MediaRecorder nativo adaptado à superfície injetável do gravador de segmentos. */
 function criarRecorderNativo(stream: unknown, mimeType: string): RecorderLike {
@@ -172,6 +179,7 @@ const monitoramento = new ControladorMonitoramento({
       criarRecorder: criarRecorderNativo,
       agoraMs: () => Date.now(),
       mimeType,
+      aoErro: (erro) => monitoramento.notarFalhaGravador(erro),
     });
   },
   agendarTick: (tick, periodoMs) => {
@@ -179,6 +187,9 @@ const monitoramento = new ControladorMonitoramento({
     return () => window.clearInterval(id);
   },
   aoEstado: (estado) => {
+    if (monitoramento.sessaoAtual) {
+      ultimaSessaoMonitoramentoId = monitoramento.sessaoAtual.sessaoId;
+    }
     atualizarIndicadorGravacao(estado);
     atualizarBotoesMonitoramento();
     atualizarDiagnostico();
@@ -187,14 +198,68 @@ const monitoramento = new ControladorMonitoramento({
     atualizarIndicadorGravacao(monitoramento.estadoAtual);
     atualizarDiagnostico();
   },
+  aoSinal: () => {
+    atualizarIndicadorGravacao(monitoramento.estadoAtual);
+    atualizarBotoesMonitoramento();
+    atualizarDiagnostico();
+  },
   aoErro: (erro) => {
     monitorAvisoEl.textContent = erro.message;
     monitorAvisoEl.hidden = false;
+    // Caminho unico "falha -> operacional": o monitoramento continua gravando,
+    // mas a falha nao pode viver apenas na UI.
+    void api.gravarOperacional({
+      nivel: "erro",
+      origem: "monitoramento",
+      mensagem: "Falha de gravacao/indice",
+      detalhe: erro.message,
+    });
     // Uma falha de upload cria um pendente sem mudar o estado da sessão.
     atualizarBotoesMonitoramento();
     atualizarDiagnostico();
   },
 });
+
+/**
+ * Queda/retorno da camera (Fase 6): a gravacao nao e encerrada. Na queda,
+ * suspendemos apenas os metadados de captura para nao inventar cobertura; no
+ * retorno, o proximo tick registra a lacuna e rotaciona o segmento.
+ */
+camera.aoQueda = (motivo) => {
+  if (monitorAtivo()) {
+    // `suspenderCaptura` ja dispara `aoErro`, que persiste em operacional.
+    monitoramento.suspenderCaptura(motivo);
+  } else {
+    void api.gravarOperacional({
+      nivel: "erro",
+      origem: "camera",
+      mensagem: "Camera sem sinal; gravacao preservada",
+      detalhe: motivo,
+    });
+  }
+  setStatus("Camera sem sinal. A gravacao continua; aguardando retorno.");
+};
+
+camera.aoRetorno = (motivo) => {
+  void api.gravarOperacional({
+    nivel: "info",
+    origem: "camera",
+    mensagem: "Camera recuperada",
+    detalhe: motivo,
+  });
+  if (monitorAtivo()) {
+    const retomar = () => monitoramento.retomarCaptura();
+    const retomarDepoisDeRenovar =
+      motivo === "reconexao"
+        ? monitoramento.renovarGravador().then(retomar)
+        : retomar();
+    void retomarDepoisDeRenovar.catch((erro: unknown) => {
+      monitorAvisoEl.textContent = (erro as Error).message;
+      monitorAvisoEl.hidden = false;
+    });
+  }
+  atualizarBotoesMonitoramento();
+};
 
 function monitorAtivo(): boolean {
   const estado = monitoramento.estadoAtual;
@@ -207,6 +272,10 @@ function atualizarIndicadorGravacao(estado: EstadoMonitoramento): void {
     return;
   }
   gravacaoIndicadorEl.hidden = false;
+  if (monitoramento.semSinal) {
+    gravacaoTextoEl.textContent = "Gravando · sem sinal da câmera";
+    return;
+  }
   const segmento = monitoramento.segmentoAtual;
   gravacaoTextoEl.textContent = segmento
     ? `Gravando · segmento ${segmento}`
@@ -222,6 +291,10 @@ function atualizarBotoesMonitoramento(): void {
   monitorRetomarBtn.disabled = estado !== "pausada";
   monitorEncerrarBtn.disabled = estado !== "gravando" && estado !== "pausada";
   monitorReenviarBtn.disabled = monitoramento.uploadsPendentes === 0;
+  // Exclusao so depois de encerrar: apagar enquanto grava deixaria a sessao
+  // ativa sem os bytes que o indice ainda referencia.
+  monitorExcluirSessaoBtn.disabled =
+    ultimaSessaoMonitoramentoId === null || monitorAtivo();
 }
 
 async function iniciarMonitoramento(): Promise<void> {
@@ -316,7 +389,7 @@ const controladorFrame = new CycleController({
   repositorio: {
     gravarEntrada: api.gravarEntrada,
     gravarEvento: api.gravarEvento,
-    gravarOperacional: api.gravarOperacional,
+    gravarOperacional: (registro) => api.gravarOperacional(registro).then(() => undefined),
   },
   fila: filaPersistencia,
   obterModo: () => obterModo(motorSelect.value),
@@ -361,7 +434,7 @@ const controladorPercepcao = new CicloPercepcaoController({
     gravarEntrada: api.gravarEntrada,
     gravarEvento: api.gravarEvento,
     gravarEventoTemporal: api.gravarEventoTemporal,
-    gravarOperacional: api.gravarOperacional,
+    gravarOperacional: (registro) => api.gravarOperacional(registro).then(() => undefined),
   },
   fila: filaPersistencia,
   obterModo: () => obterModo(motorSelect.value),
@@ -583,6 +656,18 @@ function atualizarDiagnostico(): void {
   const fila = filaPersistencia.estado;
   if (fila.pendentes > 0) partes.push(`fila ${fila.pendentes}`);
   if (fila.falhas > 0) partes.push(`falhas de persistencia ${fila.falhas}`);
+
+  if (infoSistema) {
+    const s = infoSistema;
+    const cpu = s.cpu.usoPercentual === null ? "?" : `${s.cpu.usoPercentual.toFixed(1)}%`;
+    const ram = (s.ram.rssBytes / 1048576).toFixed(0);
+    const video = (s.armazenamento.bytesTotal / 1048576).toFixed(1);
+    partes.push(`servidor cpu ${cpu} · ram ${ram}MiB · videos ${video}MiB`);
+    // GPU nunca e inventada: so aparece se o servidor tiver medicao real.
+    if (s.gpu.utilizacaoPercentual !== null) {
+      partes.push(`gpu ${s.gpu.utilizacaoPercentual.toFixed(1)}%`);
+    }
+  }
 
   const estadoGravacao = monitoramento.estadoAtual;
   if (estadoGravacao !== "parada") {
@@ -1051,8 +1136,10 @@ function exportarPendentes(): void {
 
 async function verificarVisao(): Promise<void> {
   try {
-    const o = await api.saudeVisao();
+    const saude = await api.saudeSistema();
+    const o = saude.visao;
     infoVisao = o;
+    infoSistema = saude.sistema;
     if (o?.online) {
       const memoria = o.carregados?.length ? ` · em memoria: ${o.carregados.join(", ")}` : "";
       modeloStatusEl.textContent = `LM Studio: online${o.modelos.length ? " (" + o.modelos.join(", ") + ")" : ""}${memoria}`;
@@ -1066,6 +1153,7 @@ async function verificarVisao(): Promise<void> {
     }
   } catch {
     infoVisao = null;
+    infoSistema = null;
     modeloStatusEl.textContent = "Backend de visao: servidor indisponivel";
     modeloStatusEl.className = "health offline";
     modeloStatusEl.title = "Servidor indisponivel";
@@ -1119,6 +1207,32 @@ monitorReenviarBtn.addEventListener("click", () =>
     setStatus(`${enviados} gravação(ões) reenviada(s).`);
   })()
 );
+
+monitorRetencaoBtn.addEventListener("click", () =>
+  void (async () => {
+    try {
+      const removidos = await api.aplicarRetencaoVideos();
+      setStatus(`Retenção aplicada: ${removidos.length} vídeo(s) removido(s).`);
+    } catch (err) {
+      setStatus(`Falha na retenção: ${(err as Error).message}`);
+    }
+  })()
+);
+
+monitorExcluirSessaoBtn.addEventListener("click", () => {
+  const sessaoId = ultimaSessaoMonitoramentoId;
+  if (!sessaoId || monitorAtivo()) return;
+  if (!window.confirm(`Excluir todos os vídeos da sessão ${sessaoId}?`)) return;
+  void (async () => {
+    try {
+      const total = await api.excluirVideosDaSessao(sessaoId);
+      setStatus(`${total} vídeo(s) da sessão ${sessaoId} excluído(s).`);
+    } catch (err) {
+      setStatus(`Falha ao excluir vídeos: ${(err as Error).message}`);
+    }
+  })();
+});
+
 analisarAgoraBtn.addEventListener("click", () => {
   if (!running || motorSelect.value !== "eventos") return;
   controlador().solicitarManual();

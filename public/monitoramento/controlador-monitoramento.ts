@@ -66,6 +66,8 @@ export interface DependenciasMonitoramento {
   aoEstado?: (estado: EstadoMonitoramento) => void;
   /** Avisa quando o segmento corrente muda (rotação, pausa, encerramento). */
   aoSegmento?: (segmentoId: string | null) => void;
+  /** Avisa quando a camera perde/retoma o sinal, sem encerrar a sessao. */
+  aoSinal?: (ativo: boolean, motivo?: string) => void;
   aoErro?: (erro: Error) => void;
 }
 
@@ -78,6 +80,8 @@ export class ControladorMonitoramento {
   private cancelarTick: (() => void) | null = null;
   private pendentes: UploadPendente[] = [];
   private fila: Promise<unknown> = Promise.resolve();
+  private capturaSuspensa = false;
+  private motivoSuspensao: string | undefined;
 
   constructor(private readonly deps: DependenciasMonitoramento) {}
 
@@ -97,6 +101,49 @@ export class ControladorMonitoramento {
     return this.pendentes.length;
   }
 
+  /** `true` enquanto a camera esta sem sinal: nenhum quadro e reportado. */
+  get semSinal(): boolean {
+    return this.capturaSuspensa;
+  }
+
+  /**
+   * Suspende apenas os metadados de captura durante uma queda da camera. Os
+   * bytes ja gravados nao sao descartados e a sessao continua ativa; quando o
+   * sinal voltar, o intervalo aparecera como lacuna real no indice.
+   */
+  suspenderCaptura(motivo: string): void {
+    if (this.estado !== "gravando" || this.capturaSuspensa) return;
+    this.capturaSuspensa = true;
+    this.motivoSuspensao = motivo;
+    this.avisarErro(new Error(`Camera sem sinal: ${motivo}`));
+    this.deps.aoSinal?.(false, motivo);
+  }
+
+  /** Registra falha do gravador sem derrubar a sessao. */
+  notarFalhaGravador(erro: Error): void {
+    this.avisarErro(erro);
+  }
+
+  /**
+   * Troca o `MediaRecorder` depois de uma reconexao da camera: pausa e retoma o
+   * indice para abrir um segmento novo, fecha o anterior no ultimo quadro real e
+   * cria o gravador com o stream atual. A lacuna continua sendo calculada pelo
+   * servidor com base nos quadros que deixaram de ser relatados.
+   */
+  renovarGravador(): Promise<void> {
+    return this.enfileirar(() => this.renovarGravadorNaFila());
+  }
+
+  /** Retoma os relatorios e dispara um tick imediato para fechar a lacuna. */
+  retomarCaptura(): Promise<void> {
+    if (this.estado !== "gravando" || !this.capturaSuspensa) return Promise.resolve();
+    this.capturaSuspensa = false;
+    const motivo = this.motivoSuspensao;
+    this.motivoSuspensao = undefined;
+    this.deps.aoSinal?.(true, motivo);
+    return this.tick();
+  }
+
   /** Abre uma sessão, inicia o gravador e passa a reportar capturas. */
   iniciar(ambiente: string, duracaoSegmentoMs?: number): Promise<void> {
     return this.enfileirar(async () => {
@@ -104,6 +151,7 @@ export class ControladorMonitoramento {
         throw new Error("Ja ha uma sessao de monitoramento ativa");
       }
       this.definirEstado("iniciando");
+      this.limparSinal();
       try {
         const sessao = await this.deps.api.iniciar({
           ambiente,
@@ -120,6 +168,7 @@ export class ControladorMonitoramento {
       } catch (err) {
         this.avisarErro(err);
         await this.desfazerInicio();
+        this.limparSinal();
         this.definirEstado("erro");
         throw err;
       }
@@ -135,6 +184,7 @@ export class ControladorMonitoramento {
       const fechado = this.segmentoAtualId;
       this.definirSegmento(null);
       await this.fecharGravadorAtual(fechado);
+      this.limparSinal();
       this.definirEstado("pausada");
     });
   }
@@ -162,6 +212,7 @@ export class ControladorMonitoramento {
       this.definirSegmento(null);
       await this.fecharGravadorAtual(fechado);
       this.sessao = null;
+      this.limparSinal();
       this.definirEstado("encerrada");
     });
   }
@@ -178,6 +229,7 @@ export class ControladorMonitoramento {
       this.definirSegmento(null);
       await this.fecharGravadorAtual(fechado);
       this.sessao = null;
+      this.limparSinal();
       this.definirEstado("encerrada");
     });
   }
@@ -208,6 +260,12 @@ export class ControladorMonitoramento {
   private tick(): Promise<void> {
     return this.enfileirar(async () => {
       if (this.estado !== "gravando" || !this.sessao) return;
+      if ((this.gravador as { falhouDuranteGravacao?: boolean } | null)?.falhouDuranteGravacao) {
+        await this.renovarGravadorNaFila();
+        return;
+      }
+      // Sem sinal, reportar quadros inventaria cobertura para o periodo da queda.
+      if (this.capturaSuspensa) return;
       const capturadoEmMs = this.deps.agoraMs();
       const frameId = `${this.sessao.sessaoId}-f${this.sequenciaFrame++}`;
       let resultado;
@@ -246,6 +304,38 @@ export class ControladorMonitoramento {
     const gravador = this.gravador;
     this.gravador = null;
     await this.fecharGravador(segmentoId, gravador);
+  }
+
+  /** Implementacao de `renovarGravador`, ja dentro da fila de serializacao. */
+  private async renovarGravadorNaFila(): Promise<void> {
+    if (this.estado !== "gravando" || !this.sessao) return;
+    const sessaoId = this.sessao.sessaoId;
+    const anterior = this.segmentoAtualId;
+    try {
+      await this.deps.api.pausar(sessaoId);
+    } catch (err) {
+      this.avisarErro(err);
+      return;
+    }
+    try {
+      await this.deps.api.retomar(sessaoId);
+    } catch (err) {
+      this.avisarErro(err);
+      this.limparSinal();
+      this.definirEstado("pausada");
+      return;
+    }
+
+    this.definirSegmento(null);
+    const antigo = this.gravador;
+    this.gravador = null;
+    await this.fecharGravador(anterior, antigo);
+    try {
+      this.iniciarGravador();
+    } catch (err) {
+      this.avisarErro(err);
+      void this.interromper("falha").catch((interrupcao) => this.avisarErro(interrupcao));
+    }
   }
 
   /**
@@ -298,6 +388,11 @@ export class ControladorMonitoramento {
   private pararTick(): void {
     this.cancelarTick?.();
     this.cancelarTick = null;
+  }
+
+  private limparSinal(): void {
+    this.capturaSuspensa = false;
+    this.motivoSuspensao = undefined;
   }
 
   private async desfazerInicio(): Promise<void> {
