@@ -157,7 +157,7 @@ public/
   style.css            estilos
 e2e/
   app-*.spec.ts        fluxos de interface por domínio (histórico, modelo/status, webcam/falhas, concorrência); stubs e setup em e2e/helpers/app-fixtures.ts
-  webcam.spec.ts       avaliação com clipe real de webcam (opt-in; modelo real)
+  webcam.spec.ts       avaliação com clipe real de webcam (opt-in; modelo real); fases em e2e/helpers/webcam-clipe.ts
   webcam-multiframe.spec.ts  3 modos multiframe com clipe na webcam (opt-in; grava eventos/entradas/ciclos em `logs/e2e-multiframe-*`)
 tests/
   *.test.ts            testes unitários/integração (vitest)
