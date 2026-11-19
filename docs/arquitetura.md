@@ -84,7 +84,8 @@ public/
   workers/             bundles gerados por `npm run build:workers` (não versionados)
   cycle/
     cycle-controller.ts  controlador do ciclo de frame único (captura, inferência, rastreamento, persistência, progresso)
-    ciclo-multiframe.ts  ciclo de 4 snapshots: captura → processamento local concorrente → temporal → pacote → interpretação
+    ciclo-multiframe.ts  fachada do ciclo de 4 snapshots: captura → processamento local concorrente → temporal → pacote → interpretação
+    ciclo-multiframe/    módulos: tipos/concorrencia/persistencia/execucao
     ciclo-percepcao-controller.ts  controlador do modo multiframe (liga pipeline + temporal + interpretação à interface)
   capture/
     webcam-capture.ts    coleta snapshots identificados em intervalo (sem inferência; cancelável)
