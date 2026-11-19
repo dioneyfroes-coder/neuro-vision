@@ -46,7 +46,7 @@ src/
   provedor.ts          camada de protocolo do backend de visão (chat completions / LM Studio)
   visao.ts             fachada do cliente de visão (re-exports)
   visao/               módulos: prompts, comum (constantes/erros/helpers), modelos, tradução, memória e descrição (stream)
-  nsfw-prompt.ts       instrução e formatação do bloco NSFW compartilhadas entre cliente e servidor (módulo puro)
+  nsfw-prompt.ts       fachada: instrução e formatação do bloco NSFW compartilhadas (módulo puro; impl. em nsfw-prompt/*)
   texto.ts             pós-processamento: colapsa repetições, detecta "sem mudança", corta frase incompleta
   types.ts             tipos compartilhados (EntradaLog, ObjetoVisto, EventoVisual, ...)
   env.ts               variáveis de ambiente (carrega o .env e expõe os padrões)
