@@ -142,7 +142,8 @@ public/
   api.ts               fachada do cliente HTTP (re-exports; histórico, eventos, monitoramento, vídeos, cena, saúde e visão)
   api/                 módulos: http/historico/eventos/ciclos/monitoramento/videos/cena/contexto/saude/visao
   detector.ts          helpers da detecção (COCO → português, resumo do log; sem SDK)
-  yolo-onnx.ts         detector de objetos YOLOv10 em ONNX (`onnxruntime-web`; WebGPU quando disponível, senão WASM; catálogo COCO + inferência)
+  yolo-onnx.ts         fachada do detector YOLOv10 em ONNX (re-exports)
+  yolo-onnx/           módulos: tipos/catálogos, sessão compartilhada (runtime + refs), imagem (pré-processamento/saída) e detector
   nsfw-onnx.ts         catálogo de detectores NSFW experimentais em ONNX (NudeNet, EraX e penis_yolov8m; rótulos do sidecar `<modelo>.onnx.json`; opt-in)
   pose.ts              motor SDK para YOLO Pose (Transformers.js) usado pelo adaptador
   gestos.ts            motor SDK para MediaPipe Gesture Recognizer (Tasks Vision) usado pelo adaptador
