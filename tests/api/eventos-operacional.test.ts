@@ -1,156 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  descreverFrame,
-  gravarCiclo,
   gravarEntrada,
   gravarEvento,
   gravarOperacional,
-  listarCiclos,
-  listarEntradas,
   listarEventos,
   listarEventosTemporais,
-  limparHistorico,
   obterContexto,
-  prepararVisao,
   saudeSistema,
-  saudeVisao,
-} from "../public/api";
-import type { RegistroCiclo } from "../src/domain/cycle";
+} from "../../public/api";
+import { json } from "../helpers/api-respostas";
 
 afterEach(() => {
   vi.unstubAllGlobals();
-});
-
-function ndjson(...eventos: unknown[]): Response {
-  return new Response(eventos.map((e) => JSON.stringify(e)).join("\n") + "\n");
-}
-
-function json(corpo: unknown, status = 200): Response {
-  return new Response(JSON.stringify(corpo), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
-function sinal(): AbortSignal {
-  return new AbortController().signal;
-}
-
-describe("descreverFrame", () => {
-  it("consome o stream NDJSON e devolve o evento done", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        ndjson(
-          { type: "chunk", response: "Uma pessoa " },
-          { type: "chunk", response: "no escritorio." },
-          {
-            type: "done",
-            descricao: "Uma pessoa no escritorio.",
-            modelo: "qwen2.5vl:3b",
-            tokens: 10,
-            ms: 2000,
-          }
-        )
-      )
-    );
-
-    const parciais: string[] = [];
-    const resultado = await descreverFrame({ imagem: "x" }, sinal(), (p) => parciais.push(p));
-
-    expect(resultado.parcial).toBe("Uma pessoa no escritorio.");
-    expect(resultado.evento).toMatchObject({ descricao: "Uma pessoa no escritorio.", modelo: "qwen2.5vl:3b" });
-    expect(parciais.at(-1)).toBe("Uma pessoa no escritorio.");
-  });
-
-  it("propaga o erro reportado no stream sem reembrulhar", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ndjson({ type: "erro", erro: "model not loaded" })));
-
-    await expect(descreverFrame({ imagem: "x" }, sinal())).rejects.toThrow("model not loaded");
-  });
-
-  it("usa a mensagem do servidor quando a resposta nao e ok", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({ erro: "Backend: falhou" }, 502)));
-
-    await expect(descreverFrame({ imagem: "x" }, sinal())).rejects.toThrow("Backend: falhou");
-  });
-
-  it("sinaliza falha de rede", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new TypeError("fetch failed");
-      })
-    );
-
-    await expect(descreverFrame({ imagem: "x" }, sinal())).rejects.toThrow(
-      "Falha ao contactar o servidor (/api/visao)"
-    );
-  });
-
-  it("repassa o AbortError", async () => {
-    const abortError = Object.assign(new Error("abortado"), { name: "AbortError" });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw abortError;
-      })
-    );
-
-    await expect(descreverFrame({ imagem: "x" }, sinal())).rejects.toMatchObject({
-      name: "AbortError",
-    });
-  });
-});
-
-describe("api de leitura", () => {
-  it("listarEntradas devolve as entradas do servidor", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({ entradas: [{ resumo: "a" }, { resumo: "b" }] })));
-
-    expect(await listarEntradas(10)).toEqual([{ resumo: "a" }, { resumo: "b" }]);
-  });
-
-  it("listarEntradas lanca quando a resposta falha", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({}, 500)));
-
-    await expect(listarEntradas()).rejects.toThrow("HTTP 500");
-  });
-
-  it("limparHistorico lanca quando a resposta falha", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({}, 500)));
-
-    await expect(limparHistorico()).rejects.toThrow("HTTP 500");
-  });
-
-  it("saudeVisao devolve o objeto visao", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => json({ visao: { online: true, modelos: ["m"], carregados: [], erro: "" } }))
-    );
-
-    const info = await saudeVisao();
-    expect(info?.online).toBe(true);
-    expect(info?.modelos).toEqual(["m"]);
-  });
-
-  it("prepararVisao usa a mensagem de erro do servidor", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({ erro: "Backend: modelo indisponivel" }, 502)));
-
-    await expect(prepararVisao()).rejects.toThrow("Backend: modelo indisponivel");
-  });
-
-  it("prepararVisao pede o modelo escolhido quando informado", async () => {
-    const fetchMock = vi.fn(async (_entrada: RequestInfo | URL, _init?: RequestInit) =>
-      json({ ok: true, carregado: true })
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await prepararVisao("gemma-4-e2b-uncensored-hauhaucs-aggressive");
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/visao/preparar?modelo=gemma-4-e2b-uncensored-hauhaucs-aggressive"
-    );
-  });
 });
 
 describe("api de eventos e operacional", () => {
@@ -399,80 +260,5 @@ describe("api de eventos e operacional", () => {
     );
 
     await expect(obterContexto()).rejects.toThrow("Falha ao recuperar o contexto");
-  });
-});
-
-describe("api de ciclos", () => {
-  const registro: RegistroCiclo = {
-    sessionId: "s1",
-    cycleId: "s1-c1",
-    iniciadoEm: "2026-10-17T00:00:00.000Z",
-    frameIds: ["f1", "f2"],
-    observacoes: 2,
-    eventosTemporais: 0,
-    subsistemasIndisponiveis: [],
-    erros: [],
-    metricas: { totalMs: 10 },
-    cancelado: false,
-    registroEm: "2026-10-17T00:00:01.000Z",
-  };
-
-  it("gravarCiclo envia o diagnostico como JSON para /api/ciclos", async () => {
-    const fetchMock = vi.fn(
-      async (_entrada: RequestInfo | URL, _init?: RequestInit) => json({ ok: true })
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await gravarCiclo(registro);
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/ciclos",
-      expect.objectContaining({ method: "POST" })
-    );
-    const init = fetchMock.mock.calls[0]?.[1];
-    const corpo = JSON.parse((init?.body as string) ?? "{}") as { cycleId: string; frameIds: string[] };
-    expect(corpo.cycleId).toBe("s1-c1");
-    expect(corpo.frameIds).toEqual(["f1", "f2"]);
-  });
-
-  it("gravarCiclo sinaliza falha de rede", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new TypeError("fetch failed");
-      })
-    );
-
-    await expect(gravarCiclo(registro)).rejects.toThrow(
-      "Falha ao gravar o diagnostico do ciclo"
-    );
-  });
-
-  it("gravarCiclo rejeita quando o servidor responde com erro", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({ erro: "ciclo invalido" }, 400)));
-    await expect(gravarCiclo(registro)).rejects.toThrow("ciclo invalido");
-  });
-
-  it("listarCiclos devolve os diagnosticos do servidor", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => json({ ciclos: [{ cycleId: "s1-c1" }, { cycleId: "s1-c2" }] }))
-    );
-
-    expect((await listarCiclos(5)).map((c) => c.cycleId)).toEqual(["s1-c1", "s1-c2"]);
-  });
-
-  it("listarCiclos envia o limite como query", async () => {
-    const fetchMock = vi.fn(async (_url: RequestInfo | URL) => json({ ciclos: [] }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await listarCiclos(7);
-
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/api/ciclos?limit=7");
-  });
-
-  it("listarCiclos rejeita quando o servidor responde com erro", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({ erro: "boom" }, 500)));
-    await expect(listarCiclos()).rejects.toThrow("HTTP 500");
   });
 });
