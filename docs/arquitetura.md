@@ -114,7 +114,8 @@ public/
   interpretation/
     contracts.ts       porta `InterpretadorMultimodal` (recebe o pacote; nunca captura a câmera)
     interpretador-ciclo.ts  interpretador do ciclo multiframe (monta a mensagem do `PacoteCiclo` e valida as referências do modelo)
-    esquema.ts         schema JSON versionado do contexto local (caixas normalizadas, keypoints nomeados, mãos, movimento, estado do subsistema, validação de IDs)
+    esquema.ts         fachada do schema JSON versionado do contexto local (re-exports)
+    esquema/           módulos: tipos/serializacao/movimento/validacao
     contexto.ts        montagem do contexto estruturado (frames no schema versionado + eventos temporais)
     prompt.ts          instruções do prompt (orientação a eventos, evidência × inferência, resposta em PT-BR)
     normalizar.ts      normalização da resposta (JSON estruturado; falha vira texto bruto, sem mascarar erros)
