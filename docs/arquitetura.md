@@ -168,7 +168,8 @@ bench/
   clipes/              clipes do benchmark A–D separados em tuning/ e eval/ (+ MATRIZ_COBERTURA.md)
   BASELINE.md          máquina de referência e metas realistas por hardware (imutável; relatórios novos vão para RELATORIO_*/COMPARATIVO_*)
 scripts/
-  benchmark.mjs        benchmark comparativo dos modelos do backend de visão (latência, tok/s, inferências/min)
+  benchmark.mjs        fachada do benchmark comparativo dos modelos do backend de visão (latência, tok/s, inferências/min)
+  benchmark/           módulos: comum/prompts/opcoes-cli/ambiente/api/resultados/cli
   benchmark-cadencia.mjs  amostragem efetiva e latência por etapa a partir dos ciclos persistidos
   benchmark-variantes.mjs  fachada: CLI/re-exports e bootstrap; a implementação está em scripts/benchmark/
   benchmark/               módulos do harness A–D (constantes, estatística, args, artefatos, métricas, comparabilidade, relatórios e execução)
