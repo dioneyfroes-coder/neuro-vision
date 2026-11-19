@@ -57,7 +57,7 @@ gravacao.encerrar(Date.now());
 - `segmentoParaTimestamp(instante)` devolve o segmento que contém o instante (no limite, o posterior) ou `undefined` quando o instante cai em pausa/lacuna. Ele nunca inventa cobertura.
 - `listarSegmentos()`, `segmentoEmGravacao()` e `obterSessao()` devolvem cópias defensivas: o chamador não altera o estado interno.
 
-Os eventos temporais ainda **não** carregam `segmentoId`; o vínculo será feito na integração com a persistência/UI, chamando as consultas acima com `inicioEm`/`fimEm` do evento.
+O vínculo com eventos temporais está implementado na leitura (Fase 5): `GET /api/eventos-temporais` devolve cada evento com `segmentos`, derivado de `segmentosParaIntervalo(inicioEm, fimEm)`. Eventos que cruzam a rotação referenciam os dois segmentos; eventos em pausa/lacuna não recebem referência. A interface posiciona o player no `offsetMs` do trecho. Os detalhes do contrato e os filtros da linha do tempo estão em [`eventos.md`](./eventos.md#vínculo-com-o-vídeo-e-linha-do-tempo-fase-5).
 
 ## Buffer circular pré-evento
 
@@ -192,9 +192,8 @@ A Fase 3 do roteiro também pede:
 - criptografia em repouso e controle de acesso aos arquivos;
 - sincronizar o início dos bytes do `MediaRecorder` com o limite exato do segmento (hoje a troca acontece no tick que observa a mudança);
 - recuperar uma sessão que ficou `ativa` no índice após queda do processo;
-- associar eventos persistidos aos segmentos (`segmentoId`) e reproduzir o trecho correspondente;
 - medição de perda/sobreposição com captura real e falhas de disco.
 
-Até lá, o que está garantido é a **regra** de segmentação, a janela pré-evento, o índice durável, as rotas de consulta, o armazenamento/exclusão/retenção de bytes, a gravação no cliente com reenvio de falhas e a comparação de cena a partir de itens injetados, cobertos por testes determinísticos em `tests/monitoramento.test.ts`, `tests/monitoramento-persistencia.test.ts`, `tests/server-monitoramento.test.ts`, `tests/armazenamento-videos.test.ts`, `tests/server-videos.test.ts`, `tests/cena.test.ts`, `tests/cena-persistencia.test.ts`, `tests/server-cena.test.ts` e `tests/gravador-cliente.test.ts`.
+Até lá, o que está garantido é a **regra** de segmentação, a janela pré-evento, o índice durável, as rotas de consulta, o armazenamento/exclusão/retenção de bytes, a gravação no cliente com reenvio de falhas, a comparação de cena a partir de itens injetados e o vínculo evento→vídeo na leitura, cobertos por testes determinísticos em `tests/monitoramento.test.ts`, `tests/monitoramento-persistencia.test.ts`, `tests/server-monitoramento.test.ts`, `tests/armazenamento-videos.test.ts`, `tests/server-videos.test.ts`, `tests/cena.test.ts`, `tests/cena-persistencia.test.ts`, `tests/server-cena.test.ts`, `tests/gravador-cliente.test.ts`, `tests/vinculo-evento-video.test.ts` e `tests/server-eventos-video.test.ts`.
 
 Vídeos com pessoas são dados sensíveis: os arquivos ficam em `logs/videos/`, fora do versionamento. Ver [`limites.md`](./limites.md) e [`seguranca.md`](./seguranca.md).

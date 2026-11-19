@@ -1,4 +1,5 @@
 import type { EventoTemporal, OrigemSinalTemporal } from "./domain/temporal-event";
+import type { ReferenciaVideoEvento } from "./domain/vinculo-evento-video";
 import type { Caixa } from "./domain/perception";
 
 export type { Caixa };
@@ -168,3 +169,18 @@ export interface EventoTemporalPersistido extends EventoTemporal {
  * e atribuido pelo servidor, nao pelo cliente.
  */
 export type EventoTemporalEnvio = Omit<EventoTemporalPersistido, "registradoEm">;
+
+/** Referencia devolvida pela consulta, com a URL relativa do bytes do video. */
+export interface ReferenciaVideoEventoApi extends ReferenciaVideoEvento {
+  url: string;
+}
+
+/**
+ * Evento temporal devolvido por `GET /api/eventos-temporais`, ja vinculado aos
+ * segmentos que cobrem `inicioEm..fimEm`. O vinculo e derivado do indice no
+ * momento da leitura: segmentos gravados depois do evento tambem passam a
+ * aparecer, e um evento na fronteira referencia os dois segmentos.
+ */
+export interface EventoTemporalComVideo extends EventoTemporalPersistido {
+  segmentos: ReferenciaVideoEventoApi[];
+}

@@ -39,10 +39,23 @@ Gestos, braço levantado, transição de ação, movimento corporal e interaçõ
 
 - **O que entra:** `gesto_detectado`, `braco_levantado`, `transicao_acao`, `movimento_corporal` e `interacao_objeto` nos estados `provavel`, `confirmado`, `encerrado` e `incerto`. `candidato` nunca vira memória; outros tipos temporais (fatos visuais) continuam no stream legado.
 - **Uma linha por `eventoId:estado`:** o controlador mantém essa chave em memória durante a sessão e a usa como `idempotencyKey`; reenvios da fila e repetições do mesmo estado no ciclo seguinte não duplicam a atualização. Reiniciar a sessão limpa a deduplicação local.
-- **Identidade e evidências:** cada linha guarda `eventoId`, `sessionId`, `cycleId`, `tipo`, `inicioEm`, `fimEm`, `entidadeId`, `origem(ns)`, `frameIds`, `confianca`, `descricao`, `motivoEncerramento`, `continuidadeValida`, `evidencias` e `registradoEm` (instante em que o servidor aceitou a atualização). O contexto multimodal (`contexto-1`) repassa os mesmos campos ao VLM (`motivoEncerramento`, `continuidadeValida` e `evidenciasTextuais`), para que o encerramento e a evidência concreta não fiquem implícitos.
+- **Identidade e evidências:** cada linha guarda `eventoId`, `sessionId`, `cycleId`, `tipo`, `inicioEm`, `fimEm`, `entidadeId`, `participantes`, `rotuloObjeto`, `origem(ns)`, `frameIds`, `confianca`, `descricao`, `motivoEncerramento`, `continuidadeValida`, `evidencias` e `registradoEm` (instante em que o servidor aceitou a atualização). O contexto multimodal (`contexto-1`) repassa os mesmos campos ao VLM (`motivoEncerramento`, `continuidadeValida` e `evidenciasTextuais`), para que o encerramento e a evidência concreta não fiquem implícitos.
 - **Encerramento explícito:** `motivoEncerramento` distingue `sem_sinal` (entidade observada sem o sinal), `troca_sinal`, `oclusao` (entidade não observada), `periodo_cego` (lacuna entre ciclos) e `ponto` (evento visual pontual). `continuidadeValida: false` marca intervalo inválido, longo demais ou período cego; ausência de observação por oclusão não invalida retroativamente as evidências já observadas.
 - **Incerteza explícita:** um evento `incerto` carrega `intervaloSemObservacaoMs` e mantém `ultimaEvidenciaEm` separado de `ultimaObservacaoEm`. Isso distingue **o sinal parou** de **a observação parou**; ausência de observação não é tratada como ausência física.
-- **Consulta:** `GET /api/eventos-temporais` aceita `limit`, `tipo` (CSV), `estado` (CSV, inclui `provavel` e `incerto`), `entidadeId`, `desde` e `ate`. `DELETE /api/eventos-temporais` esvazia o stream e invalida as chaves de idempotência. `DELETE /api/logs` também o limpa, junto com observações, eventos visuais e ciclos.
+- **Consulta:** `GET /api/eventos-temporais` aceita `limit`, `tipo` (CSV), `estado` (CSV, inclui `provavel` e `incerto`), `entidadeId`, `sessionId`, `objeto` (CSV de `rotuloObjeto`), `participante` (CSV), `segmentoId`, `desde` e `ate`. Os filtros são combinados por interseção; `desde`/`ate` filtram `inicioEm` e aceitam epoch ms ou ISO. Cada evento devolvido traz `segmentos`, a lista de referências de vídeo que cobrem `inicioEm..fimEm` — derivada do índice de monitoramento **na leitura**, nunca congelada no registro. `DELETE /api/eventos-temporais` esvazia o stream e invalida as chaves de idempotência. `DELETE /api/logs` também o limpa, junto com observações, eventos visuais e ciclos.
+
+### Vínculo com o vídeo e linha do tempo (Fase 5)
+
+A associação é calculada pela regra pura em `src/domain/vinculo-evento-video.ts`, sem relógio, disco ou API de navegador. Para cada evento, o servidor consulta os segmentos que tocam sua janela e devolve, por segmento:
+
+- `segmentoId`, `sessaoId` e `sequencia` para localizar o trecho;
+- `inicioMs`/`fimMs` (cobertura real do segmento), `offsetMs`/`ateMs` e `duracaoTrechoMs` para posicionar a reprodução dentro do vídeo;
+- `incompleto` e `lacunas` quando o segmento teve falha de captura — a interface avisa, em vez de fingir cobertura contínua;
+- `url` relativa para `GET /api/monitoramento/videos/:segmentoId`.
+
+Eventos no limite exato de uma rotação referenciam os dois segmentos: o trecho no segmento anterior tem duração zero e o trecho útil está no seguinte. Um evento inteiro em pausa/lacuna recebe `segmentos: []` — ausência de vídeo não vira "vídeo vazio". Segmentos indexados depois do evento passam a aparecer em consultas posteriores, porque o vínculo é derivado do índice atual.
+
+A interface expõe uma **linha do tempo** com filtros por período, entidade, objeto e `segmentoId`. Cada evento mostra seus metadados e, quando há vídeo, botões de trecho que abrem o player no `offsetMs` correspondente. Eventos sem cobertura exibem "Sem vídeo coberto para este intervalo".
 
 ## Interação mão↔objeto (Fase 4)
 

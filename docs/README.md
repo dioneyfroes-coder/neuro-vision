@@ -13,7 +13,7 @@
 | [`arquitetura.md`](./arquitetura.md) | Estrutura de arquivos e como as partes conversam (servidor, cliente, motores, memória, variantes A–D). |
 | [`seguranca.md`](./seguranca.md) | Exposição na rede, origem cruzada, limites de corpo e validação de payloads. |
 | [`qualidade.md`](./qualidade.md) | Benchmark do modelo, avaliação de eventos (precisão/recall), benchmark das variantes A–D, benchmark da cadência independente (5 FPS), carregamento do modelo e fluxo de regressão. |
-| [`pendencias.md`](./pendencias.md) | Avaliações adiadas de propósito, com protocolo e critério de aceite — hoje: a avaliação real de gestos estáticos/dinâmicos (Fase 1.5–1.6) e os itens restantes da Fase 4 (entrada/saída de pessoas, frequência adaptativa, priorização de objetos próximos). |
+| [`pendencias.md`](./pendencias.md) | Avaliações adiadas de propósito, com protocolo e critério de aceite — hoje: a avaliação real de gestos estáticos/dinâmicos (Fase 1.5–1.6). |
 | [`limites.md`](./limites.md) | Limitações conhecidas (classes COCO, oclusão, iluminação, alucinações, CPU/WASM, latência multiframe, dados sensíveis) e **como desligar cada componente**. |
 
 Documentação correlata fora de `docs/`:

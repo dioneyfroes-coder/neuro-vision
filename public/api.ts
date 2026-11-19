@@ -1,5 +1,6 @@
-import type { EntradaLog, EventoTemporalEnvio, EventoVisual, MarcacaoNsfwLog, MotivoAnalise, TipoEventoVisual } from "../src/types";
+import type { EntradaLog, EventoTemporalComVideo, EventoTemporalEnvio, EventoVisual, MarcacaoNsfwLog, MotivoAnalise, TipoEventoVisual } from "../src/types";
 import type { RegistroCiclo } from "../src/domain/cycle";
+import type { EstadoEventoTemporal, TipoEventoTemporal } from "../src/domain/temporal-event";
 import type {
   MotivoRejeicaoQuadro,
   QuadroAtribuido,
@@ -212,6 +213,55 @@ export async function gravarEventoTemporal(evento: EventoTemporalEnvio): Promise
     throw new ErroPercepcao("armazenamento", "Falha ao gravar evento temporal", { cause: err });
   }
   await exigirRespostaOk(resposta, "Falha ao gravar evento temporal");
+}
+
+/**
+ * Filtros da linha do tempo temporal (`GET /api/eventos-temporais`).
+ *
+ * `desde`/`ate` aceitam epoch ms ou ISO; os demais filtros sao combinados por
+ * intersecao. `segmentoId` usa o vinculo derivado do indice de monitoramento.
+ */
+export interface FiltrosEventosTemporais {
+  tipos?: TipoEventoTemporal[];
+  estados?: EstadoEventoTemporal[];
+  entidadeId?: string;
+  sessionId?: string;
+  /** Rotulo do objeto detector (`rotuloObjeto`), CSV. */
+  objetos?: string[];
+  /** Qualquer participante da interacao (`participantes`), CSV. */
+  participantes?: string[];
+  segmentoId?: string;
+  desde?: number | string;
+  ate?: number | string;
+}
+
+/** `GET /api/eventos-temporais` — eventos ja vinculados aos segmentos de video. */
+export async function listarEventosTemporais(
+  limite = 100,
+  filtros: FiltrosEventosTemporais = {}
+): Promise<EventoTemporalComVideo[]> {
+  const params = new URLSearchParams({ limit: String(limite) });
+  if (filtros.tipos?.length) params.set("tipo", filtros.tipos.join(","));
+  if (filtros.estados?.length) params.set("estado", filtros.estados.join(","));
+  if (filtros.entidadeId) params.set("entidadeId", filtros.entidadeId);
+  if (filtros.sessionId) params.set("sessionId", filtros.sessionId);
+  if (filtros.objetos?.length) params.set("objeto", filtros.objetos.join(","));
+  if (filtros.participantes?.length) params.set("participante", filtros.participantes.join(","));
+  if (filtros.segmentoId) params.set("segmentoId", filtros.segmentoId);
+  if (filtros.desde !== undefined) params.set("desde", String(filtros.desde));
+  if (filtros.ate !== undefined) params.set("ate", String(filtros.ate));
+
+  let resposta: Response;
+  try {
+    resposta = await fetch(`/api/eventos-temporais?${params.toString()}`);
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao ler a linha do tempo temporal", {
+      cause: err,
+    });
+  }
+  if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
+  const dados = (await resposta.json()) as { eventos?: EventoTemporalComVideo[] };
+  return dados.eventos ?? [];
 }
 
 /**

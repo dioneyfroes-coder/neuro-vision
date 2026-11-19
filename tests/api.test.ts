@@ -8,6 +8,7 @@ import {
   listarCiclos,
   listarEntradas,
   listarEventos,
+  listarEventosTemporais,
   limparHistorico,
   obterContexto,
   prepararVisao,
@@ -225,6 +226,57 @@ describe("api de eventos e operacional", () => {
     await listarEventos(7);
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/api/eventos?limit=7");
+  });
+
+  it("listarEventosTemporais envia todos os filtros da linha do tempo", async () => {
+    const eventos = [{ eventoId: "e1", segmentos: [{ segmentoId: "seg-1", url: "/v/seg-1" }] }];
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL) => json({ eventos }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(
+      await listarEventosTemporais(25, {
+        tipos: ["interacao_objeto"],
+        estados: ["confirmado", "provavel"],
+        entidadeId: "pes-1",
+        sessionId: "sess-1",
+        objetos: ["garrafa"],
+        participantes: ["mao-1", "obj-1"],
+        segmentoId: "seg-1",
+        desde: 1000,
+        ate: "2026-11-18T12:00:00.000Z",
+      })
+    ).toEqual(eventos);
+
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+    expect(url).toContain("/api/eventos-temporais?");
+    const params = new URLSearchParams(url.slice(url.indexOf("?") + 1));
+    expect(params.get("limit")).toBe("25");
+    expect(params.get("tipo")).toBe("interacao_objeto");
+    expect(params.get("estado")).toBe("confirmado,provavel");
+    expect(params.get("entidadeId")).toBe("pes-1");
+    expect(params.get("sessionId")).toBe("sess-1");
+    expect(params.get("objeto")).toBe("garrafa");
+    expect(params.get("participante")).toBe("mao-1,obj-1");
+    expect(params.get("segmentoId")).toBe("seg-1");
+    expect(params.get("desde")).toBe("1000");
+    expect(params.get("ate")).toBe("2026-11-18T12:00:00.000Z");
+  });
+
+  it("listarEventosTemporais sem filtros envia apenas o limite", async () => {
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL) => json({ eventos: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listarEventosTemporais();
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/api/eventos-temporais?limit=100");
+  });
+
+  it("listarEventosTemporais transforma falha HTTP e falha de rede em ErroPercepcao", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ ok: false }, 503)));
+    await expect(listarEventosTemporais()).rejects.toMatchObject({ origem: "armazenamento" });
+
+    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new Error("rede"))));
+    await expect(listarEventosTemporais()).rejects.toMatchObject({ origem: "armazenamento" });
   });
 
   it("gravarOperacional e best-effort e nao lanca em falha de rede", async () => {

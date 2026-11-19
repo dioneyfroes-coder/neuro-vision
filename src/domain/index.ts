@@ -15,4 +15,5 @@ export * from "./temporal-event";
 export * from "./cycle";
 export * from "./interpretation";
 export * from "./monitoramento";
+export * from "./vinculo-evento-video";
 export * from "./cena";

@@ -689,6 +689,7 @@ export class CicloPercepcaoController implements ControladorCiclo {
         ultimaObservacaoEm: evt.ultimaObservacaoEm,
         entidadeId: evt.entidadeId,
         participantes: evt.participantes,
+        rotuloObjeto: evt.rotuloObjeto,
         descricao: evt.descricao,
         confianca: evt.confianca,
         origens: evt.origens,

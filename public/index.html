@@ -115,6 +115,29 @@
     </aside>
   </main>
 
+  <section class="timeline">
+    <div class="timeline-head">
+      <h2>Linha do tempo de eventos</h2>
+      <button id="timelineAtualizar" class="ghost" type="button">Atualizar eventos</button>
+    </div>
+    <div class="timeline-filtros">
+      <label>De <input id="timelineDesde" type="text" placeholder="ISO ou epoch ms" /></label>
+      <label>Até <input id="timelineAte" type="text" placeholder="ISO ou epoch ms" /></label>
+      <label>Entidade <input id="timelineEntidade" type="text" placeholder="pes-1" /></label>
+      <label>Objeto <input id="timelineObjeto" type="text" placeholder="garrafa" /></label>
+      <label>Segmento <input id="timelineSegmento" type="text" placeholder="segmentoId" /></label>
+    </div>
+    <div class="timeline-corpo">
+      <ul id="timelineEventos" class="timeline-eventos"></ul>
+      <div class="timeline-evidencia">
+        <video id="evidenciaVideo" controls preload="metadata"></video>
+        <p id="evidenciaInfo" class="timeline-evidencia-info">
+          Selecione um trecho para reproduzir a evidência.
+        </p>
+      </div>
+    </div>
+  </section>
+
   <script type="module" src="/app.js"></script>
 </body>
 </html>

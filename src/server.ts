@@ -85,9 +85,11 @@ import type {
   SessaoMonitoramento,
   VideoSegment,
 } from "./domain/monitoramento";
+import { janelaEvento, vincularEventoASegmentos } from "./domain/vinculo-evento-video";
 import type {
   Caixa,
   EntradaLog,
+  EventoTemporalComVideo,
   EventoTemporalPersistido,
   EventoVisual,
   MarcacaoNsfwLog,
@@ -678,6 +680,7 @@ export function montarEventoTemporal(payload: unknown): EventoTemporalPersistido
       typeof p.ultimaObservacaoEm === "string" ? p.ultimaObservacaoEm : undefined,
     entidadeId: typeof p.entidadeId === "string" ? p.entidadeId : undefined,
     participantes,
+    rotuloObjeto: typeof p.rotuloObjeto === "string" ? p.rotuloObjeto : undefined,
     descricao: p.descricao,
     confianca,
     origens,
@@ -1366,11 +1369,12 @@ async function handleEventosTemporais(
   }
 }
 
-/** `GET /api/eventos-temporais` — consulta a memoria de gestos/posturas. */
+/** `GET /api/eventos-temporais` — consulta a linha do tempo e seus videos. */
 async function handleListEventosTemporais(
   req: IncomingMessage,
   res: ServerResponse,
-  eventosTemporaisFile: string
+  eventosTemporaisFile: string,
+  monitoramento: ServicoMonitoramento
 ): Promise<void> {
   try {
     const url = new URL(req.url ?? "/api/eventos-temporais", "http://localhost");
@@ -1393,20 +1397,66 @@ async function handleListEventosTemporais(
           ESTADOS_EVENTO_TEMPORAL_PERSISTIDOS.includes(e as EstadoEventoTemporal)
         )
     );
+    const csv = (chave: string) =>
+      new Set(
+        (url.searchParams.get(chave) ?? "")
+          .split(",")
+          .map((valor) => valor.trim())
+          .filter((valor) => valor.length > 0)
+      );
     const entidadeId = url.searchParams.get("entidadeId")?.trim() || undefined;
+    const sessionId = url.searchParams.get("sessionId")?.trim() || undefined;
+    const objetos = csv("objeto");
+    const participantes = csv("participante");
+    const segmentoId = url.searchParams.get("segmentoId")?.trim() || undefined;
     const desdeMs = parsearInstante(url.searchParams.get("desde"));
     const ateMs = parsearInstante(url.searchParams.get("ate"));
 
-    const eventos = (await lerEventosTemporais(eventosTemporaisFile, limite)).filter((evt) => {
+    const filtrados = (await lerEventosTemporais(eventosTemporaisFile, limite)).filter((evt) => {
       if (tipos.size > 0 && !tipos.has(evt.tipo)) return false;
       if (estados.size > 0 && !estados.has(evt.estado)) return false;
       if (entidadeId && evt.entidadeId !== entidadeId) return false;
+      if (sessionId && evt.sessionId !== sessionId) return false;
+      if (objetos.size > 0 && (!evt.rotuloObjeto || !objetos.has(evt.rotuloObjeto))) return false;
+      if (
+        participantes.size > 0 &&
+        !(evt.participantes ?? []).some((id) => participantes.has(id))
+      ) {
+        return false;
+      }
       const inicio = Date.parse(evt.inicioEm);
       if (desdeMs !== undefined && Number.isFinite(inicio) && inicio < desdeMs) return false;
       if (ateMs !== undefined && Number.isFinite(inicio) && inicio > ateMs) return false;
       return true;
     });
-    sendJson(res, 200, { ok: true, total: eventos.length, eventos });
+
+    // Resolve o indice uma unica vez para toda a pagina, usando a janela dos
+    // proprios eventos. Segmentos gravados depois do evento passam a aparecer:
+    // o vinculo e derivado na leitura, nunca congelado no registro.
+    let inicioJanela = Number.POSITIVE_INFINITY;
+    let fimJanela = Number.NEGATIVE_INFINITY;
+    for (const evt of filtrados) {
+      const janela = janelaEvento(evt.inicioEm, evt.fimEm);
+      if (!janela) continue;
+      inicioJanela = Math.min(inicioJanela, janela.inicioMs);
+      fimJanela = Math.max(fimJanela, janela.fimMs);
+    }
+    const segmentos = Number.isFinite(inicioJanela)
+      ? await monitoramento.segmentosParaIntervalo(inicioJanela, fimJanela, 5000)
+      : [];
+
+    const eventos: EventoTemporalComVideo[] = filtrados.map((evt) => ({
+      ...evt,
+      segmentos: vincularEventoASegmentos(evt.inicioEm, evt.fimEm, segmentos).map((ref) => ({
+        ...ref,
+        url: `/api/monitoramento/videos/${encodeURIComponent(ref.segmentoId)}`,
+      })),
+    }));
+    const visiveis = segmentoId
+      ? eventos.filter((evt) => evt.segmentos.some((ref) => ref.segmentoId === segmentoId))
+      : eventos;
+
+    sendJson(res, 200, { ok: true, total: visiveis.length, eventos: visiveis });
   } catch (err) {
     logEvent("error", "listar_eventos_temporais_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
@@ -2742,7 +2792,7 @@ export function createServer(config: ServerConfig = {}): http.Server {
       return;
     }
     if (req.method === "GET" && pathname === "/api/eventos-temporais") {
-      void handleListEventosTemporais(req, res, eventosTemporaisFile);
+      void handleListEventosTemporais(req, res, eventosTemporaisFile, monitoramento);
       return;
     }
     if (req.method === "DELETE" && pathname === "/api/eventos-temporais") {

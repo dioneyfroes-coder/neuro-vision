@@ -63,6 +63,15 @@ const clearLogBtn = el<HTMLButtonElement>("clearLog");
 const exportBtn = el<HTMLButtonElement>("exportLog");
 const exportPendentesBtn = el<HTMLButtonElement>("exportPendentes");
 const filterInput = el<HTMLInputElement>("filter");
+const timelineAtualizarBtn = el<HTMLButtonElement>("timelineAtualizar");
+const timelineDesdeInput = el<HTMLInputElement>("timelineDesde");
+const timelineAteInput = el<HTMLInputElement>("timelineAte");
+const timelineEntidadeInput = el<HTMLInputElement>("timelineEntidade");
+const timelineObjetoInput = el<HTMLInputElement>("timelineObjeto");
+const timelineSegmentoInput = el<HTMLInputElement>("timelineSegmento");
+const timelineEventosEl = el<HTMLUListElement>("timelineEventos");
+const evidenciaVideoEl = el<HTMLVideoElement>("evidenciaVideo");
+const evidenciaInfoEl = el<HTMLParagraphElement>("evidenciaInfo");
 const startBtn = el<HTMLButtonElement>("start");
 const stopBtn = el<HTMLButtonElement>("stop");
 const analisarAgoraBtn = el<HTMLButtonElement>("analisarAgora");
@@ -841,6 +850,118 @@ function aplicarFiltro(): void {
   }
 }
 
+/** Fase 5: filtro de texto aceita epoch ms ou ISO; vazio significa sem filtro. */
+function valorFiltroTimeline(input: HTMLInputElement): string | number | undefined {
+  const bruto = input.value.trim();
+  if (!bruto) return undefined;
+  return /^\d+$/.test(bruto) ? Number(bruto) : bruto;
+}
+
+function rotuloInstante(iso: string): string {
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? new Date(ms).toLocaleString() : iso;
+}
+
+function formatarMs(ms: number): string {
+  const segundos = Math.max(0, Math.floor(ms / 1000));
+  return `${String(Math.floor(segundos / 60)).padStart(2, "0")}:${String(segundos % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Linha do tempo consultavel (Fase 5). Os segmentos ja vêm vinculados pelo
+ * servidor; a interface apenas posiciona o player no offset do evento. Nao ha
+ * relogio proprio: o texto e os offsets vem dos timestamps persistidos.
+ */
+async function carregarLinhaDoTempo(): Promise<void> {
+  timelineAtualizarBtn.disabled = true;
+  try {
+    const objeto = timelineObjetoInput.value.trim();
+    const eventos = await api.listarEventosTemporais(100, {
+      entidadeId: timelineEntidadeInput.value.trim() || undefined,
+      objetos: objeto ? [objeto] : undefined,
+      segmentoId: timelineSegmentoInput.value.trim() || undefined,
+      desde: valorFiltroTimeline(timelineDesdeInput),
+      ate: valorFiltroTimeline(timelineAteInput),
+    });
+
+    timelineEventosEl.replaceChildren();
+    if (eventos.length === 0) {
+      const vazio = document.createElement("li");
+      vazio.className = "timeline-vazio";
+      vazio.textContent = "Nenhum evento para os filtros atuais.";
+      timelineEventosEl.append(vazio);
+      return;
+    }
+
+    for (const evt of eventos) {
+      const item = document.createElement("li");
+      item.className = "timeline-item";
+
+      const cabecalho = document.createElement("div");
+      cabecalho.className = "timeline-item-head";
+      cabecalho.textContent = `${rotuloInstante(evt.inicioEm)} · ${evt.tipo} · ${evt.estado}`;
+      const descricao = document.createElement("p");
+      descricao.textContent = evt.descricao;
+      item.append(cabecalho, descricao);
+
+      const metadados = [
+        evt.entidadeId ? `entidade ${evt.entidadeId}` : "",
+        evt.rotuloObjeto ? `objeto ${evt.rotuloObjeto}` : "",
+        evt.participantes?.length ? `participantes ${evt.participantes.join(", ")}` : "",
+        evt.frameIds.length ? `frames ${evt.frameIds.join(", ")}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      if (metadados) {
+        const detalhe = document.createElement("small");
+        detalhe.textContent = metadados;
+        item.append(detalhe);
+      }
+
+      if (evt.segmentos.length === 0) {
+        const semVideo = document.createElement("span");
+        semVideo.className = "timeline-sem-video";
+        semVideo.textContent = "Sem vídeo coberto para este intervalo";
+        item.append(semVideo);
+      } else {
+        const trechos = document.createElement("div");
+        trechos.className = "timeline-trechos";
+        for (const ref of evt.segmentos) {
+          const botao = document.createElement("button");
+          botao.type = "button";
+          botao.className = "ghost";
+          botao.textContent = `Trecho ${ref.sequencia} · ${formatarMs(ref.offsetMs)}–${formatarMs(ref.ateMs)}`;
+          botao.title = `${ref.segmentoId}${ref.incompleto ? " (segmento incompleto)" : ""}`;
+          botao.addEventListener("click", () => {
+            evidenciaVideoEl.addEventListener(
+              "loadedmetadata",
+              () => {
+                evidenciaVideoEl.currentTime = ref.offsetMs / 1000;
+              },
+              { once: true }
+            );
+            evidenciaVideoEl.src = ref.url;
+            const trecho = `Trecho ${ref.sequencia} de ${ref.segmentoId}: ${formatarMs(ref.offsetMs)}–${formatarMs(ref.ateMs)}`;
+            evidenciaInfoEl.textContent = ref.incompleto
+              ? `${trecho} · segmento incompleto: há lacuna de gravação registrada.`
+              : trecho;
+          });
+          trechos.append(botao);
+        }
+        item.append(trechos);
+      }
+      timelineEventosEl.append(item);
+    }
+  } catch (err) {
+    const falha = document.createElement("li");
+    falha.className = "timeline-vazio";
+    falha.textContent = `Falha ao consultar a linha do tempo: ${(err as Error).message}`;
+    timelineEventosEl.replaceChildren(falha);
+  } finally {
+    timelineAtualizarBtn.disabled = false;
+  }
+}
+
 async function exportarLog(): Promise<void> {
   exportBtn.disabled = true;
   try {
@@ -962,6 +1083,7 @@ clearLogBtn.addEventListener("click", () => void limparHistorico());
 exportBtn.addEventListener("click", () => void exportarLog());
 exportPendentesBtn.addEventListener("click", exportarPendentes);
 filterInput.addEventListener("input", aplicarFiltro);
+timelineAtualizarBtn.addEventListener("click", () => void carregarLinhaDoTempo());
 
 intervalInput.addEventListener("input", () => {
   intervalValue.textContent = `${intervalInput.value}s`;
@@ -1016,5 +1138,6 @@ atualizarContagem();
 atualizarBotoesMonitoramento();
 atualizarDiagnostico();
 void carregarHistorico();
+void carregarLinhaDoTempo();
 void carregarContexto();
 void verificarVisao();
