@@ -34,7 +34,7 @@ src/
     rotas-monitoramento.ts sessões, quadros, comandos e segmentos
     rotas-videos.ts      upload, consulta, exclusão e retenção de vídeos
     rotas-cena.ts        referência de ambiente e comparação de cena
-    rotas-visao.ts       proxy/stream do backend de visão e preparação de modelos
+    rotas-visao.ts       fachada: proxy/stream do backend de visão e preparação de modelos (impl. em rotas-visao/*)
     saude.ts             medição de CPU/RAM/disco e `/api/health`
     servidor.ts          composição do `createServer` e tabela de rotas
   memoria.ts           reidratação de contexto e montagem de entradas/eventos (reexporta as primitivas JSONL de `persistence/`)
