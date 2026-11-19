@@ -108,7 +108,7 @@ public/
       object-detector.adapter.ts  adaptador do detector instalado (Transformers.js) para a porta
       pose-estimator.adapter.ts   adaptador do estimador de pose (YOLO Pose) para a porta
       hand-gesture.adapter.ts    adaptador do reconhecedor de maos/gestos (MediaPipe) para a porta
-      nsfw-classifier.adapter.ts adaptador do conjunto NSFW (um classificador ONNX por modelo) para a porta
+      nsfw-classifier.adapter.ts fachada: conjunto NSFW (um classificador ONNX por modelo) para a porta (impl. em nsfw-classifier/*)
     workers/
       protocolo.ts       contrato RPC (requisicao, resposta e motores)
       cliente-worker.ts  cliente na thread principal (correlacao por id, timeouts, `ErroWorker`)
