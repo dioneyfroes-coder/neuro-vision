@@ -132,7 +132,8 @@ public/
     motor-temporal-associacao.ts  associação mão↔pessoa por proximidade ao punho e lateralidade
     motor-temporal-leituras.ts  construtores de amostras/leituras (presença, interação, braço, movimento, transição, pose, gestos)
     motor-temporal-eventos.ts  diagnósticos e conversão sinal/visual → `EventoTemporal`
-  api.ts               cliente HTTP (histórico, eventos, contexto, backend de visão)
+  api.ts               fachada do cliente HTTP (re-exports; histórico, eventos, monitoramento, vídeos, cena, saúde e visão)
+  api/                 módulos: http/historico/eventos/ciclos/monitoramento/videos/cena/contexto/saude/visao
   detector.ts          helpers da detecção (COCO → português, resumo do log; sem SDK)
   yolo-onnx.ts         detector de objetos YOLOv10 em ONNX (`onnxruntime-web`; WebGPU quando disponível, senão WASM; catálogo COCO + inferência)
   nsfw-onnx.ts         catálogo de detectores NSFW experimentais em ONNX (NudeNet, EraX e penis_yolov8m; rótulos do sidecar `<modelo>.onnx.json`; opt-in)
