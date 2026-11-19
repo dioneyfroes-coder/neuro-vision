@@ -145,7 +145,8 @@ public/
   detector.ts          helpers da detecção (COCO → português, resumo do log; sem SDK)
   yolo-onnx.ts         fachada do detector YOLOv10 em ONNX (re-exports)
   yolo-onnx/           módulos: tipos/catálogos, sessão compartilhada (runtime + refs), imagem (pré-processamento/saída) e detector
-  nsfw-onnx.ts         catálogo de detectores NSFW experimentais em ONNX (NudeNet, EraX e penis_yolov8m; rótulos do sidecar `<modelo>.onnx.json`; opt-in)
+  nsfw-onnx.ts         fachada do catálogo NSFW experimental em ONNX (re-exports)
+  nsfw-onnx/           módulos: catálogo/limiares, interpretação de saída (NudeNet cru/NMS + filtros) e detector
   pose.ts              motor SDK para YOLO Pose (Transformers.js) usado pelo adaptador
   gestos.ts            motor SDK para MediaPipe Gesture Recognizer (Tasks Vision) usado pelo adaptador
   camera.ts            controle da webcam e assinatura de cena
