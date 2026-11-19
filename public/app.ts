@@ -1,16 +1,6 @@
-import type {
-  Caixa,
-  EntradaLog,
-  MarcacaoNsfwLog,
-  ReferenciaVideoEventoApi,
-} from "../src/types";
-import { AdaptadorDetectorObjetos } from "./perception/adapters/object-detector.adapter";
-import { AdaptadorNsfwConjunto } from "./perception/adapters/nsfw-classifier.adapter";
-import { Camera } from "./camera";
 import { obterModo } from "./modos";
 import { MotorVisao } from "./motores";
 import { FilaPersistencia } from "./persistencia";
-import { rotuloMotivo } from "../src/politica-analise";
 import * as api from "./api";
 import { CycleController } from "./cycle/cycle-controller";
 import type { ControladorCiclo, EventoUi, ItemHistorico } from "./cycle/cycle-controller";
@@ -24,120 +14,59 @@ import { MODELO_NSFW, resolverModeloVisao } from "../src/nsfw-prompt";
 import { MotorTemporalImpl } from "./temporal/motor-temporal";
 import { InterpretadorCiclo } from "./interpretation/interpretador-ciclo";
 import { criarTransporteServidor } from "./interpretation/transporte-servidor";
+import { criarModuloMonitoramento } from "./ui/monitoramento";
 import {
-  POLITICA_CICLO_BENCHMARK_5FPS,
-  POLITICA_CICLO_BENCHMARK_ADAPTATIVA,
-  POLITICA_CICLO_BENCHMARK_ALVO,
-  POLITICA_CICLO_OPERACIONAL,
-} from "./cycle/politica-ciclo";
-import type { PoliticaCiclo } from "./cycle/politica-ciclo";
-import { CONFIG_CAPTURA_PADRAO } from "./capture/webcam-capture";
-import type { ConfigCaptura } from "./capture/webcam-capture";
-import { ControladorMonitoramento } from "./monitoramento/controlador-monitoramento";
-import type { EstadoMonitoramento } from "./monitoramento/controlador-monitoramento";
-import { apiMonitoramentoCliente } from "./monitoramento/adaptador-api";
+  camera,
+  ctx,
+  overlay,
+  placeholder,
+  statusEl,
+  spinnerEl,
+  modeloStatusEl,
+  diagInfoEl,
+  persistAvisoEl,
+  logEl,
+  clearLogBtn,
+  exportBtn,
+  exportPendentesBtn,
+  filterInput,
+  timelineAtualizarBtn,
+  timelineDesdeInput,
+  timelineAteInput,
+  timelineEntidadeInput,
+  timelineObjetoInput,
+  timelineSegmentoInput,
+  timelineEventosEl,
+  startBtn,
+  stopBtn,
+  analisarAgoraBtn,
+  modelSelect,
+  modeloVisaoSelect,
+  motorSelect,
+  intervalInput,
+  intervalValue,
+  thresholdInput,
+  thresholdValue,
+  nsfwToggle,
+  contextoInput,
+
+} from "./ui/elementos";
 import {
-  ErroGravacaoSegmento,
-  GravadorSegmentos,
-  escolherMimeTypeVideo,
-  type RecorderLike,
-} from "./monitoramento/gravador-segmentos";
+  classificadorNsfw,
+  configuracaoCaptura,
+  detectorCoco,
+  politicaCiclo,
+} from "./ui/configuracao";
+import {
+  adicionarBotoesEvidencia,
+  atualizarContagem,
+  criarItem,
+  drawBoxes,
+  rotuloInstante,
+  valorFiltroTimeline,
+  type EntradaComVideoOpcional,
+} from "./ui/renderizacao";
 
-function el<T extends HTMLElement>(id: string): T {
-  const node = document.getElementById(id);
-  if (!node) throw new Error(`Elemento #${id} nao encontrado`);
-  return node as T;
-}
-
-const video = el<HTMLVideoElement>("video");
-const overlay = el<HTMLCanvasElement>("overlay");
-const maybeCtx = overlay.getContext("2d");
-if (!maybeCtx) throw new Error("Canvas 2D indisponivel");
-const ctx = maybeCtx;
-const camera = new Camera(video);
-
-const placeholder = el<HTMLDivElement>("placeholder");
-const statusEl = el<HTMLDivElement>("status");
-const spinnerEl = el<HTMLDivElement>("spinner");
-const modeloStatusEl = el<HTMLSpanElement>("modeloStatus");
-const diagInfoEl = el<HTMLSpanElement>("diagInfo");
-const persistAvisoEl = el<HTMLSpanElement>("persistAviso");
-const logEl = el<HTMLUListElement>("log");
-const logCountEl = el<HTMLSpanElement>("logCount");
-const clearLogBtn = el<HTMLButtonElement>("clearLog");
-const exportBtn = el<HTMLButtonElement>("exportLog");
-const exportPendentesBtn = el<HTMLButtonElement>("exportPendentes");
-const filterInput = el<HTMLInputElement>("filter");
-const timelineAtualizarBtn = el<HTMLButtonElement>("timelineAtualizar");
-const timelineDesdeInput = el<HTMLInputElement>("timelineDesde");
-const timelineAteInput = el<HTMLInputElement>("timelineAte");
-const timelineEntidadeInput = el<HTMLInputElement>("timelineEntidade");
-const timelineObjetoInput = el<HTMLInputElement>("timelineObjeto");
-const timelineSegmentoInput = el<HTMLInputElement>("timelineSegmento");
-const timelineEventosEl = el<HTMLUListElement>("timelineEventos");
-const evidenciaVideoEl = el<HTMLVideoElement>("evidenciaVideo");
-const evidenciaInfoEl = el<HTMLParagraphElement>("evidenciaInfo");
-const startBtn = el<HTMLButtonElement>("start");
-const stopBtn = el<HTMLButtonElement>("stop");
-const analisarAgoraBtn = el<HTMLButtonElement>("analisarAgora");
-const modelSelect = el<HTMLSelectElement>("model");
-const modeloVisaoSelect = el<HTMLSelectElement>("modeloVisao");
-const motorSelect = el<HTMLSelectElement>("motor");
-const intervalInput = el<HTMLInputElement>("interval");
-const intervalValue = el<HTMLSpanElement>("intervalValue");
-const thresholdInput = el<HTMLInputElement>("threshold");
-const thresholdValue = el<HTMLSpanElement>("thresholdValue");
-const nsfwToggle = el<HTMLInputElement>("nsfw");
-const contextoInput = el<HTMLInputElement>("contexto");
-const monitorAmbienteInput = el<HTMLInputElement>("monitorAmbiente");
-const monitorIniciarBtn = el<HTMLButtonElement>("monitorIniciar");
-const monitorPausarBtn = el<HTMLButtonElement>("monitorPausar");
-const monitorRetomarBtn = el<HTMLButtonElement>("monitorRetomar");
-const monitorEncerrarBtn = el<HTMLButtonElement>("monitorEncerrar");
-const monitorReenviarBtn = el<HTMLButtonElement>("monitorReenviar");
-const monitorRetencaoBtn = el<HTMLButtonElement>("monitorRetencao");
-const monitorExcluirSessaoBtn = el<HTMLButtonElement>("monitorExcluirSessao");
-const gravacaoIndicadorEl = el<HTMLSpanElement>("gravacaoIndicador");
-const gravacaoTextoEl = el<HTMLSpanElement>("gravacaoTexto");
-const monitorAvisoEl = el<HTMLSpanElement>("monitorAviso");
-
-/**
- * Politica do ciclo (Fase 4): fonte unica de espacamento/quantidade de
- * snapshots, pausa pos-ciclo e frequencia da interpretacao. O intervalo entre
- * inicios continua vindo do seletor da interface (`intervaloMsConfigurado`); a
- * pausa pos-ciclo e contada do **fim** de cada ciclo.
- *
- * `?benchmark=5fps` ativa a politica de cadencia independente (Fase 1.3/1.4):
- * maos a 5 FPS alvo, pose/deteccao a 1 Hz, 5 snapshots a 200 ms.
- * `?benchmark=adaptativa` usa a mesma janela, mas sobe maos/pose apos a entrada
- * confirmada de uma pessoa e volta ao ritmo base com histerese (Fase 4).
- */
-const parametrosUrl = new URLSearchParams(window.location.search);
-const benchmark = parametrosUrl.get("benchmark");
-const politicaCiclo: PoliticaCiclo =
-  benchmark === "5fps"
-    ? POLITICA_CICLO_BENCHMARK_5FPS
-    : benchmark === "adaptativa"
-      ? POLITICA_CICLO_BENCHMARK_ADAPTATIVA
-      : benchmark === "eval"
-        ? POLITICA_CICLO_BENCHMARK_ALVO
-        : POLITICA_CICLO_OPERACIONAL;
-
-/** Captura derivada da politica: quantidade e espacamento dos snapshots. */
-const configuracaoCaptura: ConfigCaptura = {
-  ...CONFIG_CAPTURA_PADRAO,
-  quadros: politicaCiclo.quantidadeSnapshots,
-  intervaloMs: politicaCiclo.intervaloEntreSnapshotsMs,
-};
-
-const detectorCoco = new AdaptadorDetectorObjetos();
-/**
- * Classificador NSFW do modo de frame unico (conjunto multi-modelo, um worker
- * dedicado por modelo). O multiframe cria o proprio conjunto dentro do pipeline
- * local; este atende `deteccao`, `eventos`, `visao` e `roteiro` quando o toggle
- * esta ligado.
- */
-const classificadorNsfw = new AdaptadorNsfwConjunto();
 let running = false;
 let intervaloMsConfigurado = Number(intervalInput.value) * 1000;
 
@@ -151,171 +80,17 @@ let infoVisao: api.InfoVisao | null = null;
 /** Recursos do servidor medidos no health (Fase 6). */
 let infoSistema: api.InfoSistema | null = null;
 
-/** Ultima sessao de gravacao conhecida, para exclusao protegida de vídeos. */
-let ultimaSessaoMonitoramentoId: string | null = null;
-
-/** MediaRecorder nativo adaptado à superfície injetável do gravador de segmentos. */
-function criarRecorderNativo(stream: unknown, mimeType: string): RecorderLike {
-  const recorder = new MediaRecorder(stream as MediaStream, { mimeType });
-  // BlobEvent/ErrorEvent são estruturalmente compatíveis em tempo de execução;
-  // as typings do DOM não casam com a assinatura simplificada e injetável.
-  return recorder as unknown as RecorderLike;
-}
-
-/**
- * Câmera de Segurança (Fase 3): gravação em segmentos, independente do ciclo de
- * análise. A câmera precisa estar ligada porque o `MediaRecorder` usa o mesmo
- * stream do elemento `<video>`.
- */
-const monitoramento = new ControladorMonitoramento({
-  api: apiMonitoramentoCliente,
-  agoraMs: () => Date.now(),
-  criarGravador: () => {
-    const stream = camera.obterStream();
-    if (!stream) throw new ErroGravacaoSegmento("Ligue a webcam antes de gravar");
-    const mimeType = escolherMimeTypeVideo();
-    return new GravadorSegmentos({
-      stream,
-      criarRecorder: criarRecorderNativo,
-      agoraMs: () => Date.now(),
-      mimeType,
-      aoErro: (erro) => monitoramento.notarFalhaGravador(erro),
-    });
-  },
-  agendarTick: (tick, periodoMs) => {
-    const id = window.setInterval(() => void tick(), periodoMs);
-    return () => window.clearInterval(id);
-  },
-  aoEstado: (estado) => {
-    if (monitoramento.sessaoAtual) {
-      ultimaSessaoMonitoramentoId = monitoramento.sessaoAtual.sessaoId;
-    }
-    atualizarIndicadorGravacao(estado);
-    atualizarBotoesMonitoramento();
-    atualizarDiagnostico();
-  },
-  aoSegmento: () => {
-    atualizarIndicadorGravacao(monitoramento.estadoAtual);
-    atualizarDiagnostico();
-  },
-  aoSinal: () => {
-    atualizarIndicadorGravacao(monitoramento.estadoAtual);
-    atualizarBotoesMonitoramento();
-    atualizarDiagnostico();
-  },
-  aoErro: (erro) => {
-    monitorAvisoEl.textContent = erro.message;
-    monitorAvisoEl.hidden = false;
-    // Caminho unico "falha -> operacional": o monitoramento continua gravando,
-    // mas a falha nao pode viver apenas na UI.
-    void api.gravarOperacional({
-      nivel: "erro",
-      origem: "monitoramento",
-      mensagem: "Falha de gravacao/indice",
-      detalhe: erro.message,
-    });
-    // Uma falha de upload cria um pendente sem mudar o estado da sessão.
-    atualizarBotoesMonitoramento();
-    atualizarDiagnostico();
-  },
+const {
+  monitoramento,
+  monitorAtivo,
+  atualizarBotoesMonitoramento,
+  encerrarMonitoramento,
+  registrarEventos: registrarEventosMonitoramento,
+} = criarModuloMonitoramento({
+  setStatus,
+  obterRodando: () => running,
+  atualizarDiagnostico,
 });
-
-/**
- * Queda/retorno da camera (Fase 6): a gravacao nao e encerrada. Na queda,
- * suspendemos apenas os metadados de captura para nao inventar cobertura; no
- * retorno, o proximo tick registra a lacuna e rotaciona o segmento.
- */
-camera.aoQueda = (motivo) => {
-  if (monitorAtivo()) {
-    // `suspenderCaptura` ja dispara `aoErro`, que persiste em operacional.
-    monitoramento.suspenderCaptura(motivo);
-  } else {
-    void api.gravarOperacional({
-      nivel: "erro",
-      origem: "camera",
-      mensagem: "Camera sem sinal; gravacao preservada",
-      detalhe: motivo,
-    });
-  }
-  setStatus("Camera sem sinal. A gravacao continua; aguardando retorno.");
-};
-
-camera.aoRetorno = (motivo) => {
-  void api.gravarOperacional({
-    nivel: "info",
-    origem: "camera",
-    mensagem: "Camera recuperada",
-    detalhe: motivo,
-  });
-  if (monitorAtivo()) {
-    const retomar = () => monitoramento.retomarCaptura();
-    const retomarDepoisDeRenovar =
-      motivo === "reconexao"
-        ? monitoramento.renovarGravador().then(retomar)
-        : retomar();
-    void retomarDepoisDeRenovar.catch((erro: unknown) => {
-      monitorAvisoEl.textContent = (erro as Error).message;
-      monitorAvisoEl.hidden = false;
-    });
-  }
-  atualizarBotoesMonitoramento();
-};
-
-function monitorAtivo(): boolean {
-  const estado = monitoramento.estadoAtual;
-  return estado === "iniciando" || estado === "gravando" || estado === "pausada";
-}
-
-function atualizarIndicadorGravacao(estado: EstadoMonitoramento): void {
-  if (estado !== "gravando") {
-    gravacaoIndicadorEl.hidden = true;
-    return;
-  }
-  gravacaoIndicadorEl.hidden = false;
-  if (monitoramento.semSinal) {
-    gravacaoTextoEl.textContent = "Gravando · sem sinal da câmera";
-    return;
-  }
-  const segmento = monitoramento.segmentoAtual;
-  gravacaoTextoEl.textContent = segmento
-    ? `Gravando · segmento ${segmento}`
-    : "Gravando · aguardando primeiro quadro";
-}
-
-function atualizarBotoesMonitoramento(): void {
-  const estado = monitoramento.estadoAtual;
-  const cameraPronta = running && camera.ativa;
-  const podeIniciar = estado === "parada" || estado === "erro" || estado === "encerrada";
-  monitorIniciarBtn.disabled = !cameraPronta || !podeIniciar;
-  monitorPausarBtn.disabled = estado !== "gravando";
-  monitorRetomarBtn.disabled = estado !== "pausada";
-  monitorEncerrarBtn.disabled = estado !== "gravando" && estado !== "pausada";
-  monitorReenviarBtn.disabled = monitoramento.uploadsPendentes === 0;
-  // Exclusao so depois de encerrar: apagar enquanto grava deixaria a sessao
-  // ativa sem os bytes que o indice ainda referencia.
-  monitorExcluirSessaoBtn.disabled =
-    ultimaSessaoMonitoramentoId === null || monitorAtivo();
-}
-
-async function iniciarMonitoramento(): Promise<void> {
-  monitorAvisoEl.hidden = true;
-  const ambiente = monitorAmbienteInput.value.trim() || "sala";
-  try {
-    await monitoramento.iniciar(ambiente);
-    setStatus(`Gravando a sessão "${ambiente}" — segmentos de 5 minutos.`);
-  } catch (err) {
-    setStatus(`Falha ao iniciar a gravação: ${(err as Error).message}`);
-  }
-}
-
-async function encerrarMonitoramento(): Promise<void> {
-  try {
-    await monitoramento.encerrar();
-    setStatus("Gravação encerrada.");
-  } catch (err) {
-    setStatus(`Falha ao encerrar a gravação: ${(err as Error).message}`);
-  }
-}
 
 /** Renderizacao do progresso emitido pelo `CycleController` (sem logica de negocio aqui). */
 function aoUi(evento: EventoUi): ItemHistorico | void {
@@ -713,213 +488,6 @@ function habilitarSeletoresDeMotor(habilitado: boolean): void {
   nsfwToggle.disabled = !habilitado;
 }
 
-function drawBoxes(
-  objetos: ReadonlyArray<{ nome: string; score: number; caixa: Caixa }>,
-  nsfw: ReadonlyArray<MarcacaoNsfwLog> = []
-): void {
-  ctx.clearRect(0, 0, overlay.width, overlay.height);
-  ctx.lineWidth = 3;
-  ctx.font = "16px 'Segoe UI', sans-serif";
-  ctx.textBaseline = "top";
-
-  for (const o of objetos) {
-    const { xmin, ymin, xmax, ymax } = o.caixa;
-    ctx.strokeStyle = "#4f9cf9";
-    ctx.strokeRect(xmin, ymin, xmax - xmin, ymax - ymin);
-
-    const label = `${o.nome} ${(o.score * 100).toFixed(0)}%`;
-    const textWidth = ctx.measureText(label).width;
-    ctx.fillStyle = "#4f9cf9";
-    ctx.fillRect(xmin, ymin, textWidth + 12, 22);
-    ctx.fillStyle = "#fff";
-    ctx.fillText(label, xmin + 6, ymin + 3);
-  }
-
-  // NSFW: caixas normalizadas [0,1] relativas ao frame; cor distinta para nao
-  // se confundirem com as deteccoes COCO (pixels).
-  for (const m of nsfw) {
-    const { xmin, ymin, xmax, ymax } = m.caixa;
-    const x = xmin * overlay.width;
-    const y = ymin * overlay.height;
-    const w = (xmax - xmin) * overlay.width;
-    const h = (ymax - ymin) * overlay.height;
-    ctx.strokeStyle = "#ff4d6d";
-    ctx.strokeRect(x, y, w, h);
-
-    const label = `NSFW ${m.rotulo} ${(m.score * 100).toFixed(0)}%`;
-    const textWidth = ctx.measureText(label).width;
-    ctx.fillStyle = "#ff4d6d";
-    ctx.fillRect(x, y, textWidth + 12, 22);
-    ctx.fillStyle = "#fff";
-    ctx.fillText(label, x + 6, y + 3);
-  }
-}
-
-function atualizarContagem(): void {
-  const total = logEl.children.length;
-  logCountEl.textContent = String(total);
-  clearLogBtn.disabled = total === 0;
-  exportBtn.disabled = total === 0;
-}
-
-/** Entradas novas ainda nao passaram pelo servidor: `segmentos` e opcional. */
-type EntradaComVideoOpcional = EntradaLog & {
-  segmentos?: readonly ReferenciaVideoEventoApi[];
-};
-
-/**
- * Abre o trecho evidenciado no player compartilhado. O offset vem do servidor;
- * a interface nao calcula segmento nem usa relogio proprio.
- */
-function reproduzirTrecho(ref: ReferenciaVideoEventoApi, rotulo: string): void {
-  evidenciaVideoEl.pause();
-  const inicioS = ref.offsetMs / 1000;
-  const fimS = ref.ateMs / 1000;
-  const descrever = () => {
-    evidenciaVideoEl.currentTime = inicioS;
-    const trecho = `${rotulo} · trecho ${ref.sequencia} de ${ref.segmentoId}: ${formatarMs(ref.offsetMs)}–${formatarMs(ref.ateMs)}`;
-    evidenciaInfoEl.textContent = ref.incompleto
-      ? `${trecho} · segmento incompleto: há lacuna de gravação registrada.`
-      : trecho;
-  };
-
-  if (evidenciaVideoEl.dataset.segmentoId === ref.segmentoId) {
-    descrever();
-  } else {
-    evidenciaVideoEl.addEventListener("loadedmetadata", descrever, { once: true });
-    evidenciaVideoEl.dataset.segmentoId = ref.segmentoId;
-    evidenciaVideoEl.src = ref.url;
-    evidenciaVideoEl.load();
-  }
-
-  evidenciaVideoEl.ontimeupdate = () => {
-    if (evidenciaVideoEl.currentTime >= fimS) {
-      evidenciaVideoEl.pause();
-      evidenciaVideoEl.ontimeupdate = null;
-    }
-  };
-  void evidenciaVideoEl.play().catch(() => undefined);
-}
-
-/** Botoes de trecho reaproveitados pela linha do tempo e pelo historico. */
-function adicionarBotoesEvidencia(
-  container: HTMLElement,
-  segmentos: readonly ReferenciaVideoEventoApi[],
-  rotulo: string
-): void {
-  if (segmentos.length === 0) return;
-  const trechos = document.createElement("div");
-  trechos.className = "timeline-trechos";
-  for (const ref of segmentos) {
-    const botao = document.createElement("button");
-    botao.type = "button";
-    botao.className = "ghost";
-    botao.textContent = `Vídeo · trecho ${ref.sequencia} · ${formatarMs(ref.offsetMs)}–${formatarMs(ref.ateMs)}`;
-    botao.title = `${ref.segmentoId}${ref.incompleto ? " (segmento incompleto)" : ""}`;
-    botao.addEventListener("click", () => reproduzirTrecho(ref, rotulo));
-    trechos.appendChild(botao);
-  }
-  container.appendChild(trechos);
-}
-
-function criarItem(entry: EntradaComVideoOpcional): HTMLLIElement {
-  const li = document.createElement("li");
-
-  if (entry.snapshot) {
-    const img = document.createElement("img");
-    img.className = "thumb";
-    img.src = entry.snapshot;
-    img.alt = "frame capturado";
-    img.loading = "lazy";
-    if (entry.capturadoEm) {
-      img.title = `Frame capturado às ${new Date(entry.capturadoEm).toLocaleTimeString("pt-BR")}`;
-    }
-    li.appendChild(img);
-  }
-
-  const corpo = document.createElement("div");
-  corpo.className = "corpo";
-
-  const cabecalho = document.createElement("div");
-  cabecalho.className = "cabecalho";
-  const time = document.createElement("span");
-  time.className = "time";
-  // O horario exibido e o da CAPTURA do frame; `timestamp` e o fim da analise.
-  const capturadoEm = entry.capturadoEm ? new Date(entry.capturadoEm) : null;
-  const analisadoEm = new Date(entry.timestamp);
-  time.textContent = (capturadoEm ?? analisadoEm).toLocaleTimeString("pt-BR");
-  if (capturadoEm) {
-    const atrasoS = (analisadoEm.getTime() - capturadoEm.getTime()) / 1000;
-    time.title =
-      atrasoS >= 1
-        ? `Frame capturado às ${capturadoEm.toLocaleTimeString("pt-BR")} · analisado ${atrasoS.toFixed(1)}s depois`
-        : `Frame capturado às ${capturadoEm.toLocaleTimeString("pt-BR")}`;
-  }
-  cabecalho.appendChild(time);
-  if (entry.modelo) {
-    const meta = document.createElement("span");
-    meta.className = "meta";
-    let texto = entry.modelo;
-    if (entry.ms && entry.tokens) {
-      const tokS = Math.round(entry.tokens / (entry.ms / 1000));
-      texto += ` · ${entry.tokens} toks em ${Math.round(entry.ms / 1000)}s (${tokS} tok/s)`;
-    }
-    if (capturadoEm && analisadoEm.getTime() - capturadoEm.getTime() >= 1000) {
-      texto += ` · frame analisado ${((analisadoEm.getTime() - capturadoEm.getTime()) / 1000).toFixed(1)}s depois`;
-    }
-    if (entry.motivo) {
-      texto += ` · por ${rotuloMotivo(entry.motivo)}`;
-    }
-    meta.textContent = texto;
-    cabecalho.appendChild(meta);
-  }
-  corpo.appendChild(cabecalho);
-
-  const objs = document.createElement("div");
-  objs.className = "objs";
-  if (entry.tipo === "descricao" || entry.tipo === "roteiro") {
-    if (entry.tipo === "roteiro") {
-      const badge = document.createElement("span");
-      badge.className = "tag papel";
-      badge.textContent = entry.papel === "base" ? "roteiro base" : "roteiro +";
-      objs.appendChild(badge);
-    }
-    const span = document.createElement("span");
-    span.className = "desc";
-    span.textContent = entry.resumo;
-    objs.appendChild(span);
-  } else if (entry.objetos.length === 0) {
-    const span = document.createElement("span");
-    span.className = "empty";
-    span.textContent = "nada reconhecido";
-    objs.appendChild(span);
-  } else {
-    for (const o of entry.objetos) {
-      const tag = document.createElement("span");
-      tag.className = "tag";
-      tag.textContent = `${o.nome} ${(o.score * 100).toFixed(0)}%`;
-      objs.appendChild(tag);
-    }
-  }
-  corpo.appendChild(objs);
-  if (entry.nsfw && entry.nsfw.length > 0) {
-    const nsfw = document.createElement("div");
-    nsfw.className = "objs";
-    for (const m of entry.nsfw) {
-      const tag = document.createElement("span");
-      tag.className = "tag nsfw";
-      tag.textContent = `NSFW ${m.rotulo} ${(m.score * 100).toFixed(0)}%`;
-      nsfw.appendChild(tag);
-    }
-    corpo.appendChild(nsfw);
-  }
-  const rotuloEvidencia =
-    entry.tipo === "descricao" || entry.tipo === "roteiro" ? "Descrição" : "Detecção";
-  adicionarBotoesEvidencia(corpo, entry.segmentos ?? [], rotuloEvidencia);
-  li.appendChild(corpo);
-  return li;
-}
-
 function addLogEntry(entry: EntradaComVideoOpcional): HTMLLIElement {
   const item = criarItem(entry);
   logEl.prepend(item);
@@ -1001,23 +569,6 @@ function aplicarFiltro(): void {
     const texto = (item.textContent ?? "").toLowerCase();
     (item as HTMLElement).hidden = termo.length > 0 && !texto.includes(termo);
   }
-}
-
-/** Fase 5: filtro de texto aceita epoch ms ou ISO; vazio significa sem filtro. */
-function valorFiltroTimeline(input: HTMLInputElement): string | number | undefined {
-  const bruto = input.value.trim();
-  if (!bruto) return undefined;
-  return /^\d+$/.test(bruto) ? Number(bruto) : bruto;
-}
-
-function rotuloInstante(iso: string): string {
-  const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? new Date(ms).toLocaleString() : iso;
-}
-
-function formatarMs(ms: number): string {
-  const segundos = Math.max(0, Math.floor(ms / 1000));
-  return `${String(Math.floor(segundos / 60)).padStart(2, "0")}:${String(segundos % 60).padStart(2, "0")}`;
 }
 
 /**
@@ -1178,60 +729,7 @@ stopBtn.addEventListener("click", () => {
   })();
 });
 
-/** Executa um comando de gravação e mantém botões/diagnóstico sincronizados. */
-async function comandoMonitoramento(acao: () => Promise<void>, mensagem: string): Promise<void> {
-  monitorAvisoEl.hidden = true;
-  try {
-    await acao();
-    atualizarBotoesMonitoramento();
-    atualizarDiagnostico();
-    setStatus(mensagem);
-  } catch (err) {
-    setStatus(`Falha no comando de gravação: ${(err as Error).message}`);
-  }
-}
-
-monitorIniciarBtn.addEventListener("click", () => void iniciarMonitoramento());
-monitorPausarBtn.addEventListener("click", () =>
-  void comandoMonitoramento(() => monitoramento.pausar(), "Gravação pausada.")
-);
-monitorRetomarBtn.addEventListener("click", () =>
-  void comandoMonitoramento(() => monitoramento.retomar(), "Gravação retomada.")
-);
-monitorEncerrarBtn.addEventListener("click", () => void encerrarMonitoramento());
-monitorReenviarBtn.addEventListener("click", () =>
-  void (async () => {
-    const enviados = await monitoramento.reenviarPendentes();
-    atualizarBotoesMonitoramento();
-    atualizarDiagnostico();
-    setStatus(`${enviados} gravação(ões) reenviada(s).`);
-  })()
-);
-
-monitorRetencaoBtn.addEventListener("click", () =>
-  void (async () => {
-    try {
-      const removidos = await api.aplicarRetencaoVideos();
-      setStatus(`Retenção aplicada: ${removidos.length} vídeo(s) removido(s).`);
-    } catch (err) {
-      setStatus(`Falha na retenção: ${(err as Error).message}`);
-    }
-  })()
-);
-
-monitorExcluirSessaoBtn.addEventListener("click", () => {
-  const sessaoId = ultimaSessaoMonitoramentoId;
-  if (!sessaoId || monitorAtivo()) return;
-  if (!window.confirm(`Excluir todos os vídeos da sessão ${sessaoId}?`)) return;
-  void (async () => {
-    try {
-      const total = await api.excluirVideosDaSessao(sessaoId);
-      setStatus(`${total} vídeo(s) da sessão ${sessaoId} excluído(s).`);
-    } catch (err) {
-      setStatus(`Falha ao excluir vídeos: ${(err as Error).message}`);
-    }
-  })();
-});
+registrarEventosMonitoramento();
 
 analisarAgoraBtn.addEventListener("click", () => {
   if (!running || motorSelect.value !== "eventos") return;

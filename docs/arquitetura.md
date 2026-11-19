@@ -79,6 +79,7 @@ src/
 public/
   index.html           interface
   app.ts               ponto de composição: liga botões/seletores, cria dependências e renderiza os `EventoUi`
+  ui/                  fatias da interface extraídas de `app.ts` (elementos, configuração, renderização e monitoramento)
   desempenho.ts        ajustes para o hardware-alvo: threads do WASM, detecção de WebGPU e isolamento
   workers/             bundles gerados por `npm run build:workers` (não versionados)
   cycle/

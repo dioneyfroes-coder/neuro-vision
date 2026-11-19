@@ -1,0 +1,59 @@
+import { Camera } from "../camera";
+
+export function el<T extends HTMLElement>(id: string): T {
+  const node = document.getElementById(id);
+  if (!node) throw new Error(`Elemento #${id} nao encontrado`);
+  return node as T;
+}
+
+export const video = el<HTMLVideoElement>("video");
+export const overlay = el<HTMLCanvasElement>("overlay");
+const maybeCtx = overlay.getContext("2d");
+if (!maybeCtx) throw new Error("Canvas 2D indisponivel");
+export const ctx = maybeCtx;
+export const camera = new Camera(video);
+
+export const placeholder = el<HTMLDivElement>("placeholder");
+export const statusEl = el<HTMLDivElement>("status");
+export const spinnerEl = el<HTMLDivElement>("spinner");
+export const modeloStatusEl = el<HTMLSpanElement>("modeloStatus");
+export const diagInfoEl = el<HTMLSpanElement>("diagInfo");
+export const persistAvisoEl = el<HTMLSpanElement>("persistAviso");
+export const logEl = el<HTMLUListElement>("log");
+export const logCountEl = el<HTMLSpanElement>("logCount");
+export const clearLogBtn = el<HTMLButtonElement>("clearLog");
+export const exportBtn = el<HTMLButtonElement>("exportLog");
+export const exportPendentesBtn = el<HTMLButtonElement>("exportPendentes");
+export const filterInput = el<HTMLInputElement>("filter");
+export const timelineAtualizarBtn = el<HTMLButtonElement>("timelineAtualizar");
+export const timelineDesdeInput = el<HTMLInputElement>("timelineDesde");
+export const timelineAteInput = el<HTMLInputElement>("timelineAte");
+export const timelineEntidadeInput = el<HTMLInputElement>("timelineEntidade");
+export const timelineObjetoInput = el<HTMLInputElement>("timelineObjeto");
+export const timelineSegmentoInput = el<HTMLInputElement>("timelineSegmento");
+export const timelineEventosEl = el<HTMLUListElement>("timelineEventos");
+export const evidenciaVideoEl = el<HTMLVideoElement>("evidenciaVideo");
+export const evidenciaInfoEl = el<HTMLParagraphElement>("evidenciaInfo");
+export const startBtn = el<HTMLButtonElement>("start");
+export const stopBtn = el<HTMLButtonElement>("stop");
+export const analisarAgoraBtn = el<HTMLButtonElement>("analisarAgora");
+export const modelSelect = el<HTMLSelectElement>("model");
+export const modeloVisaoSelect = el<HTMLSelectElement>("modeloVisao");
+export const motorSelect = el<HTMLSelectElement>("motor");
+export const intervalInput = el<HTMLInputElement>("interval");
+export const intervalValue = el<HTMLSpanElement>("intervalValue");
+export const thresholdInput = el<HTMLInputElement>("threshold");
+export const thresholdValue = el<HTMLSpanElement>("thresholdValue");
+export const nsfwToggle = el<HTMLInputElement>("nsfw");
+export const contextoInput = el<HTMLInputElement>("contexto");
+export const monitorAmbienteInput = el<HTMLInputElement>("monitorAmbiente");
+export const monitorIniciarBtn = el<HTMLButtonElement>("monitorIniciar");
+export const monitorPausarBtn = el<HTMLButtonElement>("monitorPausar");
+export const monitorRetomarBtn = el<HTMLButtonElement>("monitorRetomar");
+export const monitorEncerrarBtn = el<HTMLButtonElement>("monitorEncerrar");
+export const monitorReenviarBtn = el<HTMLButtonElement>("monitorReenviar");
+export const monitorRetencaoBtn = el<HTMLButtonElement>("monitorRetencao");
+export const monitorExcluirSessaoBtn = el<HTMLButtonElement>("monitorExcluirSessao");
+export const gravacaoIndicadorEl = el<HTMLSpanElement>("gravacaoIndicador");
+export const gravacaoTextoEl = el<HTMLSpanElement>("gravacaoTexto");
+export const monitorAvisoEl = el<HTMLSpanElement>("monitorAviso");
