@@ -96,7 +96,7 @@ public/
     snapshot-store.ts    buffer de snapshots com retenção limitada e limpeza
   monitoramento/
     gravador-segmentos.ts       MediaRecorder por segmento → Blob (fecha no evento `stop`)
-    controlador-monitoramento.ts sessão, ticks de metadados, rotação, upload e pendentes
+    controlador-monitoramento.ts fachada: sessão, ticks de metadados, rotação, upload e pendentes (impl. em controlador-monitoramento/tipos|controlador)
     adaptador-api.ts            liga o controlador às funções HTTP de `api.ts`
   perception/
     contracts.ts       portas `DetectorObjetos`, `EstimadorPose`, `ReconhecedorGestos` e `ClassificadorNsfw` (sem SDK de modelo)
