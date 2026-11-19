@@ -27,7 +27,8 @@ src/
   http/                implementação do servidor HTTP por responsabilidade
     base.ts              constantes de caminho/limites, resposta JSON, log operacional e leitura de corpo
     validacao.ts         normalizadores e validadores de payloads/parâmetros
-    persistencia.ts      repositórios JSONL, snapshots e retenção
+    persistencia.ts      fachada dos repositórios e snapshots (re-exports)
+    persistencia/        módulos: tipos/constantes, repositórios JSONL, montagem de payloads, snapshots (cache/retenção) e validação
     arquivos.ts          arquivos estáticos, snapshots, pesos NSFW e artefatos offline
     rotas-memoria.ts     observações, eventos, eventos temporais, ciclos e operacional
     rotas-monitoramento.ts sessões, quadros, comandos e segmentos
