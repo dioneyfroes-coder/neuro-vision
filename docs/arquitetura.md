@@ -30,7 +30,7 @@ src/
     persistencia.ts      fachada dos repositórios e snapshots (re-exports)
     persistencia/        módulos: tipos/constantes, repositórios JSONL, montagem de payloads, snapshots (cache/retenção) e validação
     arquivos.ts          arquivos estáticos, snapshots, pesos NSFW e artefatos offline
-    rotas-memoria.ts     observações, eventos, eventos temporais, ciclos e operacional
+    rotas-memoria.ts     fachada: observações, eventos, eventos temporais, ciclos e operacional (impl. em rotas-memoria/video|logs|eventos|temporais)
     rotas-monitoramento.ts sessões, quadros, comandos e segmentos
     rotas-videos.ts      upload, consulta, exclusão e retenção de vídeos
     rotas-cena.ts        referência de ambiente e comparação de cena
