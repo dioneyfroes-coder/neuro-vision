@@ -1,9 +1,4 @@
 import {
-  calcularGeometriaMao,
-  classificarGestoGeometrico,
-  combinarGesto,
-  estabilizarDedos,
-  estadosDosDedos,
   estaIndisponivel,
   naoFoiAmostrado,
   type DiagnosticoSinalTemporal,
@@ -11,16 +6,12 @@ import {
   type EventoTemporal,
   type MaoDetectada,
   type ObservacaoFrame,
-  type OrigemSinalTemporal,
   type PessoaPose,
   type PontoCorporal,
-  type SinalTemporalDiagnosticado,
-  type TipoEventoTemporal,
 } from "../../src/domain";
-import { uuid } from "../../src/domain/ids";
 import { RastreadorObjetos } from "../../src/rastreamento";
 import { DetectorMudancaDeCena } from "../../src/cena";
-import type { EventoVisual, ObjetoVisto } from "../../src/types";
+import type { ObjetoVisto } from "../../src/types";
 import type {
   ConfigMotorTemporal,
   ConfiguracaoParcialMotorTemporal,
@@ -28,16 +19,30 @@ import type {
   ResultadoTemporal,
 } from "./contracts";
 import { CONFIG_MOTOR_TEMPORAL_PADRAO } from "./contracts";
-import { RastreadorEntidades, type Entidade, type Sonda } from "./rastreador-entidades";
-import { MaquinaSinais, type EventoSinal } from "./maquina-sinais";
+import { RastreadorEntidades } from "./rastreador-entidades";
+import { MaquinaSinais } from "./maquina-sinais";
 import { centroidePontos, pontoReferenciaPose } from "./referencia-pose";
-import { distanciaPontos } from "./suavizador";
 import { AvaliadorPoseSexual } from "./regras-pose";
-import { DetectorInteracao, type AmostraInteracao } from "./interacao";
+import { DetectorInteracao } from "./interacao";
+import { DetectorPresencaPessoas } from "./presenca-pessoas";
+import { podeAssociarMao } from "./motor-temporal-regras";
+import { associarMaosAPessoas } from "./motor-temporal-associacao";
 import {
-  DetectorPresencaPessoas,
-  type AmostraPresenca,
-} from "./presenca-pessoas";
+  montarAmostrasInteracao,
+  montarAmostrasPresenca,
+  montarLeiturasBraco,
+  montarLeiturasGesto,
+  montarLeiturasMovimento,
+  montarLeiturasPoseSexual,
+  montarLeiturasTransicao,
+} from "./motor-temporal-leituras";
+import {
+  converterEventoVisual,
+  registrarDiagnosticos,
+  sinalParaEvento,
+} from "./motor-temporal-eventos";
+
+export { ARTICULACOES_BRACO, CONFIANCA_MINIMA_PUNHO_MAO_PESSOA } from "./motor-temporal-regras";
 
 /**
  * Motor temporal (Etapa 6 do roteiro de modularizacao).
@@ -152,28 +157,28 @@ export class MotorTemporalImpl implements MotorTemporal {
     if (houvePeriodoCego) {
       for (const sinal of this.gestos.interromperPorPeriodoCego(gapMs)) {
         eventos.push(
-          this.sinalParaEvento(sinal, "gesto_detectado", "maos", sessionId, (s) =>
+          sinalParaEvento(sinal, "gesto_detectado", "maos", sessionId, (s) =>
             `Gesto "${s.rotulo}" interrompido por periodo cego`
           )
         );
       }
       for (const sinal of this.braco.interromperPorPeriodoCego(gapMs)) {
         eventos.push(
-          this.sinalParaEvento(sinal, "braco_levantado", "pose", sessionId, () =>
+          sinalParaEvento(sinal, "braco_levantado", "pose", sessionId, () =>
             "Braco levantado interrompido por periodo cego"
           )
         );
       }
       for (const sinal of this.transicao.interromperPorPeriodoCego(gapMs)) {
         eventos.push(
-          this.sinalParaEvento(sinal, "transicao_acao", "pose", sessionId, () =>
+          sinalParaEvento(sinal, "transicao_acao", "pose", sessionId, () =>
             "Transicao de acao interrompida por periodo cego"
           )
         );
       }
       for (const sinal of this.movimento.interromperPorPeriodoCego(gapMs)) {
         eventos.push(
-          this.sinalParaEvento(sinal, "movimento_corporal", "pose", sessionId, () =>
+          sinalParaEvento(sinal, "movimento_corporal", "pose", sessionId, () =>
             "Movimento corporal interrompido por periodo cego"
           )
         );
@@ -181,7 +186,7 @@ export class MotorTemporalImpl implements MotorTemporal {
       if (this.config.avaliarPoseSexual) {
         for (const sinal of this.poseSexual.interromperPorPeriodoCego(gapMs)) {
           eventos.push(
-            this.sinalParaEvento(sinal, "pose_compativel_sexual", "pose", sessionId, () =>
+            sinalParaEvento(sinal, "pose_compativel_sexual", "pose", sessionId, () =>
               "Pose compativel interrompida por periodo cego"
             )
           );
@@ -226,7 +231,7 @@ export class MotorTemporalImpl implements MotorTemporal {
         }
         deteccoesObservadas = { ...obs.deteccoes, deteccoes };
         for (const ev of resultado.eventos) {
-          const convertido = this.converterEventoVisual(ev, sessionId, frameId, obs.cycleId);
+          const convertido = converterEventoVisual(ev, sessionId, frameId, obs.cycleId);
           if (convertido) eventos.push(convertido);
         }
       }
@@ -238,7 +243,7 @@ export class MotorTemporalImpl implements MotorTemporal {
           sessaoId: sessionId,
         });
         if (evCena) {
-          const convertido = this.converterEventoVisual(evCena, sessionId, frameId, obs.cycleId);
+          const convertido = converterEventoVisual(evCena, sessionId, frameId, obs.cycleId);
           if (convertido) eventos.push(convertido);
         }
       }
@@ -294,7 +299,8 @@ export class MotorTemporalImpl implements MotorTemporal {
       // eventos de pose. Frame pulado pela cadencia e preservado; falha de
       // inferencia nao conta como "a pessoa saiu".
       if (!poseNaoAmostrada) {
-        const amostras = this.montarAmostrasPresenca(
+        const amostras = montarAmostrasPresenca(
+          this.pessoas.vivas,
           posesComTrackId,
           sessionId,
           tempoMs,
@@ -367,11 +373,18 @@ export class MotorTemporalImpl implements MotorTemporal {
       // 4a. Associacao mao <-> pessoa por proximidade ao punho. Roda sobre as
       // copias enriquecidas; nao inventa associacao quando a pose/mao falhou.
       if (!poseNaoAmostrada && !maosNaoAmostradas && maosDisponivel && poseDisponivel) {
-        this.associarMaosAPessoas(posesComTrackId, maosComTrackId);
+        associarMaosAPessoas(
+          posesComTrackId,
+          maosComTrackId,
+          this.config.distanciaMaximaMaoPessoa
+        );
       }
 
       // 5. Maquina de braco levantado (a partir da pose enriquecida).
-      const leiturasBraco = this.montarLeiturasBraco(
+      const leiturasBraco = montarLeiturasBraco(
+        this.pessoas.vivas,
+        this.braco,
+        this.config,
         posesComTrackId,
         obs.capturadoEm,
         frameId,
@@ -380,7 +393,7 @@ export class MotorTemporalImpl implements MotorTemporal {
       if (!poseNaoAmostrada) {
         for (const sinal of this.braco.processar(leiturasBraco, { indisponivel: !poseDisponivel })) {
           eventos.push(
-            this.sinalParaEvento(sinal, "braco_levantado", "pose", sessionId, (s) =>
+            sinalParaEvento(sinal, "braco_levantado", "pose", sessionId, (s) =>
               s.estado === "confirmado"
                 ? "Braco levantado"
                 : "Braco abaixado"
@@ -391,7 +404,10 @@ export class MotorTemporalImpl implements MotorTemporal {
 
       // 5a. Transicao de acao: velocidade vertical do punho. Distingue
       // "levantou o braco" (movimento) de "braco erguido" (postura mantida).
-      const leiturasTransicao = this.montarLeiturasTransicao(
+      const leiturasTransicao = montarLeiturasTransicao(
+        this.pessoas.vivas,
+        this.punhos,
+        this.config,
         posesComTrackId,
         tempoMs,
         obs.capturadoEm,
@@ -404,7 +420,7 @@ export class MotorTemporalImpl implements MotorTemporal {
           indisponivel: !poseDisponivel,
         })) {
           eventos.push(
-            this.sinalParaEvento(sinal, "transicao_acao", "pose", sessionId, (s) =>
+            sinalParaEvento(sinal, "transicao_acao", "pose", sessionId, (s) =>
               s.rotulo === "braco_subindo"
                 ? "Braco subindo (transicao)"
                 : "Braco descendo (transicao)"
@@ -415,7 +431,9 @@ export class MotorTemporalImpl implements MotorTemporal {
 
       // 5b. Movimento corporal: deslocamento de pessoas rastreadas. Nao confundir
       // com `movimento_objeto` (deslocamento de objetos do detector COCO).
-      const leiturasMovimento = this.montarLeiturasMovimento(
+      const leiturasMovimento = montarLeiturasMovimento(
+        this.pessoas.vivas,
+        this.config,
         obs.capturadoEm,
         frameId,
         obs.cycleId
@@ -425,7 +443,7 @@ export class MotorTemporalImpl implements MotorTemporal {
           indisponivel: !poseDisponivel,
         })) {
           eventos.push(
-            this.sinalParaEvento(sinal, "movimento_corporal", "pose", sessionId, (s) =>
+            sinalParaEvento(sinal, "movimento_corporal", "pose", sessionId, (s) =>
               s.estado === "confirmado"
                 ? "Movimento corporal"
                 : "Movimento corporal encerrado"
@@ -435,7 +453,10 @@ export class MotorTemporalImpl implements MotorTemporal {
       }
 
       // 6. Maquina de gestos (a partir das maos enriquecidas).
-      const leiturasGesto = this.montarLeiturasGesto(
+      const leiturasGesto = montarLeiturasGesto(
+        this.maos.vivas,
+        this.dedosPorEntidade,
+        this.config,
         maosComTrackId,
         obs.capturadoEm,
         frameId,
@@ -452,7 +473,7 @@ export class MotorTemporalImpl implements MotorTemporal {
       if (!maosNaoAmostradas) {
         for (const sinal of this.gestos.processar(leiturasGesto, { indisponivel: !maosDisponivel })) {
           eventos.push(
-            this.sinalParaEvento(sinal, "gesto_detectado", "maos", sessionId, (s) =>
+            sinalParaEvento(sinal, "gesto_detectado", "maos", sessionId, (s) =>
               s.estado === "confirmado"
                 ? `Gesto "${s.rotulo}" confirmado`
                 : `Gesto "${s.rotulo}" encerrado`
@@ -464,7 +485,9 @@ export class MotorTemporalImpl implements MotorTemporal {
       // 7. Pose compativel com ato sexual (Fase 7.2). So roda quando o NSFW
       // esta ativo; o evento e indicio geometrico, nunca prova do ato.
       if (this.config.avaliarPoseSexual && !poseNaoAmostrada) {
-        const leiturasPose = this.montarLeiturasPoseSexual(
+        const leiturasPose = montarLeiturasPoseSexual(
+          this.pessoas.vivas,
+          this.avaliadorPose,
           posesComTrackId,
           maosComTrackId,
           tempoMs,
@@ -477,7 +500,7 @@ export class MotorTemporalImpl implements MotorTemporal {
           indisponivel: !poseDisponivel,
         })) {
           eventos.push(
-            this.sinalParaEvento(sinal, "pose_compativel_sexual", "pose", sessionId, (s) =>
+            sinalParaEvento(sinal, "pose_compativel_sexual", "pose", sessionId, (s) =>
               s.estado === "confirmado"
                 ? "Pose compativel com ato sexual (indicio geometrico, nao prova)"
                 : "Pose compativel encerrada"
@@ -497,7 +520,8 @@ export class MotorTemporalImpl implements MotorTemporal {
         const maosIndisponivel = estaIndisponivel(obs.maos);
         const amostras = deteccoesIndisponivel
           ? []
-          : this.montarAmostrasInteracao(
+          : montarAmostrasInteracao(
+              this.maos.vivas,
               maosComTrackId,
               deteccoesObservadas,
               !estaIndisponivel(obs.deteccoes) ? obs.deteccoes.dimensoes : undefined,
@@ -516,13 +540,13 @@ export class MotorTemporalImpl implements MotorTemporal {
 
       // Diagnostico corrente: diferencia confirmado, ocluido, inferencia
       // indisponivel e observacao insuficiente mesmo sem evento emitido.
-      if (!maosNaoAmostradas) this.registrarDiagnosticos("gesto", this.gestos, !maosDisponivel);
+      if (!maosNaoAmostradas) registrarDiagnosticos(this.diagnosticos, "gesto", this.gestos, !maosDisponivel);
       if (!poseNaoAmostrada) {
-        this.registrarDiagnosticos("braco", this.braco, !poseDisponivel);
-        this.registrarDiagnosticos("transicao", this.transicao, !poseDisponivel);
-        this.registrarDiagnosticos("movimento", this.movimento, !poseDisponivel);
+        registrarDiagnosticos(this.diagnosticos, "braco", this.braco, !poseDisponivel);
+        registrarDiagnosticos(this.diagnosticos, "transicao", this.transicao, !poseDisponivel);
+        registrarDiagnosticos(this.diagnosticos, "movimento", this.movimento, !poseDisponivel);
         if (this.config.avaliarPoseSexual) {
-          this.registrarDiagnosticos("pose_sexual", this.poseSexual, !poseDisponivel);
+          registrarDiagnosticos(this.diagnosticos, "pose_sexual", this.poseSexual, !poseDisponivel);
         }
       }
 
@@ -585,653 +609,4 @@ export class MotorTemporalImpl implements MotorTemporal {
   get maosVivas() {
     return this.maos.vivas;
   }
-
-  /**
-   * Monta uma amostra por track de pose no frame. Tracks que continuam vivos
-   * mas nao foram associados a nenhuma sonda entram como `observado: false`:
-   * e essa distincao que permite histerese sem confundir oclusao com falha.
-   */
-  private montarAmostrasPresenca(
-    pessoas: PessoaPose[],
-    sessionId: string,
-    tempoMs: number,
-    timestamp: string,
-    frameId: string,
-    cycleId: string
-  ): AmostraPresenca[] {
-    const porId = new Map<string, Entidade>();
-    for (const entidade of this.pessoas.vivas) {
-      porId.set(entidade.entidadeId, entidade);
-    }
-
-    const amostras: AmostraPresenca[] = [];
-    const vistos = new Set<string>();
-    for (const pessoa of pessoas) {
-      if (!pessoa.entidadeId) continue;
-      const entidade = porId.get(pessoa.entidadeId);
-      if (!entidade) continue;
-      vistos.add(pessoa.entidadeId);
-      const referencia = entidade.meta.referenciaPose;
-      amostras.push({
-        sessionId,
-        entidadeId: pessoa.entidadeId,
-        frameId,
-        timestamp,
-        tempoMs,
-        cycleId,
-        observado: entidade.estado === "ativa",
-        continuidadeValida: continuidadeDaEntidade(entidade),
-        confianca: pessoa.confianca ?? entidade.confianca,
-        fonteReferencia: typeof referencia === "string" ? referencia : undefined,
-      });
-    }
-
-    for (const entidade of this.pessoas.vivas) {
-      if (vistos.has(entidade.entidadeId)) continue;
-      const referencia = entidade.meta.referenciaPose;
-      amostras.push({
-        sessionId,
-        entidadeId: entidade.entidadeId,
-        frameId,
-        timestamp,
-        tempoMs,
-        cycleId,
-        observado: false,
-        continuidadeValida: continuidadeDaEntidade(entidade),
-        confianca: entidade.confianca,
-        fonteReferencia: typeof referencia === "string" ? referencia : undefined,
-      });
-    }
-
-    return amostras;
-  }
-
-  /**
-   * Monta uma amostra por par (mao, objeto) no frame. As caixas vem em pixels
-   * e sao normalizadas pelas dimensoes da deteccao para compartilhar o espaco
-   * dos landmarks da mao. Sem dimensoes, a comparacao nao e confiavel e o par
-   * e descartado (melhor abster que afirmar proximidade em escalas distintas).
-   */
-  private montarAmostrasInteracao(
-    maos: MaoDetectada[],
-    deteccoes: ObservacaoFrame["deteccoes"],
-    dimensoes: { largura: number; altura: number } | undefined,
-    sessionId: string,
-    tempoMs: number,
-    timestamp: string,
-    frameId: string,
-    cycleId: string
-  ): AmostraInteracao[] {
-    if (!dimensoes || estaIndisponivel(deteccoes)) return [];
-    const { largura, altura } = dimensoes;
-    if (!(largura > 0) || !(altura > 0)) return [];
-    const continuidadePorMao = new Map<string, boolean>();
-    for (const entidade of this.maos.vivas) {
-      continuidadePorMao.set(entidade.entidadeId, continuidadeDaEntidade(entidade));
-    }
-    const amostras: AmostraInteracao[] = [];
-    for (const mao of maos) {
-      if (!mao.entidadeId) continue;
-      const punho = mao.landmarks[0];
-      if (!punho || typeof punho.x !== "number" || typeof punho.y !== "number") continue;
-      const confiancaMao = mao.gesto?.confianca ?? 0.8;
-      for (const deteccao of deteccoes.deteccoes) {
-        if (!deteccao.entidadeId) continue;
-        amostras.push({
-          sessionId,
-          maoEntidadeId: mao.entidadeId,
-          objetoEntidadeId: deteccao.entidadeId,
-          rotuloObjeto: deteccao.nome || deteccao.rotulo || undefined,
-          punhoMao: { x: punho.x, y: punho.y },
-          caixaObjeto: {
-            xmin: deteccao.caixa.xmin / largura,
-            ymin: deteccao.caixa.ymin / altura,
-            xmax: deteccao.caixa.xmax / largura,
-            ymax: deteccao.caixa.ymax / altura,
-          },
-          confianca: Math.min(confiancaMao, deteccao.score),
-          frameId,
-          timestamp,
-          tempoMs,
-          cycleId,
-          observado: true,
-          continuidadeValida: continuidadePorMao.get(mao.entidadeId) ?? true,
-        });
-      }
-    }
-    return amostras;
-  }
-
-  private montarLeiturasBraco(
-    poses: PessoaPose[],
-    timestamp: string,
-    frameId: string,
-    cycleId: string
-  ) {
-    const porEntidade = new Map<string, PessoaPose>();
-    for (const pose of poses) {
-      if (pose.entidadeId) porEntidade.set(pose.entidadeId, pose);
-    }
-    return this.pessoas.vivas.map((entidade) => {
-      const pose = porEntidade.get(entidade.entidadeId);
-      // Histerese: se o sinal ja esta ativo para a entidade, o punho continua
-      // contando como erguido com um limiar mais folgado (`limiar + histerese`).
-      const jaAtivo = this.braco.estaAtivo(entidade.entidadeId);
-      const limiar =
-        this.config.limiarAlturaBraco + (jaAtivo ? this.config.histereseBraco : 0);
-      const confianca = pose
-        ? punhoErguido(pose, limiar, this.config.confiancaMinimaPontoBraco)
-        : null;
-      return {
-        entidadeId: entidade.entidadeId,
-        rotulo: confianca ? "levantado" : null,
-        confianca: confianca?.confianca ?? 0,
-        frameId,
-        timestamp,
-        cycleId,
-        // Sem pose da entidade neste frame, a leitura apenas preserva a
-        // ausencia de sinal; nao conta como observacao da entidade. A ausencia
-        // nao invalida a continuidade ja observada: quem explica o fim e o
-        // motivo de encerramento (`oclusao`), nao um intervalo invalido.
-        observada: pose !== undefined,
-        continuidadeValida: pose !== undefined ? continuidadeDaEntidade(entidade) : true,
-        evidencias: confianca ? ["pose:ombro+cotovelo+punho"] : [],
-      };
-    });
-  }
-
-  private montarLeiturasMovimento(timestamp: string, frameId: string, cycleId: string) {
-    const limiar = this.config.limiarVelocidadeCorporal;
-    return this.pessoas.vivas.map((entidade) => {
-      // Movimento e velocidade por segundo em intervalo valido; entidade
-      // ausente ou intervalo invalido nao "se moveu".
-      const velocidadeValida =
-        entidade.framesAusente === 0 && entidade.velocidadeValida;
-      const movimento = velocidadeValida && entidade.velocidade >= limiar;
-      return {
-        entidadeId: entidade.entidadeId,
-        rotulo: movimento ? "movimento" : null,
-        confianca: movimento ? 1 : 0,
-        frameId,
-        timestamp,
-        cycleId,
-        observada: entidade.framesAusente === 0,
-        continuidadeValida: continuidadeDaEntidade(entidade),
-        evidencias: velocidadeValida
-          ? [`velocidade:${arredondar(entidade.velocidade)}/s`]
-          : ["velocidade:invalida"],
-      };
-    });
-  }
-
-  /**
-   * Le transicoes de acao pelo movimento vertical do punho.
-   *
-   * A postura `braco_levantado` continua sendo "punho erguido mantido"; aqui o
-   * evento e o **deslocamento** que leva de uma postura a outra. Cada punho tem
-   * sua propria amostra anterior, e o intervalo precisa ser positivo e nao
-   * excessivamente longo para a velocidade ser valida.
-   */
-  private montarLeiturasTransicao(
-    poses: PessoaPose[],
-    tempoMs: number,
-    timestamp: string,
-    frameId: string,
-    cycleId: string,
-    poseDisponivel: boolean
-  ) {
-    const porEntidade = new Map<string, PessoaPose>();
-    for (const pose of poses) {
-      if (pose.entidadeId) porEntidade.set(pose.entidadeId, pose);
-    }
-    return this.pessoas.vivas.map((entidade) => {
-      const pose = porEntidade.get(entidade.entidadeId);
-      let melhor: { rotulo: string; confianca: number; velocidadeY: number } | null = null;
-      let continuidadeValida = continuidadeDaEntidade(entidade);
-
-      if (pose && poseDisponivel) {
-        for (const { punho } of ARTICULACOES_BRACO) {
-          const ponto = pontoConfiavel(
-            pose.pontos[punho],
-            this.config.confiancaMinimaPontoBraco
-          );
-          if (!ponto) continue;
-          const chave = `${entidade.entidadeId}:${punho}`;
-          const anterior = this.punhos.get(chave);
-          this.punhos.set(chave, { y: ponto.y, tempoMs });
-          if (!anterior) continue;
-
-          const intervaloMs = tempoMs - anterior.tempoMs;
-          const intervaloValido =
-            Number.isFinite(intervaloMs) &&
-            intervaloMs > 0 &&
-            intervaloMs <= this.config.rastreador.maxTempoAusenteMs;
-          if (!intervaloValido) {
-            continuidadeValida = false;
-            continue;
-          }
-
-          const velocidadeY = ((ponto.y - anterior.y) * 1000) / intervaloMs;
-          const rotulo =
-            velocidadeY <= -this.config.limiarVelocidadeTransicaoBraco
-              ? "braco_subindo"
-              : velocidadeY >= this.config.limiarVelocidadeTransicaoBraco
-                ? "braco_descendo"
-                : null;
-          if (!rotulo) continue;
-          const confianca = ponto.confianca ?? 0.8;
-          if (!melhor || Math.abs(velocidadeY) > Math.abs(melhor.velocidadeY)) {
-            melhor = { rotulo, confianca, velocidadeY };
-          }
-        }
-      }
-
-      return {
-        entidadeId: entidade.entidadeId,
-        rotulo: melhor?.rotulo ?? null,
-        confianca: melhor?.confianca ?? 0,
-        frameId,
-        timestamp,
-        cycleId,
-        observada: pose !== undefined,
-        continuidadeValida,
-        evidencias: melhor
-          ? [`velocidadeY:${arredondar(melhor.velocidadeY)}/s`]
-          : pose
-            ? ["velocidadeY:abaixo_do_limiar"]
-            : [],
-      };
-    });
-  }
-
-  /**
-   * Le as regras geometricas de pose compativel por pessoa rastreada.
-   *
-   * O avaliador mantem apenas o historico de ritmo do punho; as demais regras
-   * sao avaliadas no frame. Sem pose da entidade, a leitura preserva a ausencia
-   * de sinal (a maquina decide se e oclusao ou apenas tolerancia do rastreador).
-   */
-  private montarLeiturasPoseSexual(
-    poses: PessoaPose[],
-    maos: MaoDetectada[],
-    tempoMs: number,
-    timestamp: string,
-    frameId: string,
-    cycleId: string,
-    poseDisponivel: boolean
-  ) {
-    const porEntidade = new Map<string, PessoaPose>();
-    for (const pose of poses) {
-      if (pose.entidadeId) porEntidade.set(pose.entidadeId, pose);
-    }
-    return this.pessoas.vivas.map((entidade) => {
-      const pose = porEntidade.get(entidade.entidadeId);
-      const resultado =
-        pose && poseDisponivel
-          ? this.avaliadorPose.avaliar(pose, maos, tempoMs)
-          : null;
-      return {
-        entidadeId: entidade.entidadeId,
-        rotulo: resultado?.compativel ? "pose_compativel" : null,
-        confianca: resultado?.confianca ?? 0,
-        frameId,
-        timestamp,
-        cycleId,
-        observada: pose !== undefined,
-        continuidadeValida: pose !== undefined ? continuidadeDaEntidade(entidade) : true,
-        evidencias: resultado?.evidencias ?? (pose ? ["pose:sem_regra"] : []),
-      };
-    });
-  }
-
-  private montarLeiturasGesto(
-    maos: MaoDetectada[],
-    timestamp: string,
-    frameId: string,
-    cycleId: string,
-    dimensoesFrame?: { largura: number; altura: number }
-  ) {
-    const porEntidade = new Map<string, MaoDetectada>();
-    for (const mao of maos) {
-      if (mao.entidadeId) porEntidade.set(mao.entidadeId, mao);
-    }
-    return this.maos.vivas.map((entidade) => {
-      const mao = porEntidade.get(entidade.entidadeId);
-      if (!mao) {
-        return {
-          entidadeId: entidade.entidadeId,
-          rotulo: null,
-          confianca: 0,
-          frameId,
-          timestamp,
-          cycleId,
-          // Mao ainda na janela de tolerancia do rastreador nao e observacao.
-          // A ausencia e registrada por `observada: false`; nao invalida a
-          // continuidade das evidencias anteriores (o fim e `oclusao`).
-          observada: false,
-          continuidadeValida: true,
-          evidencias: ["mao:nao_observada"],
-        };
-      }
-
-      const geometria =
-        mao.landmarks.length > 0
-          ? calcularGeometriaMao(mao.landmarks, { dimensoes: dimensoesFrame })
-          : null;
-      const estabilizada = geometria
-        ? estabilizarDedos(
-            geometria,
-            this.dedosPorEntidade.get(entidade.entidadeId),
-            this.config.histereseAnguloDedoGraus
-          )
-        : null;
-      if (estabilizada) {
-        this.dedosPorEntidade.set(entidade.entidadeId, estadosDosDedos(estabilizada));
-      }
-      const geometrico = classificarGestoGeometrico(estabilizada, mao.landmarks);
-      const combinado = combinarGesto(
-        mao.gesto?.nome,
-        mao.gesto?.confianca ?? 0,
-        geometrico
-      );
-
-      return {
-        entidadeId: entidade.entidadeId,
-        rotulo: combinado.rotulo,
-        confianca: combinado.confianca,
-        frameId,
-        timestamp,
-        cycleId,
-        observada: true,
-        continuidadeValida: continuidadeDaEntidade(entidade),
-        evidencias: combinado.evidencias,
-      };
-    });
-  }
-
-  /**
-   * Associa cada mao a uma pessoa rastreada pelo punho.
-   *
-   * A mao usa o landmark 0 (punho); a pose usa os punhos COCO 9 (esquerdo) e 10
-   * (direito). Com lateralidade conhecida, a distancia e medida primeiro no
-   * punho do mesmo lado — evita atribuir a mao esquerda a uma pessoa cujo punho
-   * direito passou perto. O outro punho so entra quando o correspondente nao e
-   * confiavel. Se houver apenas uma pessoa ativa, ela e o fallback mesmo fora do
-   * raio: numa cena de uma pessoa so, deixar a mao sem dono nao agrega nada.
-   *
-   * A associacao e uma **heuristica de proximidade**, nao identidade fisica;
-   * quando ambigua, a mao fica sem `pessoaEntidadeId` (abstencao explicita).
-   */
-  private associarMaosAPessoas(poses: PessoaPose[], maos: MaoDetectada[]): void {
-    const pessoas = poses.filter(
-      (pose): pose is PessoaPose & { entidadeId: string } => typeof pose.entidadeId === "string"
-    );
-    if (pessoas.length === 0) return;
-    const raio = this.config.distanciaMaximaMaoPessoa;
-
-    for (const mao of maos) {
-      const punho = mao.landmarks[0];
-      const pontoMao =
-        punho && typeof punho.x === "number" && typeof punho.y === "number"
-          ? { x: punho.x, y: punho.y }
-          : null;
-
-      let melhor: { entidadeId: string; distancia: number } | null = null;
-      if (pontoMao) {
-        for (const pessoa of pessoas) {
-          for (const ponto of this.punhosDaPessoa(pessoa, mao.lateralidade)) {
-            const distancia = distanciaPontos(pontoMao, ponto);
-            if (!melhor || distancia < melhor.distancia) {
-              melhor = { entidadeId: pessoa.entidadeId, distancia };
-            }
-          }
-        }
-      }
-
-      if (melhor && melhor.distancia <= raio) {
-        mao.pessoaEntidadeId = melhor.entidadeId;
-      } else if (pessoas.length === 1) {
-        mao.pessoaEntidadeId = pessoas[0].entidadeId;
-      }
-    }
-  }
-
-  /**
-   * Punhos da pose candidatos para uma mao.
-   *
-   * Lateralidade conhecida prioriza o punho do mesmo lado; se ele nao for
-   * confiavel, o outro e usado. Desconhecida considera os dois.
-   */
-  private punhosDaPessoa(
-    pessoa: PessoaPose,
-    lateralidade: MaoDetectada["lateralidade"]
-  ): PontoCorporal[] {
-    const esquerdo = pontoConfiavel(
-      pessoa.pontos[9],
-      CONFIANCA_MINIMA_PUNHO_MAO_PESSOA
-    );
-    const direito = pontoConfiavel(
-      pessoa.pontos[10],
-      CONFIANCA_MINIMA_PUNHO_MAO_PESSOA
-    );
-    if (lateralidade === "esquerda") {
-      const ponto = esquerdo ?? direito;
-      return ponto ? [ponto] : [];
-    }
-    if (lateralidade === "direita") {
-      const ponto = direito ?? esquerdo;
-      return ponto ? [ponto] : [];
-    }
-    return [esquerdo, direito].filter((ponto): ponto is PontoCorporal => ponto !== null);
-  }
-
-  /**
-   * Converte o estado corrente das maquinas em diagnostico, sem emitir evento.
-   * `indisponivel` vence os demais estados: falha de inferencia nao e oclusao.
-   */
-  private registrarDiagnosticos(
-    sinal: SinalTemporalDiagnosticado,
-    maquina: MaquinaSinais,
-    indisponivel: boolean
-  ): void {
-    for (const diag of maquina.diagnosticos()) {
-      let estado: DiagnosticoSinalTemporal["estado"];
-      if (indisponivel && (diag.ativo || diag.framesCandidato > 0)) {
-        estado = "inferencia_indisponivel";
-      } else if (diag.ativo && diag.framesSemSinal > 0 && diag.motivoUltimaAusencia === "oclusao") {
-        estado = "ocluido";
-      } else if (diag.ativo) {
-        estado = "confirmado";
-      } else if (diag.framesCandidato > 0) {
-        estado = "observacao_insuficiente";
-      } else if (diag.framesEvidencia > 0) {
-        // Encerramento do processamento corrente: o evento existiu, mas nao ha
-        // mais ativo/candidato. Nao e o mesmo que "nunca observado".
-        estado = "encerrado";
-      } else {
-        continue;
-      }
-      this.diagnosticos.set(`${sinal}:${diag.entidadeId}`, {
-        sinal,
-        entidadeId: diag.entidadeId,
-        estado,
-        rotulo: diag.rotuloAtivo ?? diag.rotuloCandidato,
-        confianca: diag.confianca,
-        framesEvidencia: diag.framesEvidencia,
-        framesSemSinal: diag.framesSemSinal,
-        evidencias: diag.evidencias,
-        continuidadeValida: diag.continuidadeValida,
-        motivoEncerramento:
-          estado === "ocluido" || estado === "encerrado"
-            ? diag.motivoUltimaAusencia
-            : undefined,
-        ultimaEvidenciaEm: diag.ultimaEvidenciaEm,
-        ultimaObservacaoEm: diag.ultimaObservacaoEm,
-      });
-    }
-  }
-
-  private sinalParaEvento(
-    sinal: EventoSinal,
-    tipo: TipoEventoTemporal,
-    origem: OrigemSinalTemporal,
-    sessionId: string,
-    descricao: (s: EventoSinal) => string
-  ): EventoTemporal {
-    // Um encerramento por periodo cego nao afirma que o sinal terminou: o fim e
-    // apenas a ultima evidencia positiva e o estado fica `incerto` (nao vira
-    // fato persistido). A duracao da lacuna vai no proprio evento.
-    const interrompidoPorLacuna = sinal.motivoEncerramento === "periodo_cego";
-    return {
-      eventoId: sinal.eventoId,
-      sessionId,
-      cycleId: sinal.cycleIdInicio,
-      tipo,
-      inicioEm: sinal.inicioEm,
-      fimEm: sinal.fimEm,
-      ultimaEvidenciaEm: sinal.ultimaEvidenciaEm,
-      ultimaObservacaoEm: sinal.ultimaObservacaoEm,
-      entidadeId: sinal.entidadeId,
-      descricao: descricao(sinal),
-      confianca: sinal.confianca,
-      origens: [origem],
-      frameIds: sinal.frameIds,
-      estado: interrompidoPorLacuna ? "incerto" : sinal.estado,
-      intervaloSemObservacaoMs: sinal.intervaloSemObservacaoMs,
-      motivoEncerramento: sinal.motivoEncerramento,
-      continuidadeValida: sinal.continuidadeValida,
-      evidencias: sinal.evidencias,
-    };
-  }
-
-  private converterEventoVisual(
-    ev: EventoVisual,
-    sessionId: string,
-    frameId: string,
-    cycleId: string
-  ): EventoTemporal | null {
-    const tipo = MAPEAMENTO_EVENTO_VISUAL[ev.tipo];
-    if (!tipo) return null;
-    const origem: OrigemSinalTemporal = ev.tipo === "mudanca_de_cena" ? "cena" : "objetos";
-    return {
-      eventoId: uuid(),
-      sessionId,
-      cycleId,
-      tipo,
-      inicioEm: ev.timestamp,
-      // Eventos visuais nascem de uma observacao pontual: evidencia e
-      // observacao coincidem no mesmo instante.
-      ultimaEvidenciaEm: ev.timestamp,
-      ultimaObservacaoEm: ev.timestamp,
-      entidadeId: ev.objetoId,
-      rotuloObjeto: ev.rotuloObjeto,
-      descricao: ev.descricao,
-      confianca: ev.confianca,
-      origens: [origem],
-      frameIds: frameId ? [frameId] : [],
-      estado: "confirmado",
-      // Evento visual e pontual: nao ha duracao sustentada para encerrar.
-      motivoEncerramento: "ponto",
-      continuidadeValida: true,
-    };
-  }
-}
-
-const MAPEAMENTO_EVENTO_VISUAL: Partial<Record<EventoVisual["tipo"], TipoEventoTemporal>> = {
-  aparicao: "aparicao",
-  desaparecimento: "desaparecimento",
-  movimento: "movimento_objeto",
-  mudanca_de_cena: "mudanca_de_cena",
-};
-
-/**
- * Indices COCO (17 pontos) usados na relacao articular do braco erguido.
- * Cada lado combina ombro, cotovelo e punho.
- */
-export const ARTICULACOES_BRACO = [
-  { ombro: 5, cotovelo: 7, punho: 9 }, // lado esquerdo
-  { ombro: 6, cotovelo: 8, punho: 10 }, // lado direito
-] as const;
-
-/**
- * Confianca minima do punho da pose para sustentar a associacao mao <-> pessoa.
- * Mais permissiva que a regra de braco levantado: aqui o punho apenas indica
- * proximidade, nao uma conclusao postural.
- */
-export const CONFIANCA_MINIMA_PUNHO_MAO_PESSOA = 0.3;
-
-/**
- * Restricao de lateralidade na associacao de maos.
- *
- * Lateralidade desconhecida nao bloqueia (nao ha evidencia para restringir);
- * esquerda e direita nunca se associam entre si.
- */
-function podeAssociarMao(entidade: Entidade, sonda: Sonda): boolean {
-  const atual = entidade.meta.lateralidade;
-  const nova = sonda.meta?.lateralidade;
-  if (atual === undefined || nova === undefined) return true;
-  if (atual === "desconhecida" || nova === "desconhecida") return true;
-  return atual === nova;
-}
-
-/**
- * Continuidade temporal da entidade: valida quando o ultimo intervalo usado
- * para velocidade foi positivo e curto o bastante. A primeira observacao nao
- * invalida a continuidade (ainda nao ha intervalo).
- *
- * Ausencia de observacao (`framesAusente > 0`) **nao** invalida a continuidade:
- * ela e representada por `observada: false` e explicada pelo motivo de
- * encerramento (`oclusao`). Apenas intervalos invalidos/longos a invalidam.
- */
-function continuidadeDaEntidade(entidade: Entidade): boolean {
-  if (entidade.framesVisto <= 1) return true;
-  return entidade.velocidadeValida;
-}
-
-function arredondar(valor: number, decimais = 3): number {
-  const fator = 10 ** decimais;
-  return Math.round(valor * fator) / fator;
-}
-
-/**
- * Detecta se ha um **braco erguido** usando a relacao articular: o punho precisa
- * estar acima do limiar, acima do ombro do mesmo lado e acima do cotovelo do
- * mesmo lado, com os tres pontos confiaveis.
- *
- * A relacao evita falsos positivos de um punho alto por ruido (sem ombro/
- * cotovelo coerentes) e mantem o teste deterministico. Retorna a confianca do
- * punho mais alto, ou `null` se nenhum lado satisfaz a relacao.
- */
-function punhoErguido(
-  pose: PessoaPose,
-  limiar: number,
-  confiancaMinima: number
-): { confianca: number } | null {
-  let melhorY: number | null = null;
-  let confianca = 0;
-  for (const { ombro, cotovelo, punho } of ARTICULACOES_BRACO) {
-    const pOmbro = pontoConfiavel(pose.pontos[ombro], confiancaMinima);
-    const pCotovelo = pontoConfiavel(pose.pontos[cotovelo], confiancaMinima);
-    const pPunho = pontoConfiavel(pose.pontos[punho], confiancaMinima);
-    if (!pOmbro || !pCotovelo || !pPunho) continue;
-    // Punho acima do limiar (topo = 0), acima do ombro e acima do cotovelo.
-    if (pPunho.y > limiar) continue;
-    if (pPunho.y >= pOmbro.y) continue;
-    if (pPunho.y >= pCotovelo.y) continue;
-    if (melhorY === null || pPunho.y < melhorY) {
-      melhorY = pPunho.y;
-      confianca = pPunho.confianca ?? 1;
-    }
-  }
-  return melhorY === null ? null : { confianca };
-}
-
-/** Ponto com confianca suficiente (ou sem confianca declarada, tratado como valido). */
-function pontoConfiavel(
-  ponto: PontoCorporal | undefined,
-  confiancaMinima: number
-): PontoCorporal | null {
-  if (!ponto || typeof ponto.x !== "number" || typeof ponto.y !== "number") return null;
-  if (ponto.confianca !== undefined && ponto.confianca < confiancaMinima) return null;
-  return ponto;
 }

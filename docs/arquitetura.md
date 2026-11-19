@@ -126,7 +126,11 @@ public/
     maquina-sinais.ts  máquina de estados com confirmação/encerramento, evidências e continuidade (gestos, braço, transição, movimento)
     regras-pose.ts     regras geométricas de pose compatível (indício, não prova)
     interacao.ts       detector puro de interação mão↔objeto: proximidade → `provavel`; sobreposição + movimento do objeto → `confirmado`
-    motor-temporal.ts  fachada: objetos + cena + pose + mãos + máquinas + interações → `ResumoTemporal` com diagnósticos
+    motor-temporal.ts  fachada: state + orquestração (objetos + cena + pose + mãos + máquinas + interações) → `ResumoTemporal` com diagnósticos
+    motor-temporal-regras.ts  constantes e helpers puros (articulações, lateralidade, continuidade, geometria)
+    motor-temporal-associacao.ts  associação mão↔pessoa por proximidade ao punho e lateralidade
+    motor-temporal-leituras.ts  construtores de amostras/leituras (presença, interação, braço, movimento, transição, pose, gestos)
+    motor-temporal-eventos.ts  diagnósticos e conversão sinal/visual → `EventoTemporal`
   api.ts               cliente HTTP (histórico, eventos, contexto, backend de visão)
   detector.ts          helpers da detecção (COCO → português, resumo do log; sem SDK)
   yolo-onnx.ts         detector de objetos YOLOv10 em ONNX (`onnxruntime-web`; WebGPU quando disponível, senão WASM; catálogo COCO + inferência)
