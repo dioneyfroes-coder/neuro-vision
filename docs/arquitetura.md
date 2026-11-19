@@ -87,7 +87,8 @@ public/
     cycle-controller/    módulos: tipos/base (estado, sessão, agendamento, persistência, NSFW)/analise (visão, detecção, eventos)
     ciclo-multiframe.ts  fachada do ciclo de 4 snapshots: captura → processamento local concorrente → temporal → pacote → interpretação
     ciclo-multiframe/    módulos: tipos/concorrencia/persistencia/execucao
-    ciclo-percepcao-controller.ts  controlador do modo multiframe (liga pipeline + temporal + interpretação à interface)
+    ciclo-percepcao-controller.ts  fachada do controlador do modo multiframe (re-exports)
+    ciclo-percepcao-controller/    módulos: tipos/base (estado, sessão, inicialização, execução)/resultado (composição, apresentação, persistência)
   capture/
     webcam-capture.ts    coleta snapshots identificados em intervalo (sem inferência; cancelável)
     snapshot-store.ts    buffer de snapshots com retenção limitada e limpeza
