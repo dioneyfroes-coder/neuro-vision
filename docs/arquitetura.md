@@ -4,7 +4,7 @@ Estrutura de arquivos e como as partes conversam.
 
 ## Visão geral
 
-- **Servidor Node** (`src/server.ts`) — arquivos estáticos + API REST + snapshots + proxy para o backend de visão local. É o **ponto de composição** da persistência: expõe as rotas e delega a leitura/escrita aos repositórios.
+- **Servidor Node** (`src/server.ts` + `src/http/`) — `src/server.ts` é uma fachada fina que preserva a API pública (re-exports) e o bootstrap do CLI; a implementação está dividida por responsabilidade em `src/http/`: constantes/resposta HTTP (`base.ts`), validação (`validacao.ts`), repositórios e snapshots (`persistencia.ts`), arquivos estáticos (`arquivos.ts`), famílias de rotas (`rotas-*.ts`), proxy de visão (`rotas-visao.ts`), saúde (`saude.ts`) e composição do servidor (`servidor.ts`). É o **ponto de composição** da persistência: expõe as rotas e delega a leitura/escrita aos repositórios. `ROOT` é localizado pelo `package.json` mais próximo (`localizarRaiz`), funcionando tanto em `src/http/` (tsx/vitest) quanto no bundle `dist/` — ver `tests/server-paths.test.ts`.
 - **Camada de persistência** (`src/persistence/`) — primitivas JSONL (`armazenamento-jsonl.ts`) e um repositório por tipo de registro (observações, eventos, registros operacionais e ciclos). Cada repositório só conhece o seu arquivo; o servidor HTTP não carrega detalhes de armazenamento.
 - **Domínio** (`src/domain/`) — contratos puros (IDs de sessão/ciclo/frame, observação, resultados de percepção, evento temporal, pacote de ciclo, resultado de interpretação, métricas e monitoramento) sem dependência de SDK de modelo.
 - **Monitoramento** (`src/monitoramento/` + `src/domain/monitoramento.ts`) — núcleo puro da Fase 3: sessões de câmera de segurança, rotação de segmentos de vídeo de 5 minutos no limite exato (sem perder nem sobrepor quadros), lacunas explícitas (`incompleto`/`lacuna`) quando a captura para além do limiar, pausa/encerramento ancorados no último quadro real e buffer circular pré-evento por tempo de captura. O núcleo não grava bytes, não conhece codec/disco/HTTP. O vínculo dos registros ao vídeo é feito na leitura por `segmentosParaIntervalo` e pela regra pura em `src/domain/vinculo-evento-video.ts`, que devolve `offsetMs`/`ateMs`, sinaliza segmentos incompletos e não inventa vídeo em lacunas; a interface usa essas referências para reproduzir o trecho de cada descrição/evento. Os bytes recebidos ficam em `src/persistence/armazenador-videos.ts`, com retenção e exclusão. A referência do ambiente e a detecção de mudanças (itens injetados pela API) ficam em `src/domain/cena.ts` + `src/monitoramento/servico-cena.ts`; não confundir com o `DetectorMudancaDeCena` do motor temporal, que trabalha com sinais por frame. Ver [`monitoramento.md`](./monitoramento.md) e [`cena.md`](./cena.md).
@@ -23,7 +23,19 @@ Estrutura de arquivos e como as partes conversam.
 
 ```
 src/
-  server.ts            servidor HTTP (estático + API) e composição da persistência (memória + snapshots)
+  server.ts            fachada publica do servidor (re-exports) e bootstrap do CLI
+  http/                implementação do servidor HTTP por responsabilidade
+    base.ts              constantes de caminho/limites, resposta JSON, log operacional e leitura de corpo
+    validacao.ts         normalizadores e validadores de payloads/parâmetros
+    persistencia.ts      repositórios JSONL, snapshots e retenção
+    arquivos.ts          arquivos estáticos, snapshots, pesos NSFW e artefatos offline
+    rotas-memoria.ts     observações, eventos, eventos temporais, ciclos e operacional
+    rotas-monitoramento.ts sessões, quadros, comandos e segmentos
+    rotas-videos.ts      upload, consulta, exclusão e retenção de vídeos
+    rotas-cena.ts        referência de ambiente e comparação de cena
+    rotas-visao.ts       proxy/stream do backend de visão e preparação de modelos
+    saude.ts             medição de CPU/RAM/disco e `/api/health`
+    servidor.ts          composição do `createServer` e tabela de rotas
   memoria.ts           reidratação de contexto e montagem de entradas/eventos (reexporta as primitivas JSONL de `persistence/`)
   politica-analise.ts  política de análise orientada a eventos (cooldown, janela, motivos)
   percepcao.ts         interface de motor de percepção e resultado normalizado
