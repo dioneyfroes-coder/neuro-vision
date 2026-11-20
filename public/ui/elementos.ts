@@ -57,3 +57,4 @@ export const monitorExcluirSessaoBtn = el<HTMLButtonElement>("monitorExcluirSess
 export const gravacaoIndicadorEl = el<HTMLSpanElement>("gravacaoIndicador");
 export const gravacaoTextoEl = el<HTMLSpanElement>("gravacaoTexto");
 export const monitorAvisoEl = el<HTMLSpanElement>("monitorAviso");
+export const monitorEstadoEl = el<HTMLSpanElement>("monitorEstado");

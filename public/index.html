@@ -80,23 +80,28 @@
       <div class="monitor">
         <div class="monitor-head">
           <h2>Câmera de Segurança</h2>
+          <span id="monitorEstado" class="monitor-estado" data-estado="parada">Parada</span>
           <span id="gravacaoIndicador" class="gravacao-indicador" hidden>
             <span class="gravacao-ponto" aria-hidden="true"></span>
             <span id="gravacaoTexto">Gravando</span>
           </span>
         </div>
         <div class="monitor-controles">
-          <label>
+          <label class="monitor-campo-ambiente">
             Ambiente
             <input id="monitorAmbiente" type="text" maxlength="80" value="sala" title="Rótulo livre da sessão de gravação" />
           </label>
-          <button id="monitorIniciar" type="button" disabled>Gravar</button>
-          <button id="monitorPausar" type="button" disabled>Pausar</button>
-          <button id="monitorRetomar" type="button" disabled>Retomar</button>
-          <button id="monitorEncerrar" type="button" disabled>Encerrar</button>
-          <button id="monitorReenviar" class="ghost" type="button" disabled>Reenviar pendentes</button>
-          <button id="monitorRetencao" class="ghost" type="button">Aplicar retenção</button>
-          <button id="monitorExcluirSessao" class="ghost" type="button" disabled>Excluir vídeos da sessão</button>
+          <div class="monitor-grupo monitor-grupo-principal" role="group" aria-label="Controle da gravação">
+            <button id="monitorIniciar" type="button" disabled>Gravar</button>
+            <button id="monitorPausar" type="button" disabled>Pausar</button>
+            <button id="monitorRetomar" type="button" disabled>Retomar</button>
+            <button id="monitorEncerrar" type="button" disabled>Encerrar</button>
+          </div>
+          <div class="monitor-grupo monitor-grupo-secundario" role="group" aria-label="Ações da sessão">
+            <button id="monitorReenviar" class="ghost" type="button" disabled>Reenviar pendentes</button>
+            <button id="monitorRetencao" class="ghost" type="button">Aplicar retenção</button>
+            <button id="monitorExcluirSessao" class="ghost" type="button" disabled>Excluir vídeos da sessão</button>
+          </div>
         </div>
         <span id="monitorAviso" class="aviso monitor-aviso" role="alert" hidden></span>
       </div>

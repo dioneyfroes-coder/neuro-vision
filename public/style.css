@@ -193,7 +193,8 @@ button.ghost:hover:not(:disabled) {
 .monitor-head {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px 12px;
 }
 
 .monitor-head h2 {
@@ -201,6 +202,37 @@ button.ghost:hover:not(:disabled) {
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
+}
+
+.monitor-estado {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 10px;
+  background: rgba(139, 152, 169, 0.08);
+}
+
+.monitor-estado[data-estado="iniciando"],
+.monitor-estado[data-estado="pausada"] {
+  color: var(--warn);
+  border-color: rgba(210, 153, 34, 0.45);
+  background: rgba(210, 153, 34, 0.12);
+}
+
+.monitor-estado[data-estado="gravando"] {
+  color: var(--ok);
+  border-color: rgba(63, 185, 80, 0.45);
+  background: rgba(63, 185, 80, 0.12);
+}
+
+.monitor-estado[data-estado="erro"] {
+  color: #ff8a80;
+  border-color: rgba(179, 64, 58, 0.5);
+  background: rgba(179, 64, 58, 0.12);
 }
 
 .gravacao-indicador {
@@ -214,6 +246,18 @@ button.ghost:hover:not(:disabled) {
   padding: 2px 10px;
 }
 
+.gravacao-indicador[data-estado="pausada"] {
+  color: var(--warn);
+  border-color: rgba(210, 153, 34, 0.45);
+  background: rgba(210, 153, 34, 0.12);
+}
+
+.gravacao-indicador[data-estado="sem-sinal"] {
+  color: #ffb86b;
+  border-color: rgba(210, 153, 34, 0.55);
+  background: rgba(210, 153, 34, 0.14);
+}
+
 .gravacao-ponto {
   width: 8px;
   height: 8px;
@@ -221,6 +265,16 @@ button.ghost:hover:not(:disabled) {
   background: #f85149;
   box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.6);
   animation: gravacao-pulso 1.6s infinite;
+}
+
+.gravacao-indicador[data-estado="pausada"] .gravacao-ponto {
+  background: var(--warn);
+  box-shadow: none;
+  animation: none;
+}
+
+.gravacao-indicador[data-estado="sem-sinal"] .gravacao-ponto {
+  background: #ffb86b;
 }
 
 @keyframes gravacao-pulso {
@@ -236,17 +290,34 @@ button.ghost:hover:not(:disabled) {
 .monitor-controles {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 10px 14px;
   align-items: center;
   margin-top: 10px;
 }
 
-.monitor-controles label {
+.monitor-controles label,
+.monitor-campo-ambiente {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 13px;
   color: var(--muted);
+}
+
+.monitor-grupo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.monitor-grupo-principal {
+  padding-right: 14px;
+  border-right: 1px solid var(--line);
+}
+
+.monitor-grupo-secundario {
+  margin-left: auto;
 }
 
 .monitor-controles input[type="text"] {
@@ -256,6 +327,22 @@ button.ghost:hover:not(:disabled) {
   border-radius: 8px;
   padding: 6px 8px;
   width: 130px;
+}
+
+.monitor-controles input[type="text"]:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 900px) {
+  .monitor-grupo-principal {
+    padding-right: 0;
+    border-right: 0;
+  }
+
+  .monitor-grupo-secundario {
+    margin-left: 0;
+  }
 }
 
 .monitor-aviso {

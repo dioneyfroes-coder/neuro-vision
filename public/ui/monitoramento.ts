@@ -6,6 +6,7 @@ import {
   monitorAvisoEl,
   monitorEncerrarBtn,
   monitorExcluirSessaoBtn,
+  monitorEstadoEl,
   monitorIniciarBtn,
   monitorPausarBtn,
   monitorReenviarBtn,
@@ -22,6 +23,15 @@ import {
   escolherMimeTypeVideo,
   type RecorderLike,
 } from "../monitoramento/gravador-segmentos";
+
+const ROTULOS_ESTADO_MONITORAMENTO: Record<EstadoMonitoramento, string> = {
+  parada: "Parada",
+  iniciando: "Iniciando…",
+  gravando: "Gravando",
+  pausada: "Pausada",
+  encerrada: "Encerrada",
+  erro: "Erro",
+};
 
 interface DependenciasMonitoramento {
   setStatus: (texto: string) => void;
@@ -86,7 +96,11 @@ export function criarModuloMonitoramento({
       atualizarDiagnostico();
     },
     aoErro: (erro) => {
-      monitorAvisoEl.textContent = erro.message;
+      const mensagem = erro.message;
+      monitorAvisoEl.textContent =
+        monitoramento.semSinal && /camera sem sinal/i.test(mensagem)
+          ? `${mensagem} A sessão continua ativa e a gravação será retomada automaticamente.`
+          : mensagem;
       monitorAvisoEl.hidden = false;
       // Caminho unico "falha -> operacional": o monitoramento continua gravando,
       // mas a falha nao pode viver apenas na UI.
@@ -111,6 +125,7 @@ export function criarModuloMonitoramento({
     if (monitorAtivo()) {
       // `suspenderCaptura` ja dispara `aoErro`, que persiste em operacional.
       monitoramento.suspenderCaptura(motivo);
+      setStatus("Câmera sem sinal. A sessão continua ativa; aguardando retorno para retomar.");
     } else {
       void api.gravarOperacional({
         nivel: "erro",
@@ -118,8 +133,8 @@ export function criarModuloMonitoramento({
         mensagem: "Camera sem sinal; gravacao preservada",
         detalhe: motivo,
       });
+      setStatus("Câmera sem sinal.");
     }
-    setStatus("Camera sem sinal. A gravacao continua; aguardando retorno.");
   };
 
   camera.aoRetorno = (motivo) => {
@@ -135,10 +150,18 @@ export function criarModuloMonitoramento({
         motivo === "reconexao"
           ? monitoramento.renovarGravador().then(retomar)
           : retomar();
-      void retomarDepoisDeRenovar.catch((erro: unknown) => {
-        monitorAvisoEl.textContent = (erro as Error).message;
-        monitorAvisoEl.hidden = false;
-      });
+      void retomarDepoisDeRenovar
+        .then(() => {
+          if (!monitoramento.semSinal) monitorAvisoEl.hidden = true;
+          atualizarBotoesMonitoramento();
+          atualizarDiagnostico();
+          setStatus("Câmera recuperada. A gravação foi retomada automaticamente.");
+        })
+        .catch((erro: unknown) => {
+          monitorAvisoEl.textContent = (erro as Error).message;
+          monitorAvisoEl.hidden = false;
+        });
+      return;
     }
     atualizarBotoesMonitoramento();
   };
@@ -149,11 +172,26 @@ export function criarModuloMonitoramento({
   }
 
   function atualizarIndicadorGravacao(estado: EstadoMonitoramento): void {
-    if (estado !== "gravando") {
-      gravacaoIndicadorEl.hidden = true;
+    monitorEstadoEl.dataset.estado = estado;
+    monitorEstadoEl.textContent = ROTULOS_ESTADO_MONITORAMENTO[estado];
+
+    const visivel = estado === "gravando" || estado === "pausada";
+    gravacaoIndicadorEl.hidden = !visivel;
+
+    if (estado === "pausada") {
+      gravacaoIndicadorEl.dataset.estado = "pausada";
+      gravacaoTextoEl.textContent = monitoramento.segmentoAtual
+        ? `Pausada · segmento ${monitoramento.segmentoAtual}`
+        : "Pausada";
       return;
     }
-    gravacaoIndicadorEl.hidden = false;
+
+    if (estado !== "gravando") {
+      delete gravacaoIndicadorEl.dataset.estado;
+      return;
+    }
+
+    gravacaoIndicadorEl.dataset.estado = monitoramento.semSinal ? "sem-sinal" : "gravando";
     if (monitoramento.semSinal) {
       gravacaoTextoEl.textContent = "Gravando · sem sinal da câmera";
       return;
@@ -168,23 +206,30 @@ export function criarModuloMonitoramento({
     const estado = monitoramento.estadoAtual;
     const cameraPronta = obterRodando() && camera.ativa;
     const podeIniciar = estado === "parada" || estado === "erro" || estado === "encerrada";
+    const ativo = monitorAtivo();
+    const pendentes = monitoramento.uploadsPendentes;
+
+    monitorAmbienteInput.disabled = ativo;
     monitorIniciarBtn.disabled = !cameraPronta || !podeIniciar;
     monitorPausarBtn.disabled = estado !== "gravando";
     monitorRetomarBtn.disabled = estado !== "pausada";
     monitorEncerrarBtn.disabled = estado !== "gravando" && estado !== "pausada";
-    monitorReenviarBtn.disabled = monitoramento.uploadsPendentes === 0;
+    monitorReenviarBtn.disabled = pendentes === 0;
+    monitorReenviarBtn.textContent =
+      pendentes > 0 ? `Reenviar pendentes (${pendentes})` : "Reenviar pendentes";
     // Exclusao so depois de encerrar: apagar enquanto grava deixaria a sessao
     // ativa sem os bytes que o indice ainda referencia.
     monitorExcluirSessaoBtn.disabled =
-      ultimaSessaoMonitoramentoId === null || monitorAtivo();
+      ultimaSessaoMonitoramentoId === null || ativo;
   }
 
   async function iniciarMonitoramento(): Promise<void> {
     monitorAvisoEl.hidden = true;
     const ambiente = monitorAmbienteInput.value.trim() || "sala";
+    monitorAmbienteInput.value = ambiente;
     try {
       await monitoramento.iniciar(ambiente);
-      setStatus(`Gravando a sessão "${ambiente}" — segmentos de 5 minutos.`);
+      setStatus(`Gravando "${ambiente}" em segmentos de 5 minutos.`);
     } catch (err) {
       setStatus(`Falha ao iniciar a gravação: ${(err as Error).message}`);
     }
@@ -193,6 +238,7 @@ export function criarModuloMonitoramento({
   async function encerrarMonitoramento(): Promise<void> {
     try {
       await monitoramento.encerrar();
+      monitorAvisoEl.hidden = true;
       setStatus("Gravação encerrada.");
     } catch (err) {
       setStatus(`Falha ao encerrar a gravação: ${(err as Error).message}`);
@@ -226,7 +272,13 @@ export function criarModuloMonitoramento({
       const enviados = await monitoramento.reenviarPendentes();
       atualizarBotoesMonitoramento();
       atualizarDiagnostico();
-      setStatus(`${enviados} gravação(ões) reenviada(s).`);
+      if (enviados > 0) monitorAvisoEl.hidden = true;
+      const restante = monitoramento.uploadsPendentes;
+      setStatus(
+        restante > 0
+          ? `${enviados} gravação(ões) reenviada(s); ${restante} ainda pendente(s).`
+          : `${enviados} gravação(ões) reenviada(s).`
+      );
     })()
   );
 
@@ -255,6 +307,10 @@ export function criarModuloMonitoramento({
     })();
   });
   }
+
+  // Garante estado visual consistente antes do primeiro tick/evento.
+  atualizarIndicadorGravacao(monitoramento.estadoAtual);
+  atualizarBotoesMonitoramento();
 
   return {
     monitoramento,
