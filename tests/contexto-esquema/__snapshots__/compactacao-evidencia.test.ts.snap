@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`Fase 3 — compactacao preserva a evidencia > snapshot do payload multimodal 1`] = `
+exports[`Fase 3 â€” compactacao preserva a evidencia > snapshot do payload multimodal 1`] = `
 {
   "contexto": {
     "cycleId": "s1-c1",

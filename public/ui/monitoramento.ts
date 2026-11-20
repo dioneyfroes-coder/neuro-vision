@@ -6,6 +6,7 @@ import {
   monitorAvisoEl,
   monitorEncerrarBtn,
   monitorExcluirSessaoBtn,
+  monitorExportarCenasBtn,
   monitorEstadoEl,
   monitorIniciarBtn,
   monitorPausarBtn,
@@ -13,7 +14,10 @@ import {
   monitorRetencaoBtn,
   monitorRetomarBtn,
   monitorAmbienteInput,
+  video,
 } from "./elementos";
+import type { EntradaLogComVideo } from "../../src/types";
+import type { RegistroCiclo, VideoSegment } from "../../src/domain";
 import { ControladorMonitoramento } from "../monitoramento/controlador-monitoramento";
 import type { EstadoMonitoramento } from "../monitoramento/controlador-monitoramento";
 import { apiMonitoramentoCliente } from "../monitoramento/adaptador-api";
@@ -21,8 +25,10 @@ import {
   ErroGravacaoSegmento,
   GravadorSegmentos,
   escolherMimeTypeVideo,
+  type OpcoesCriarRecorder,
   type RecorderLike,
 } from "../monitoramento/gravador-segmentos";
+import { criarFonteTimelapse } from "../monitoramento/fonte-timelapse";
 
 const ROTULOS_ESTADO_MONITORAMENTO: Record<EstadoMonitoramento, string> = {
   parada: "Parada",
@@ -46,31 +52,51 @@ export function criarModuloMonitoramento({
 }: DependenciasMonitoramento) {
   let ultimaSessaoMonitoramentoId: string | null = null;
 
+  /** Perfil timelapse (opção 3): baixo uso de espaço, <= 10 fps. */
+  const TIMELAPSE_FPS = 2;
+  const TIMELAPSE_VIDEO_BITRATE = 180_000;
+
   /** MediaRecorder nativo adaptado à superfície injetável do gravador de segmentos. */
-  function criarRecorderNativo(stream: unknown, mimeType: string): RecorderLike {
-    const recorder = new MediaRecorder(stream as MediaStream, { mimeType });
+  function criarRecorderNativo(
+    stream: unknown,
+    mimeType: string,
+    opcoes?: OpcoesCriarRecorder
+  ): RecorderLike {
+    const init: MediaRecorderOptions = { mimeType };
+    if (opcoes?.videoBitsPerSecond !== undefined) {
+      init.videoBitsPerSecond = opcoes.videoBitsPerSecond;
+    }
+    const recorder = new MediaRecorder(stream as MediaStream, init);
     // BlobEvent/ErrorEvent são estruturalmente compatíveis em tempo de execução;
     // as typings do DOM não casam com a assinatura simplificada e injetável.
     return recorder as unknown as RecorderLike;
   }
 
   /**
-   * Câmera de Segurança (Fase 3): gravação em segmentos, independente do ciclo de
-   * análise. A câmera precisa estar ligada porque o `MediaRecorder` usa o mesmo
-   * stream do elemento `<video>`.
+   * Câmera de Segurança (Fase 3, opção 3): gravação em segmentos independente do
+   * ciclo de análise. Usa timelapse (canvas em baixa taxa, <=10 fps, bitrate
+   * reduzido) para minimizar espaço, mantendo o stream da câmera para preview.
    */
   const monitoramento = new ControladorMonitoramento({
     api: apiMonitoramentoCliente,
     agoraMs: () => Date.now(),
     criarGravador: () => {
-      const stream = camera.obterStream();
-      if (!stream) throw new ErroGravacaoSegmento("Ligue a webcam antes de gravar");
+      if (!camera.obterStream()) {
+        throw new ErroGravacaoSegmento("Ligue a webcam antes de gravar");
+      }
       const mimeType = escolherMimeTypeVideo();
+      const fonte = criarFonteTimelapse(video, {
+        fps: TIMELAPSE_FPS,
+        larguraMax: 480,
+        alturaMax: 360,
+      });
       return new GravadorSegmentos({
-        stream,
+        stream: fonte.stream,
         criarRecorder: criarRecorderNativo,
         agoraMs: () => Date.now(),
         mimeType,
+        videoBitsPerSecond: TIMELAPSE_VIDEO_BITRATE,
+        liberarFonte: fonte.liberar,
         aoErro: (erro) => monitoramento.notarFalhaGravador(erro),
       });
     },
@@ -208,12 +234,14 @@ export function criarModuloMonitoramento({
     const podeIniciar = estado === "parada" || estado === "erro" || estado === "encerrada";
     const ativo = monitorAtivo();
     const pendentes = monitoramento.uploadsPendentes;
+    const sessaoId = monitoramento.sessaoAtual?.sessaoId ?? ultimaSessaoMonitoramentoId;
 
     monitorAmbienteInput.disabled = ativo;
     monitorIniciarBtn.disabled = !cameraPronta || !podeIniciar;
     monitorPausarBtn.disabled = estado !== "gravando";
     monitorRetomarBtn.disabled = estado !== "pausada";
     monitorEncerrarBtn.disabled = estado !== "gravando" && estado !== "pausada";
+    monitorExportarCenasBtn.disabled = !sessaoId;
     monitorReenviarBtn.disabled = pendentes === 0;
     monitorReenviarBtn.textContent =
       pendentes > 0 ? `Reenviar pendentes (${pendentes})` : "Reenviar pendentes";
@@ -258,54 +286,166 @@ export function criarModuloMonitoramento({
     }
   }
 
-  function registrarEventos(): void {
-  monitorIniciarBtn.addEventListener("click", () => void iniciarMonitoramento());
-  monitorPausarBtn.addEventListener("click", () =>
-    void comandoMonitoramento(() => monitoramento.pausar(), "Gravação pausada.")
-  );
-  monitorRetomarBtn.addEventListener("click", () =>
-    void comandoMonitoramento(() => monitoramento.retomar(), "Gravação retomada.")
-  );
-  monitorEncerrarBtn.addEventListener("click", () => void encerrarMonitoramento());
-  monitorReenviarBtn.addEventListener("click", () =>
-    void (async () => {
-      const enviados = await monitoramento.reenviarPendentes();
-      atualizarBotoesMonitoramento();
-      atualizarDiagnostico();
-      if (enviados > 0) monitorAvisoEl.hidden = true;
-      const restante = monitoramento.uploadsPendentes;
+  function instanteMs(valor?: string): number | null {
+    if (!valor) return null;
+    const ms = Date.parse(valor);
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  function segmentosCorrelacionados(ms: number | null, segmentos: VideoSegment[]): string[] {
+    if (ms === null) return [];
+    return segmentos
+      .filter((s) => ms >= s.inicioMs && ms <= s.fimMs)
+      .map((s) => s.segmentoId);
+  }
+
+  function baixarArquivo(nome: string, conteudo: string, tipo: string): void {
+    const blob = new Blob([conteudo], { type: tipo });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nome;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function exportarLogDescricaoCenas(): Promise<void> {
+    const sessaoId = monitoramento.sessaoAtual?.sessaoId ?? ultimaSessaoMonitoramentoId;
+    if (!sessaoId) {
+      setStatus("Nenhuma sessao de monitoramento para exportar.");
+      return;
+    }
+    setStatus("Coletando descricoes da sessao...");
+    try {
+      const [segmentos, ciclos, entradas] = await Promise.all([
+        api.listarSegmentosDaSessao(sessaoId, 500),
+        api.listarCiclos(500).catch(() => [] as RegistroCiclo[]),
+        api.listarEntradas(500).catch(() => [] as EntradaLogComVideo[]),
+      ]);
+      const segmentosOrdenados = [...segmentos].sort((a, b) => a.inicioMs - b.inicioMs);
+      const itens: Array<Record<string, unknown>> = [];
+
+      for (const ciclo of ciclos) {
+        if (ciclo.sessionId !== sessaoId) continue;
+        const resumo = ciclo.interpretacao;
+        if (!resumo) continue;
+        const ms = instanteMs(ciclo.iniciadoEm) ?? instanteMs(ciclo.concluidoEm);
+        itens.push({
+          tipo: "ciclo",
+          sessaoId,
+          cycleId: ciclo.cycleId,
+          timestamp: ciclo.iniciadoEm,
+          timestampMs: ms,
+          descricao: resumo,
+          segmentosRelacionados: segmentosCorrelacionados(ms, segmentosOrdenados),
+        });
+      }
+
+      for (const entrada of entradas) {
+        const ms = instanteMs(entrada.capturadoEm ?? entrada.timestamp);
+        const segmentosDaEntrada = Array.isArray(entrada.segmentos)
+          ? entrada.segmentos.map((t) => t.segmentoId)
+          : [];
+        const correlacionados =
+          segmentosDaEntrada.length > 0 ? segmentosDaEntrada : segmentosCorrelacionados(ms, segmentosOrdenados);
+        itens.push({
+          tipo: "entrada",
+          sessaoId,
+          timestamp: entrada.capturadoEm ?? entrada.timestamp,
+          timestampMs: ms,
+          tipoEntrada: entrada.tipo,
+          descricao: entrada.resumo,
+          objetos: entrada.objetos ?? null,
+          segmentosRelacionados: correlacionados,
+        });
+      }
+
+      itens.sort((a, b) => {
+        const ta = typeof a.timestampMs === "number" ? a.timestampMs : Number.MAX_SAFE_INTEGER;
+        const tb = typeof b.timestampMs === "number" ? b.timestampMs : Number.MAX_SAFE_INTEGER;
+        return ta - tb;
+      });
+
+      const cabecalho = {
+        tipo: "descricao-cenas",
+        versao: 1,
+        sessaoId,
+        geradoEm: new Date().toISOString(),
+        perfilGravacao: { modo: "timelapse", fps: TIMELAPSE_FPS, videoBitsPerSecond: TIMELAPSE_VIDEO_BITRATE },
+        segmentos: segmentosOrdenados.map((s) => ({
+          segmentoId: s.segmentoId,
+          sequencia: s.sequencia,
+          inicioEm: s.inicioEm,
+          fimEm: s.fimEm,
+          inicioMs: s.inicioMs,
+          fimMs: s.fimMs,
+          estado: s.estado,
+          motivoFim: s.motivoFim,
+        })),
+        totalDescricoes: itens.length,
+      };
+      const linhas = [JSON.stringify(cabecalho), ...itens.map((i) => JSON.stringify(i))];
+      const nome = `descricao-cenas-${sessaoId}.jsonl`;
+      baixarArquivo(nome, `${linhas.join("\n")}\n`, "application/x-ndjson;charset=utf-8");
       setStatus(
-        restante > 0
-          ? `${enviados} gravação(ões) reenviada(s); ${restante} ainda pendente(s).`
-          : `${enviados} gravação(ões) reenviada(s).`
+        `Log de cenas exportado (${itens.length} descricao(oes), ${segmentosOrdenados.length} segmento(s)).`
       );
-    })()
-  );
+    } catch (err) {
+      setStatus(`Falha ao exportar log de cenas: ${(err as Error).message}`);
+    }
+  }
 
-  monitorRetencaoBtn.addEventListener("click", () =>
-    void (async () => {
-      try {
-        const removidos = await api.aplicarRetencaoVideos();
-        setStatus(`Retenção aplicada: ${removidos.length} vídeo(s) removido(s).`);
-      } catch (err) {
-        setStatus(`Falha na retenção: ${(err as Error).message}`);
-      }
-    })()
-  );
+  function registrarEventos(): void {
+    monitorIniciarBtn.addEventListener("click", () => void iniciarMonitoramento());
+    monitorPausarBtn.addEventListener("click", () =>
+      void comandoMonitoramento(() => monitoramento.pausar(), "Gravacao pausada.")
+    );
+    monitorRetomarBtn.addEventListener("click", () =>
+      void comandoMonitoramento(() => monitoramento.retomar(), "Gravacao retomada.")
+    );
+    monitorEncerrarBtn.addEventListener("click", () => void encerrarMonitoramento());
+    monitorExportarCenasBtn.addEventListener("click", () => void exportarLogDescricaoCenas());
+    monitorReenviarBtn.addEventListener("click", () =>
+      void (async () => {
+        const enviados = await monitoramento.reenviarPendentes();
+        atualizarBotoesMonitoramento();
+        atualizarDiagnostico();
+        if (enviados > 0) monitorAvisoEl.hidden = true;
+        const restante = monitoramento.uploadsPendentes;
+        setStatus(
+          restante > 0
+            ? `${enviados} gravacao(oes) reenviada(s); ${restante} ainda pendente(s).`
+            : `${enviados} gravacao(oes) reenviada(s).`
+        );
+      })()
+    );
 
-  monitorExcluirSessaoBtn.addEventListener("click", () => {
-    const sessaoId = ultimaSessaoMonitoramentoId;
-    if (!sessaoId || monitorAtivo()) return;
-    if (!window.confirm(`Excluir todos os vídeos da sessão ${sessaoId}?`)) return;
-    void (async () => {
-      try {
-        const total = await api.excluirVideosDaSessao(sessaoId);
-        setStatus(`${total} vídeo(s) da sessão ${sessaoId} excluído(s).`);
-      } catch (err) {
-        setStatus(`Falha ao excluir vídeos: ${(err as Error).message}`);
-      }
-    })();
-  });
+    monitorRetencaoBtn.addEventListener("click", () =>
+      void (async () => {
+        try {
+          const removidos = await api.aplicarRetencaoVideos();
+          setStatus(`Retencao aplicada: ${removidos.length} video(s) removido(s).`);
+        } catch (err) {
+          setStatus(`Falha na retencao: ${(err as Error).message}`);
+        }
+      })()
+    );
+
+    monitorExcluirSessaoBtn.addEventListener("click", () => {
+      const sessaoId = ultimaSessaoMonitoramentoId;
+      if (!sessaoId || monitorAtivo()) return;
+      if (!window.confirm(`Excluir todos os videos da sessao ${sessaoId}?`)) return;
+      void (async () => {
+        try {
+          const total = await api.excluirVideosDaSessao(sessaoId);
+          setStatus(`${total} video(s) da sessao ${sessaoId} excluido(s).`);
+        } catch (err) {
+          setStatus(`Falha ao excluir videos: ${(err as Error).message}`);
+        }
+      })();
+    });
   }
 
   // Garante estado visual consistente antes do primeiro tick/evento.

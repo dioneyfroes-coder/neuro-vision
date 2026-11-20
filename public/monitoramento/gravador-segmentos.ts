@@ -18,8 +18,17 @@ export interface RecorderLike {
   onerror: ((evento: unknown) => void) | null;
 }
 
+/** Opções de criação do recorder nativo (ex.: timelapse com bitrate reduzido). */
+export interface OpcoesCriarRecorder {
+  videoBitsPerSecond?: number;
+}
+
 /** Fábrica injetada; em produção devolve um `MediaRecorder` nativo. */
-export type CriarRecorder = (stream: unknown, mimeType: string) => RecorderLike;
+export type CriarRecorder = (
+  stream: unknown,
+  mimeType: string,
+  opcoes?: OpcoesCriarRecorder
+) => RecorderLike;
 
 /** Ordem de preferência: VP9, VP8, WebM sem codec declarado, MP4. */
 const MIME_PREFERIDOS = [
@@ -46,6 +55,10 @@ export interface OpcoesGravadorSegmentos {
   /** Relógio injetado: usado apenas para o `criadoEmMs` do upload. */
   agoraMs: () => number;
   mimeType: string;
+  /** Bitrate de vídeo (bps), útil para timelapse/baixo uso de espaço. */
+  videoBitsPerSecond?: number;
+  /** Libera recursos da fonte de gravação (ex.: canvas/timer de timelapse). */
+  liberarFonte?: () => void;
   /** Falha do `MediaRecorder` com segmento ativo (best-effort, sem parar o ciclo). */
   aoErro?: (erro: Error) => void;
 }
@@ -72,6 +85,7 @@ export class GravadorSegmentos {
   private recorder: RecorderLike | null = null;
   private pedacos: Blob[] = [];
   private falhou = false;
+  private fonteLiberada = false;
 
   constructor(private readonly opcoes: OpcoesGravadorSegmentos) {}
 
@@ -88,12 +102,29 @@ export class GravadorSegmentos {
     return this.opcoes.mimeType;
   }
 
+  private liberarFonte(): void {
+    if (this.fonteLiberada) return;
+    this.fonteLiberada = true;
+    try {
+      this.opcoes.liberarFonte?.();
+    } catch {
+      // Best-effort: liberar a fonte não deve mascarar o resultado da gravação.
+    }
+  }
+
   iniciar(): void {
     if (this.recorder) throw new ErroGravacaoSegmento("Ja ha um segmento em gravacao");
     if (!this.opcoes.mimeType) {
+      this.liberarFonte();
       throw new ErroGravacaoSegmento("Nenhum formato de video suportado pelo navegador");
     }
-    const recorder = this.opcoes.criarRecorder(this.opcoes.stream, this.opcoes.mimeType);
+    const recorder = this.opcoes.criarRecorder(
+      this.opcoes.stream,
+      this.opcoes.mimeType,
+      this.opcoes.videoBitsPerSecond !== undefined
+        ? { videoBitsPerSecond: this.opcoes.videoBitsPerSecond }
+        : undefined
+    );
     this.pedacos = [];
     this.falhou = false;
     recorder.ondataavailable = (evento) => {
@@ -109,6 +140,7 @@ export class GravadorSegmentos {
       recorder.start();
     } catch (err) {
       recorder.ondataavailable = null;
+      this.liberarFonte();
       throw new ErroGravacaoSegmento(`Falha ao iniciar a gravacao: ${(err as Error).message}`);
     }
     this.recorder = recorder;
@@ -117,7 +149,10 @@ export class GravadorSegmentos {
   /** Encerra o segmento atual e espera o evento `stop` antes de devolver o blob. */
   fechar(): Promise<SegmentoFechado | null> {
     const recorder = this.recorder;
-    if (!recorder) return Promise.resolve(null);
+    if (!recorder) {
+      this.liberarFonte();
+      return Promise.resolve(null);
+    }
     this.recorder = null;
     return new Promise<SegmentoFechado | null>((resolve, reject) => {
       const concluir = () => {
@@ -127,6 +162,7 @@ export class GravadorSegmentos {
         const pedacos = this.pedacos;
         this.pedacos = [];
         const bytes = new Blob(pedacos, { type: this.opcoes.mimeType });
+        this.liberarFonte();
         resolve(
           bytes.size > 0
             ? { bytes, contentType: this.opcoes.mimeType, criadoEmMs: this.opcoes.agoraMs() }
@@ -137,6 +173,7 @@ export class GravadorSegmentos {
         recorder.ondataavailable = null;
         recorder.onstop = null;
         this.pedacos = [];
+        this.liberarFonte();
         reject(new ErroGravacaoSegmento("Falha ao gravar o segmento"));
       };
       recorder.onstop = concluir;
@@ -153,6 +190,7 @@ export class GravadorSegmentos {
         recorder.onstop = null;
         recorder.onerror = null;
         this.pedacos = [];
+        this.liberarFonte();
         reject(new ErroGravacaoSegmento(`Falha ao fechar a gravacao: ${(err as Error).message}`));
       }
     });

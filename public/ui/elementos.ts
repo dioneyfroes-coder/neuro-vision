@@ -51,6 +51,7 @@ export const monitorIniciarBtn = el<HTMLButtonElement>("monitorIniciar");
 export const monitorPausarBtn = el<HTMLButtonElement>("monitorPausar");
 export const monitorRetomarBtn = el<HTMLButtonElement>("monitorRetomar");
 export const monitorEncerrarBtn = el<HTMLButtonElement>("monitorEncerrar");
+export const monitorExportarCenasBtn = el<HTMLButtonElement>("monitorExportarCenas");
 export const monitorReenviarBtn = el<HTMLButtonElement>("monitorReenviar");
 export const monitorRetencaoBtn = el<HTMLButtonElement>("monitorRetencao");
 export const monitorExcluirSessaoBtn = el<HTMLButtonElement>("monitorExcluirSessao");
