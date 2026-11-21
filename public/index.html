@@ -86,13 +86,14 @@
             <span id="gravacaoTexto">Gravando</span>
           </span>
         </div>
+        <p class="monitor-descricao">Modo independente: grava timelapse (até 10 fps) e registra descrições/análises de cena com data e hora, usando detecção YOLO SFW.</p>
         <div class="monitor-controles">
           <label class="monitor-campo-ambiente">
             Ambiente
             <input id="monitorAmbiente" type="text" maxlength="80" value="sala" title="Rótulo livre da sessão de gravação" />
           </label>
           <div class="monitor-grupo monitor-grupo-principal" role="group" aria-label="Controle da gravação">
-            <button id="monitorIniciar" type="button" disabled>Gravar</button>
+            <button id="monitorIniciar" type="button">Gravar</button>
             <button id="monitorPausar" type="button" disabled>Pausar</button>
             <button id="monitorRetomar" type="button" disabled>Retomar</button>
             <button id="monitorEncerrar" type="button" disabled>Encerrar</button>
@@ -105,8 +106,7 @@
           </div>
         </div>
         <span id="monitorAviso" class="aviso monitor-aviso" role="alert" hidden></span>
-      </div>
-      <div id="status" class="status">Pronto.</div>
+      </div>      <div id="status" class="status">Pronto.</div>
     </section>
 
     <aside class="logpanel">
@@ -125,27 +125,25 @@
 
   <section class="timeline">
     <div class="timeline-head">
-      <h2>Linha do tempo de eventos</h2>
-      <button id="timelineAtualizar" class="ghost" type="button">Atualizar eventos</button>
+      <h2>Histórico de gravações e cenas</h2>
+      <button id="timelineAtualizar" class="ghost" type="button">Atualizar</button>
     </div>
     <div class="timeline-filtros">
-      <label>De <input id="timelineDesde" type="text" placeholder="ISO ou epoch ms" /></label>
-      <label>Até <input id="timelineAte" type="text" placeholder="ISO ou epoch ms" /></label>
-      <label>Entidade <input id="timelineEntidade" type="text" placeholder="pes-1" /></label>
-      <label>Objeto <input id="timelineObjeto" type="text" placeholder="garrafa" /></label>
-      <label>Segmento <input id="timelineSegmento" type="text" placeholder="segmentoId" /></label>
+      <label class="timeline-busca">
+        Pesquisar cenas
+        <input id="timelineBusca" type="search" placeholder="Buscar por descrição, objeto, ambiente ou data/hora..." />
+      </label>
     </div>
     <div class="timeline-corpo">
       <ul id="timelineEventos" class="timeline-eventos"></ul>
       <div class="timeline-evidencia">
         <video id="evidenciaVideo" controls preload="metadata"></video>
         <p id="evidenciaInfo" class="timeline-evidencia-info">
-          Selecione um trecho para reproduzir a evidência.
+          Selecione uma gravação ou trecho para reproduzir a evidência.
         </p>
       </div>
     </div>
   </section>
-
   <script type="module" src="/app.js"></script>
 </body>
 </html>

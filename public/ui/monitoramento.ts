@@ -16,8 +16,11 @@ import {
   monitorAmbienteInput,
   video,
 } from "./elementos";
-import type { EntradaLogComVideo } from "../../src/types";
+import type { EntradaLog, EntradaLogComVideo } from "../../src/types";
 import type { RegistroCiclo, VideoSegment } from "../../src/domain";
+import { AdaptadorDetectorObjetos } from "../perception/adapters/object-detector.adapter";
+import { descreverDeteccoes } from "../detector";
+import { MODELO_YOLO_PADRAO } from "../yolo-onnx";
 import { ControladorMonitoramento } from "../monitoramento/controlador-monitoramento";
 import type { EstadoMonitoramento } from "../monitoramento/controlador-monitoramento";
 import { apiMonitoramentoCliente } from "../monitoramento/adaptador-api";
@@ -41,13 +44,12 @@ const ROTULOS_ESTADO_MONITORAMENTO: Record<EstadoMonitoramento, string> = {
 
 interface DependenciasMonitoramento {
   setStatus: (texto: string) => void;
-  obterRodando: () => boolean;
   atualizarDiagnostico: () => void;
+  obterDescricaoAtual?: () => string | undefined;
 }
 
 export function criarModuloMonitoramento({
   setStatus,
-  obterRodando,
   atualizarDiagnostico,
 }: DependenciasMonitoramento) {
   let ultimaSessaoMonitoramentoId: string | null = null;
@@ -81,8 +83,9 @@ export function criarModuloMonitoramento({
     api: apiMonitoramentoCliente,
     agoraMs: () => Date.now(),
     criarGravador: () => {
-      if (!camera.obterStream()) {
-        throw new ErroGravacaoSegmento("Ligue a webcam antes de gravar");
+      const stream = camera.obterStream();
+      if (!stream) {
+        throw new ErroGravacaoSegmento("Camera indisponivel para gravar");
       }
       const mimeType = escolherMimeTypeVideo();
       const fonte = criarFonteTimelapse(video, {
@@ -230,14 +233,13 @@ export function criarModuloMonitoramento({
 
   function atualizarBotoesMonitoramento(): void {
     const estado = monitoramento.estadoAtual;
-    const cameraPronta = obterRodando() && camera.ativa;
     const podeIniciar = estado === "parada" || estado === "erro" || estado === "encerrada";
     const ativo = monitorAtivo();
     const pendentes = monitoramento.uploadsPendentes;
     const sessaoId = monitoramento.sessaoAtual?.sessaoId ?? ultimaSessaoMonitoramentoId;
 
     monitorAmbienteInput.disabled = ativo;
-    monitorIniciarBtn.disabled = !cameraPronta || !podeIniciar;
+    monitorIniciarBtn.disabled = !podeIniciar;
     monitorPausarBtn.disabled = estado !== "gravando";
     monitorRetomarBtn.disabled = estado !== "pausada";
     monitorEncerrarBtn.disabled = estado !== "gravando" && estado !== "pausada";
@@ -245,10 +247,12 @@ export function criarModuloMonitoramento({
     monitorReenviarBtn.disabled = pendentes === 0;
     monitorReenviarBtn.textContent =
       pendentes > 0 ? `Reenviar pendentes (${pendentes})` : "Reenviar pendentes";
-    // Exclusao so depois de encerrar: apagar enquanto grava deixaria a sessao
-    // ativa sem os bytes que o indice ainda referencia.
-    monitorExcluirSessaoBtn.disabled =
-      ultimaSessaoMonitoramentoId === null || ativo;
+    monitorExcluirSessaoBtn.disabled = ultimaSessaoMonitoramentoId === null || ativo;
+  }
+
+  async function garantirCameraParaMonitoramento(): Promise<void> {
+    if (camera.ativa && camera.obterStream()) return;
+    await camera.iniciar();
   }
 
   async function iniciarMonitoramento(): Promise<void> {
@@ -256,9 +260,12 @@ export function criarModuloMonitoramento({
     const ambiente = monitorAmbienteInput.value.trim() || "sala";
     monitorAmbienteInput.value = ambiente;
     try {
+      await garantirCameraParaMonitoramento();
       await monitoramento.iniciar(ambiente);
-      setStatus(`Gravando "${ambiente}" em segmentos de 5 minutos.`);
+      iniciarAnaliseSeguranca();
+      setStatus(`Câmera de Segurança ativa: gravando "${ambiente}" em timelapse (até 10 fps) com descrições de cena.`);
     } catch (err) {
+      pararAnaliseSeguranca();
       setStatus(`Falha ao iniciar a gravação: ${(err as Error).message}`);
     }
   }
@@ -266,6 +273,7 @@ export function criarModuloMonitoramento({
   async function encerrarMonitoramento(): Promise<void> {
     try {
       await monitoramento.encerrar();
+      pararAnaliseSeguranca();
       monitorAvisoEl.hidden = true;
       setStatus("Gravação encerrada.");
     } catch (err) {
@@ -292,6 +300,63 @@ export function criarModuloMonitoramento({
     return Number.isFinite(ms) ? ms : null;
   }
 
+
+  // Análise de cena independente do modo principal: YOLO SFW em intervalos baixos.
+  const detectorSeguranca = new AdaptadorDetectorObjetos();
+  let analiseSegurancaTimer: number | null = null;
+  let analiseSegurancaEmAndamento = false;
+  let ultimoResumoSeguranca = "";
+  const INTERVALO_ANALISE_SEGURANCA_MS = 5000;
+
+  async function analisarCenaSeguranca(): Promise<void> {
+    if (!monitorAtivo() || analiseSegurancaEmAndamento) return;
+    if (monitoramento.estadoAtual !== "gravando" || monitoramento.semSinal) return;
+    if (!camera.ativa) return;
+    analiseSegurancaEmAndamento = true;
+    try {
+      if (!detectorSeguranca.modelo) {
+        await detectorSeguranca.carregar(MODELO_YOLO_PADRAO, () => {});
+      }
+      const quadro = camera.capturarQuadro(640, 320, 0.82);
+      if (!quadro) return;
+      const resultado = await detectorSeguranca.detectar(
+        { imagem: quadro.imagem, dimensoes: { largura: camera.largura, altura: camera.altura } },
+        { threshold: 0.45, percentage: false }
+      );
+      const { objetos, resumo } = descreverDeteccoes(resultado.deteccoes as unknown as Parameters<typeof descreverDeteccoes>[0]);
+      const descricao = resumo || (objetos.length > 0 ? objetos.map((o) => o.nome).join(", ") : "Nenhum objeto relevante detectado.");
+      if (descricao === ultimoResumoSeguranca) return;
+      ultimoResumoSeguranca = descricao;
+      const sessaoId = monitoramento.sessaoAtual?.sessaoId ?? ultimaSessaoMonitoramentoId;
+      const entrada: EntradaLog = {
+        timestamp: new Date().toISOString(),
+        capturadoEm: new Date().toISOString(),
+        modelo: detectorSeguranca.modelo ?? MODELO_YOLO_PADRAO,
+        objetos,
+        resumo: descricao,
+        tipo: "deteccao",
+        sessaoId: sessaoId ?? undefined,
+        snapshot: quadro.thumb,
+      };
+      await api.gravarEntrada(entrada);
+    } catch (err) {
+      void api.gravarOperacional({ nivel: "aviso", origem: "monitoramento", mensagem: "Falha ao analisar cena da camera de seguranca", detalhe: (err as Error).message }).catch(() => undefined);
+    } finally {
+      analiseSegurancaEmAndamento = false;
+    }
+  }
+
+  function iniciarAnaliseSeguranca(): void {
+    if (analiseSegurancaTimer !== null) return;
+    analiseSegurancaTimer = window.setInterval(() => void analisarCenaSeguranca(), INTERVALO_ANALISE_SEGURANCA_MS);
+    void analisarCenaSeguranca();
+  }
+
+  function pararAnaliseSeguranca(): void {
+    if (analiseSegurancaTimer !== null) window.clearInterval(analiseSegurancaTimer);
+    analiseSegurancaTimer = null;
+    analiseSegurancaEmAndamento = false;
+  }
   function segmentosCorrelacionados(ms: number | null, segmentos: VideoSegment[]): string[] {
     if (ms === null) return [];
     return segmentos
@@ -398,12 +463,17 @@ export function criarModuloMonitoramento({
   }
 
   function registrarEventos(): void {
+    const sincronizarAnalise = () => {
+      if (monitoramento.estadoAtual === "gravando" && !monitoramento.semSinal) iniciarAnaliseSeguranca();
+      else pararAnaliseSeguranca();
+    };
+    window.setInterval(sincronizarAnalise, 1500);
     monitorIniciarBtn.addEventListener("click", () => void iniciarMonitoramento());
     monitorPausarBtn.addEventListener("click", () =>
-      void comandoMonitoramento(() => monitoramento.pausar(), "Gravacao pausada.")
+      void comandoMonitoramento(async () => { await monitoramento.pausar(); pararAnaliseSeguranca(); }, "Gravação pausada.")
     );
     monitorRetomarBtn.addEventListener("click", () =>
-      void comandoMonitoramento(() => monitoramento.retomar(), "Gravacao retomada.")
+      void comandoMonitoramento(async () => { await monitoramento.retomar(); iniciarAnaliseSeguranca(); }, "Gravação retomada.")
     );
     monitorEncerrarBtn.addEventListener("click", () => void encerrarMonitoramento());
     monitorExportarCenasBtn.addEventListener("click", () => void exportarLogDescricaoCenas());

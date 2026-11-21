@@ -31,11 +31,7 @@ import {
   exportPendentesBtn,
   filterInput,
   timelineAtualizarBtn,
-  timelineDesdeInput,
-  timelineAteInput,
-  timelineEntidadeInput,
-  timelineObjetoInput,
-  timelineSegmentoInput,
+  timelineBuscaInput,
   timelineEventosEl,
   startBtn,
   stopBtn,
@@ -63,7 +59,6 @@ import {
   criarItem,
   drawBoxes,
   rotuloInstante,
-  valorFiltroTimeline,
   type EntradaComVideoOpcional,
 } from "./ui/renderizacao";
 
@@ -88,8 +83,8 @@ const {
   registrarEventos: registrarEventosMonitoramento,
 } = criarModuloMonitoramento({
   setStatus,
-  obterRodando: () => running,
   atualizarDiagnostico,
+  obterDescricaoAtual: () => undefined,
 });
 
 /** Renderizacao do progresso emitido pelo `CycleController` (sem logica de negocio aqui). */
@@ -572,70 +567,84 @@ function aplicarFiltro(): void {
 }
 
 /**
- * Linha do tempo consultavel (Fase 5). Os segmentos ja vêm vinculados pelo
- * servidor; a interface apenas posiciona o player no offset do evento. Nao ha
- * relogio proprio: o texto e os offsets vem dos timestamps persistidos.
+ * Histórico de gravações/cenas da Câmera de Segurança.
+ * Fonte principal: sessões/segmentos de monitoramento; descrições vêm de entradas/ciclos
+ * correlacionados por sessão e janela de tempo. Busca única filtra descrição/objeto/ambiente/data.
  */
 async function carregarLinhaDoTempo(): Promise<void> {
   timelineAtualizarBtn.disabled = true;
   try {
-    const objeto = timelineObjetoInput.value.trim();
-    const eventos = await api.listarEventosTemporais(100, {
-      entidadeId: timelineEntidadeInput.value.trim() || undefined,
-      objetos: objeto ? [objeto] : undefined,
-      segmentoId: timelineSegmentoInput.value.trim() || undefined,
-      desde: valorFiltroTimeline(timelineDesdeInput),
-      ate: valorFiltroTimeline(timelineAteInput),
-    });
+    const termo = timelineBuscaInput.value.trim().toLowerCase();
+    const [sessoes, entradas, ciclos] = await Promise.all([
+      api.listarSessoesMonitoramento(100).catch(() => []),
+      api.listarEntradas(500).catch(() => [] as EntradaComVideoOpcional[]),
+      api.listarCiclos(500).catch(() => []),
+    ]);
+    const segmentosPorSessao = new Map<string, Awaited<ReturnType<typeof api.listarSegmentosDaSessao>>>();
+    await Promise.all(sessoes.map(async (s) => {
+      segmentosPorSessao.set(s.sessaoId, await api.listarSegmentosDaSessao(s.sessaoId, 500).catch(() => []));
+    }));
 
+    const itens: Array<{sessaoId:string; ambiente:string; inicioMs:number; dataHora:string; segmentos:Array<{segmentoId:string; inicioMs:number; fimMs:number; url:string; sequencia:number; incompleto?:boolean}>; descricoes:string[]}> = [];
+    for (const sessao of sessoes) {
+      const segmentos = (segmentosPorSessao.get(sessao.sessaoId) ?? []).slice().sort((a,b)=>a.inicioMs-b.inicioMs);
+      const inicioMs = sessao.iniciadaEmMs;
+      const fimMs = sessao.encerradaEmMs ?? Date.now();
+      const descricoes: string[] = [];
+      for (const e of entradas) {
+        const ms = Date.parse(e.capturadoEm ?? e.timestamp);
+        const emJanela = Number.isFinite(ms) && ms >= inicioMs - 5000 && ms <= fimMs + 5000;
+        if ((e.sessaoId === sessao.sessaoId || (!e.sessaoId && emJanela)) && e.resumo?.trim()) descricoes.push(e.resumo.trim());
+      }
+      for (const c of ciclos) {
+        if (c.sessionId === sessao.sessaoId && c.interpretacao?.trim()) descricoes.push(c.interpretacao.trim());
+      }
+      const dataHora = rotuloInstante(sessao.iniciadaEm);
+      const texto = [sessao.ambiente, dataHora, sessao.sessaoId, ...descricoes].join(" ").toLowerCase();
+      if (termo && !texto.includes(termo)) continue;
+      itens.push({
+        sessaoId: sessao.sessaoId, ambiente: sessao.ambiente, inicioMs, dataHora,
+        descricoes: [...new Set(descricoes)].slice(0, 8),
+        segmentos: segmentos.map((s)=>({ segmentoId:s.segmentoId, inicioMs:s.inicioMs, fimMs:s.fimMs, url:api.urlVideoSegmento(s.segmentoId), sequencia:s.sequencia, incompleto:s.estado === "incompleto" })),
+      });
+    }
+
+    itens.sort((a,b)=>b.inicioMs-a.inicioMs);
     timelineEventosEl.replaceChildren();
-    if (eventos.length === 0) {
+    if (itens.length === 0) {
       const vazio = document.createElement("li");
       vazio.className = "timeline-vazio";
-      vazio.textContent = "Nenhum evento para os filtros atuais.";
+      vazio.textContent = termo ? "Nenhuma gravação/cena encontrada para a pesquisa." : "Nenhuma gravação de câmera de segurança encontrada.";
       timelineEventosEl.append(vazio);
       return;
     }
 
-    for (const evt of eventos) {
-      const item = document.createElement("li");
-      item.className = "timeline-item";
-
-      const cabecalho = document.createElement("div");
-      cabecalho.className = "timeline-item-head";
-      cabecalho.textContent = `${rotuloInstante(evt.inicioEm)} · ${evt.tipo} · ${evt.estado}`;
-      const descricao = document.createElement("p");
-      descricao.textContent = evt.descricao;
-      item.append(cabecalho, descricao);
-
-      const metadados = [
-        evt.entidadeId ? `entidade ${evt.entidadeId}` : "",
-        evt.rotuloObjeto ? `objeto ${evt.rotuloObjeto}` : "",
-        evt.participantes?.length ? `participantes ${evt.participantes.join(", ")}` : "",
-        evt.frameIds.length ? `frames ${evt.frameIds.join(", ")}` : "",
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      if (metadados) {
-        const detalhe = document.createElement("small");
-        detalhe.textContent = metadados;
-        item.append(detalhe);
-      }
-
-      if (evt.segmentos.length === 0) {
-        const semVideo = document.createElement("span");
-        semVideo.className = "timeline-sem-video";
-        semVideo.textContent = "Sem vídeo coberto para este intervalo";
-        item.append(semVideo);
+    for (const item of itens) {
+      const li = document.createElement("li");
+      li.className = "timeline-item";
+      const cab = document.createElement("div");
+      cab.className = "timeline-item-head";
+      cab.textContent = `${item.dataHora} — ${item.ambiente}`;
+      li.appendChild(cab);
+      const meta = document.createElement("small");
+      meta.textContent = `sessão ${item.sessaoId} • ${item.segmentos.length} segmento(s)`;
+      li.appendChild(meta);
+      if (item.descricoes.length > 0) {
+        for (const d of item.descricoes) { const p = document.createElement("p"); p.textContent = d; li.appendChild(p); }
       } else {
-        adicionarBotoesEvidencia(item, evt.segmentos, evt.tipo);
+        const p = document.createElement("p"); p.className = "timeline-sem-video"; p.textContent = "Sem descrição de cena registrada para esta sessão."; li.appendChild(p);
       }
-      timelineEventosEl.append(item);
+      if (item.segmentos.length > 0) {
+        adicionarBotoesEvidencia(li, item.segmentos.map((s)=>({ segmentoId:s.segmentoId, sessaoId:item.sessaoId, url:s.url, inicioMs:s.inicioMs, fimMs:s.fimMs, offsetMs:0, ateMs:Math.max(0,s.fimMs-s.inicioMs), duracaoTrechoMs:Math.max(0,s.fimMs-s.inicioMs), sequencia:s.sequencia, incompleto:!!s.incompleto, lacunas:[] })), item.ambiente);
+      } else {
+        const sv = document.createElement("span"); sv.className = "timeline-sem-video"; sv.textContent = "Sem vídeo disponível para esta sessão."; li.appendChild(sv);
+      }
+      timelineEventosEl.append(li);
     }
   } catch (err) {
     const falha = document.createElement("li");
     falha.className = "timeline-vazio";
-    falha.textContent = `Falha ao consultar a linha do tempo: ${(err as Error).message}`;
+    falha.textContent = `Falha ao consultar histórico: ${(err as Error).message}`;
     timelineEventosEl.replaceChildren(falha);
   } finally {
     timelineAtualizarBtn.disabled = false;
@@ -740,6 +749,7 @@ exportBtn.addEventListener("click", () => void exportarLog());
 exportPendentesBtn.addEventListener("click", exportarPendentes);
 filterInput.addEventListener("input", aplicarFiltro);
 timelineAtualizarBtn.addEventListener("click", () => void carregarLinhaDoTempo());
+timelineBuscaInput.addEventListener("input", () => void carregarLinhaDoTempo());
 
 intervalInput.addEventListener("input", () => {
   intervalValue.textContent = `${intervalInput.value}s`;
