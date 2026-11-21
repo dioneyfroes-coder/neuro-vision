@@ -119,7 +119,10 @@ export function descreverDeteccoes(deteccoes: DeteccaoCrua[]): ResultadoDeteccao
   }));
 
   const contagem: Record<string, number> = {};
-  for (const o of objetos) contagem[o.nome] = (contagem[o.nome] ?? 0) + 1;
+  for (const o of objetos) {
+    const nome = typeof o.nome === "string" && o.nome.trim() ? o.nome.trim() : "objeto";
+    contagem[nome] = (contagem[nome] ?? 0) + 1;
+  }
   const resumo = objetos.length
     ? Object.entries(contagem)
         .map(([n, c]) => (c > 1 ? `${c}x ${n}` : n))

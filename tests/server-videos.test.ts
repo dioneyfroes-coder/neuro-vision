@@ -181,6 +181,24 @@ describe("POST/GET /api/monitoramento/videos/:id", () => {
     expect(metodo.status).toBe(405);
     expect((await fetch(`${base}/api/monitoramento/videos/inexistente`)).status).toBe(404);
   });
+
+  it("suporta Range para reproducao/seek no player", async () => {
+    const base = await subirServidor();
+    const { segmento } = await sessaoComSegmentoFechado(base);
+    await postVideo(base, segmento.segmentoId, "0123456789", { criadoEmMs: BASE });
+
+    const parcial = await fetch(`${base}/api/monitoramento/videos/${segmento.segmentoId}`, {
+      headers: { Range: "bytes=2-5" },
+    });
+    expect(parcial.status).toBe(206);
+    expect(parcial.headers.get("accept-ranges")).toBe("bytes");
+    expect(parcial.headers.get("content-range")).toBe("bytes 2-5/10");
+    expect(await parcial.text()).toBe("2345");
+
+    const completo = await fetch(`${base}/api/monitoramento/videos/${segmento.segmentoId}`);
+    expect(completo.status).toBe(200);
+    expect(completo.headers.get("accept-ranges")).toBe("bytes");
+  });
 });
 
 describe("DELETE /api/monitoramento/videos", () => {

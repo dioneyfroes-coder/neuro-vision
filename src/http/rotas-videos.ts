@@ -97,8 +97,33 @@ export async function handleListarVideos(
   }
 }
 
-/** `GET /api/monitoramento/videos/:id` - bytes brutos do segmento. */
+function parseRange(rangeHeader: string | undefined, tamanho: number): { inicio: number; fim: number } | null {
+  if (!rangeHeader) return null;
+  const m = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
+  if (!m) return null;
+  const inicioBruto = m[1];
+  const fimBruto = m[2];
+  if (inicioBruto === "" && fimBruto === "") return null;
+  let inicio: number;
+  let fim: number;
+  if (inicioBruto === "") {
+    const sufixo = Number(fimBruto);
+    if (!Number.isFinite(sufixo) || sufixo <= 0) return null;
+    inicio = Math.max(0, tamanho - sufixo);
+    fim = tamanho - 1;
+  } else {
+    inicio = Number(inicioBruto);
+    fim = fimBruto === "" ? tamanho - 1 : Number(fimBruto);
+  }
+  if (!Number.isFinite(inicio) || !Number.isFinite(fim)) return null;
+  if (inicio < 0 || fim < inicio || inicio >= tamanho) return null;
+  fim = Math.min(fim, tamanho - 1);
+  return { inicio, fim };
+}
+
+/** `GET /api/monitoramento/videos/:id` - bytes brutos do segmento, com suporte a Range. */
 export async function handleObterVideo(
+  req: IncomingMessage,
   res: ServerResponse,
   armazenador: ArmazenadorVideos,
   segmentoId: string
@@ -109,12 +134,26 @@ export async function handleObterVideo(
       sendJson(res, 404, { ok: false, erro: "Video nao encontrado" });
       return;
     }
-    res.writeHead(200, {
+    const total = encontrado.bytes.length;
+    const range = parseRange(req.headers.range, total);
+    const baseHeaders = {
       "Content-Type": encontrado.arquivo.contentType,
-      "Content-Length": encontrado.bytes.length,
+      "Accept-Ranges": "bytes",
       "Cache-Control": "no-store",
+    };
+    if (!range) {
+      res.writeHead(200, { ...baseHeaders, "Content-Length": total });
+      res.end(encontrado.bytes);
+      return;
+    }
+    const { inicio, fim } = range;
+    const chunk = encontrado.bytes.subarray(inicio, fim + 1);
+    res.writeHead(206, {
+      ...baseHeaders,
+      "Content-Range": `bytes ${inicio}-${fim}/${total}`,
+      "Content-Length": chunk.length,
     });
-    res.end(encontrado.bytes);
+    res.end(chunk);
   } catch (err) {
     responderErroVideo(res, err);
   }

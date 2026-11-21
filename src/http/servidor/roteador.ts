@@ -134,7 +134,7 @@ export function tratarRequisicao(req: IncomingMessage, res: ServerResponse, deps
           return;
         }
         if (req.method === "GET") {
-          void handleObterVideo(res, armazenadorVideos, segmentoId);
+          void handleObterVideo(req, res, armazenadorVideos, segmentoId);
           return;
         }
         if (req.method === "DELETE") {

@@ -324,7 +324,13 @@ export function criarModuloMonitoramento({
         { threshold: 0.45, percentage: false }
       );
       const { objetos, resumo } = descreverDeteccoes(resultado.deteccoes as unknown as Parameters<typeof descreverDeteccoes>[0]);
-      const descricao = resumo || (objetos.length > 0 ? objetos.map((o) => o.nome).join(", ") : "Nenhum objeto relevante detectado.");
+      const resumoLimpo = typeof resumo === "string" ? resumo.replace(/\bundefined\b/g, "").replace(/\s{2,}/g, " ").trim() : "";
+      const descricaoBruta = resumoLimpo && resumoLimpo !== "2x" && resumoLimpo !== "0x"
+        ? resumoLimpo
+        : objetos.length > 0
+          ? objetos.map((o) => o.nome).filter(Boolean).join(", ")
+          : "Nenhum objeto relevante detectado.";
+      const descricao = descricaoBruta || "Nenhum objeto relevante detectado.";
       if (descricao === ultimoResumoSeguranca) return;
       ultimoResumoSeguranca = descricao;
       const sessaoId = monitoramento.sessaoAtual?.sessaoId ?? ultimaSessaoMonitoramentoId;
