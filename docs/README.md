@@ -17,6 +17,7 @@
 | [`soak.md`](./soak.md) | Soak test do servidor de monitoramento com telemetria: como rodar em tempo real ou acelerado, invariantes verificados e interpretação do veredito. |
 | [`limites.md`](./limites.md) | Limitações conhecidas (classes COCO, oclusão, iluminação, alucinações, CPU/WASM, latência multiframe, dados sensíveis) e **como desligar cada componente**. |
 | [`auditoria-fase-0.md`](./auditoria-fase-0.md) | Baseline reproduzível do plano mestre: ambiente, verificações, telemetria diagnóstica e lacunas confirmadas antes das mudanças. |
+| [`fase-1-integridade.md`](./fase-1-integridade.md) | Timestamps separados, vocabulário de evidência, identidade por instância, reidentificação ambígua e inventário multi-instância da Fase 1. |
 
 Documentação correlata fora de `docs/`:
 

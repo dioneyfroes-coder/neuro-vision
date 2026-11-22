@@ -31,6 +31,12 @@ export interface ConfigRastreador {
    * o `entidadeId`, mas nao presume movimento/velocidade atraves da lacuna.
    */
   distanciaReassociacaoMaxima: number;
+  /**
+   * Fração (0–1) do raio de reassociação acima da qual a continuidade é
+   * marcada como `ambiga` em vez de `confirmada`. Preserva o ID, mas sinaliza
+   * que a reidentificação não pode ser afirmada com segurança.
+   */
+  raioAmbiguidadeReassociacao: number;
   /** Frames consecutivos ausentes antes de descartar a entidade. */
   maxFramesAusente: number;
   /**
@@ -49,6 +55,7 @@ export const CONFIG_RASTREADOR_PADRAO: ConfigRastreador = {
   // Maior que `distanciaMaxima`: a entidade perdeu alguns frames e pode ter se
   // deslocado. O raio so vale dentro de `maxTempoAusenteMs` e preserva o ID.
   distanciaReassociacaoMaxima: 0.4,
+  raioAmbiguidadeReassociacao: 0.7,
   maxFramesAusente: 5,
   maxTempoAusenteMs: 2000,
   alphaSuavizacao: 0.6,

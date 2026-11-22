@@ -105,6 +105,9 @@ export async function processarQuadros(args: {
 
   const observacoes: ObservacaoFrame[] = [];
   for (const [i, item] of processados.entries()) {
+    // `agora()` e monotonico, da mesma base de `capturadoEmMs`: a diferenca
+    // entre os dois mede o custo real de processamento deste frame.
+    const processadoEmMs = agora();
     const snapshot = quadros[i];
     if (item.falha !== undefined) erros.push({ etapa: "deteccao", mensagem: item.falha });
     const processamento = item.processamento;
@@ -162,6 +165,8 @@ export async function processarQuadros(args: {
         frameId: snapshot.frameId,
         capturadoEm: snapshot.capturadoEm,
         capturadoEmMs: snapshot.capturadoEmMs,
+        solicitadoEmMs: snapshot.solicitadoEmMs,
+        processadoEmMs,
         imagem: snapshot.imagem,
         thumb: snapshot.thumb,
         assinaturaCena: snapshot.assinaturaCena,

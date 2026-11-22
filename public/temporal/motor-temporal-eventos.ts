@@ -5,6 +5,7 @@ import type {
   SinalTemporalDiagnosticado,
   TipoEventoTemporal,
 } from "../../src/domain";
+import { statusEvidenciaEvento } from "../../src/domain";
 import { uuid } from "../../src/domain/ids";
 import type { EventoVisual } from "../../src/types";
 import type { EventoSinal, MaquinaSinais } from "./maquina-sinais";
@@ -56,6 +57,33 @@ export function registrarDiagnosticos(
   }
 }
 
+/**
+ * Liga o evento ao frame que o originou sem confundir relógios: o epoch de
+ * captura vem do ISO de evidência, enquanto processamento/inferência usam o
+ * relógio de parede do cliente. `persistidoEmMs` é atribuído pelo servidor.
+ */
+function comTemposDerivados(evento: EventoTemporal): EventoTemporal {
+  const referenciaIso = evento.ultimaEvidenciaEm ?? evento.inicioEm;
+  const capturadoEmMs = Date.parse(referenciaIso);
+  const processadoEmMs = Date.now();
+  return {
+    ...evento,
+    capturadoEmMs:
+      evento.capturadoEmMs ?? (Number.isFinite(capturadoEmMs) ? capturadoEmMs : undefined),
+    processadoEmMs: evento.processadoEmMs ?? processadoEmMs,
+    inferidoEmMs: evento.inferidoEmMs ?? processadoEmMs,
+    statusEvidencia: statusEvidenciaEvento({
+      estado: evento.estado,
+      tipo: evento.tipo,
+      motivoEncerramento: evento.motivoEncerramento,
+      origens: evento.origens,
+      frameIds: evento.frameIds,
+      evidencias: evento.evidencias,
+      intervaloSemObservacaoMs: evento.intervaloSemObservacaoMs,
+    }),
+  };
+}
+
 export function sinalParaEvento(
   sinal: EventoSinal,
   tipo: TipoEventoTemporal,
@@ -67,7 +95,7 @@ export function sinalParaEvento(
   // apenas a ultima evidencia positiva e o estado fica `incerto` (nao vira
   // fato persistido). A duracao da lacuna vai no proprio evento.
   const interrompidoPorLacuna = sinal.motivoEncerramento === "periodo_cego";
-  return {
+  return comTemposDerivados({
     eventoId: sinal.eventoId,
     sessionId,
     cycleId: sinal.cycleIdInicio,
@@ -86,7 +114,7 @@ export function sinalParaEvento(
     motivoEncerramento: sinal.motivoEncerramento,
     continuidadeValida: sinal.continuidadeValida,
     evidencias: sinal.evidencias,
-  };
+  });
 }
 
 export function converterEventoVisual(
@@ -98,7 +126,7 @@ export function converterEventoVisual(
   const tipo = MAPEAMENTO_EVENTO_VISUAL[ev.tipo];
   if (!tipo) return null;
   const origem: OrigemSinalTemporal = ev.tipo === "mudanca_de_cena" ? "cena" : "objetos";
-  return {
+  return comTemposDerivados({
     eventoId: uuid(),
     sessionId,
     cycleId,
@@ -118,7 +146,7 @@ export function converterEventoVisual(
     // Evento visual e pontual: nao ha duracao sustentada para encerrar.
     motivoEncerramento: "ponto",
     continuidadeValida: true,
-  };
+  });
 }
 
 const MAPEAMENTO_EVENTO_VISUAL: Partial<Record<EventoVisual["tipo"], TipoEventoTemporal>> = {

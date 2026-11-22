@@ -98,14 +98,18 @@ export class WebcamCapture {
     for (let i = 0; i < this.config.quadros; i++) {
       if (sinal?.aborted) throw cancelado();
 
-      const capturadoEmMs = this.agora();
-      const capturadoEm = this.agoraIso();
+      // O pedido e o instante util sao diferentes: o timestamp do frame so e
+      // registrado depois que a fonte devolve pixels validos. Assim a latencia
+      // de captura nao é confundida com o instante da imagem analisada.
+      const solicitadoEmMs = this.agora();
       const par = this.fonte.capturarQuadro(
         this.config.maxLargura,
         this.config.larguraThumb,
         this.config.qualidadeJpeg
       );
       if (par === null) break;
+      const capturadoEmMs = this.agora();
+      const capturadoEm = this.agoraIso();
 
       const assinaturaCena = this.fonte.assinaturaDeCena() ?? undefined;
       snapshots.push(
@@ -115,13 +119,17 @@ export class WebcamCapture {
           thumb: par.thumb,
           capturadoEm,
           capturadoEmMs,
+          solicitadoEmMs,
           dimensoes: { largura: this.fonte.largura, altura: this.fonte.altura },
           assinaturaCena,
         })
       );
 
       if (i < this.config.quadros - 1) {
-        const decorrido = this.agora() - capturadoEmMs;
+        // A cadência é contada a partir do pedido, não de mais uma leitura do
+        // relógio: isso preserva o intervalo entre solicitações sem deslocar o
+        // timestamp real do frame (nem adicionar uma terceira amostragem).
+        const decorrido = capturadoEmMs - solicitadoEmMs;
         const esperaMs = Math.max(0, this.config.intervaloMs - decorrido);
         await this.esperarComAbort(esperaMs, sinal);
       }

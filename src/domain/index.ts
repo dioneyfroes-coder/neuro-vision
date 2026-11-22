@@ -11,6 +11,7 @@ export * from "./frequencia-adaptativa";
 export * from "./hand-geometry";
 export * from "./hand-gestures";
 export * from "./observation";
+export * from "./evidencia";
 export * from "./temporal-event";
 export * from "./cycle";
 export * from "./interpretation";

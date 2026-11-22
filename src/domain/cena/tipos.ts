@@ -1,3 +1,5 @@
+import type { StatusEvidencia } from "../evidencia";
+
 export interface RegiaoCena {
   xmin: number;
   ymin: number;
@@ -12,6 +14,9 @@ export type ConfirmacaoCena =
   | "nao_confirmado"
   | "nao_observado";
 
+/** Qualidade da associação entre uma observação e uma entidade da referência. */
+export type AssociacaoInstanciaCena = "estavel" | "ambiga";
+
 /** Item observado do ambiente. `objetoId` é temporário e escopo de sessão. */
 export interface ItemCena {
   objetoId: string;
@@ -23,7 +28,29 @@ export interface ItemCena {
   estadoObjeto?: string;
   frameId?: string;
   observadoEmMs?: number;
+  /** Identidade da instância, quando o rótulo não é suficiente (duas cadeiras). */
+  instanciaId?: string;
+  /** Classe detectada, quando diferente do rótulo legível. */
+  classe?: string;
+  primeiraObservacaoEmMs?: number;
+  ultimaObservacaoEmMs?: number;
+  frameIds?: string[];
+  confiancaAssociacao?: number;
+  associacao?: AssociacaoInstanciaCena;
+  /** Status canônico derivado de `confirmacao` (aditivo, não substitui o legado). */
+  statusEvidencia?: StatusEvidencia;
 }
+
+/**
+ * Modo de consolidação da referência.
+ *
+ * - `automatica` (padrão): usa `instanciaId` quando presente e mantém o
+ *   comportamento legado (um item por rótulo) para lotes sem identidade;
+ * - `instancia`: agrupa por `instanciaId`/`objetoId`, preservando classes
+ *   repetidas;
+ * - `rotulo`: força o comportamento legado, útil para dados antigos.
+ */
+export type ConsolidacaoReferenciaCena = "automatica" | "instancia" | "rotulo";
 
 /** Referência consolidada do ambiente no início de uma sessão. */
 export interface ReferenciaCena {
@@ -63,6 +90,9 @@ export interface MudancaCena {
   caixaAtual?: RegiaoCena;
   estadoAnterior?: string;
   estadoAtual?: string;
+  /** Quando a associação à instância da referência não é segura. */
+  associacao?: AssociacaoInstanciaCena;
+  statusEvidencia?: StatusEvidencia;
 }
 
 export interface OpcoesComparacaoCena {
@@ -70,4 +100,6 @@ export interface OpcoesComparacaoCena {
   iouMinimo?: number;
   /** Distância máxima entre centros, em coordenadas normalizadas (padrão: 0,25). */
   distanciaMaxima?: number;
+  /** Usa `instanciaId` como parte da chave de associação (padrão: `true`). */
+  associacaoPorInstancia?: boolean;
 }

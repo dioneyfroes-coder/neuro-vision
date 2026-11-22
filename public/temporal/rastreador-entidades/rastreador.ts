@@ -6,7 +6,16 @@ import {
   suavizarPonto,
   type Ponto2D,
 } from "../suavizador";
-import type { AssociacaoSonda, Entidade, ResultadoRastreamento, Sonda } from "./tipos";
+import type {
+  AssociacaoSonda,
+  Entidade,
+  ObservacaoEntidade,
+  ResultadoRastreamento,
+  Sonda,
+} from "./tipos";
+
+/** Quantidade maxima de observacoes leves retidas por entidade. */
+const MAX_HISTORICO_OBSERVACOES = 10;
 
 /**
  * Rastreador generico de entidades com IDs estaveis na sessao.
@@ -77,7 +86,7 @@ export class RastreadorEntidades {
       );
       if (melhor) {
         naoAssociadas.splice(melhor.indiceLista, 1);
-        this.aplicar(entidade, melhor.item.sonda, tempoMs);
+        this.aplicar(entidade, melhor.item.sonda, tempoMs, melhor.distancia);
         atualizadas.add(entidade.entidadeId);
         associacoes.push({ indice: melhor.item.indice, entidadeId: entidade.entidadeId });
       } else {
@@ -98,7 +107,7 @@ export class RastreadorEntidades {
       );
       if (!melhor) continue;
       naoAssociadas.splice(melhor.indiceLista, 1);
-      this.reassociar(entidade, melhor.item.sonda, tempoMs);
+      this.reassociar(entidade, melhor.item.sonda, tempoMs, melhor.distancia);
       atualizadas.add(entidade.entidadeId);
       associacoes.push({ indice: melhor.item.indice, entidadeId: entidade.entidadeId });
     }
@@ -132,7 +141,11 @@ export class RastreadorEntidades {
     candidatas: Array<{ sonda: Sonda; indice: number }>,
     distanciaMaxima: number,
     podeAssociar?: (entidade: Entidade, sonda: Sonda) => boolean
-  ): { item: { sonda: Sonda; indice: number }; indiceLista: number } | null {
+  ): {
+    item: { sonda: Sonda; indice: number };
+    indiceLista: number;
+    distancia: number;
+  } | null {
     let melhor: { sonda: Sonda; indice: number } | null = null;
     let melhorDist = Infinity;
     let indiceLista = -1;
@@ -147,7 +160,7 @@ export class RastreadorEntidades {
       }
     }
     if (!melhor || melhorDist > distanciaMaxima) return null;
-    return { item: melhor, indiceLista };
+    return { item: melhor, indiceLista, distancia: melhorDist };
   }
 
   /**
@@ -192,6 +205,7 @@ export class RastreadorEntidades {
     this.entidades.delete(entidade.entidadeId);
     this.posicoesBrutas.delete(entidade.entidadeId);
     entidade.estado = "perdida";
+    entidade.estadoIdentidade = "perdida";
     this.entidadesPerdidas.set(entidade.entidadeId, entidade);
   }
 
@@ -213,14 +227,22 @@ export class RastreadorEntidades {
       reassociacoes: 0,
       primeiraObservacaoMs: tempoMs,
       ultimaObservacaoMs: tempoMs,
+      estadoIdentidade: sonda.confianca >= 0.6 ? "confirmada" : "provavel",
+      historicoObservacoes: [],
       meta: { ...sonda.meta },
     };
+    this.registrarObservacao(entidade, sonda, tempoMs);
     this.entidades.set(entidade.entidadeId, entidade);
     this.posicoesBrutas.set(entidade.entidadeId, { x: sonda.x, y: sonda.y });
     return entidade;
   }
 
-  private aplicar(entidade: Entidade, sonda: Sonda, tempoMs: number): void {
+  private aplicar(
+    entidade: Entidade,
+    sonda: Sonda,
+    tempoMs: number,
+    distancia?: number
+  ): void {
     const anterior = this.posicoesBrutas.get(entidade.entidadeId) ?? null;
     const bruto = { x: sonda.x, y: sonda.y };
     if (anterior) {
@@ -250,6 +272,16 @@ export class RastreadorEntidades {
     entidade.framesVisto += 1;
     entidade.framesAusente = 0;
     entidade.ultimaObservacaoMs = tempoMs;
+    if (
+      entidade.estadoIdentidade === "ambiga" &&
+      distancia !== undefined &&
+      distancia <= this.config.distanciaMaxima * this.config.raioAmbiguidadeReassociacao
+    ) {
+      entidade.estadoIdentidade = "confirmada";
+    } else if (entidade.estadoIdentidade === undefined) {
+      entidade.estadoIdentidade = sonda.confianca >= 0.6 ? "confirmada" : "provavel";
+    }
+    this.registrarObservacao(entidade, sonda, tempoMs);
     if (sonda.meta) entidade.meta = { ...entidade.meta, ...sonda.meta };
     this.posicoesBrutas.set(entidade.entidadeId, bruto);
   }
@@ -261,7 +293,12 @@ export class RastreadorEntidades {
    * nem velocidade — a lacuna nao e movimento observado. O centro volta ao
    * ponto atual para nao herdar suavizacao de um instante antigo.
    */
-  private reassociar(entidade: Entidade, sonda: Sonda, tempoMs: number): void {
+  private reassociar(
+    entidade: Entidade,
+    sonda: Sonda,
+    tempoMs: number,
+    distancia: number
+  ): void {
     this.entidadesPerdidas.delete(entidade.entidadeId);
     entidade.estado = "ativa";
     entidade.reassociacoes += 1;
@@ -277,8 +314,27 @@ export class RastreadorEntidades {
     entidade.framesVisto += 1;
     entidade.framesAusente = 0;
     entidade.ultimaObservacaoMs = tempoMs;
+    const limiteConfiavel =
+      this.config.distanciaReassociacaoMaxima * this.config.raioAmbiguidadeReassociacao;
+    entidade.estadoIdentidade = distancia <= limiteConfiavel ? "confirmada" : "ambiga";
+    this.registrarObservacao(entidade, sonda, tempoMs);
     if (sonda.meta) entidade.meta = { ...entidade.meta, ...sonda.meta };
     this.posicoesBrutas.set(entidade.entidadeId, { x: sonda.x, y: sonda.y });
     this.entidades.set(entidade.entidadeId, entidade);
+  }
+
+  /** Guarda uma observacao leve, com limite fixo para nao crescer sem controle. */
+  private registrarObservacao(entidade: Entidade, sonda: Sonda, tempoMs: number): void {
+    const historico: ObservacaoEntidade[] = entidade.historicoObservacoes ?? [];
+    const frameId = sonda.meta?.frameId;
+    historico.push({
+      tempoMs,
+      x: sonda.x,
+      y: sonda.y,
+      confianca: sonda.confianca,
+      frameId: typeof frameId === "string" ? frameId : undefined,
+    });
+    while (historico.length > MAX_HISTORICO_OBSERVACOES) historico.shift();
+    entidade.historicoObservacoes = historico;
   }
 }

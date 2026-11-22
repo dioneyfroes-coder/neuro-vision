@@ -18,6 +18,12 @@ export interface SnapshotCapturado {
   capturadoEm: string;
   /** Instante monotonico (ms) da captura, para intervalos. */
   capturadoEmMs: number;
+  /**
+   * Instante monotonico (ms) em que o frame foi solicitado. Separado de
+   * `capturadoEmMs` para medir o custo real da captura sem trocar o timestamp
+   * do frame pelo instante de conclusão.
+   */
+  solicitadoEmMs?: number;
   /** Dimensoes da imagem capturada. */
   dimensoes?: Dimensoes;
   /** Assinatura de cena da captura, quando disponivel. */

@@ -848,29 +848,29 @@ A ordem abaixo prioriza valor funcional e redução de risco. Não é necessári
 
 ## Fase 0 — Auditoria e baseline
 
-- [ ] Instalar dependências em ambiente limpo.
-- [ ] Executar `npm run typecheck`.
-- [ ] Executar `npm run lint`.
-- [ ] Executar `npm test`.
-- [ ] Executar `npm run build`.
-- [ ] Executar E2E de monitoramento.
-- [ ] Registrar versões de Node, navegador, modelos e hardware.
-- [ ] Gerar baseline de FPS, latência, CPU, RAM e armazenamento.
-- [ ] Registrar falhas atuais antes de alterar código.
+- [x] Instalar dependências em ambiente limpo.
+- [x] Executar `npm run typecheck`.
+- [x] Executar `npm run lint`.
+- [x] Executar `npm test`.
+- [x] Executar `npm run build`.
+- [x] Executar E2E de monitoramento.
+- [x] Registrar versões de Node, navegador, modelos e hardware (modelo indisponível registrado como não medido).
+- [ ] Gerar baseline de FPS, latência, CPU, RAM e armazenamento — telemetria acelerada registrada; medição real com detector/clipe permanece pendente.
+- [x] Registrar falhas atuais antes de alterar código.
 
-**Saída:** relatório de estado reproduzível.
+**Saída:** relatório de estado reproduzível em [`docs/auditoria-fase-0.md`](docs/auditoria-fase-0.md).
 
 ## Fase 1 — Integridade temporal e identidade
 
-- [ ] Corrigir timestamp no instante da captura.
-- [ ] Separar captura, processamento e persistência.
-- [ ] Padronizar estados de evidência.
-- [ ] Implementar identidade individual de objetos.
-- [ ] Corrigir inventário para múltiplas instâncias da mesma classe.
-- [ ] Melhorar reidentificação após oclusão.
-- [ ] Adicionar testes de regressão.
+- [x] Corrigir timestamp no instante da captura.
+- [x] Separar captura, processamento e persistência.
+- [x] Padronizar estados de evidência.
+- [x] Implementar identidade individual de objetos.
+- [x] Corrigir inventário para múltiplas instâncias da mesma classe.
+- [x] Melhorar reidentificação após oclusão.
+- [x] Adicionar testes de regressão.
 
-**Saída:** entidades e eventos temporalmente confiáveis.
+**Saída:** entidades e eventos temporalmente confiáveis; detalhes em [`docs/fase-1-integridade.md`](docs/fase-1-integridade.md).
 
 ## Fase 2 — Inventário automático
 

@@ -21,6 +21,10 @@ export interface ObservacaoFrame {
   capturadoEm: string;
   /** Tempo monotono (ms) da captura, para intervalos. */
   capturadoEmMs: number;
+  /** Tempo monotono (ms) em que o frame foi solicitado (mede latencia de captura). */
+  solicitadoEmMs?: number;
+  /** Tempo monotono (ms) em que o processamento local do frame terminou. */
+  processadoEmMs?: number;
   /** Evidencia exata usada na percepcao e depois no multimodal (data URL). */
   imagem: string;
   /** Thumbnail derivado dos mesmos pixels (persistencia), opcional. */

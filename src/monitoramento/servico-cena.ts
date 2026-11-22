@@ -9,6 +9,7 @@
 import {
   compararCena,
   construirReferencia,
+  type ConsolidacaoReferenciaCena,
   type ItemCena,
   type MudancaCena,
   type OpcoesComparacaoCena,
@@ -55,6 +56,7 @@ export class ServicoCena {
     itens: ItemCena[];
     criadaEmMs: number;
     quadros?: number;
+    consolidacao?: ConsolidacaoReferenciaCena;
   }): Promise<ReferenciaCena> {
     return this.enfileirar(async () => {
       const referencia = construirReferencia(opcoes);

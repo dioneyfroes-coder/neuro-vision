@@ -11,12 +11,15 @@
 export type {
   RegiaoCena,
   ConfirmacaoCena,
+  AssociacaoInstanciaCena,
+  ConsolidacaoReferenciaCena,
   ItemCena,
   ReferenciaCena,
   TipoMudancaCena,
   MudancaCena,
   OpcoesComparacaoCena,
 } from "./cena/tipos";
+export type { OpcoesConstruirReferencia } from "./cena/referencia";
 export { normalizarCaixaCena, caixaCenaValida, itemCenaValido, mesmoItem } from "./cena/validacao";
 export { construirReferencia } from "./cena/referencia";
 export { idMudancaCena, compararCena } from "./cena/comparacao";

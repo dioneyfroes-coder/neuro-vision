@@ -24,6 +24,22 @@ export interface Sonda {
 export type EstadoEntidade = "ativa" | "ausente" | "perdida";
 
 /**
+ * Estado da **identidade** da entidade — distinto do ciclo de vida do track.
+ * Uma entidade pode estar `ativa` e mesmo assim ter identidade `ambiga` quando
+ * a reassociacao depois de uma lacuna nao pode ser provada.
+ */
+export type EstadoIdentidadeEntidade = "confirmada" | "provavel" | "ambiga" | "perdida";
+
+/** Observacao leve preservada para auditoria de identidade e posicao. */
+export interface ObservacaoEntidade {
+  tempoMs: number;
+  x: number;
+  y: number;
+  confianca: number;
+  frameId?: string;
+}
+
+/**
  * Entidade rastreada com ID estavel dentro da sessao.
  *
  * O centro e suavizado exponencialmente; `deslocamento` e a magnitude do
@@ -57,6 +73,10 @@ export interface Entidade {
   reassociacoes: number;
   primeiraObservacaoMs: number;
   ultimaObservacaoMs: number;
+  /** Confianca na identidade (nao confundir com `estado` do ciclo de vida). */
+  estadoIdentidade?: EstadoIdentidadeEntidade;
+  /** Historico limitado de observacoes, do mais antigo ao mais recente. */
+  historicoObservacoes?: ObservacaoEntidade[];
   meta: Record<string, unknown>;
 }
 

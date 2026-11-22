@@ -1,4 +1,5 @@
 import type { RegistroCiclo } from "../../domain/cycle";
+import { statusEvidenciaEvento } from "../../domain/evidencia";
 import type {
   EstadoEventoTemporal,
   MotivoEncerramentoEvento,
@@ -14,6 +15,10 @@ import {
   TIPOS_EVENTO_TEMPORAL_PERSISTIDOS,
   type SubsistemaIndisponivel,
 } from "./tipos";
+
+function numeroFinito(valor: unknown): number | undefined {
+  return typeof valor === "number" && Number.isFinite(valor) ? valor : undefined;
+}
 
 /**
  * Normaliza o corpo de `POST /api/ciclos` em um `RegistroCiclo`. O registro
@@ -111,12 +116,28 @@ export function montarEventoTemporal(payload: unknown): EventoTemporalPersistido
   const participantes = Array.isArray(p.participantes)
     ? p.participantes.filter((id): id is string => typeof id === "string" && id.length > 0)
     : undefined;
+  const tipo = p.tipo as TipoEventoTemporal;
+  const estado = p.estado as EstadoEventoTemporal;
+  // O status é derivado no servidor a partir dos sinais brutos: um valor
+  // enviado pelo cliente nunca pode transformar falha em desaparecimento.
+  const statusEvidencia = statusEvidenciaEvento({
+    estado,
+    tipo,
+    motivoEncerramento,
+    origens,
+    frameIds,
+    evidencias,
+    intervaloSemObservacaoMs: intervalo,
+  });
+  // O servidor é a fonte autoritativa do instante de persistência; um valor
+  // enviado pelo cliente nunca substitui a chegada real.
+  const persistidoEmMs = Date.now();
 
   return {
     eventoId: p.eventoId,
     sessionId: p.sessionId,
     cycleId: typeof p.cycleId === "string" ? p.cycleId : undefined,
-    tipo: p.tipo as TipoEventoTemporal,
+    tipo,
     inicioEm: p.inicioEm,
     fimEm: typeof p.fimEm === "string" ? p.fimEm : undefined,
     ultimaEvidenciaEm:
@@ -130,13 +151,21 @@ export function montarEventoTemporal(payload: unknown): EventoTemporalPersistido
     confianca,
     origens,
     frameIds,
-    estado: p.estado as EstadoEventoTemporal,
+    estado,
     intervaloSemObservacaoMs: intervalo,
     motivoEncerramento,
     continuidadeValida,
     evidencias,
+    statusEvidencia,
+    capturadoEmMs: numeroFinito(p.capturadoEmMs),
+    processadoEmMs: numeroFinito(p.processadoEmMs),
+    inferidoEmMs: numeroFinito(p.inferidoEmMs),
+    persistidoEmMs,
+    registradoEmMs: persistidoEmMs,
+    desvioRelogioMs: numeroFinito(p.desvioRelogioMs),
+    ordemChegada: numeroFinito(p.ordemChegada),
     idempotencyKey: p.idempotencyKey,
     registradoEm:
-      typeof p.registradoEm === "string" ? p.registradoEm : new Date().toISOString(),
+      typeof p.registradoEm === "string" ? p.registradoEm : new Date(persistidoEmMs).toISOString(),
   };
 }

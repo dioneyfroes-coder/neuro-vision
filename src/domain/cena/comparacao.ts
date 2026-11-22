@@ -1,4 +1,12 @@
-import type { ItemCena, MudancaCena, OpcoesComparacaoCena, ReferenciaCena, RegiaoCena, TipoMudancaCena } from "./tipos";
+import { statusEvidenciaCena } from "../evidencia";
+import type {
+  ItemCena,
+  MudancaCena,
+  OpcoesComparacaoCena,
+  ReferenciaCena,
+  RegiaoCena,
+  TipoMudancaCena,
+} from "./tipos";
 import { finito, itemCenaValido } from "./validacao";
 
 function iou(a: RegiaoCena, b: RegiaoCena): number {
@@ -29,6 +37,32 @@ export function idMudancaCena(
   return `${sessaoId}|${tipo}|${objetoId}|${referenciaEmMs}`;
 }
 
+/** `instanciaId` quando disponível; `objetoId` é o fallback dos lotes legados. */
+function idInstancia(item: ItemCena): string {
+  return item.instanciaId ?? item.objetoId;
+}
+
+function mesmaInstancia(
+  anterior: ItemCena,
+  observado: ItemCena,
+  porInstancia: boolean
+): boolean {
+  if (!porInstancia) return false;
+  if (anterior.instanciaId !== undefined && observado.instanciaId !== undefined) {
+    return anterior.instanciaId === observado.instanciaId;
+  }
+  return idInstancia(anterior) === idInstancia(observado);
+}
+
+interface CandidatoAvaliado {
+  item: ItemCena;
+  iou: number;
+  distancia: number;
+  pontuacao: number;
+  identico: boolean;
+  plausivel: boolean;
+}
+
 /**
  * Compara a cena atual com a referência.
  *
@@ -37,7 +71,10 @@ export function idMudancaCena(
  * - ausência explícita (`nao_observado`) vira hipótese (`observado: false`) e
  *   **falta de menção não é mudança**;
  * - o mesmo rótulo com IoU alto e estado físico diferente gera
- *   `estado_alterado`; com IoU baixo e centros próximos, `objeto_movido`.
+ *   `estado_alterado`; com IoU baixo e centros próximos, `objeto_movido`;
+ * - quando `instanciaId` existe, ele tem prioridade sobre proximidade espacial.
+ *   Sem evidência de identidade, duas associações igualmente prováveis viram
+ *   `associacao: "ambiga"`, nunca certeza.
  */
 export function compararCena(
   referencia: ReferenciaCena,
@@ -48,6 +85,7 @@ export function compararCena(
   if (!finito(detectadoEmMs)) throw new Error("detectadoEmMs deve ser finito");
   const iouMinimo = opcoes.iouMinimo ?? 0.25;
   const distanciaMaxima = opcoes.distanciaMaxima ?? 0.25;
+  const porInstancia = opcoes.associacaoPorInstancia ?? true;
   if (!finito(iouMinimo) || iouMinimo < 0 || iouMinimo > 1) {
     throw new Error("iouMinimo deve estar em [0, 1]");
   }
@@ -65,6 +103,7 @@ export function compararCena(
     observados.filter((item) => item.confirmacao === "nao_observado").map((item) => item.rotulo)
   );
   const usados = new Set<string>();
+  const associadas = new Set<number>();
   const mudancas: MudancaCena[] = [];
 
   const confiancaDireta = (item: ItemCena) =>
@@ -82,82 +121,120 @@ export function compararCena(
     });
   };
 
-  for (const anterior of referencia.itens) {
-    const candidatos = diretos.filter(
-      (item) => item.rotulo === anterior.rotulo && !usados.has(item.objetoId)
-    );
-    let melhor: ItemCena | undefined;
-    let melhorIoU = -1;
-    let melhorDistancia = Infinity;
-    for (const item of candidatos) {
-      const s = iou(anterior.caixa, item.caixa);
-      const d = distancia(anterior.caixa, item.caixa);
-      if (s > melhorIoU || (s === melhorIoU && d < melhorDistancia)) {
-        melhor = item;
-        melhorIoU = s;
-        melhorDistancia = d;
-      }
-    }
+  const avaliar = (anterior: ItemCena, item: ItemCena): CandidatoAvaliado => {
+    const sobreposicao = iou(anterior.caixa, item.caixa);
+    const separacao = distancia(anterior.caixa, item.caixa);
+    const proximidade =
+      distanciaMaxima > 0 ? Math.max(0, 1 - separacao / distanciaMaxima) : 0;
+    const identico = mesmaInstancia(anterior, item, porInstancia);
+    return {
+      item,
+      iou: sobreposicao,
+      distancia: separacao,
+      // O bônus de identidade não remove a necessidade de proximidade: um ID
+      // conhecido ainda precisa estar na vizinhança da referência.
+      pontuacao: Math.max(sobreposicao, proximidade) + (identico ? 2 : 0),
+      identico,
+      plausivel: sobreposicao >= iouMinimo || separacao <= distanciaMaxima,
+    };
+  };
 
-    if (melhor) {
-      usados.add(melhor.objetoId);
-      const confianca = Math.min(anterior.confianca, confiancaDireta(melhor));
-      if (melhorIoU >= iouMinimo) {
-        if (anterior.estadoObjeto !== melhor.estadoObjeto) {
-          acrescentar({
-            sessaoId: referencia.sessaoId,
-            tipo: "estado_alterado",
-            objetoId: melhor.objetoId,
-            rotulo: melhor.rotulo,
-            confianca,
-            observado: true,
-            detectadoEmMs,
-            referenciaEmMs: anterior.observadoEmMs ?? referencia.criadaEmMs,
-            caixaAnterior: { ...anterior.caixa },
-            caixaAtual: { ...melhor.caixa },
-            estadoAnterior: anterior.estadoObjeto,
-            estadoAtual: melhor.estadoObjeto,
-          });
-        }
-        continue;
-      }
-      if (melhorDistancia <= distanciaMaxima) {
-        const fator = distanciaMaxima > 0 ? 1 - melhorDistancia / distanciaMaxima : 1;
+  const melhorMaisProximo = (a: CandidatoAvaliado, b: CandidatoAvaliado) =>
+    b.pontuacao - a.pontuacao ||
+    a.distancia - b.distancia ||
+    a.item.objetoId.localeCompare(b.item.objetoId);
+
+  for (const [indice, anterior] of referencia.itens.entries()) {
+    const candidatos = diretos
+      .filter((item) => item.rotulo === anterior.rotulo && !usados.has(item.objetoId))
+      .map((item) => avaliar(anterior, item))
+      .filter((candidato) => candidato.plausivel)
+      .sort(melhorMaisProximo);
+    const melhor = candidatos[0];
+    if (!melhor) {
+      if (ausentes.has(anterior.rotulo)) {
         acrescentar({
           sessaoId: referencia.sessaoId,
-          tipo: "objeto_movido",
-          objetoId: melhor.objetoId,
-          rotulo: melhor.rotulo,
-          confianca: Math.max(0.01, confianca * fator),
-          observado: true,
+          tipo: "objeto_removido",
+          objetoId: anterior.objetoId,
+          rotulo: anterior.rotulo,
+          confianca: Math.min(anterior.confianca, 0.55),
+          observado: false,
           detectadoEmMs,
           referenciaEmMs: anterior.observadoEmMs ?? referencia.criadaEmMs,
-          deslocamento: melhorDistancia,
           caixaAnterior: { ...anterior.caixa },
-          caixaAtual: { ...melhor.caixa },
+          statusEvidencia: "nao_observado",
         });
       }
       continue;
     }
 
-    if (ausentes.has(anterior.rotulo)) {
+    const segundo = candidatos[1];
+    // Sem ID de instância, duas caixas quase equivalentemente próximas não provam
+    // qual objeto da referência foi visto. Registramos a ambiguidade.
+    const ambiguo =
+      !melhor.identico &&
+      segundo !== undefined &&
+      !segundo.identico &&
+      segundo.pontuacao >= melhor.pontuacao - 0.05;
+    const confiancaBase = Math.min(anterior.confianca, confiancaDireta(melhor.item));
+    const confianca = ambiguo ? Math.min(confiancaBase, 0.6) : confiancaBase;
+    const statusEvidencia = ambiguo ? "possivel" : statusEvidenciaCena(melhor.item.confirmacao);
+    const associacao = ambiguo ? ("ambiga" as const) : ("estavel" as const);
+
+    usados.add(melhor.item.objetoId);
+    associadas.add(indice);
+
+    if (melhor.iou >= iouMinimo) {
+      if (anterior.estadoObjeto !== melhor.item.estadoObjeto) {
+        acrescentar({
+          sessaoId: referencia.sessaoId,
+          tipo: "estado_alterado",
+          objetoId: melhor.item.objetoId,
+          rotulo: melhor.item.rotulo,
+          confianca,
+          observado: !ambiguo,
+          detectadoEmMs,
+          referenciaEmMs: anterior.observadoEmMs ?? referencia.criadaEmMs,
+          caixaAnterior: { ...anterior.caixa },
+          caixaAtual: { ...melhor.item.caixa },
+          estadoAnterior: anterior.estadoObjeto,
+          estadoAtual: melhor.item.estadoObjeto,
+          associacao,
+          statusEvidencia,
+        });
+      }
+      continue;
+    }
+    if (melhor.distancia <= distanciaMaxima) {
+      const fator = distanciaMaxima > 0 ? 1 - melhor.distancia / distanciaMaxima : 1;
       acrescentar({
         sessaoId: referencia.sessaoId,
-        tipo: "objeto_removido",
-        objetoId: anterior.objetoId,
-        rotulo: anterior.rotulo,
-        confianca: Math.min(anterior.confianca, 0.55),
-        observado: false,
+        tipo: "objeto_movido",
+        objetoId: melhor.item.objetoId,
+        rotulo: melhor.item.rotulo,
+        confianca: Math.max(0.01, confianca * fator),
+        observado: !ambiguo,
         detectadoEmMs,
         referenciaEmMs: anterior.observadoEmMs ?? referencia.criadaEmMs,
+        deslocamento: melhor.distancia,
         caixaAnterior: { ...anterior.caixa },
+        caixaAtual: { ...melhor.item.caixa },
+        associacao,
+        statusEvidencia,
       });
     }
   }
 
-  const rotulosNaReferencia = new Set(referencia.itens.map((item) => item.rotulo));
+  const referenciasPendentes = new Set(
+    referencia.itens
+      .filter((_, indice) => !associadas.has(indice))
+      .map((item) => item.rotulo)
+  );
   for (const item of diretos) {
-    if (usados.has(item.objetoId) || rotulosNaReferencia.has(item.rotulo)) continue;
+    // Um rótulo pendente pode ser a mesma instância que não apareceu neste
+    // frame; só afirmamos uma nova instância quando não há referência livre.
+    if (usados.has(item.objetoId) || referenciasPendentes.has(item.rotulo)) continue;
     const fraco = item.confirmacao === "possivel";
     acrescentar({
       sessaoId: referencia.sessaoId,
@@ -169,6 +246,7 @@ export function compararCena(
       detectadoEmMs,
       referenciaEmMs: referencia.criadaEmMs,
       caixaAtual: { ...item.caixa },
+      statusEvidencia: fraco ? "possivel" : "observado",
     });
   }
 

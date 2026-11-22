@@ -36,6 +36,34 @@ describe("memoria persistente - utilitarios", () => {
     expect(montarEventoTemporal({ ...base, tipo: "aparicao" })).toBeNull();
   });
 
+  it("deriva o status no servidor e registra o instante de persistência", () => {
+    const capturadoEmMs = Date.parse("2026-11-22T10:00:00.000Z");
+    const evento = montarEventoTemporal({
+      eventoId: "evt-2",
+      sessionId: "s",
+      tipo: "interacao_objeto",
+      inicioEm: "2026-11-22T10:00:00.000Z",
+      descricao: "objeto apareceu",
+      estado: "confirmado",
+      idempotencyKey: "evt-2:confirmado",
+      frameIds: ["f1"],
+      capturadoEmMs,
+      processadoEmMs: capturadoEmMs + 30,
+      inferidoEmMs: capturadoEmMs + 40,
+      // Valores enviados pelo cliente não podem substituir o relógio do servidor.
+      persistidoEmMs: 1,
+      statusEvidencia: "falha_percepcao",
+    });
+    expect(evento).toMatchObject({
+      capturadoEmMs,
+      processadoEmMs: capturadoEmMs + 30,
+      inferidoEmMs: capturadoEmMs + 40,
+      statusEvidencia: "observado",
+    });
+    expect(evento?.persistidoEmMs).toBeGreaterThan(1);
+    expect(evento?.registradoEmMs).toBe(evento?.persistidoEmMs);
+  });
+
   it("limparSnapshots preserva snapshot referenciado por um evento", async () => {
     const logFile = path.join(tmpDir, "visao.jsonl");
     const eventosFile = path.join(tmpDir, "eventos.jsonl");

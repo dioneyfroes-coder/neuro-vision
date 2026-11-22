@@ -6,6 +6,8 @@
  * ser duplicado em todos os frames.
  */
 
+import type { StatusEvidencia } from "./evidencia";
+
 /** Tipo normalizado de evento temporal. */
 export type TipoEventoTemporal =
   | "gesto_detectado"
@@ -160,4 +162,23 @@ export interface EventoTemporal {
    * sem transformar heuristica em certeza.
    */
   evidencias?: string[];
+  /**
+   * Instante de parede (epoch ms) do frame que originou o evento. Não é o
+   * instante de conclusão da inferência nem de gravação do registro.
+   */
+  capturadoEmMs?: number;
+  /** Instante (epoch ms) em que o processamento do frame terminou. */
+  processadoEmMs?: number;
+  /** Instante (epoch ms) em que a inferência que sustenta o evento terminou. */
+  inferidoEmMs?: number;
+  /** Instante (epoch ms) em que o evento foi persistido. */
+  persistidoEmMs?: number;
+  /** Instante (epoch ms) em que o registro foi aceito (espelho de `registradoEm`). */
+  registradoEmMs?: number;
+  /** Diferença observada entre relógio do cliente e do servidor, em ms. */
+  desvioRelogioMs?: number;
+  /** Ordem de chegada ao servidor; nunca substitui a ordem cronológica. */
+  ordemChegada?: number;
+  /** Tipo de suporte da afirmação (fato, hipótese, oclusão, falha...). */
+  statusEvidencia?: StatusEvidencia;
 }

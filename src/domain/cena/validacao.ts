@@ -1,4 +1,10 @@
-import type { ConfirmacaoCena, ItemCena, RegiaoCena } from "./tipos";
+import { STATUS_EVIDENCIA_VALIDOS } from "../evidencia";
+import type { AssociacaoInstanciaCena, ConfirmacaoCena, ItemCena, RegiaoCena } from "./tipos";
+
+const ASSOCIACOES_INSTANCIA: ReadonlySet<string> = new Set<AssociacaoInstanciaCena>([
+  "estavel",
+  "ambiga",
+]);
 
 const CONFIRMACOES: ReadonlySet<string> = new Set<ConfirmacaoCena>([
   "confirmado",
@@ -67,12 +73,29 @@ export function itemCenaValido(item: unknown): item is ItemCena {
     i.confianca <= 1 &&
     (i.estadoObjeto === undefined || typeof i.estadoObjeto === "string") &&
     (i.frameId === undefined || typeof i.frameId === "string") &&
-    (i.observadoEmMs === undefined || finito(i.observadoEmMs))
+    (i.observadoEmMs === undefined || finito(i.observadoEmMs)) &&
+    (i.instanciaId === undefined ||
+      (typeof i.instanciaId === "string" && i.instanciaId.trim().length > 0)) &&
+    (i.classe === undefined || (typeof i.classe === "string" && i.classe.trim().length > 0)) &&
+    (i.primeiraObservacaoEmMs === undefined || finito(i.primeiraObservacaoEmMs)) &&
+    (i.ultimaObservacaoEmMs === undefined || finito(i.ultimaObservacaoEmMs)) &&
+    (i.frameIds === undefined ||
+      (Array.isArray(i.frameIds) && i.frameIds.every((id) => typeof id === "string"))) &&
+    (i.confiancaAssociacao === undefined ||
+      (finito(i.confiancaAssociacao) && i.confiancaAssociacao >= 0 && i.confiancaAssociacao <= 1)) &&
+    (i.associacao === undefined ||
+      ASSOCIACOES_INSTANCIA.has(i.associacao as AssociacaoInstanciaCena)) &&
+    (i.statusEvidencia === undefined ||
+      STATUS_EVIDENCIA_VALIDOS.some((status) => status === i.statusEvidencia))
   );
 }
 
 export function copiarItem(item: ItemCena): ItemCena {
-  return { ...item, caixa: { ...item.caixa } };
+  return {
+    ...item,
+    caixa: { ...item.caixa },
+    frameIds: item.frameIds ? [...item.frameIds] : undefined,
+  };
 }
 
 /** Igualdade de posição/estado ignorando o id temporário do rastro. */
