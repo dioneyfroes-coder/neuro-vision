@@ -98,6 +98,14 @@ export const env = {
   get NEURO_ALLOWED_ORIGINS(): string {
     return str("NEURO_ALLOWED_ORIGINS", "");
   },
+  /** Token Bearer opcional; quando definido, protege API, snapshots e UI. */
+  get NEURO_API_TOKEN(): string {
+    return str("NEURO_API_TOKEN", "");
+  },
+  /** Marca o cookie de sessão como Secure quando o servidor termina em HTTPS. */
+  get NEURO_HTTPS(): boolean {
+    return bool("NEURO_HTTPS", false);
+  },
 
   // Backend de visao (LM Studio; ver `src/provedor.ts` e `src/visao.ts`)
   get NEURO_BASE_URL(): string {
@@ -154,15 +162,27 @@ export const env = {
     return numPos("VISAO_BODY_MAX_BYTES", 12_000_000);
   },
 
-  // Videos de monitoramento (Fase 3). 0 desativa idade/quantidade maxima.
+  // Videos de monitoramento (Fases 3 e 7). A política de retenção é habilitada
+  // no CLI por padrão: 30 dias, 500 arquivos e 5 GB. 0 desativa cada limite.
   get VIDEO_MAX_BYTES(): number {
     return numPos("VIDEO_MAX_BYTES", 200 * 1024 * 1024);
   },
   get VIDEO_RETENCAO_MS(): number {
-    return numPos("VIDEO_RETENCAO_MS", 0);
+    return numPos("VIDEO_RETENCAO_MS", 30 * 24 * 60 * 60 * 1000);
   },
   get VIDEO_MAX_ARQUIVOS(): number {
-    return numPos("VIDEO_MAX_ARQUIVOS", 0);
+    return numPos("VIDEO_MAX_ARQUIVOS", 500);
+  },
+  get VIDEO_MAX_BYTES_TOTAIS(): number {
+    return numPos("VIDEO_MAX_BYTES_TOTAIS", 5 * 1024 * 1024 * 1024);
+  },
+  /** Chave AES-256 para cifrar vídeos em repouso (base64 ou hex de 64 chars). */
+  get NEURO_VIDEO_KEY(): string {
+    return str("NEURO_VIDEO_KEY", "");
+  },
+  /** Alternativa à variável: arquivo com a chave, fora do repositório. */
+  get NEURO_VIDEO_KEY_FILE(): string {
+    return str("NEURO_VIDEO_KEY_FILE", "");
   },
 
   // E2E

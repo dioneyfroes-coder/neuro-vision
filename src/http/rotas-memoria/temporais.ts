@@ -17,6 +17,7 @@ import {
   montarEventoTemporal,
   montarRegistroCiclo,
 } from "../persistencia";
+import { auditarNulo, type RegistradorAuditoria } from "../auditoria";
 import { parsearFiltrosEventosTemporais } from "./filtros";
 
 /**
@@ -165,12 +166,15 @@ export async function handleListEventosTemporais(
 /** `DELETE /api/eventos-temporais` — esvazia a memoria de gestos/posturas. */
 export async function handleClearEventosTemporais(
   res: ServerResponse,
-  eventosTemporaisFile: string
+  eventosTemporaisFile: string,
+  auditar: RegistradorAuditoria = auditarNulo
 ): Promise<void> {
   try {
     await limparEventosTemporais(eventosTemporaisFile);
+    auditar({ acao: "limpeza_eventos_temporais", resultado: "sucesso", alvo: "eventos-temporais" });
     sendJson(res, 200, { ok: true });
   } catch (err) {
+    auditar({ acao: "limpeza_eventos_temporais", resultado: "falha", alvo: "eventos-temporais" });
     registrarFalha("error", "limpar_eventos_temporais_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }

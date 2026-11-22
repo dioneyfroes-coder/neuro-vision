@@ -938,19 +938,19 @@ A ordem abaixo prioriza valor funcional e redução de risco. Não é necessári
 
 ## Fase 7 — Operação contínua e segurança
 
-- [ ] Recuperar sessão após queda do processo.
-- [ ] Validar segmento incompleto e upload pendente.
+- [x] Recuperar sessão após queda do processo — sessões abandonadas viram `interrompida` e segmentos abertos viram `incompleto` com lacuna explícita; uploads pendentes são sinalizados, sem inventar cobertura.
+- [x] Validar segmento incompleto e upload pendente — recuperação determinística no índice e relatório em `logs/operacional.jsonl`/auditoria; a confirmação com falha real de upload/disco segue pendente abaixo.
 - [x] Executar soak real de 30 minutos (2026-11-22, `APROVADO`; ver [`soak.md`](docs/soak.md)).
-- [ ] Executar sessão prolongada.
+- [ ] Executar sessão prolongada (várias horas no hardware de referência).
 - [ ] Testar webcam física e reconexão.
 - [ ] Testar disco cheio e falha de escrita.
-- [ ] Habilitar política de retenção.
-- [ ] Implementar autenticação para acesso remoto.
-- [ ] Implementar criptografia em repouso.
-- [ ] Auditar acesso, exportação e exclusão.
-- [ ] Documentar consentimento e privacidade.
+- [x] Habilitar política de retenção — 30 dias / 500 arquivos / 5 GiB por padrão, com preservação explícita de IDs e motivos auditáveis.
+- [x] Implementar autenticação para acesso remoto — `NEURO_API_TOKEN` opcional, Bearer/cookie assinado e página de login autocontida.
+- [x] Implementar criptografia em repouso — AES-256-GCM com chave do operador e metadado `cifrado` declarado.
+- [x] Auditar acesso, exportação e exclusão — `logs/auditoria.jsonl` append-only, com detalhes sensíveis removidos.
+- [x] Documentar consentimento e privacidade — ver [`fase7-operacao-seguranca.md`](docs/fase7-operacao-seguranca.md) e [`seguranca.md`](docs/seguranca.md).
 
-**Saída:** operação previsível e segura.
+**Saída:** operação previsível e segura no que depende de código. A Fase 7 permanece **parcial** até sessão prolongada, webcam física/reconexão e disco cheio serem executados de verdade; ver [`pendencias.md`](docs/pendencias.md#fase-7--operação-contínua-e-segurança).
 
 ## Fase 8 — Otimização e manutenção
 

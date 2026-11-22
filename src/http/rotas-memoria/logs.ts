@@ -16,6 +16,7 @@ import {
   validarPayloadLog,
 } from "../persistencia";
 import { montarEntrada } from "../validacao";
+import { auditarNulo, type RegistradorAuditoria } from "../auditoria";
 import { anexarTrechosDeVideo } from "./video";
 
 export async function handleLog(
@@ -76,7 +77,8 @@ export async function handleClearLogs(
   snapDir: string,
   eventosFile: string,
   ciclosFile: string,
-  eventosTemporaisFile: string
+  eventosTemporaisFile: string,
+  auditar: RegistradorAuditoria = auditarNulo
 ): Promise<void> {
   try {
     // "Limpar historico" apaga os dados persistidos: observacoes, eventos
@@ -93,8 +95,17 @@ export async function handleClearLogs(
       snapDir,
       logFiles: arquivosDeMemoria(logFile, eventosFile),
     });
+    // A trilha de auditoria não é apagada junto: ela é o registro de quem
+    // pediu a exclusão, inclusive deste pedido.
+    auditar({
+      acao: "exclusao_logs",
+      resultado: "sucesso",
+      alvo: "historico",
+      detalhe: { snapshotsRemovidos: snapshots.removidos },
+    });
     sendJson(res, 200, { ok: true, snapshots });
   } catch (err) {
+    auditar({ acao: "exclusao_logs", resultado: "falha", alvo: "historico" });
     registrarFalha("error", "limpar_logs_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }

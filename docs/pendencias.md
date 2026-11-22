@@ -171,35 +171,29 @@ A documentação do comportamento implementado está em [`eventos.md`](./eventos
 
 **Critério de conclusão da validação:** backend real executando sobre clipe anotado revisado, com respostas coletadas, comparação léxica arquivada, latência medida e custo calculado apenas com preço declarado. Nenhum desses itens pode ser substituído por teste sintético.
 
-## Fase 7 — robustez, desempenho e operação contínua (antiga “Fase 6” desta página)
+## Fase 7 — operação contínua e segurança
 
-**Status:** implementada em 2026-11-18; pendências abaixo são de **validação com dados reais**, não de código. A numeração foi alinhada ao plano mestre, onde operação contínua é a Fase 7 e interpretação multimodal é a Fase 6.
+**Status:** implementação de código concluída em 2026-11-22 e documentada em [`fase7-operacao-seguranca.md`](./fase7-operacao-seguranca.md). As pendências abaixo são de **execução real/hardware/dados anotados**, não de código. Nenhum resultado sintético é apresentado como medição de campo.
 
-| Item do roteiro | Implementação | Verificação determinística |
+| Item do plano mestre | Situação | O que ainda depende de mundo real |
 | --- | --- | --- |
-| 1 — Medir CPU, GPU, RAM e armazenamento | `/api/health` expõe `sistema` (CPU/RAM do processo, núcleos, bytes de vídeo e taxa horária estimada) e `monitoramento` (sessão, segmentos, quadros, lacunas). GPU fica `null` com `motivo` quando não há API real. | `tests/server.test.ts` e `tests/api.test.ts` cobrem o contrato do health e `saudeSistema`. |
-| 2 — Sessões prolongadas | Gravação contínua com rotação de segmentos e índice durável; 30 min em `tests/monitoramento.test.ts`/`tests/monitoramento-persistencia.test.ts` e sessão longa com rotações no gravador cliente. | Sem relógio de parede: timestamps sintéticos. O harness `npm run validar:soak` ([`soak.md`](./soak.md)) verifica telemetria real, mas a execução de 30 min em tempo real no hardware de referência ainda precisa ser arquivada. |
-| 3 — Queda e retorno da câmera | `public/camera.ts` detecta `ended`/`mute`/`error` e reconecta com backoff injetável; o controlador suspende apenas metadados e renova o gravador no retorno, fechando o segmento anterior como `pausa` (não como `lacuna`). | `tests/camera.test.ts`, `tests/gravador-cliente.test.ts` e o E2E `e2e/monitoramento-camera.spec.ts`, que para a trilha real e verifica reconexão, fechamento como `pausa`, retomada com quadros e registro operacional. |
-| 4 — Workers/IA indisponíveis | Fallback local e erros de visão já viram registro operacional; a gravação segue independente. | `tests/motores-remotos.test.ts`, `tests/workers-atender.test.ts` e `tests/local-perception-pipeline.test.ts`. Faltam clipes anotados para medir degradação de qualidade. |
-| 5 — Gravação contínua durante falhas | `aoErro` do monitoramento e falhas do servidor gravam em `operacional.jsonl`; `MediaRecorder` trata erro com segmento ativo e renova sem encerrar; uploads falhados ficam pendentes. | `tests/gravador-cliente.test.ts`, `tests/server.test.ts` (registrarFalha) e `tests/api.test.ts` (HTTP não-OK). |
-| 6 — Retenção, exclusão e proteção | Rotas existentes ligadas à UI (**Aplicar retenção** / **Excluir vídeos da sessão**), retenção também na subida, exclusões auditadas, bind em loopback por padrão. | `tests/server-videos.test.ts` e `tests/armazenamento-videos.test.ts`. Sem autenticação/criptografia embutidas: exposição exige reverse proxy. |
-| 7 — Iluminação e oclusão | Roteiros sintéticos de contraluz e oclusão parcial em `tests/qualidade-eventos.test.ts`, documentados em [`qualidade.md`](./qualidade.md#robustez-sob-condições-degradadas-fase-6). | Prova a regra da política. O gate `npm run validar:condicoes` ([protocolo](../bench/clipes/oclusao-iluminacao/README.md)) ainda não tem clipes revisados e termina `INCONCLUSIVO`; não substitui a avaliação com anotações humanas. |
+| Recuperar sessão após queda | Recuperação no índice append-only: sessão abandonada → `interrompida`; segmento aberto → `incompleto` com lacuna explícita; `uploadsPendentes` sinalizado. `tests/fase7-operacao-seguranca.test.ts`. | Queda abrupta real do processo durante gravação e reconciliação com o arquivo de vídeo efetivamente gravado. |
+| Validar segmento incompleto e upload pendente | Regra pura + aplicação idempotente; a ausência de arquivo nunca é tratada como cobertura. | Interrupção real de rede no upload e disco cheio durante `writeFile`; ver linhas abaixo. |
+| Soak real de 30 min | **Concluído em 2026-11-22, `APROVADO`**, relatório arquivado em [`soak.md`](./soak.md). | Nada. |
+| Sessão prolongada | Rotação de segmentos e índice durável cobertos por timestamps sintéticos. | Várias horas seguidas no hardware de referência, com métricas de RSS e crescimento do índice. |
+| Webcam física e reconexão | `public/camera.ts` e E2E `e2e/monitoramento-camera.spec.ts` cobrem `ended`/`mute`/`error` com stream real do navegador. | Repetir com desconexão física da câmera e em outros navegadores da matriz. |
+| Disco cheio / falha de escrita | Escrita atômica com arquivo temporário, limpeza em `catch` e registro operacional; retenção por espaço está habilitada. | Injectar falha real de filesystem/disco cheio e confirmar que nenhum segmento é anunciado como gravado. |
+| Retenção | 30 dias / 500 arquivos / 5 GiB por padrão, motivos e IDs preservados auditáveis. | Definir, com o operador, quais IDs de eventos importantes devem ser preservados (`preservarSegmentoIds`). |
+| Autenticação remota | `NEURO_API_TOKEN` opcional, Bearer/cookie assinado, login e `401` testados por HTTP real em servidor temporário. | Revisão de segurança independente e integração com o PROXY/IdP do operador, se aplicável. |
+| Criptografia em repouso | AES-256-GCM com chave do operador e metadado `cifrado` explícito. | Gestão real de chaves (rotação, backup, revogação) e verificação em dispositivo de armazenamento de produção. |
+| Auditoria | `logs/auditoria.jsonl` append-only, detalhes sensíveis removidos, não apagada por `DELETE /api/logs`. | Definir prazo de retenção da própria trilha e política de acesso a ela. |
+| Consentimento e privacidade | Diretrizes em [`fase7-operacao-seguranca.md`](./fase7-operacao-seguranca.md) e [`seguranca.md`](./seguranca.md). | Aprovação do responsável/local e registro de consentimento das pessoas filmadas. |
 
-**Critério de conclusão:** "o monitoramento deve continuar gravando e registrando falhas mesmo quando a análise inteligente estiver degradada" — atendido no código e em testes determinísticos. A E2E de troca de `MediaStream` passou a existir na Fase 7; seguem pendentes a execução do soak de 30 min em tempo real e a avaliação de iluminação/oclusão com clipes anotados e revisados (ver protocolo nas seções Fase 1.5–1.6 acima e `bench/clipes/MATRIZ_COBERTURA.md`).
-
-## Fase 7 — validação real
-
-**Status:** harnesses implementados em 2026-11-18; a **coleta de dados reais ainda não foi feita**. Nenhum veredito de aceite foi inventado.
-
-| Frente | O que existe agora | O que ainda depende de execução/dados |
-| --- | --- | --- |
-| Soak com telemetria | `npm run validar:soak` ([`soak.md`](./soak.md)): servidor real em diretório temporário, quadros com timestamps simulados, lacunas injetadas, upload de bytes, amostras de CPU/RAM/armazenamento do `/api/health`, invariantes de cobertura e relatório JSON. Regra pura em `src/monitoramento/validacao-soak.ts`, coberta por `tests/soak-validacao.test.ts`. | Rodar `--duracao-ms 1800000` (30 min reais) no hardware de referência e arquivar o relatório. O modo `--acelerar` é diagnóstico e termina `INCONCLUSIVO`. |
-| Queda/retorno de câmera | `e2e/monitoramento-camera.spec.ts`: para a trilha de vídeo da stream real do navegador, espera reconexão, verifica renovação de segmento (fechado como `pausa`), retomada com quadros e registro operacional via rotas/API. | Repetir no Chrome com webcam física e no Firefox/WebKit, se esses navegadores entrarem na matriz de suporte. |
-| Iluminação/oclusão | Regra pura em `src/domain/avaliacao-condicoes.ts`, gate `npm run validar:condicoes`, relatório em `logs/condicoes/` e protocolo em [`bench/clipes/oclusao-iluminacao/README.md`](../bench/clipes/oclusao-iluminacao/README.md). A regra distingue `baixa_confianca` de `movimento`/`nova_entidade`/`desaparecimento` e exige anotação revisada. | Gravar clipes com consentimento, conferir intervalos quadro a quadro e anotar três ocorrências por condição mais dois negativos. Sem isso, o gate termina `INCONCLUSIVO` com código não zero. |
+**Iluminação e oclusão:** roteiros sintéticos em `tests/qualidade-eventos.test.ts` provam a regra da política, mas o gate `npm run validar:condicoes` ([protocolo](../bench/clipes/oclusao-iluminacao/README.md)) continua `INCONCLUSIVO` sem clipes anotados e revisados. Não é substituto para avaliação humana.
 
 **Observação sobre o E2E:** o Chromium não emite `ended` quando `track.stop()` é chamado, então o teste para a trilha de vídeo real e dispara o evento `ended` que uma desconexão física emitiria. As streams, o `getUserMedia`, o `MediaRecorder`, a reconexão e as rotas HTTP são reais; a desconexão física da webcam permanece fora da cobertura automatizada.
 
-**Critério de aceite da Fase 7:** soak de 30 min sem sobreposição/perda de quadros, com lacunas injetadas explicadas e crescimento de RSS dentro do limite; E2E de troca de stream verde; e gate de condições `APROVADO` com clipes revisados. Até o último item existir, a Fase 7 está **parcial** — os harnesses não são a medição.
+**Critério de aceite da Fase 7:** sessão prolongada, webcam física/reconexão e disco cheio executados e arquivados, além do gate de condições `APROVADO` com clipes revisados. O soak de 30 min já atendeu sua parte. Até o restante existir, a Fase 7 está **parcial** — os harnesses não são a medição. Precisão, latência e custo reais seguem `N/A`.
 
 ## Outras pendências registradas
 

@@ -1,4 +1,6 @@
+import type { CifradorVideo } from "../criptografia-video";
 import type { VideoSegment } from "../../domain";
+import type { MotivosRetencao } from "../../domain/retencao-videos";
 
 /** Metadados duráveis de um arquivo de vídeo. */
 export interface ArquivoVideoSegmento {
@@ -14,6 +16,15 @@ export interface ArquivoVideoSegmento {
   estado: VideoSegment["estado"];
   motivoFim?: VideoSegment["motivoFim"];
   quadros: number;
+  /** Identificador do esquema de cifragem, ou `null` quando gravado em claro. */
+  cifrado?: string | null;
+}
+
+/** Desfecho da retenção já aplicada, com motivos auditáveis. */
+export interface ResultadoAplicacaoRetencao {
+  removidos: ArquivoVideoSegmento[];
+  preservados: string[];
+  motivos: MotivosRetencao;
 }
 
 export type MotivoErroVideo =
@@ -24,7 +35,9 @@ export type MotivoErroVideo =
   | "bytes_acima_do_limite"
   | "formato_invalido"
   | "conflito"
-  | "nao_encontrado";
+  | "nao_encontrado"
+  | "cifragem_indisponivel"
+  | "cifragem_invalida";
 
 /** Erro explícito: o chamador traduz o motivo em status HTTP. */
 export class ArquivoVideoError extends Error {
@@ -45,6 +58,12 @@ export interface OpcoesArmazenadorVideos {
   retencaoMs?: number;
   /** Número máximo de arquivos; `0` desativa. Padrão: `0` (ilimitado). */
   maxArquivos?: number;
+  /** Total máximo de bytes no diretório; `0` desativa. Padrão: `0`. */
+  maxBytesTotais?: number;
+  /** Segmentos preservados da retenção (eventos importantes). */
+  preservarSegmentoIds?: readonly string[];
+  /** Cifragem em repouso dos bytes; ausente = gravação em claro declarada. */
+  cifrador?: CifradorVideo;
 }
 
 export interface DadosUploadVideo {

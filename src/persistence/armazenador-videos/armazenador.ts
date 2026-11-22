@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { VideoSegment } from "../../domain";
+import { selecionarParaRetencao } from "../../domain/retencao-videos";
+import { ErroCifragemVideo, type CifradorVideo } from "../criptografia-video";
 import {
   ArquivoVideoError,
   MAX_BYTES_PADRAO,
@@ -13,6 +15,7 @@ import type {
   ArquivoVideoSegmento,
   DadosUploadVideo,
   OpcoesArmazenadorVideos,
+  ResultadoAplicacaoRetencao,
   VideoArmazenado,
 } from "./tipos";
 
@@ -21,12 +24,21 @@ export class ArmazenadorVideos {
   private readonly maxBytesPorArquivo: number;
   private readonly retencaoMs: number;
   private readonly maxArquivos: number;
+  private readonly maxBytesTotais: number;
+  private readonly preservarSegmentoIds: readonly string[];
+  private readonly cifrador: CifradorVideo | undefined;
 
   constructor(opcoes: OpcoesArmazenadorVideos) {
     this.dir = opcoes.dir;
     this.maxBytesPorArquivo = opcoes.maxBytesPorArquivo ?? MAX_BYTES_PADRAO;
     this.retencaoMs = opcoes.retencaoMs ?? 0;
     this.maxArquivos = opcoes.maxArquivos ?? 0;
+    this.maxBytesTotais = opcoes.maxBytesTotais ?? 0;
+    this.preservarSegmentoIds = opcoes.preservarSegmentoIds ?? [];
+    this.cifrador = opcoes.cifrador;
+    if (!Number.isFinite(this.maxBytesTotais) || this.maxBytesTotais < 0) {
+      throw new Error("maxBytesTotais deve ser finito e nao negativo");
+    }
     if (!instanteValido(this.retencaoMs) || this.retencaoMs < 0) {
       throw new Error("retencaoMs deve ser finito e nao negativo");
     }
@@ -81,14 +93,20 @@ export class ArmazenadorVideos {
     await fs.promises.mkdir(this.dir, { recursive: true });
     const { video, meta } = this.caminhos(segmento.segmentoId);
     const anterior = await this.lerMetadados(segmento.segmentoId);
+    const cifrado = this.cifrador?.id ?? null;
     if (anterior) {
-      if (anterior.bytes === dados.bytes.length) return anterior;
+      if (anterior.bytes === dados.bytes.length && (anterior.cifrado ?? null) === cifrado) {
+        return anterior;
+      }
       throw new ArquivoVideoError(
         "conflito",
-        "Segmento ja foi gravado com tamanho diferente"
+        "Segmento ja foi gravado com tamanho ou cifragem diferente"
       );
     }
 
+    const bytesGravados = this.cifrador
+      ? this.cifrador.cifrar(Buffer.from(dados.bytes))
+      : Buffer.from(dados.bytes);
     const arquivo: ArquivoVideoSegmento = {
       segmentoId: segmento.segmentoId,
       sessaoId: segmento.sessaoId,
@@ -101,13 +119,14 @@ export class ArmazenadorVideos {
       estado: segmento.estado,
       ...(segmento.motivoFim ? { motivoFim: segmento.motivoFim } : {}),
       quadros: segmento.quadros,
+      cifrado,
     };
 
     const sufixo = randomUUID();
     const tmpVideo = `${video}.tmp-${sufixo}`;
     const tmpMeta = `${meta}.tmp-${sufixo}`;
     try {
-      await fs.promises.writeFile(tmpVideo, dados.bytes);
+      await fs.promises.writeFile(tmpVideo, bytesGravados);
       await fs.promises.writeFile(tmpMeta, JSON.stringify(arquivo), "utf8");
       await fs.promises.rename(tmpVideo, video);
       try {
@@ -138,6 +157,22 @@ export class ArmazenadorVideos {
     } catch (erro) {
       if ((erro as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw erro;
+    }
+    if (arquivo.cifrado) {
+      if (!this.cifrador || this.cifrador.id !== arquivo.cifrado) {
+        throw new ArquivoVideoError(
+          "cifragem_indisponivel",
+          `Video cifrado com ${arquivo.cifrado}; chave/esquema indisponivel`
+        );
+      }
+      try {
+        bytes = this.cifrador.decifrar(bytes);
+      } catch (erro) {
+        if (erro instanceof ErroCifragemVideo) {
+          throw new ArquivoVideoError("cifragem_invalida", erro.message);
+        }
+        throw erro;
+      }
     }
     return { arquivo, bytes };
   }
@@ -172,25 +207,40 @@ export class ArmazenadorVideos {
    * contada a partir de `criadoEmMs`, nunca do relógio interno.
    */
   async aplicarRetencao(agoraMs: number): Promise<ArquivoVideoSegmento[]> {
+    return (await this.aplicarPoliticaRetencao(agoraMs)).removidos;
+  }
+
+  /** Versão auditável da retenção: inclui motivos e IDs preservados. */
+  async aplicarPoliticaRetencao(agoraMs: number): Promise<ResultadoAplicacaoRetencao> {
     if (!instanteValido(agoraMs)) throw new Error("agoraMs deve ser finito");
     const arquivos = await this.listar();
-    const porIdade = arquivos.filter(
-      (arquivo) => this.retencaoMs > 0 && arquivo.criadoEmMs + this.retencaoMs <= agoraMs
+    const selecao = selecionarParaRetencao(
+      arquivos.map((arquivo) => ({
+        segmentoId: arquivo.segmentoId,
+        criadoEmMs: arquivo.criadoEmMs,
+        bytes: arquivo.bytes,
+      })),
+      {
+        maxIdadeMs: this.retencaoMs,
+        maxArquivos: this.maxArquivos,
+        maxBytesTotais: this.maxBytesTotais,
+        preservarSegmentoIds: this.preservarSegmentoIds,
+      },
+      agoraMs
     );
-    const porQuantidade =
-      this.maxArquivos > 0
-        ? [...arquivos]
-            .sort((a, b) => a.criadoEmMs - b.criadoEmMs || a.segmentoId.localeCompare(b.segmentoId))
-            .slice(0, Math.max(0, arquivos.length - this.maxArquivos))
-        : [];
-    const removidos = new Map<string, ArquivoVideoSegmento>();
-    for (const arquivo of [...porIdade, ...porQuantidade]) {
-      removidos.set(arquivo.segmentoId, arquivo);
+    const porId = new Map(arquivos.map((arquivo) => [arquivo.segmentoId, arquivo]));
+    const removidos: ArquivoVideoSegmento[] = [];
+    for (const alvo of selecao.remover) {
+      const arquivo = porId.get(alvo.segmentoId);
+      if (!arquivo) continue;
+      await this.remover(arquivo);
+      removidos.push(arquivo);
     }
-    for (const arquivo of removidos.values()) await this.remover(arquivo);
-    return [...removidos.values()].sort(
-      (a, b) => a.criadoEmMs - b.criadoEmMs || a.segmentoId.localeCompare(b.segmentoId)
-    );
+    return {
+      removidos,
+      preservados: selecao.preservados,
+      motivos: selecao.motivos,
+    };
   }
 
   /** Remove um segmento (usado também para atender pedidos de apagar dados). */

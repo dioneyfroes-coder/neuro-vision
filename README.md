@@ -50,7 +50,8 @@ Configuração essencial (veja a tabela completa em [`docs/uso.md`](./docs/uso.m
 | [`docs/api.md`](./docs/api.md) | API HTTP completa, snapshot = frame analisado, retenção de snapshots, memória JSONL. |
 | [`docs/eventos.md`](./docs/eventos.md) | Fluxo orientado a eventos: política, motivos, cancelamento e consulta ao histórico. |
 | [`docs/arquitetura.md`](./docs/arquitetura.md) | Estrutura de arquivos e como as partes conversam. |
-| [`docs/seguranca.md`](./docs/seguranca.md) | Exposição na rede e controles aplicados. |
+| [`docs/seguranca.md`](./docs/seguranca.md) | Exposição na rede, token, criptografia em repouso e auditoria. |
+| [`docs/fase7-operacao-seguranca.md`](./docs/fase7-operacao-seguranca.md) | Recuperação, retenção, acesso e privacidade na operação contínua. |
 | [`docs/qualidade.md`](./docs/qualidade.md) | Benchmark, avaliação de eventos (precisão/recall) e regressão. |
 | [`docs/limites.md`](./docs/limites.md) | Limitações conhecidas. |
 

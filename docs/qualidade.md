@@ -155,13 +155,13 @@ A operação contínua é observada por `/api/health`: CPU/RAM do processo e byt
 
 ### Validação real dos casos degradados (Fase 7)
 
-A Fase 7 não acrescenta nova política: acrescenta **instrumentos de medição** para o que antes era só regra testada com sintéticos.
+Além dos instrumentos de medição, a Fase 7 acrescenta **recuperação após queda**, retenção habilitada, autenticação opcional, criptografia em repouso e auditoria — detalhadas em [`fase7-operacao-seguranca.md`](./fase7-operacao-seguranca.md). Nada disso substitui medição de campo: são controles de código, com testes determinísticos em `tests/fase7-operacao-seguranca.test.ts`.
 
 - **Iluminação/oclusão com verdade-base:** a regra pura em `src/domain/avaliacao-condicoes.ts` casa anotações revisadas com eventos observados por coeficiente de sobreposição temporal (padrão `0,5`, tolerância de 2 s). Classificar um trecho degradado como `movimento`, `nova_entidade` ou `desaparecimento` é **violação** e reprova. Falsos positivos por minuto, precisão e recall têm limites no manifesto. `npm run validar:condicoes` aplica o gate e grava `logs/condicoes/relatorio-*.json`; sem clipes revisados ele termina `INCONCLUSIVO` — ver protocolo em [`bench/clipes/oclusao-iluminacao/README.md`](../bench/clipes/oclusao-iluminacao/README.md) e testes em `tests/avaliacao-condicoes.test.ts`.
 - **Operação contínua:** `npm run validar:soak` exercita o servidor real com telemetria e verifica cobertura sem sobreposição/perda, lacunas injetadas explicadas, bytes para cada segmento fechado e estabilidade de memória. O modo acelerado é diagnóstico e nunca vira aceite; ver [`soak.md`](./soak.md).
 - **Câmera:** o E2E `e2e/monitoramento-camera.spec.ts` troca a `MediaStream` de verdade no navegador e confere a renovação do segmento (fechado como `pausa`), a retomada com quadros e o registro operacional, fechando a diferença entre o teste unitário com fontes falsas e o comportamento no browser.
 
-Nenhum desses instrumentos produz "precisão real" sem dados coletados: os números aparecem somente quando houver clipes anotados e revisados e execução de 30 min em tempo real.
+O soak real de 30 minutos em 2026-11-22 foi concluído com veredito `APROVADO` ([`soak.md`](./soak.md)); a execução de sessão prolongada (horas) continua pendente. Nenhum desses instrumentos produz "precisão real" sem dados coletados: os números de precisão/latência/custo aparecem somente quando houver clipes anotados e revisados e backend real executando sobre eles.
 
 ### Benchmark reproduzível e decisão por dados (Fase 5)
 

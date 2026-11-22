@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Neuro Vision — acesso</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #0b0f14;
+        color: #e6edf3;
+        font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      form {
+        width: min(92vw, 380px);
+        padding: 28px;
+        border: 1px solid #263241;
+        border-radius: 12px;
+        background: #121922;
+      }
+      h1 { margin: 0 0 4px; font-size: 20px; }
+      p { margin: 0 0 20px; color: #93a4b8; font-size: 13px; }
+      label { display: block; margin-bottom: 6px; font-weight: 600; }
+      input {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #33445a;
+        border-radius: 8px;
+        background: #0b1119;
+        color: inherit;
+        font: inherit;
+      }
+      button {
+        width: 100%;
+        margin-top: 16px;
+        padding: 10px;
+        border: 0;
+        border-radius: 8px;
+        background: #2f81f7;
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.6; cursor: default; }
+      #erro { min-height: 1.5em; margin: 10px 0 0; color: #ff8b8b; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <form id="formulario">
+      <h1>Neuro Vision</h1>
+      <p>Acesso protegido por token. O valor não é gravado no navegador nem na trilha de auditoria.</p>
+      <label for="token">Token de acesso</label>
+      <input id="token" name="token" type="password" autocomplete="current-password" required />
+      <button id="entrar" type="submit">Entrar</button>
+      <p id="erro" role="alert"></p>
+    </form>
+    <script>
+      const formulario = document.getElementById("formulario");
+      const campo = document.getElementById("token");
+      const botao = document.getElementById("entrar");
+      const erro = document.getElementById("erro");
+      formulario.addEventListener("submit", async (evento) => {
+        evento.preventDefault();
+        erro.textContent = "";
+        botao.disabled = true;
+        try {
+          const resposta = await fetch("/api/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: campo.value }),
+          });
+          if (!resposta.ok) {
+            erro.textContent = "Token inválido.";
+            campo.value = "";
+            campo.focus();
+            return;
+          }
+          location.replace("/");
+        } catch {
+          erro.textContent = "Não foi possível contatar o servidor.";
+        } finally {
+          botao.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

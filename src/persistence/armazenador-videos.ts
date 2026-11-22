@@ -7,6 +7,7 @@ export type {
   ArquivoVideoSegmento,
   MotivoErroVideo,
   OpcoesArmazenadorVideos,
+  ResultadoAplicacaoRetencao,
   DadosUploadVideo,
   VideoArmazenado,
 } from "./armazenador-videos/tipos";

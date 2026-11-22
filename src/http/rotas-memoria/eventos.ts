@@ -20,6 +20,7 @@ import {
   salvarSnapshot,
 } from "../persistencia";
 import { inteiroLimitado, parsearInstante, parsearTiposEvento, validarPayloadEvento } from "../validacao";
+import { auditarNulo, type RegistradorAuditoria } from "../auditoria";
 import { anexarTrechosDeVideo } from "./video";
 
 export async function handleEventos(
@@ -96,7 +97,8 @@ export async function handleClearEventos(
   res: ServerResponse,
   eventosFile: string,
   snapDir: string,
-  logFile: string
+  logFile: string,
+  auditar: RegistradorAuditoria = auditarNulo
 ): Promise<void> {
   try {
     await limparEventos(eventosFile);
@@ -104,8 +106,15 @@ export async function handleClearEventos(
       snapDir,
       logFiles: arquivosDeMemoria(logFile, eventosFile),
     });
+    auditar({
+      acao: "limpeza_eventos",
+      resultado: "sucesso",
+      alvo: "eventos",
+      detalhe: { snapshotsRemovidos: snapshots.removidos },
+    });
     sendJson(res, 200, { ok: true, snapshots });
   } catch (err) {
+    auditar({ acao: "limpeza_eventos", resultado: "falha", alvo: "eventos" });
     registrarFalha("error", "limpar_eventos_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });
   }

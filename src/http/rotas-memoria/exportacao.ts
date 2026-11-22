@@ -18,6 +18,7 @@ import {
 } from "../../domain";
 import { lerEventos, lerEventosTemporais } from "../persistencia";
 import { registrarFalha } from "../base";
+import { auditarNulo, type RegistradorAuditoria } from "../auditoria";
 import { descreverFiltros, parsearFiltrosEventosTemporais } from "./filtros";
 
 const LIMITE_EXPORTACAO = 20_000;
@@ -31,7 +32,8 @@ export async function handleExportarEventos(
   req: IncomingMessage,
   res: ServerResponse,
   eventosFile: string,
-  eventosTemporaisFile: string
+  eventosTemporaisFile: string,
+  auditar: RegistradorAuditoria = auditarNulo
 ): Promise<void> {
   try {
     const url = new URL(req.url ?? "/api/eventos/exportar", "http://localhost");
@@ -67,6 +69,12 @@ export async function handleExportarEventos(
         .map((evento) => registroDeEventoVisual(evento)),
     ].sort((a, b) => Date.parse(b.inicioEm) - Date.parse(a.inicioEm));
 
+    auditar({
+      acao: "exportacao_eventos",
+      resultado: "sucesso",
+      alvo: filtros.sessionId ? `sessao:${filtros.sessionId}` : "eventos",
+      detalhe: { formato, registros: registros.length },
+    });
     const geradoEm = new Date().toISOString();
     const conteudo = serializarEventos(registros, formato, {
       geradoEm,
@@ -82,6 +90,7 @@ export async function handleExportarEventos(
     });
     res.end(conteudo);
   } catch (err) {
+    auditar({ acao: "exportacao_eventos", resultado: "falha", alvo: "eventos" });
     registrarFalha("error", "exportar_eventos_falhou", { erro: (err as Error).message });
     if (!res.headersSent) {
       res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });

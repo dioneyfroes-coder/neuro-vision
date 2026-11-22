@@ -61,6 +61,25 @@ export function serveStatic(req: IncomingMessage, res: ServerResponse, publicDir
   });
 }
 
+/** Página de login: única página servida quando a autenticação está ativa. */
+export function serveLogin(res: ServerResponse, publicDir: string): void {
+  const arquivo = resolveStaticFile("/login.html", publicDir);
+  if (!arquivo) {
+    res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Login indisponivel");
+    return;
+  }
+  fs.readFile(arquivo, (err, data) => {
+    if (err) {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Login indisponivel");
+      return;
+    }
+    res.writeHead(200, { "Content-Type": MIME[".html"], "Cache-Control": "no-store" });
+    res.end(data);
+  });
+}
+
 export function serveSnapshot(
   req: IncomingMessage,
   res: ServerResponse,

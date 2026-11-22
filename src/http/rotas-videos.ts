@@ -12,6 +12,7 @@ import { ArquivoVideoSegmento } from "../persistence/armazenador-videos";
 import { DadosUploadVideo } from "../persistence/armazenador-videos";
 
 import { VIDEO_UPLOAD_MAX_BYTES, readBodyBuffer, registrarFalha, sendJson } from "./base";
+import { auditarNulo, type RegistradorAuditoria } from "./auditoria";
 import { lerInstanteDoCorpo } from "./validacao";
 
 /* ------------------------------------------------------------------------- *
@@ -24,9 +25,11 @@ export function responderErroVideo(res: ServerResponse, err: unknown): void {
     const status =
       err.motivo === "nao_encontrado"
         ? 404
-        : err.motivo === "conflito" || err.motivo === "segmento_aberto"
+        : err.motivo === "conflito" || err.motivo === "segmento_aberto" || err.motivo === "cifragem_invalida"
           ? 409
-          : 400;
+          : err.motivo === "cifragem_indisponivel"
+            ? 503
+            : 400;
     sendJson(res, status, { ok: false, erro: err.message, motivo: err.motivo });
     return;
   }
@@ -85,12 +88,19 @@ export async function handleUploadVideo(
 export async function handleListarVideos(
   req: IncomingMessage,
   res: ServerResponse,
-  armazenador: ArmazenadorVideos
+  armazenador: ArmazenadorVideos,
+  auditar: RegistradorAuditoria = auditarNulo
 ): Promise<void> {
   try {
     const url = new URL(req.url ?? "/", "http://localhost");
     const sessaoId = url.searchParams.get("sessaoId") ?? undefined;
     const arquivos: ArquivoVideoSegmento[] = await armazenador.listar(sessaoId);
+    auditar({
+      acao: "acesso_video",
+      resultado: "sucesso",
+      alvo: sessaoId ? `sessao:${sessaoId}` : "videos",
+      detalhe: { listagem: true, total: arquivos.length },
+    });
     sendJson(res, 200, { ok: true, total: arquivos.length, arquivos });
   } catch (err) {
     responderErroVideo(res, err);
@@ -126,16 +136,24 @@ export async function handleObterVideo(
   req: IncomingMessage,
   res: ServerResponse,
   armazenador: ArmazenadorVideos,
-  segmentoId: string
+  segmentoId: string,
+  auditar: RegistradorAuditoria = auditarNulo
 ): Promise<void> {
   try {
     const encontrado = await armazenador.obter(segmentoId);
     if (!encontrado) {
+      auditar({ acao: "acesso_video", resultado: "falha", alvo: segmentoId });
       sendJson(res, 404, { ok: false, erro: "Video nao encontrado" });
       return;
     }
     const total = encontrado.bytes.length;
     const range = parseRange(req.headers.range, total);
+    auditar({
+      acao: "acesso_video",
+      resultado: "sucesso",
+      alvo: segmentoId,
+      detalhe: { parcial: Boolean(range), cifrado: Boolean(encontrado.arquivo.cifrado) },
+    });
     const baseHeaders = {
       "Content-Type": encontrado.arquivo.contentType,
       "Accept-Ranges": "bytes",
@@ -163,17 +181,21 @@ export async function handleObterVideo(
 export async function handleExcluirVideo(
   res: ServerResponse,
   armazenador: ArmazenadorVideos,
-  segmentoId: string
+  segmentoId: string,
+  auditar: RegistradorAuditoria = auditarNulo
 ): Promise<void> {
   try {
     const excluido = await armazenador.excluir(segmentoId);
     if (!excluido) {
+      auditar({ acao: "exclusao_video", resultado: "falha", alvo: segmentoId });
       sendJson(res, 404, { ok: false, erro: "Video nao encontrado" });
       return;
     }
     registrarFalha("info", "video_excluido", { segmentoId });
+    auditar({ acao: "exclusao_video", resultado: "sucesso", alvo: segmentoId });
     sendJson(res, 200, { ok: true, excluido: true });
   } catch (err) {
+    auditar({ acao: "exclusao_video", resultado: "falha", alvo: segmentoId });
     responderErroVideo(res, err);
   }
 }
@@ -182,7 +204,8 @@ export async function handleExcluirVideo(
 export async function handleExcluirVideosSessao(
   req: IncomingMessage,
   res: ServerResponse,
-  armazenador: ArmazenadorVideos
+  armazenador: ArmazenadorVideos,
+  auditar: RegistradorAuditoria = auditarNulo
 ): Promise<void> {
   try {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -197,6 +220,12 @@ export async function handleExcluirVideosSessao(
       total: removidos.length,
       segmentos: removidos.map((arquivo) => arquivo.segmentoId),
     });
+    auditar({
+      acao: "exclusao_videos_sessao",
+      resultado: "sucesso",
+      alvo: `sessao:${sessaoId}`,
+      detalhe: { total: removidos.length },
+    });
     sendJson(res, 200, { ok: true, total: removidos.length, removidos });
   } catch (err) {
     responderErroVideo(res, err);
@@ -207,7 +236,8 @@ export async function handleExcluirVideosSessao(
 export async function handleRetencaoVideos(
   req: IncomingMessage,
   res: ServerResponse,
-  armazenador: ArmazenadorVideos
+  armazenador: ArmazenadorVideos,
+  auditar: RegistradorAuditoria = auditarNulo
 ): Promise<void> {
   try {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -216,15 +246,33 @@ export async function handleRetencaoVideos(
       sendJson(res, 400, { ok: false, erro: "parametro 'agoraMs' deve ser finito" });
       return;
     }
-    const removidos = await armazenador.aplicarRetencao(lido ?? Date.now());
+    const resultado = await armazenador.aplicarPoliticaRetencao(lido ?? Date.now());
+    const { removidos, preservados, motivos } = resultado;
     if (removidos.length > 0) {
       registrarFalha("info", "retencao_videos_aplicada", {
         total: removidos.length,
         segmentos: removidos.map((arquivo) => arquivo.segmentoId),
       });
     }
-    sendJson(res, 200, { ok: true, total: removidos.length, removidos });
+    auditar({
+      acao: "aplicacao_retencao",
+      resultado: "sucesso",
+      alvo: "videos",
+      detalhe: {
+        removidos: removidos.length,
+        preservados: preservados.length,
+        motivos: JSON.stringify(motivos),
+      },
+    });
+    sendJson(res, 200, {
+      ok: true,
+      total: removidos.length,
+      removidos,
+      preservados,
+      motivos,
+    });
   } catch (err) {
+    auditar({ acao: "aplicacao_retencao", resultado: "falha", alvo: "videos" });
     responderErroVideo(res, err);
   }
 }

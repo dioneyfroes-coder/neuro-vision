@@ -68,6 +68,13 @@ Variáveis de ambiente lidas pelo servidor:
 | `VISAO_BODY_MAX_BYTES` | `12000000` | Limite do corpo JSON de `POST /api/visao`. |
 | `NEURO_ALLOW_REMOTE` | (vazio) | `1` permite escutar em host não-loopback (assumindo o risco). |
 | `NEURO_ALLOWED_ORIGINS` | (vazio) | CSV de origens extras permitidas além da própria (ex.: `http://host:3000`). |
+| `NEURO_API_TOKEN` | (vazio) | Definido = exige autenticação (Bearer ou cookie) em API, UI e snapshots. Vazio mantém o modo local sem login. |
+| `NEURO_HTTPS` | `false` | `1` marca o cookie de sessão como `Secure` (quando há HTTPS na frente). |
+| `VIDEO_RETENCAO_MS` | `2592000000` | Idade máxima dos vídeos (30 dias). `0` desativa este critério. |
+| `VIDEO_MAX_ARQUIVOS` | `500` | Quantidade máxima de arquivos de vídeo. `0` desativa. |
+| `VIDEO_MAX_BYTES_TOTAIS` | `5368709120` | Total máximo de bytes em `logs/videos/` (5 GiB). `0` desativa. |
+| `NEURO_VIDEO_KEY` | (vazio) | Chave AES-256 para cifrar vídeos em repouso (base64 de 32 bytes ou 64 caracteres hex). Vazio = gravação em claro, declarada no metadado. |
+| `NEURO_VIDEO_KEY_FILE` | (vazio) | Alternativa ao valor direto: arquivo fora do repositório contendo a chave. |
 | `E2E_WEBCAM_CLIP` | (vazio) | Caminho do clipe que substitui a webcam nos testes E2E opt-in (`e2e/webcam.spec.ts` e `e2e/webcam-multiframe.spec.ts`). |
 | `E2E_WEBCAM_CHANNEL` | (vazio) | Canal do Playwright: `chrome` usa o Chrome instalado; por padrão, roda no Chromium do Playwright. |
 | `E2E_WEBCAM_DEBUG` | `false` | `1` mantém a página visível durante o replay do clipe. |
@@ -99,7 +106,7 @@ $env:LMSTUDIO_URL="http://127.0.0.1:1234"; $env:NEURO_MODEL="qwen2.5-vl-3b-instr
 LMSTUDIO_URL=http://127.0.0.1:1234 NEURO_MODEL=qwen2.5-vl-3b-instruct npm run integrar:lmstudio                     # bash
 ```
 
-> A respeito de expor o servidor na rede e dos controles de segurança, veja [`seguranca.md`](./seguranca.md).
+> A respeito de expor o servidor na rede, token de acesso, criptografia em repouso, retenção e auditoria, veja [`seguranca.md`](./seguranca.md) e o detalhamento da Fase 7 em [`fase7-operacao-seguranca.md`](./fase7-operacao-seguranca.md).
 
 ## Funcionamento offline
 

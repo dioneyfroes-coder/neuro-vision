@@ -3,8 +3,12 @@ import type { ArmazenadorVideos } from "../../persistence/armazenador-videos";
 import type { ServicoMonitoramento } from "../../monitoramento/servico-monitoramento";
 import type { ServicoCena } from "../../monitoramento/servico-cena";
 import type { ServicoAtencao } from "../../monitoramento/servico-atencao";
-import { MODELOS_DIR, NSFW_DIR, VENDOR_DIR, origemBloqueada } from "../base";
-import { serveArquivoOffline, serveModeloNsfw, serveSnapshot, serveStatic } from "../arquivos";
+import { MODELOS_DIR, NSFW_DIR, VENDOR_DIR, origemBloqueada, registrarFalha, sendJson } from "../base";
+import { serveArquivoOffline, serveLogin, serveModeloNsfw, serveSnapshot, serveStatic } from "../arquivos";
+import { criarAuditar } from "../auditoria";
+import { autenticarRequisicao } from "../seguranca";
+import type { PoliticaAutenticacao } from "../seguranca";
+import { handleLogin, handleLogout } from "../rotas-autenticacao";
 import { handleCompararCena, handleListarMudancasCena, handleObterReferenciaCena, handleReferenciaCena, handleRevisarMudancaCena, rotaCenaMonitoramento } from "../rotas-cena";
 import { handleGravarAtencao, handleListarAtencao } from "../rotas-atencao";
 import { handleCiclos, handleClearCiclos, handleClearEventos, handleClearEventosTemporais, handleClearLogs, handleContexto, handleCorrigirEventoTemporal, handleEventos, handleEventosTemporais, handleExportarEventos, handleListCiclos, handleListEventos, handleListEventosTemporais, handleListLogs, handleLog, handleOperacional } from "../rotas-memoria";
@@ -22,7 +26,9 @@ export interface DependenciasServidor {
   eventosFile: string;
   eventosTemporaisFile: string;
   operacionalFile: string;
+  auditoriaFile: string;
   ciclosFile: string;
+  autenticacao: PoliticaAutenticacao;
   monitoramento: ServicoMonitoramento;
   armazenadorVideos: ArmazenadorVideos;
   cena: ServicoCena;
@@ -31,7 +37,7 @@ export interface DependenciasServidor {
 }
 
 export function tratarRequisicao(req: IncomingMessage, res: ServerResponse, deps: DependenciasServidor): void {
-  const { config, logFile, snapDir, publicDir, eventosFile, eventosTemporaisFile, operacionalFile, ciclosFile, monitoramento, armazenadorVideos, cena, atencao, permitidas } = deps;
+  const { config, logFile, snapDir, publicDir, eventosFile, eventosTemporaisFile, operacionalFile, auditoriaFile, ciclosFile, autenticacao, monitoramento, armazenadorVideos, cena, atencao, permitidas } = deps;
       const url = req.url ?? "/";
       // Isolamento entre origens (COOP/COEP): habilita SharedArrayBuffer e, com
       // ele, o WASM multithread do ONNX Runtime (ate 4 threads por worker -
@@ -46,6 +52,43 @@ export function tratarRequisicao(req: IncomingMessage, res: ServerResponse, deps
         return;
       }
       const pathname = url.split("?")[0];
+      // Identidade e trilha são resolvidas antes do despacho para que toda
+      // rota subsequente registre o mesmo ator. Sem token configurado,
+      // `autenticarRequisicao` devolve `anonimo` e nada muda no comportamento.
+      const identidade = autenticarRequisicao(req, autenticacao);
+      const auditar = criarAuditar(auditoriaFile, identidade.ator);
+
+      // Rotas públicas de autenticação e health-check (monitoramento externo).
+      if (req.method === "POST" && pathname === "/api/login") {
+        void handleLogin(req, res, autenticacao, auditar);
+        return;
+      }
+      if (req.method === "POST" && pathname === "/api/logout") {
+        handleLogout(res, identidade.ator, auditar);
+        return;
+      }
+      if (req.method === "GET" && pathname === "/login.html") {
+        serveLogin(res, publicDir);
+        return;
+      }
+      if (autenticacao.obrigatoria && !identidade.autenticada && pathname !== "/api/health") {
+        registrarFalha("warn", "acesso_negado", { pathname, ator: identidade.ator });
+        auditar({
+          acao: "acesso_negado",
+          resultado: "negado",
+          alvo: pathname,
+        });
+        if (pathname.startsWith("/api/")) {
+          sendJson(res, 401, { ok: false, erro: "nao_autenticado" });
+        } else if (req.method === "GET") {
+          serveLogin(res, publicDir);
+        } else {
+          res.writeHead(401, { "Content-Type": "text/plain; charset=utf-8" });
+          res.end("Autenticacao necessaria");
+        }
+        return;
+      }
+
       if (req.method === "POST" && url === "/api/log") {
         void handleLog(req, res, logFile, snapDir, eventosFile);
         return;
@@ -63,11 +106,11 @@ export function tratarRequisicao(req: IncomingMessage, res: ServerResponse, deps
         return;
       }
       if (req.method === "GET" && pathname === "/api/eventos/exportar") {
-        void handleExportarEventos(req, res, eventosFile, eventosTemporaisFile);
+        void handleExportarEventos(req, res, eventosFile, eventosTemporaisFile, auditar);
         return;
       }
       if (req.method === "DELETE" && pathname === "/api/eventos") {
-        void handleClearEventos(res, eventosFile, snapDir, logFile);
+        void handleClearEventos(res, eventosFile, snapDir, logFile, auditar);
         return;
       }
       if (req.method === "POST" && pathname === "/api/eventos-temporais") {
@@ -79,7 +122,7 @@ export function tratarRequisicao(req: IncomingMessage, res: ServerResponse, deps
         return;
       }
       if (req.method === "DELETE" && pathname === "/api/eventos-temporais") {
-        void handleClearEventosTemporais(res, eventosTemporaisFile);
+        void handleClearEventosTemporais(res, eventosTemporaisFile, auditar);
         return;
       }
       if (
@@ -138,11 +181,11 @@ export function tratarRequisicao(req: IncomingMessage, res: ServerResponse, deps
       }
       if (pathname === "/api/monitoramento/videos") {
         if (req.method === "GET") {
-          void handleListarVideos(req, res, armazenadorVideos);
+          void handleListarVideos(req, res, armazenadorVideos, auditar);
           return;
         }
         if (req.method === "DELETE") {
-          void handleExcluirVideosSessao(req, res, armazenadorVideos);
+          void handleExcluirVideosSessao(req, res, armazenadorVideos, auditar);
           return;
         }
         res.writeHead(405, { "Content-Type": "text/plain; charset=utf-8" });
@@ -150,7 +193,7 @@ export function tratarRequisicao(req: IncomingMessage, res: ServerResponse, deps
         return;
       }
       if (req.method === "POST" && pathname === "/api/monitoramento/videos/retencao") {
-        void handleRetencaoVideos(req, res, armazenadorVideos);
+        void handleRetencaoVideos(req, res, armazenadorVideos, auditar);
         return;
       }
       const rotaVideo = /^\/api\/monitoramento\/videos\/([^/]+)$/.exec(pathname);
@@ -161,11 +204,11 @@ export function tratarRequisicao(req: IncomingMessage, res: ServerResponse, deps
           return;
         }
         if (req.method === "GET") {
-          void handleObterVideo(req, res, armazenadorVideos, segmentoId);
+          void handleObterVideo(req, res, armazenadorVideos, segmentoId, auditar);
           return;
         }
         if (req.method === "DELETE") {
-          void handleExcluirVideo(res, armazenadorVideos, segmentoId);
+          void handleExcluirVideo(res, armazenadorVideos, segmentoId, auditar);
           return;
         }
         res.writeHead(405, { "Content-Type": "text/plain; charset=utf-8" });
@@ -241,7 +284,7 @@ export function tratarRequisicao(req: IncomingMessage, res: ServerResponse, deps
         return;
       }
       if (req.method === "DELETE" && pathname === "/api/logs") {
-        void handleClearLogs(res, logFile, snapDir, eventosFile, ciclosFile, eventosTemporaisFile);
+        void handleClearLogs(res, logFile, snapDir, eventosFile, ciclosFile, eventosTemporaisFile, auditar);
         return;
       }
       if (req.method === "GET" && pathname === "/api/health") {

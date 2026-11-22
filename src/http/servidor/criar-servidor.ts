@@ -6,6 +6,7 @@ import { ArmazenadorVideos } from "../../persistence/armazenador-videos";
 import { ServicoCena } from "../../monitoramento/servico-cena";
 import { ServicoAtencao } from "../../monitoramento/servico-atencao";
 import { env } from "../../env";
+import { politicaAutenticacao } from "../seguranca";
 import { LOG_FILE, LOG_MAX_BYTES, PUBLIC_DIR, SNAP_DIR, VIDEO_UPLOAD_MAX_BYTES, definirArquivoOperacionalAtivo, origensPermitidas } from "../base";
 import type { ServerConfig } from "./tipos";
 import { tratarRequisicao } from "./roteador";
@@ -27,6 +28,7 @@ export function createServer(config: ServerConfig = {}): http.Server {
   const monitoramentoSegmentosFile =
     config.monitoramentoSegmentosFile ??
     path.join(path.dirname(logFile), "monitoramento-segmentos.jsonl");
+  const auditoriaFile = config.auditoriaFile ?? path.join(path.dirname(logFile), "auditoria.jsonl");
   const monitoramento = new ServicoMonitoramento({
     sessoesFile: monitoramentoSessoesFile,
     segmentosFile: monitoramentoSegmentosFile,
@@ -37,8 +39,13 @@ export function createServer(config: ServerConfig = {}): http.Server {
     new ArmazenadorVideos({
       dir: config.videosDir ?? path.join(path.dirname(logFile), "videos"),
       maxBytesPorArquivo: config.videoMaxBytes ?? VIDEO_UPLOAD_MAX_BYTES,
-      retencaoMs: config.videoRetencaoMs ?? env.VIDEO_RETENCAO_MS,
-      maxArquivos: config.videoMaxArquivos ?? env.VIDEO_MAX_ARQUIVOS,
+      // `createServer` é usado por testes e integrações: sem configuração
+      // explícita, preserva o comportamento sem expiração. O CLI (`src/server.ts`)
+      // passa a política habilitada por padrão (30 dias/500 arquivos/5 GB).
+      retencaoMs: config.videoRetencaoMs ?? 0,
+      maxArquivos: config.videoMaxArquivos ?? 0,
+      maxBytesTotais: config.videoMaxBytesTotais ?? 0,
+      preservarSegmentoIds: config.videoPreservarSegmentoIds ?? [],
     });
   const cena = new ServicoCena({
     referenciasFile:
@@ -62,7 +69,9 @@ export function createServer(config: ServerConfig = {}): http.Server {
       eventosFile,
       eventosTemporaisFile,
       operacionalFile,
+      auditoriaFile,
       ciclosFile,
+      autenticacao: config.autenticacao ?? politicaAutenticacao(),
       monitoramento,
       armazenadorVideos,
       cena,

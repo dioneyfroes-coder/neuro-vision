@@ -1,4 +1,5 @@
 import type { ArmazenadorVideos } from "../../persistence/armazenador-videos";
+import type { PoliticaAutenticacao } from "../seguranca";
 
 export interface ServerConfig {
   logFile?: string;
@@ -33,6 +34,10 @@ export interface ServerConfig {
   videoRetencaoMs?: number;
   /** Numero maximo de arquivos (0 desativa). Padrao: `VIDEO_MAX_ARQUIVOS`. */
   videoMaxArquivos?: number;
+  /** Total maximo de bytes (0 desativa). Padrao: `VIDEO_MAX_BYTES_TOTAIS`. */
+  videoMaxBytesTotais?: number;
+  /** Segmentos protegidos da retencao (ex.: trechos de eventos importantes). */
+  videoPreservarSegmentoIds?: readonly string[];
   /** Instancia pronta (startup aplica retencao antes de abrir a porta). */
   armazenadorVideos?: ArmazenadorVideos;
   /** Indice da referencia do ambiente. Padrao: `cena-referencias.jsonl`. */
@@ -45,4 +50,8 @@ export interface ServerConfig {
   vendorDir?: string;
   /** Diretorio dos pesos do modo offline. Padrao: `modelos/` na raiz. */
   modelosDir?: string;
+  /** Arquivo append-only de auditoria. Padrao: `auditoria.jsonl` ao lado do log. */
+  auditoriaFile?: string;
+  /** Política de autenticação; ausente deriva de `NEURO_API_TOKEN`. */
+  autenticacao?: PoliticaAutenticacao;
 }
