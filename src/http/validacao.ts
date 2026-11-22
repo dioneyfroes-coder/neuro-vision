@@ -27,4 +27,4 @@ export {
   montarAgoraMonitoramento,
   montarQuadrosMonitoramento,
 } from "./validacao/monitoramento";
-export { montarItensCena, montarComparacaoCena } from "./validacao/cena";
+export { montarItensCena, montarComparacaoCena, montarConsolidacaoCena } from "./validacao/cena";

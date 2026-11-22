@@ -106,6 +106,18 @@
           </div>
         </div>
         <span id="monitorAviso" class="aviso monitor-aviso" role="alert" hidden></span>
+        <details id="inventarioPainel" class="inventario-painel">
+          <summary>Inventário do ambiente <span id="inventarioResumo" class="count">sem inventário</span></summary>
+          <div class="monitor-grupo monitor-grupo-secundario" role="group" aria-label="Ações do inventário">
+            <button id="inventarioColetar" type="button" disabled>Capturar inventário (3 quadros)</button>
+            <button id="inventarioAtualizar" class="ghost" type="button" disabled>Atualizar revisão</button>
+          </div>
+          <p id="inventarioAviso" class="aviso" role="status" hidden></p>
+          <h3>Itens observados</h3>
+          <ul id="inventarioItens" class="inventario-lista"></ul>
+          <h3>Mudanças detectadas</h3>
+          <ul id="inventarioMudancas" class="inventario-lista"></ul>
+        </details>
       </div>      <div id="status" class="status">Pronto.</div>
     </section>
 

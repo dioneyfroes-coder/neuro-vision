@@ -9,7 +9,8 @@
 | [`api.md`](./api.md) | Referência completa da API HTTP, formato das entradas, retenção de snapshots e memória persistente (JSONL + contexto). |
 | [`eventos.md`](./eventos.md) | Fluxo orientado a eventos: política de análise (cooldown, janela, motivos), cancelamento de inferência, ciclos multiframe, interação mão↔objeto (graus `provavel`/`confirmado`/`incerto`) e consulta ao histórico. |
 | [`monitoramento.md`](./monitoramento.md) | Sessões, segmentos de vídeo de 5 minutos sem perda/sobreposição, lacunas explícitas, buffer circular pré-evento, gravação no cliente, queda/retorno da câmera, retenção/exclusão e o que ainda falta. |
-| [`cena.md`](./cena.md) | Referência do ambiente (inventário parcial), estados de confirmação e regras de detecção de mudanças com `mudancaId` estável. |
+| [`cena.md`](./cena.md) | Referência do ambiente, estados de confirmação e regras de detecção de mudanças com `mudancaId` estável. |
+| [`fase-2-inventario.md`](./fase-2-inventario.md) | Pipeline YOLO → inventário: coleta de quadros, consolidação por instância, evidência temporal, confirmação de mudanças e painel de revisão. |
 | [`arquitetura.md`](./arquitetura.md) | Estrutura de arquivos e como as partes conversam (servidor, cliente, motores, memória, variantes A–D). |
 | [`seguranca.md`](./seguranca.md) | Exposição na rede, origem cruzada, limites de corpo e validação de payloads. |
 | [`qualidade.md`](./qualidade.md) | Benchmark do modelo, avaliação de eventos (precisão/recall), benchmark das variantes A–D, benchmark da cadência independente (5 FPS), carregamento do modelo e fluxo de regressão. |

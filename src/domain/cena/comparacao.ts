@@ -99,8 +99,10 @@ export function compararCena(
   const diretos = observados.filter(
     (item) => item.confirmacao === "confirmado" || item.confirmacao === "possivel"
   );
-  const ausentes = new Set(
-    observados.filter((item) => item.confirmacao === "nao_observado").map((item) => item.rotulo)
+  const ausentes = new Map(
+    observados
+      .filter((item) => item.confirmacao === "nao_observado")
+      .map((item) => [item.rotulo, item] as const)
   );
   const usados = new Set<string>();
   const associadas = new Set<number>();
@@ -109,9 +111,22 @@ export function compararCena(
   const confiancaDireta = (item: ItemCena) =>
     item.confirmacao === "possivel" ? Math.min(item.confianca, 0.6) : item.confianca;
 
-  const acrescentar = (mudanca: Omit<MudancaCena, "mudancaId">) => {
+  const acrescentar = (mudanca: Omit<MudancaCena, "mudancaId">, evidencia?: ItemCena) => {
+    const frameIds = evidencia
+      ? [
+          ...new Set([
+            ...(evidencia.frameIds ?? []),
+            ...(evidencia.frameId ? [evidencia.frameId] : []),
+          ]),
+        ].sort()
+      : [];
+    const primeira = evidencia?.primeiraObservacaoEmMs ?? evidencia?.observadoEmMs;
+    const ultima = evidencia?.ultimaObservacaoEmMs ?? evidencia?.observadoEmMs;
     mudancas.push({
       ...mudanca,
+      ...(frameIds.length > 0 ? { frameIds } : {}),
+      ...(primeira !== undefined && finito(primeira) ? { primeiraObservacaoEmMs: primeira } : {}),
+      ...(ultima !== undefined && finito(ultima) ? { ultimaObservacaoEmMs: ultima } : {}),
       mudancaId: idMudancaCena(
         mudanca.sessaoId,
         mudanca.tipo,
@@ -164,7 +179,7 @@ export function compararCena(
           referenciaEmMs: anterior.observadoEmMs ?? referencia.criadaEmMs,
           caixaAnterior: { ...anterior.caixa },
           statusEvidencia: "nao_observado",
-        });
+        }, ausentes.get(anterior.rotulo));
       }
       continue;
     }
@@ -202,7 +217,7 @@ export function compararCena(
           estadoAtual: melhor.item.estadoObjeto,
           associacao,
           statusEvidencia,
-        });
+        }, melhor.item);
       }
       continue;
     }
@@ -222,7 +237,7 @@ export function compararCena(
         caixaAtual: { ...melhor.item.caixa },
         associacao,
         statusEvidencia,
-      });
+      }, melhor.item);
     }
   }
 
@@ -247,7 +262,7 @@ export function compararCena(
       referenciaEmMs: referencia.criadaEmMs,
       caixaAtual: { ...item.caixa },
       statusEvidencia: fraco ? "possivel" : "observado",
-    });
+    }, item);
   }
 
   return mudancas.sort(

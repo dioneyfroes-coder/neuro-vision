@@ -1,4 +1,6 @@
 import type {
+  ConsolidacaoReferenciaCena,
+  DecisaoRevisaoMudanca,
   ItemCena,
   MudancaCena,
   OpcoesComparacaoCena,
@@ -16,6 +18,7 @@ export async function definirReferenciaCena(opcoes: {
   itens: ItemCena[];
   criadaEmMs?: number;
   quadros?: number;
+  consolidacao?: ConsolidacaoReferenciaCena;
 }): Promise<ReferenciaCena> {
   const dados = await postMonitoramento<{ referencia: ReferenciaCena }>(
     urlCenaMonitoramento(opcoes.sessaoId, "referencia"),
@@ -44,16 +47,37 @@ export async function compararCenaMonitoramento(opcoes: {
   itens: ItemCena[];
   agoraMs?: number;
   comparacao?: OpcoesComparacaoCena;
-}): Promise<{ mudancas: MudancaCena[]; novas: MudancaCena[] }> {
+  confirmarRepeticao?: boolean;
+  minimoConfirmacoes?: number;
+}): Promise<{ mudancas: MudancaCena[]; novas: MudancaCena[]; confirmadas: MudancaCena[] }> {
   const dados = await postMonitoramento<{
     mudancas: MudancaCena[];
     novas: MudancaCena[];
+    confirmadas?: MudancaCena[];
   }>(
     urlCenaMonitoramento(opcoes.sessaoId, "comparar"),
     opcoes,
     "Falha ao comparar a cena com a referencia"
   );
-  return { mudancas: dados.mudancas ?? [], novas: dados.novas ?? [] };
+  return {
+    mudancas: dados.mudancas ?? [],
+    novas: dados.novas ?? [],
+    confirmadas: dados.confirmadas ?? [],
+  };
+}
+
+export async function revisarMudancaCena(opcoes: {
+  sessaoId: string;
+  mudancaId: string;
+  decisao: DecisaoRevisaoMudanca;
+  agoraMs?: number;
+}): Promise<MudancaCena> {
+  const dados = await postMonitoramento<{ mudanca: MudancaCena }>(
+    urlCenaMonitoramento(opcoes.sessaoId, "confirmar"),
+    opcoes,
+    "Falha ao revisar a mudanca de cena"
+  );
+  return dados.mudanca;
 }
 
 export async function listarMudancasCena(

@@ -216,3 +216,114 @@ describe("POST /api/monitoramento/sessoes/:id/cena/comparar", () => {
     expect(resposta.status).toBe(405);
   });
 });
+
+describe("Fase 2 — rotas do inventário automático", () => {
+  it("aceita consolidação por instância e valida o modo informado", async () => {
+    const base = await subirServidor();
+    const sessao = await criarSessao(base);
+    const resposta = await postJson(base, rota(sessao.sessaoId, "referencia"), {
+      itens: [
+        item({ objetoId: "a", instanciaId: "esq" }),
+        item({
+          objetoId: "b",
+          instanciaId: "dir",
+          caixa: { xmin: 0.6, ymin: 0.2, xmax: 0.8, ymax: 0.4 },
+        }),
+      ],
+      criadaEmMs: BASE,
+      consolidacao: "instancia",
+    });
+    expect(resposta.status).toBe(200);
+    const referencia = resposta.dados.referencia as ReferenciaCena;
+    expect(referencia.itens.map((i) => i.instanciaId)).toEqual(["dir", "esq"]);
+
+    expect(
+      (await postJson(base, rota(sessao.sessaoId, "referencia"), {
+        itens: [],
+        consolidacao: "desconhecida",
+      })).status
+    ).toBe(400);
+  });
+
+  it("confirma mudanças repetidas e preserva a rejeição da revisão", async () => {
+    const base = await subirServidor();
+    const sessao = await criarSessao(base);
+    await postJson(base, rota(sessao.sessaoId, "referencia"), {
+      itens: [item({ instanciaId: "c1", objetoId: "c1", estadoObjeto: "fechado" })],
+      criadaEmMs: BASE,
+    });
+    const observado = [
+      item({
+        instanciaId: "c1",
+        objetoId: "c1",
+        estadoObjeto: "aberto",
+        confirmacao: "possivel",
+        confianca: 0.5,
+        observadoEmMs: BASE + 100,
+      }),
+    ];
+    const comparar = (agoraMs: number) =>
+      postJson(base, rota(sessao.sessaoId, "comparar"), {
+        itens: observado,
+        agoraMs,
+        confirmarRepeticao: true,
+        associacaoPorInstancia: true,
+      });
+
+    const primeira = await comparar(BASE + 100);
+    expect(primeira.status).toBe(200);
+    expect((primeira.dados.novas as MudancaCena[])[0].statusEvidencia).toBe("possivel");
+    const segunda = await comparar(BASE + 200);
+    const confirmada = (segunda.dados.mudancas as MudancaCena[])[0];
+    expect(segunda.dados.confirmadas).toHaveLength(1);
+    const terceira = await comparar(BASE + 300);
+    expect(terceira.dados.confirmadas).toEqual([]);
+    expect(confirmada).toMatchObject({ statusEvidencia: "observado", revisao: "confirmada" });
+
+    const rejeicao = await postJson(base, rota(sessao.sessaoId, "confirmar"), {
+      mudancaId: confirmada.mudancaId,
+      decisao: "rejeitada",
+      agoraMs: BASE + 400,
+    });
+    expect(rejeicao.status).toBe(200);
+    expect(rejeicao.dados.mudanca).toMatchObject({ revisao: "rejeitada" });
+
+    const linha = await getJson(base, rota(sessao.sessaoId, "mudancas"));
+    expect(linha.dados.mudancas).toMatchObject([{ revisao: "rejeitada" }]);
+    expect(
+      (await postJson(base, rota(sessao.sessaoId, "confirmar"), {
+        mudancaId: confirmada.mudancaId,
+        decisao: "talvez",
+      })).status
+    ).toBe(400);
+    expect(
+      (await postJson(base, rota(sessao.sessaoId, "confirmar"), {
+        mudancaId: "inexistente",
+        decisao: "rejeitada",
+      })).status
+    ).toBe(404);
+  });
+
+  it("valida os campos de confirmação e associação", async () => {
+    const base = await subirServidor();
+    const sessao = await criarSessao(base);
+    expect(
+      (await postJson(base, rota(sessao.sessaoId, "comparar"), {
+        itens: [],
+        associacaoPorInstancia: "sim",
+      })).status
+    ).toBe(400);
+    expect(
+      (await postJson(base, rota(sessao.sessaoId, "comparar"), {
+        itens: [],
+        confirmarRepeticao: "sim",
+      })).status
+    ).toBe(400);
+    expect(
+      (await postJson(base, rota(sessao.sessaoId, "comparar"), {
+        itens: [],
+        minimoConfirmacoes: 0,
+      })).status
+    ).toBe(400);
+  });
+});

@@ -32,6 +32,7 @@ import {
   type RecorderLike,
 } from "../monitoramento/gravador-segmentos";
 import { criarFonteTimelapse } from "../monitoramento/fonte-timelapse";
+import { criarModuloInventario } from "./inventario";
 
 const ROTULOS_ESTADO_MONITORAMENTO: Record<EstadoMonitoramento, string> = {
   parada: "Parada",
@@ -53,6 +54,9 @@ export function criarModuloMonitoramento({
   atualizarDiagnostico,
 }: DependenciasMonitoramento) {
   let ultimaSessaoMonitoramentoId: string | null = null;
+  // Declarado antes dos callbacks de estado: o ControladorMonitoramento pode
+  // disparar `aoEstado` durante a construção, antes do módulo ser criado.
+  let moduloInventario: ReturnType<typeof criarModuloInventario> | null = null;
 
   /** Perfil timelapse (opção 3): baixo uso de espaço, <= 10 fps. */
   const TIMELAPSE_FPS = 2;
@@ -248,6 +252,7 @@ export function criarModuloMonitoramento({
     monitorReenviarBtn.textContent =
       pendentes > 0 ? `Reenviar pendentes (${pendentes})` : "Reenviar pendentes";
     monitorExcluirSessaoBtn.disabled = ultimaSessaoMonitoramentoId === null || ativo;
+    moduloInventario?.sincronizarBotoes();
   }
 
   async function garantirCameraParaMonitoramento(): Promise<void> {
@@ -262,6 +267,7 @@ export function criarModuloMonitoramento({
     try {
       await garantirCameraParaMonitoramento();
       await monitoramento.iniciar(ambiente);
+      await moduloInventario?.atualizarPainel();
       iniciarAnaliseSeguranca();
       setStatus(`Câmera de Segurança ativa: gravando "${ambiente}" em timelapse (até 10 fps) com descrições de cena.`);
     } catch (err) {
@@ -274,6 +280,7 @@ export function criarModuloMonitoramento({
     try {
       await monitoramento.encerrar();
       pararAnaliseSeguranca();
+      moduloInventario?.reiniciar();
       monitorAvisoEl.hidden = true;
       setStatus("Gravação encerrada.");
     } catch (err) {
@@ -303,6 +310,17 @@ export function criarModuloMonitoramento({
 
   // Análise de cena independente do modo principal: YOLO SFW em intervalos baixos.
   const detectorSeguranca = new AdaptadorDetectorObjetos();
+  async function garantirDetectorSeguranca(): Promise<void> {
+    if (!detectorSeguranca.modelo) {
+      await detectorSeguranca.carregar(MODELO_YOLO_PADRAO, () => {});
+    }
+  }
+  moduloInventario = criarModuloInventario({
+    setStatus,
+    obterSessaoId: () => monitoramento.sessaoAtual?.sessaoId ?? ultimaSessaoMonitoramentoId,
+    detector: detectorSeguranca,
+    garantirDetector: garantirDetectorSeguranca,
+  });
   let analiseSegurancaTimer: number | null = null;
   let analiseSegurancaEmAndamento = false;
   let ultimoResumoSeguranca = "";
@@ -314,15 +332,26 @@ export function criarModuloMonitoramento({
     if (!camera.ativa) return;
     analiseSegurancaEmAndamento = true;
     try {
-      if (!detectorSeguranca.modelo) {
-        await detectorSeguranca.carregar(MODELO_YOLO_PADRAO, () => {});
-      }
+      await garantirDetectorSeguranca();
+      // Instante da captura, antes da inferência: o mesmo quadro alimenta a
+      // descrição de segurança e a comparação do inventário.
+      const capturadoEmMs = Date.now();
       const quadro = camera.capturarQuadro(640, 320, 0.82);
       if (!quadro) return;
+      const dimensoes = camera.dimensoesQuadro(640);
+      if (!dimensoes) return;
       const resultado = await detectorSeguranca.detectar(
-        { imagem: quadro.imagem, dimensoes: { largura: camera.largura, altura: camera.altura } },
+        { imagem: quadro.imagem, dimensoes },
         { threshold: 0.45, percentage: false }
       );
+      if (moduloInventario?.pronto) {
+        void moduloInventario.registrarObservacao({
+          imagem: quadro.imagem,
+          dimensoes,
+          capturadoEmMs,
+          deteccoes: resultado,
+        });
+      }
       const { objetos, resumo } = descreverDeteccoes(resultado.deteccoes as unknown as Parameters<typeof descreverDeteccoes>[0]);
       const resumoLimpo = typeof resumo === "string" ? resumo.replace(/\bundefined\b/g, "").replace(/\s{2,}/g, " ").trim() : "";
       const descricaoBruta = resumoLimpo && resumoLimpo !== "2x" && resumoLimpo !== "0x"
@@ -335,8 +364,8 @@ export function criarModuloMonitoramento({
       ultimoResumoSeguranca = descricao;
       const sessaoId = monitoramento.sessaoAtual?.sessaoId ?? ultimaSessaoMonitoramentoId;
       const entrada: EntradaLog = {
-        timestamp: new Date().toISOString(),
-        capturadoEm: new Date().toISOString(),
+        timestamp: new Date(capturadoEmMs).toISOString(),
+        capturadoEm: new Date(capturadoEmMs).toISOString(),
         modelo: detectorSeguranca.modelo ?? MODELO_YOLO_PADRAO,
         objetos,
         resumo: descricao,
@@ -469,6 +498,7 @@ export function criarModuloMonitoramento({
   }
 
   function registrarEventos(): void {
+    moduloInventario?.registrarEventos();
     const sincronizarAnalise = () => {
       if (monitoramento.estadoAtual === "gravando" && !monitoramento.semSinal) iniciarAnaliseSeguranca();
       else pararAnaliseSeguranca();

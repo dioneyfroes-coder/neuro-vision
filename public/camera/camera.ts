@@ -95,6 +95,24 @@ export class Camera {
   }
 
   /**
+   * Dimensões reais do próximo quadro capturado com `maxWidth`.
+   *
+   * `capturarQuadro` reduz a imagem antes de devolvê-la; passar as dimensões
+   * nativas do vídeo ao detector deslocaria todas as caixas. Este método usa a
+   * mesma escala de `capturarFrame` para que caixa e imagem concordem.
+   */
+  dimensoesQuadro(maxWidth = 0): { largura: number; altura: number } | undefined {
+    const vw = this.video.videoWidth;
+    const vh = this.video.videoHeight;
+    if (!vw || !vh) return undefined;
+    const escala = maxWidth > 0 && vw > maxWidth ? maxWidth / vw : 1;
+    return {
+      largura: Math.max(1, Math.round(vw * escala)),
+      altura: Math.max(1, Math.round(vh * escala)),
+    };
+  }
+
+  /**
    * Captura o frame atual como data URL JPEG. `maxWidth` limita a largura
    * (0 mantem o tamanho original); `qualidade` (0..1) limita o tamanho do
    * payload guardado em memoria. Retorna null se o video ainda nao tem frame.

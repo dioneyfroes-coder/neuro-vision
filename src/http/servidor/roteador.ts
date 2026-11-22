@@ -4,7 +4,7 @@ import type { ServicoMonitoramento } from "../../monitoramento/servico-monitoram
 import type { ServicoCena } from "../../monitoramento/servico-cena";
 import { MODELOS_DIR, NSFW_DIR, VENDOR_DIR, origemBloqueada } from "../base";
 import { serveArquivoOffline, serveModeloNsfw, serveSnapshot, serveStatic } from "../arquivos";
-import { handleCompararCena, handleListarMudancasCena, handleObterReferenciaCena, handleReferenciaCena, rotaCenaMonitoramento } from "../rotas-cena";
+import { handleCompararCena, handleListarMudancasCena, handleObterReferenciaCena, handleReferenciaCena, handleRevisarMudancaCena, rotaCenaMonitoramento } from "../rotas-cena";
 import { handleCiclos, handleClearCiclos, handleClearEventos, handleClearEventosTemporais, handleClearLogs, handleContexto, handleEventos, handleEventosTemporais, handleListCiclos, handleListEventos, handleListEventosTemporais, handleListLogs, handleLog, handleOperacional } from "../rotas-memoria";
 import { handleComandoMonitoramento, handleIniciarMonitoramento, handleListarSegmentosMonitoramento, handleListarSessoesMonitoramento, handleQuadrosMonitoramento, handleSegmentosDaSessaoMonitoramento, rotaSessaoMonitoramento } from "../rotas-monitoramento";
 import { handleExcluirVideo, handleExcluirVideosSessao, handleListarVideos, handleObterVideo, handleRetencaoVideos, handleUploadVideo } from "../rotas-videos";
@@ -159,6 +159,11 @@ export function tratarRequisicao(req: IncomingMessage, res: ServerResponse, deps
         } else if (rotaCena.acao === "comparar") {
           if (req.method === "POST") {
             void handleCompararCena(req, res, cena, monitoramento, rotaCena.sessaoId);
+            return;
+          }
+        } else if (rotaCena.acao === "confirmar") {
+          if (req.method === "POST") {
+            void handleRevisarMudancaCena(req, res, cena, monitoramento, rotaCena.sessaoId);
             return;
           }
         } else if (req.method === "GET") {

@@ -9,7 +9,10 @@
 import {
   compararCena,
   construirReferencia,
+  revisarMudanca,
+  registrarConfirmacaoMudanca,
   type ConsolidacaoReferenciaCena,
+  type DecisaoRevisaoMudanca,
   type ItemCena,
   type MudancaCena,
   type OpcoesComparacaoCena,
@@ -38,11 +41,21 @@ export class SemReferenciaCenaError extends Error {
   }
 }
 
+/** Mudança informada não existe (revisão apontou para id desconhecido). */
+export class SemMudancaCenaError extends Error {
+  constructor(mudancaId: string) {
+    super(`Mudanca de cena desconhecida: ${mudancaId}`);
+    this.name = "SemMudancaCenaError";
+  }
+}
+
 export interface ResultadoComparacaoCena {
-  /** Todas as mudanças resultantes da comparação (inclusive as já conhecidas). */
+  /** Todas as mudanças resultantes da comparação, na versão persistida mais recente. */
   mudancas: MudancaCena[];
   /** Apenas as que ainda não estavam persistidas. */
   novas: MudancaCena[];
+  /** Mudanças conhecidas que receberam uma nova confirmação nesta comparação. */
+  confirmadas: MudancaCena[];
 }
 
 export class ServicoCena {
@@ -84,6 +97,9 @@ export class ServicoCena {
     itens: ItemCena[];
     detectadoEmMs: number;
     comparacao?: OpcoesComparacaoCena;
+    /** Acumula evidência quando uma mudança conhecida reaparece (padrão: desligado). */
+    confirmarRepeticao?: boolean;
+    minimoConfirmacoes?: number;
   }): Promise<ResultadoComparacaoCena> {
     return this.enfileirar(async () => {
       const referencia = await this.obterReferencia(opcoes.sessaoId);
@@ -94,17 +110,59 @@ export class ServicoCena {
         opcoes.detectadoEmMs,
         opcoes.comparacao
       );
-      const conhecidas = new Set(
-        (await this.listarMudancas(opcoes.sessaoId)).map((mudanca) => mudanca.mudancaId)
+      const porId = new Map(
+        (await this.listarMudancas(opcoes.sessaoId)).map((mudanca) => [mudanca.mudancaId, mudanca])
       );
       const novas: MudancaCena[] = [];
+      const confirmadas: MudancaCena[] = [];
+      const versaoAtual: MudancaCena[] = [];
       for (const mudanca of mudancas) {
-        if (conhecidas.has(mudanca.mudancaId)) continue;
-        await gravarMudancaCena(mudanca, this.opcoes.mudancasFile, this.opcoes.maxBytes);
-        conhecidas.add(mudanca.mudancaId);
-        novas.push(mudanca);
+        const anterior = porId.get(mudanca.mudancaId);
+        if (!anterior) {
+          // A primeira detecção já conta como uma observação independente:
+          // `minimoConfirmacoes` é o total de observações, não de repetições.
+          const registrada: MudancaCena = { ...mudanca, confirmacoes: mudanca.confirmacoes ?? 1 };
+          await gravarMudancaCena(registrada, this.opcoes.mudancasFile, this.opcoes.maxBytes);
+          porId.set(mudanca.mudancaId, registrada);
+          novas.push(registrada);
+          versaoAtual.push(registrada);
+          continue;
+        }
+        if (opcoes.confirmarRepeticao && anterior.revisao !== "rejeitada") {
+          const confirmada = registrarConfirmacaoMudanca(
+            anterior,
+            opcoes.detectadoEmMs,
+            opcoes.minimoConfirmacoes
+          );
+          if (confirmada !== anterior) {
+            await gravarMudancaCena(confirmada, this.opcoes.mudancasFile, this.opcoes.maxBytes);
+            porId.set(mudanca.mudancaId, confirmada);
+            confirmadas.push(confirmada);
+            versaoAtual.push(confirmada);
+            continue;
+          }
+        }
+        versaoAtual.push(anterior);
       }
-      return { mudancas, novas };
+      return { mudancas: versaoAtual, novas, confirmadas };
+    });
+  }
+
+  /** Aprova ou rejeita uma mudança; a decisão sobrevive a novas comparações. */
+  revisar(opcoes: {
+    sessaoId: string;
+    mudancaId: string;
+    decisao: DecisaoRevisaoMudanca;
+    agoraMs: number;
+  }): Promise<MudancaCena> {
+    return this.enfileirar(async () => {
+      const atual = (await this.listarMudancas(opcoes.sessaoId)).find(
+        (mudanca) => mudanca.mudancaId === opcoes.mudancaId
+      );
+      if (!atual) throw new SemMudancaCenaError(opcoes.mudancaId);
+      const revisada = revisarMudanca(atual, opcoes.decisao, opcoes.agoraMs);
+      await gravarMudancaCena(revisada, this.opcoes.mudancasFile, this.opcoes.maxBytes);
+      return revisada;
     });
   }
 

@@ -36,10 +36,11 @@ Referência completa da API HTTP, formato das entradas, retenção de snapshots 
 | `DELETE` | `/api/monitoramento/videos/:segmentoId` | Apaga um vídeo. |
 | `DELETE` | `/api/monitoramento/videos?sessaoId=` | Apaga todos os vídeos da sessão (parâmetro obrigatório). |
 | `POST` | `/api/monitoramento/videos/retencao?agoraMs=` | Aplica a política de retenção e devolve `{ ok, total, removidos }`. |
-| `POST` | `/api/monitoramento/sessoes/:id/cena/referencia` | Consolida o inventário inicial (`itens`, `criadaEmMs` opcional, `quadros` opcional); devolve `{ ok, referencia }`. |
+| `POST` | `/api/monitoramento/sessoes/:id/cena/referencia` | Consolida o inventário inicial (`itens`, `criadaEmMs` e `quadros` opcionais, `consolidacao` opcional: `automatica`/`instancia`/`rotulo`); devolve `{ ok, referencia }`. |
 | `GET` | `/api/monitoramento/sessoes/:id/cena/referencia` | Devolve `{ ok, referencia }` (`null` se ainda não definida). |
-| `POST` | `/api/monitoramento/sessoes/:id/cena/comparar` | Compara `itens` com a referência (`agoraMs`, `iouMinimo`, `distanciaMaxima` opcionais); devolve `{ ok, mudancas, novas }`. Sem referência responde `409`. |
-| `GET` | `/api/monitoramento/sessoes/:id/cena/mudancas?limit=2000` | Devolve `{ ok, total, mudancas }` sem duplicatas por `mudancaId`. |
+| `POST` | `/api/monitoramento/sessoes/:id/cena/comparar` | Compara `itens` com a referência (`agoraMs`, `iouMinimo`, `distanciaMaxima`, `associacaoPorInstancia`, `confirmarRepeticao`, `minimoConfirmacoes` opcionais); devolve `{ ok, mudancas, novas, confirmadas }`. Sem referência responde `409`. |
+| `GET` | `/api/monitoramento/sessoes/:id/cena/mudancas?limit=2000` | Devolve `{ ok, total, mudancas }` sem duplicatas por `mudancaId`, incluindo `confirmacoes`, `confirmadoEmMs` e `revisao` quando presentes. |
+| `POST` | `/api/monitoramento/sessoes/:id/cena/confirmar` | Registra a revisão manual de uma mudança (`mudancaId`, `decisao`: `confirmada`/`rejeitada`, `agoraMs` opcional); devolve `{ ok, mudanca }`. `mudancaId` desconhecido responde `404`. |
 | `GET` | `/api/contexto` | Reidrata um contexto curto do estado recente (`{ resumo, roteiro, ultimaDescricao, entradas, eventos }`) com janela por `maxEntradas`/`maxEventos`/`maxCaracteres`. |
 | `GET` | `/api/health` | `{ ok, visao, sistema, monitoramento }`. `visao` mantém `{ online, backend, solicitado, modelo, modelos, carregados, erro }` (`modelo` é o efetivo). `sistema` traz CPU/RAM do processo, contagem de núcleos, bytes de vídeo e taxa horária estimada; `gpu.utilizacaoPercentual` é `null` com `motivo` quando não há API real de medição. `monitoramento` traz sessão/estado atuais, segmentos, quadros e lacunas. |
 | `GET` | `/snapshots/<arquivo>` | Serve os snapshots (thumbnails) gravados. |

@@ -37,7 +37,7 @@ export  {
   urlVideoSegmento,
 } from "./api/videos";
 
-export  { compararCenaMonitoramento, definirReferenciaCena, listarMudancasCena, obterReferenciaCena } from "./api/cena";
+export  { compararCenaMonitoramento, definirReferenciaCena, listarMudancasCena, obterReferenciaCena, revisarMudancaCena } from "./api/cena";
 
 export  { descreverFrame, prepararVisao } from "./api/visao";
 

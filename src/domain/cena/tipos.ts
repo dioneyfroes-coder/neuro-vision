@@ -93,6 +93,15 @@ export interface MudancaCena {
   /** Quando a associação à instância da referência não é segura. */
   associacao?: AssociacaoInstanciaCena;
   statusEvidencia?: StatusEvidencia;
+  /** Quadros que sustentam a mudança; vazios quando a origem é uma ausência. */
+  frameIds?: string[];
+  primeiraObservacaoEmMs?: number;
+  ultimaObservacaoEmMs?: number;
+  /** Observações independentes da mesma mudança (confirmação automática). */
+  confirmacoes?: number;
+  confirmadoEmMs?: number;
+  /** Decisão da revisão manual; ausente equivale a `pendente`. */
+  revisao?: "pendente" | "confirmada" | "rejeitada";
 }
 
 export interface OpcoesComparacaoCena {

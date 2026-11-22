@@ -1,5 +1,9 @@
 /** Validação/normalização de payloads de referência/comparação de cena. */
-import type { ItemCena, OpcoesComparacaoCena } from "../../domain/cena";
+import type {
+  ConsolidacaoReferenciaCena,
+  ItemCena,
+  OpcoesComparacaoCena,
+} from "../../domain/cena";
 import { itemCenaValido } from "../../domain/cena";
 
 /* ------------------------------------------------------------------------- *
@@ -40,5 +44,30 @@ export function montarComparacaoCena(payload: unknown): OpcoesComparacaoCena | s
     }
     opcoes[chave] = n;
   }
+  const porInstancia = p.associacaoPorInstancia;
+  if (porInstancia !== undefined && porInstancia !== null) {
+    if (typeof porInstancia !== "boolean") {
+      return "campo 'associacaoPorInstancia' deve ser booleano";
+    }
+    opcoes.associacaoPorInstancia = porInstancia;
+  }
   return opcoes;
+}
+
+export type ResultadoConsolidacaoCena =
+  | { ok: true; valor?: ConsolidacaoReferenciaCena }
+  | { ok: false; erro: string };
+
+/** Modo de consolidação do inventário, quando informado. */
+export function montarConsolidacaoCena(payload: unknown): ResultadoConsolidacaoCena {
+  const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
+    string,
+    unknown
+  >;
+  const valor = p.consolidacao;
+  if (valor === undefined || valor === null) return { ok: true };
+  if (valor !== "automatica" && valor !== "instancia" && valor !== "rotulo") {
+    return { ok: false, erro: "campo 'consolidacao' deve ser automatica, instancia ou rotulo" };
+  }
+  return { ok: true, valor };
 }

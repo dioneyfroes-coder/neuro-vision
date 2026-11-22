@@ -20,6 +20,20 @@ export type {
   OpcoesComparacaoCena,
 } from "./cena/tipos";
 export type { OpcoesConstruirReferencia } from "./cena/referencia";
-export { normalizarCaixaCena, caixaCenaValida, itemCenaValido, mesmoItem } from "./cena/validacao";
+export type { OpcoesItensCenaDeDeteccoes } from "./cena/deteccoes";
+export type { DecisaoRevisaoMudanca } from "./cena/confirmacao";
+export {
+  normalizarCaixaCena,
+  caixaCenaValida,
+  itemCenaValido,
+  mesmoItem,
+  finito,
+} from "./cena/validacao";
 export { construirReferencia } from "./cena/referencia";
+export { itensCenaDeDeteccoes, LIMITE_CONFIANCA_INVENTARIO_PADRAO } from "./cena/deteccoes";
+export {
+  CONFIRMACOES_MINIMAS_PADRAO,
+  registrarConfirmacaoMudanca,
+  revisarMudanca,
+} from "./cena/confirmacao";
 export { idMudancaCena, compararCena } from "./cena/comparacao";

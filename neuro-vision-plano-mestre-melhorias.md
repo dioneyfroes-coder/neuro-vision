@@ -874,16 +874,16 @@ A ordem abaixo prioriza valor funcional e redução de risco. Não é necessári
 
 ## Fase 2 — Inventário automático
 
-- [ ] Integrar detecções YOLO ao `ServicoCena`.
-- [ ] Criar pipeline de coleta de frames para referência inicial.
-- [ ] Consolidar detecções repetidas.
-- [ ] Criar inventário com instâncias distintas.
-- [ ] Associar evidências e timestamps.
-- [ ] Integrar comparação automática em cada observação relevante.
-- [ ] Implementar confirmação de mudança.
-- [ ] Criar interface de revisão do inventário.
+- [x] Integrar detecções YOLO ao `ServicoCena`.
+- [x] Criar pipeline de coleta de frames para referência inicial.
+- [x] Consolidar detecções repetidas.
+- [x] Criar inventário com instâncias distintas.
+- [x] Associar evidências e timestamps.
+- [x] Integrar comparação automática em cada observação relevante.
+- [x] Implementar confirmação de mudança.
+- [x] Criar interface de revisão do inventário.
 
-**Saída:** o sistema constrói e mantém uma representação parcial, mas rastreável, do ambiente.
+**Saída:** o sistema constrói e mantém uma representação parcial, mas rastreável, do ambiente; detalhes em [`docs/fase-2-inventario.md`](docs/fase-2-inventario.md).
 
 ## Fase 3 — Motor de atenção da segurança
 
