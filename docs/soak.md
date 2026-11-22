@@ -130,3 +130,31 @@ O aceite exige **todos** os itens abaixo em execução de tempo real:
 Nenhum campo é estimado a partir de tendência: se uma leitura não trouxe CPU, o
 valor é `null`; se não houve amostra, os agregados de memória são zero e o
 veredito é inconclusivo.
+
+## Resultado registrado — 2026-11-22
+
+Execução em tempo real com os padrões (`npm run validar:soak`, `acelerar: 1`,
+30 min, 1800 ticks, 3 lacunas injetadas):
+
+| Métrica | Valor |
+| --- | ---: |
+| Veredito | `APROVADO` (`problemas: []`, exit 0) |
+| Quadros contabilizados / esperados | 1792 / 1792 |
+| Segmentos | 180 (6/min, um a cada 10 s) |
+| Lacunas registradas | 3 (uma por janela injetada) |
+| Uploads de vídeo | 180 / 180 arquivos indexados |
+| Crescimento de RSS (máx − mín) | 15,58 MB (limite 80 MB) |
+| RSS inicial → final | 73,38 MB → 81,99 MB |
+| CPU mediana / p95 / p99 | 3,44% / 7,48% / 8,75% |
+| Pico de CPU | 97,34% |
+| Erros HTTP | 0 |
+
+O pico de CPU é o **último sample**, coletado depois dos 180 uploads e do
+fechamento da sessão na fase de `concluir()`: é uma rajada de coleta/teardown,
+não carga sustentada. Dos 361 samples com CPU disponível, apenas 1 passou de
+10%; a primeira leitura permanece `null`.
+
+Relatório completo: `logs/soak/relatorio-2026-11-22T20-00-38-534Z.json`
+(gitignored). O veredito cobre o gravador e o índice do servidor — **não** cobre
+`MediaRecorder`, câmera real, codec, inferência nem a cadência adaptativa da
+Fase 3; ver [`pendencias.md`](./pendencias.md).

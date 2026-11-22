@@ -4,16 +4,16 @@ Este documento registra avaliações **adiadas de propósito**, com protocolo e 
 
 ## Fase 3 — Validação real do motor de atenção
 
-**Status:** `INCONCLUSIVO`. A implementação determinística está entregue e coberta por testes (`tests/fase3-atencao.test.ts`), mas nenhuma medição real foi feita com hardware/câmera/dados anotados. Não marcar como concluída sem evidência.
+**Status:** `INCONCLUSIVO` para a cadência adaptativa em campo; o **soak do gravador** passou em 2026-11-22 (`APROVADO`, 30 min reais, ver [`soak.md`](./soak.md)). A implementação determinística está entregue e coberta por testes (`tests/fase3-atencao.test.ts`, `tests/server-atencao.test.ts`). Não marcar a Fase 3 como concluída sem evidência de câmera real: o soak aprovado é server-side e não exercita `MediaRecorder`, os cinco estados nem a cadência adaptativa.
 
 Para aceitar a Fase 3 em campo faltam:
 
-- sessão contínua de 30 min (soak real) com a cadência adaptativa ligada, comparando quedas de FPS e uso de memória nos cinco estados;
+- sessão contínua de 30 min com a **cadência adaptativa ligada em navegador/câmera real**, comparando quedas de FPS e uso de memória nos cinco estados (o soak server-side de 30 min já aprovado cobre apenas servidor, índice de segmentos, lacunas e uploads);
 - clipes anotados com entrada/saída de pessoas e mudanças de objeto, verificando se `atencao`/`pos_evento` antecedem o evento sem gerar oscilação;
 - conferência das janelas congeladas contra os segmentos de vídeo reais, inclusive quedas de câmera e `naoAmostrado`, para garantir que nenhuma cobertura seja inventada;
 - benchmark multimodal com backend local disponível (hoje fora do ar em `http://localhost:1234`), separando custo da detecção COCO da latência do modelo de visão.
 
-O protocolo de soak acelerado e o veredito atual estão em [`soak.md`](./soak.md); o desenho do motor está em [`fase-3-atencao.md`](./fase-3-atencao.md).
+O protocolo, o veredito do soak acelerado e o resultado do soak real de 30 min estão em [`soak.md`](./soak.md); o desenho do motor está em [`fase-3-atencao.md`](./fase-3-atencao.md).
 
 ## Fase 1.5–1.6 — Avaliação real de gestos
 

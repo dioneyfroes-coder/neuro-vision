@@ -62,4 +62,4 @@ Campos não medidos ficam ausentes, nunca zerados. A UI mostra estado, cadência
 - Interação é sinal booleano explícito ou presença em zona de entrada; gestos finos pertencem à Fase 4.
 - `mudanca_de_cena` do motor temporal (assinatura de imagem) **não** é usada como confirmação do inventário.
 - `fpsEfetivo` é derivado das amostras que o cliente mediu; não substitui benchmark nem medição de hardware.
-- Soak real de 30 min, benchmark multimodal com backend local e validação com dados anotados continuam pendentes em [`pendencias.md`](./pendencias.md).
+- O soak real de 30 min do **gravador** passou em 2026-11-22 (`APROVADO`; 1792/1792 quadros, 180 segmentos, 3 lacunas, 180 uploads, RSS +15,58 MB, zero erros HTTP — ver [`soak.md`](./soak.md)). Ele é server-side: **não** mede a cadência adaptativa nem `MediaRecorder`. O soak da Fase 3 com câmera real, o benchmark multimodal com backend local e a validação com dados anotados continuam pendentes em [`pendencias.md`](./pendencias.md).
