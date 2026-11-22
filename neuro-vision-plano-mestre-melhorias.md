@@ -887,16 +887,16 @@ A ordem abaixo prioriza valor funcional e redução de risco. Não é necessári
 
 ## Fase 3 — Motor de atenção da segurança
 
-- [ ] Criar estados passivo/atividade/atenção/interação/pós-evento.
-- [ ] Integrar detector de presença ao modo de segurança.
-- [ ] Definir zonas de entrada e saída.
-- [ ] Ajustar frequência por subsistema.
-- [ ] Integrar buffer pré-evento ao fluxo real.
-- [ ] Aumentar análise quando houver pessoa ou mudança relevante.
-- [ ] Reduzir processamento após estabilidade.
-- [ ] Medir custo de cada estado.
+- [x] Criar estados passivo/atividade/atenção/interação/pós-evento.
+- [x] Integrar detector de presença ao modo de segurança (YOLO COCO `person`, sem novo modelo).
+- [x] Definir zonas de entrada e saída (retângulos normalizados, sem biometria).
+- [x] Ajustar frequência por subsistema (tabela canônica; apenas detecção roda hoje no laço de segurança).
+- [x] Integrar buffer pré-evento ao fluxo real (miniaturas capturadas, janelas congeladas e lacunas explícitas).
+- [x] Aumentar análise quando houver pessoa ou mudança relevante.
+- [x] Reduzir processamento após estabilidade.
+- [x] Medir custo de cada estado (telemetria aditiva, campos não medidos permanecem ausentes).
 
-**Saída:** processamento adaptativo sem interromper gravação.
+**Saída:** processamento adaptativo sem interromper gravação; detalhes em [`docs/fase-3-atencao.md`](docs/fase-3-atencao.md).
 
 ## Fase 4 — Interações e ações
 

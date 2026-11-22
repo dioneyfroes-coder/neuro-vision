@@ -5,6 +5,7 @@ import type {
   SessaoMonitoramento,
   VideoSegment,
 } from "../../src/domain/monitoramento";
+import type { RegistroAtencaoSeguranca } from "../../src/domain/telemetria-atencao";
 import { ErroPercepcao } from "../../src/erros";
 import { exigirRespostaOk } from "./http";
 
@@ -164,4 +165,34 @@ export async function listarSegmentosMonitoramento(opcoes: {
   if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
   const dados = (await resposta.json()) as { segmentos?: VideoSegment[] };
   return dados.segmentos ?? [];
+}
+
+/** Grava telemetria opcional de atenção; falha nunca interrompe a gravação. */
+export async function gravarAtencaoSeguranca(
+  registro: Omit<RegistroAtencaoSeguranca, "registroId"> & { registroId?: string }
+): Promise<RegistroAtencaoSeguranca> {
+  const dados = await postMonitoramento<{ registro: RegistroAtencaoSeguranca }>(
+    "/api/monitoramento/seguranca/atencao",
+    registro,
+    "Falha ao registrar a atenção da segurança"
+  );
+  return dados.registro;
+}
+
+export async function listarAtencaoSeguranca(
+  sessaoId: string,
+  limite = 500
+): Promise<RegistroAtencaoSeguranca[]> {
+  const params = new URLSearchParams({ sessaoId, limit: String(limite) });
+  let resposta: Response;
+  try {
+    resposta = await fetch(`/api/monitoramento/seguranca/atencao?${params.toString()}`);
+  } catch (err) {
+    throw new ErroPercepcao("armazenamento", "Falha ao ler a telemetria de atenção", {
+      cause: err,
+    });
+  }
+  if (!resposta.ok) throw new ErroPercepcao("armazenamento", `HTTP ${resposta.status}`);
+  const dados = (await resposta.json()) as { registros?: RegistroAtencaoSeguranca[] };
+  return dados.registros ?? [];
 }

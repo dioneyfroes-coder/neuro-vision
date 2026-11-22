@@ -42,6 +42,8 @@ export interface OpcoesModuloInventario {
   obterSessaoId: () => string | null;
   detector: AdaptadorDetectorObjetos;
   garantirDetector: () => Promise<void>;
+  /** Chamado quando uma mudança nova é confirmada pela repetição. */
+  aoRegistrarMudanca?: (mudancas: MudancaCena[], capturadoEmMs: number) => void;
 }
 
 function textoItem(item: ReferenciaCena["itens"][number]): string {
@@ -67,6 +69,7 @@ export function criarModuloInventario({
   obterSessaoId,
   detector,
   garantirDetector,
+  aoRegistrarMudanca,
 }: OpcoesModuloInventario) {
   let referencia: ReferenciaCena | null = null;
   let sequencia = 0;
@@ -208,6 +211,8 @@ export function criarModuloInventario({
         limiteConfianca: LIMITE_CONFIANCA,
       });
       if (resultado.novas.length > 0 || resultado.confirmadas.length > 0) {
+        const confirmadas = [...resultado.novas, ...resultado.confirmadas];
+        aoRegistrarMudanca?.(confirmadas, opcoes.capturadoEmMs);
         await atualizarPainel();
       }
     } catch (err) {

@@ -86,7 +86,7 @@
             <span id="gravacaoTexto">Gravando</span>
           </span>
         </div>
-        <p class="monitor-descricao">Modo independente: grava timelapse (até 10 fps) e registra descrições/análises de cena com data e hora, usando detecção YOLO SFW.</p>
+        <p class="monitor-descricao">Modo independente: grava timelapse (até 10 fps) e registra descrições/análises de cena com data e hora, usando detecção YOLO COCO local. A cadência se adapta à atenção sem interromper a gravação.</p>
         <div class="monitor-controles">
           <label class="monitor-campo-ambiente">
             Ambiente
@@ -117,6 +117,18 @@
           <ul id="inventarioItens" class="inventario-lista"></ul>
           <h3>Mudanças detectadas</h3>
           <ul id="inventarioMudancas" class="inventario-lista"></ul>
+        </details>
+        <details id="atencaoPainel" class="inventario-painel">
+          <summary>Atenção da segurança <span id="atencaoEstado" class="count">passivo</span></summary>
+          <p id="atencaoCadencia" class="atencao-linha">—</p>
+          <p id="atencaoCusto" class="atencao-linha">sem amostras neste estado</p>
+          <p class="atencao-linha">Zonas em coordenadas normalizadas (0–1), centro da caixa:</p>
+          <div class="monitor-grupo monitor-grupo-secundario" role="group" aria-label="Zonas de atenção">
+            <label>Entrada <input id="atencaoZonaEntrada" type="text" placeholder="xmin,ymin,xmax,ymax" /></label>
+            <label>Saída <input id="atencaoZonaSaida" type="text" placeholder="xmin,ymin,xmax,ymax" /></label>
+            <button id="atencaoZonaAplicar" class="ghost" type="button">Aplicar zonas</button>
+          </div>
+          <p class="atencao-linha"><span id="atencaoJanela">0 janela(s) de evidência congelada(s)</span></p>
         </details>
       </div>      <div id="status" class="status">Pronto.</div>
     </section>

@@ -11,6 +11,7 @@
 | [`monitoramento.md`](./monitoramento.md) | Sessões, segmentos de vídeo de 5 minutos sem perda/sobreposição, lacunas explícitas, buffer circular pré-evento, gravação no cliente, queda/retorno da câmera, retenção/exclusão e o que ainda falta. |
 | [`cena.md`](./cena.md) | Referência do ambiente, estados de confirmação e regras de detecção de mudanças com `mudancaId` estável. |
 | [`fase-2-inventario.md`](./fase-2-inventario.md) | Pipeline YOLO → inventário: coleta de quadros, consolidação por instância, evidência temporal, confirmação de mudanças e painel de revisão. |
+| [`fase-3-atencao.md`](./fase-3-atencao.md) | Estados de atenção, zonas de entrada/saída, cadência por subsistema, buffer pré-evento, custo por estado e telemetria aditiva. |
 | [`arquitetura.md`](./arquitetura.md) | Estrutura de arquivos e como as partes conversam (servidor, cliente, motores, memória, variantes A–D). |
 | [`seguranca.md`](./seguranca.md) | Exposição na rede, origem cruzada, limites de corpo e validação de payloads. |
 | [`qualidade.md`](./qualidade.md) | Benchmark do modelo, avaliação de eventos (precisão/recall), benchmark das variantes A–D, benchmark da cadência independente (5 FPS), carregamento do modelo e fluxo de regressão. |

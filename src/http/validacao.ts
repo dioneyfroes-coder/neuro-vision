@@ -28,3 +28,4 @@ export {
   montarQuadrosMonitoramento,
 } from "./validacao/monitoramento";
 export { montarItensCena, montarComparacaoCena, montarConsolidacaoCena } from "./validacao/cena";
+export { montarRegistroAtencao } from "./validacao/atencao";

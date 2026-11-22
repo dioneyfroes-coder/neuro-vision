@@ -2,6 +2,19 @@
 
 Este documento registra avaliações **adiadas de propósito**, com protocolo e critério de aceite, para que não se percam entre fases. Pendência aqui não significa ausência de teste: o comportamento determinístico continua coberto por testes unitários e pelo benchmark de cadência. O que falta é a validação com **dados reais anotados**.
 
+## Fase 3 — Validação real do motor de atenção
+
+**Status:** `INCONCLUSIVO`. A implementação determinística está entregue e coberta por testes (`tests/fase3-atencao.test.ts`), mas nenhuma medição real foi feita com hardware/câmera/dados anotados. Não marcar como concluída sem evidência.
+
+Para aceitar a Fase 3 em campo faltam:
+
+- sessão contínua de 30 min (soak real) com a cadência adaptativa ligada, comparando quedas de FPS e uso de memória nos cinco estados;
+- clipes anotados com entrada/saída de pessoas e mudanças de objeto, verificando se `atencao`/`pos_evento` antecedem o evento sem gerar oscilação;
+- conferência das janelas congeladas contra os segmentos de vídeo reais, inclusive quedas de câmera e `naoAmostrado`, para garantir que nenhuma cobertura seja inventada;
+- benchmark multimodal com backend local disponível (hoje fora do ar em `http://localhost:1234`), separando custo da detecção COCO da latência do modelo de visão.
+
+O protocolo de soak acelerado e o veredito atual estão em [`soak.md`](./soak.md); o desenho do motor está em [`fase-3-atencao.md`](./fase-3-atencao.md).
+
 ## Fase 1.5–1.6 — Avaliação real de gestos
 
 **Status:** adiada em 2026-11-15. **Não bloqueia a Fase 2** (fortalecimento do motor temporal).

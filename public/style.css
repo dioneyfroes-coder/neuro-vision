@@ -393,6 +393,12 @@ button.ghost:hover:not(:disabled) {
   flex: 1 1 220px;
 }
 
+.atencao-linha {
+  margin: 8px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .status {
   margin-top: 12px;
   font-size: 13px;

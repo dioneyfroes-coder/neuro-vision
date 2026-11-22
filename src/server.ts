@@ -12,6 +12,7 @@ export * from "./http/rotas-memoria";
 export * from "./http/rotas-monitoramento";
 export * from "./http/rotas-videos";
 export * from "./http/rotas-cena";
+export * from "./http/rotas-atencao";
 export * from "./http/rotas-visao";
 export * from "./http/saude";
 export * from "./http/servidor";

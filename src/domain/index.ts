@@ -18,3 +18,6 @@ export * from "./interpretation";
 export * from "./monitoramento";
 export * from "./vinculo-evento-video";
 export * from "./cena";
+export * from "./seguranca-atencao";
+export * from "./custo-atencao";
+export * from "./telemetria-atencao";

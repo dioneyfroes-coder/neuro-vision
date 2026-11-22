@@ -2,9 +2,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ArmazenadorVideos } from "../../persistence/armazenador-videos";
 import type { ServicoMonitoramento } from "../../monitoramento/servico-monitoramento";
 import type { ServicoCena } from "../../monitoramento/servico-cena";
+import type { ServicoAtencao } from "../../monitoramento/servico-atencao";
 import { MODELOS_DIR, NSFW_DIR, VENDOR_DIR, origemBloqueada } from "../base";
 import { serveArquivoOffline, serveModeloNsfw, serveSnapshot, serveStatic } from "../arquivos";
 import { handleCompararCena, handleListarMudancasCena, handleObterReferenciaCena, handleReferenciaCena, handleRevisarMudancaCena, rotaCenaMonitoramento } from "../rotas-cena";
+import { handleGravarAtencao, handleListarAtencao } from "../rotas-atencao";
 import { handleCiclos, handleClearCiclos, handleClearEventos, handleClearEventosTemporais, handleClearLogs, handleContexto, handleEventos, handleEventosTemporais, handleListCiclos, handleListEventos, handleListEventosTemporais, handleListLogs, handleLog, handleOperacional } from "../rotas-memoria";
 import { handleComandoMonitoramento, handleIniciarMonitoramento, handleListarSegmentosMonitoramento, handleListarSessoesMonitoramento, handleQuadrosMonitoramento, handleSegmentosDaSessaoMonitoramento, rotaSessaoMonitoramento } from "../rotas-monitoramento";
 import { handleExcluirVideo, handleExcluirVideosSessao, handleListarVideos, handleObterVideo, handleRetencaoVideos, handleUploadVideo } from "../rotas-videos";
@@ -24,11 +26,12 @@ export interface DependenciasServidor {
   monitoramento: ServicoMonitoramento;
   armazenadorVideos: ArmazenadorVideos;
   cena: ServicoCena;
+  atencao: ServicoAtencao;
   permitidas: string[];
 }
 
 export function tratarRequisicao(req: IncomingMessage, res: ServerResponse, deps: DependenciasServidor): void {
-  const { config, logFile, snapDir, publicDir, eventosFile, eventosTemporaisFile, operacionalFile, ciclosFile, monitoramento, armazenadorVideos, cena, permitidas } = deps;
+  const { config, logFile, snapDir, publicDir, eventosFile, eventosTemporaisFile, operacionalFile, ciclosFile, monitoramento, armazenadorVideos, cena, atencao, permitidas } = deps;
       const url = req.url ?? "/";
       // Isolamento entre origens (COOP/COEP): habilita SharedArrayBuffer e, com
       // ele, o WASM multithread do ONNX Runtime (ate 4 threads por worker -
@@ -89,6 +92,19 @@ export function tratarRequisicao(req: IncomingMessage, res: ServerResponse, deps
       }
       if (req.method === "DELETE" && pathname === "/api/ciclos") {
         void handleClearCiclos(res, ciclosFile);
+        return;
+      }
+      if (pathname === "/api/monitoramento/seguranca/atencao") {
+        if (req.method === "POST") {
+          void handleGravarAtencao(req, res, atencao, monitoramento);
+          return;
+        }
+        if (req.method === "GET") {
+          void handleListarAtencao(req, res, atencao);
+          return;
+        }
+        res.writeHead(405, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Metodo nao permitido");
         return;
       }
       if (pathname === "/api/monitoramento/sessoes") {

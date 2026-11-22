@@ -18,6 +18,8 @@ export type { InfoSistema, RespostaSaude } from "./api/saude";
 export  {
   encerrarMonitoramento,
   enviarQuadrosMonitoramento,
+  gravarAtencaoSeguranca,
+  listarAtencaoSeguranca,
   iniciarMonitoramento,
   interromperMonitoramento,
   listarSegmentosDaSessao,

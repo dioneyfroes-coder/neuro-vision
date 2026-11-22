@@ -23,6 +23,8 @@ export interface ServerConfig {
   monitoramentoSessoesFile?: string;
   /** Indice de segmentos de monitoramento. Padrao: `monitoramento-segmentos.jsonl`. */
   monitoramentoSegmentosFile?: string;
+  /** Telemetria de atencao da seguranca (Fase 3). */
+  atencaoFile?: string;
   /** Diretorio dos bytes de video. Padrao: `videos/` ao lado do log. */
   videosDir?: string;
   /** Teto por arquivo de video. Padrao: `VIDEO_MAX_BYTES`. */

@@ -4,6 +4,7 @@ import path from "node:path";
 import { ServicoMonitoramento } from "../../monitoramento/servico-monitoramento";
 import { ArmazenadorVideos } from "../../persistence/armazenador-videos";
 import { ServicoCena } from "../../monitoramento/servico-cena";
+import { ServicoAtencao } from "../../monitoramento/servico-atencao";
 import { env } from "../../env";
 import { LOG_FILE, LOG_MAX_BYTES, PUBLIC_DIR, SNAP_DIR, VIDEO_UPLOAD_MAX_BYTES, definirArquivoOperacionalAtivo, origensPermitidas } from "../base";
 import type { ServerConfig } from "./tipos";
@@ -46,6 +47,10 @@ export function createServer(config: ServerConfig = {}): http.Server {
       config.cenaMudancasFile ?? path.join(path.dirname(logFile), "cena-mudancas.jsonl"),
     maxBytes: LOG_MAX_BYTES,
   });
+  const atencao = new ServicoAtencao({
+    arquivo: config.atencaoFile ?? path.join(path.dirname(logFile), "atencao-seguranca.jsonl"),
+    maxBytes: LOG_MAX_BYTES,
+  });
   const permitidas = origensPermitidas(env.NEURO_ALLOWED_ORIGINS);
 
   return http.createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -61,6 +66,7 @@ export function createServer(config: ServerConfig = {}): http.Server {
       monitoramento,
       armazenadorVideos,
       cena,
+      atencao,
       permitidas,
     });
   });

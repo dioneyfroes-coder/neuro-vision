@@ -5,7 +5,7 @@ A Fase 2 fecha a ponte que faltava entre o YOLO local e o inventário de cena in
 ## Pipeline
 
 ```
-câmera → capturarQuadro(640, …) ─┬─→ AdaptadorDetectorObjetos (YOLO SFW)
+câmera → capturarQuadro(640, …) ─┬─→ AdaptadorDetectorObjetos (YOLO COCO padrão)
                                  │        │
                                  │        ├─→ descreverDeteccoes → log de segurança
                                  │        └─→ itensCenaDeDeteccoes
@@ -82,7 +82,7 @@ Regressões adicionadas em `tests/fase2-inventario.test.ts` (ponte YOLO, consoli
 
 ## Limites
 
-- O inventário cobre somente as classes do modelo YOLO SFW carregado no navegador; objetos fora dessas classes não existem para ele.
+- O inventário cobre somente as classes do detector COCO padrão carregado no navegador (`MODELO_YOLO_PADRAO = "onnx-community/yolov10n"`); objetos fora dessas classes não existem para ele. "YOLO SFW" nas versões anteriores deste documento era apenas esse detector padrão — o conjunto NSFW é experimental, opt-in e não participa do inventário.
 - `entidadeId` é estável apenas dentro do rastreador/sessão. Sem ele, a chave espacial separa instâncias no lote, mas não prova identidade entre sessões.
 - A referência é estática até nova captura manual; não há ainda gatilho automático de gravação a partir de `MudancaCena`.
 - A revisão manual é persistida por `mudancaId`. Redefinir a referência cria novos ids e, portanto, novas revisões pendentes.

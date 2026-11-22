@@ -17,13 +17,14 @@ import {
   video,
 } from "./elementos";
 import type { EntradaLog, EntradaLogComVideo } from "../../src/types";
-import type { RegistroCiclo, VideoSegment } from "../../src/domain";
+import { normalizarCaixaCena, type RegistroCiclo, type VideoSegment } from "../../src/domain";
 import { AdaptadorDetectorObjetos } from "../perception/adapters/object-detector.adapter";
 import { descreverDeteccoes } from "../detector";
 import { MODELO_YOLO_PADRAO } from "../yolo-onnx";
 import { ControladorMonitoramento } from "../monitoramento/controlador-monitoramento";
 import type { EstadoMonitoramento } from "../monitoramento/controlador-monitoramento";
 import { apiMonitoramentoCliente } from "../monitoramento/adaptador-api";
+import { criarModuloAtencaoSeguranca } from "./atencao-seguranca";
 import {
   ErroGravacaoSegmento,
   GravadorSegmentos,
@@ -57,6 +58,7 @@ export function criarModuloMonitoramento({
   // Declarado antes dos callbacks de estado: o ControladorMonitoramento pode
   // disparar `aoEstado` durante a construção, antes do módulo ser criado.
   let moduloInventario: ReturnType<typeof criarModuloInventario> | null = null;
+  let moduloAtencao: ReturnType<typeof criarModuloAtencaoSeguranca> | null = null;
 
   /** Perfil timelapse (opção 3): baixo uso de espaço, <= 10 fps. */
   const TIMELAPSE_FPS = 2;
@@ -281,6 +283,7 @@ export function criarModuloMonitoramento({
       await monitoramento.encerrar();
       pararAnaliseSeguranca();
       moduloInventario?.reiniciar();
+      moduloAtencao?.reiniciar();
       monitorAvisoEl.hidden = true;
       setStatus("Gravação encerrada.");
     } catch (err) {
@@ -308,42 +311,71 @@ export function criarModuloMonitoramento({
   }
 
 
-  // Análise de cena independente do modo principal: YOLO SFW em intervalos baixos.
+  // Análise de cena independente do modo principal: detector COCO padrão (Fase 2),
+  // agora com cadência derivada do motor de atenção da Fase 3.
   const detectorSeguranca = new AdaptadorDetectorObjetos();
   async function garantirDetectorSeguranca(): Promise<void> {
     if (!detectorSeguranca.modelo) {
       await detectorSeguranca.carregar(MODELO_YOLO_PADRAO, () => {});
     }
   }
+  moduloAtencao = criarModuloAtencaoSeguranca({
+    obterSessaoId: () => monitoramento.sessaoAtual?.sessaoId ?? ultimaSessaoMonitoramentoId,
+  });
   moduloInventario = criarModuloInventario({
     setStatus,
     obterSessaoId: () => monitoramento.sessaoAtual?.sessaoId ?? ultimaSessaoMonitoramentoId,
     detector: detectorSeguranca,
     garantirDetector: garantirDetectorSeguranca,
+    aoRegistrarMudanca: (mudancas) => moduloAtencao?.registrarMudancas(mudancas),
   });
   let analiseSegurancaTimer: number | null = null;
   let analiseSegurancaEmAndamento = false;
   let ultimoResumoSeguranca = "";
-  const INTERVALO_ANALISE_SEGURANCA_MS = 5000;
 
   async function analisarCenaSeguranca(): Promise<void> {
     if (!monitorAtivo() || analiseSegurancaEmAndamento) return;
     if (monitoramento.estadoAtual !== "gravando" || monitoramento.semSinal) return;
     if (!camera.ativa) return;
     analiseSegurancaEmAndamento = true;
+    let capturadoEmMs = Date.now();
+    const inicioAnalise = performance.now();
     try {
       await garantirDetectorSeguranca();
       // Instante da captura, antes da inferência: o mesmo quadro alimenta a
-      // descrição de segurança e a comparação do inventário.
-      const capturadoEmMs = Date.now();
+      // descrição de segurança, o inventário e o buffer pré-evento.
+      capturadoEmMs = Date.now();
       const quadro = camera.capturarQuadro(640, 320, 0.82);
-      if (!quadro) return;
-      const dimensoes = camera.dimensoesQuadro(640);
-      if (!dimensoes) return;
+      const dimensoes = quadro ? camera.dimensoesQuadro(640) : null;
+      if (!quadro || !dimensoes) {
+        moduloAtencao?.registrarQuadro({
+          capturadoEmMs,
+          pessoasAtivas: 0,
+          indisponivel: true,
+          duracaoMs: performance.now() - inicioAnalise,
+        });
+        return;
+      }
+      const inicioInferencia = performance.now();
       const resultado = await detectorSeguranca.detectar(
         { imagem: quadro.imagem, dimensoes },
         { threshold: 0.45, percentage: false }
       );
+      const inferenciaMs = performance.now() - inicioInferencia;
+      const pessoas = resultado.deteccoes.filter(
+        (deteccao) => deteccao.rotulo === "person" || deteccao.nome === "pessoa"
+      );
+      const caixasPessoas = pessoas.map((deteccao) =>
+        normalizarCaixaCena(deteccao.caixa, dimensoes.largura, dimensoes.altura)
+      );
+      moduloAtencao?.registrarQuadro({
+        capturadoEmMs,
+        imagem: quadro.thumb,
+        pessoasAtivas: pessoas.length,
+        caixasPessoas,
+        inferenciaMs,
+        duracaoMs: performance.now() - inicioAnalise,
+      });
       if (moduloInventario?.pronto) {
         void moduloInventario.registrarObservacao({
           imagem: quadro.imagem,
@@ -375,20 +407,36 @@ export function criarModuloMonitoramento({
       };
       await api.gravarEntrada(entrada);
     } catch (err) {
+      moduloAtencao?.registrarQuadro({
+        capturadoEmMs,
+        pessoasAtivas: 0,
+        indisponivel: true,
+        duracaoMs: performance.now() - inicioAnalise,
+      });
       void api.gravarOperacional({ nivel: "aviso", origem: "monitoramento", mensagem: "Falha ao analisar cena da camera de seguranca", detalhe: (err as Error).message }).catch(() => undefined);
     } finally {
       analiseSegurancaEmAndamento = false;
     }
   }
 
+  function agendarAnaliseSeguranca(atrasoMs: number): void {
+    if (analiseSegurancaTimer !== null) window.clearTimeout(analiseSegurancaTimer);
+    analiseSegurancaTimer = window.setTimeout(() => {
+      analiseSegurancaTimer = null;
+      if (monitoramento.estadoAtual !== "gravando" || monitoramento.semSinal || !camera.ativa) return;
+      void analisarCenaSeguranca().finally(() =>
+        agendarAnaliseSeguranca(moduloAtencao?.intervaloAnaliseMs() ?? 5_000)
+      );
+    }, Math.max(0, atrasoMs));
+  }
+
   function iniciarAnaliseSeguranca(): void {
     if (analiseSegurancaTimer !== null) return;
-    analiseSegurancaTimer = window.setInterval(() => void analisarCenaSeguranca(), INTERVALO_ANALISE_SEGURANCA_MS);
-    void analisarCenaSeguranca();
+    agendarAnaliseSeguranca(0);
   }
 
   function pararAnaliseSeguranca(): void {
-    if (analiseSegurancaTimer !== null) window.clearInterval(analiseSegurancaTimer);
+    if (analiseSegurancaTimer !== null) window.clearTimeout(analiseSegurancaTimer);
     analiseSegurancaTimer = null;
     analiseSegurancaEmAndamento = false;
   }
@@ -499,6 +547,7 @@ export function criarModuloMonitoramento({
 
   function registrarEventos(): void {
     moduloInventario?.registrarEventos();
+    moduloAtencao?.registrarEventos();
     const sincronizarAnalise = () => {
       if (monitoramento.estadoAtual === "gravando" && !monitoramento.semSinal) iniciarAnaliseSeguranca();
       else pararAnaliseSeguranca();
