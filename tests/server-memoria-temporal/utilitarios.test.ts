@@ -64,6 +64,43 @@ describe("memoria persistente - utilitarios", () => {
     expect(evento?.registradoEmMs).toBe(evento?.persistidoEmMs);
   });
 
+  it("preserva os campos aditivos de ação sem aceitar valores inventados", () => {
+    const base = {
+      eventoId: "evt-acao",
+      sessionId: "s",
+      tipo: "interacao_objeto",
+      inicioEm: "2026-11-22T10:00:00.000Z",
+      descricao: "mao e garrafa",
+      estado: "confirmado",
+      idempotencyKey: "evt-acao:confirmado",
+      frameIds: ["f1", "f2"],
+      pessoaEntidadeId: "pessoa-1",
+      naturezaInteracao: "manipulacao",
+      transicaoPosse: "pego",
+      estadoAnterior: "fechada",
+      estadoPosterior: "aberta",
+      participantes: ["mao-1", "obj-1"],
+    };
+    const evento = montarEventoTemporal(base);
+    expect(evento).toMatchObject({
+      pessoaEntidadeId: "pessoa-1",
+      naturezaInteracao: "manipulacao",
+      transicaoPosse: "pego",
+      estadoAnterior: "fechada",
+      estadoPosterior: "aberta",
+      participantes: ["mao-1", "obj-1"],
+    });
+    const invalido = montarEventoTemporal({
+      ...base,
+      naturezaInteracao: "lida",
+      transicaoPosse: "roubado",
+      estadoAnterior: "   ",
+    });
+    expect(invalido?.naturezaInteracao).toBeUndefined();
+    expect(invalido?.transicaoPosse).toBeUndefined();
+    expect(invalido?.estadoAnterior).toBeUndefined();
+  });
+
   it("limparSnapshots preserva snapshot referenciado por um evento", async () => {
     const logFile = path.join(tmpDir, "visao.jsonl");
     const eventosFile = path.join(tmpDir, "eventos.jsonl");

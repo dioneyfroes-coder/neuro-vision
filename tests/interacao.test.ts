@@ -233,4 +233,77 @@ describe("DetectorInteracao", () => {
     detector.limpar();
     expect(detector.estados()).toEqual([]);
   });
+
+  it("serializa pessoa, natureza e pego no primeiro confirmado", () => {
+    const detector = new DetectorInteracao();
+    const eventos = detector.processar(
+      sequencia(4, (i) => ({
+        pessoaEntidadeId: "pessoa-1",
+        ...(i >= 2
+          ? { caixaObjeto: { xmin: 0.5, ymin: 0.45, xmax: 0.7, ymax: 0.55 } }
+          : {}),
+      }))
+    );
+    const confirmado = eventos.at(-1)!;
+    expect(confirmado).toMatchObject({
+      estado: "confirmado",
+      pessoaEntidadeId: "pessoa-1",
+      naturezaInteracao: "manipulacao",
+      transicaoPosse: "pego",
+    });
+    expect(confirmado.estadoAnterior).toBeUndefined();
+    expect(confirmado.estadoPosterior).toBeUndefined();
+  });
+
+  it("um frame ambíguo não apaga a pessoa já associada", () => {
+    const detector = new DetectorInteracao();
+    const eventos = detector.processar(
+      sequencia(4, (i) => ({
+        pessoaEntidadeId: i === 3 ? undefined : "pessoa-1",
+        ...(i >= 2
+          ? { caixaObjeto: { xmin: 0.5, ymin: 0.45, xmax: 0.7, ymax: 0.55 } }
+          : {}),
+      }))
+    );
+    expect(eventos.at(-1)?.pessoaEntidadeId).toBe("pessoa-1");
+  });
+
+  it("marca deixado somente quando o objeto permanece estavel após o afastamento", () => {
+    const detector = new DetectorInteracao();
+    detector.processar(
+      sequencia(4, (i) =>
+        i >= 2 ? { caixaObjeto: { xmin: 0.5, ymin: 0.45, xmax: 0.7, ymax: 0.55 } } : {}
+      )
+    );
+    const afastadas = detector.processar(
+      sequencia(3, (i) => ({
+        frameId: `g${i}`,
+        timestamp: iso(1000 + i * 100),
+        tempoMs: 1000 + i * 100,
+        punhoMao: { x: 0.9, y: 0.9 },
+        caixaObjeto: { xmin: 0.5, ymin: 0.45, xmax: 0.7, ymax: 0.55 },
+      }))
+    );
+    expect(afastadas.at(-1)).toMatchObject({
+      estado: "encerrado",
+      motivoEncerramento: "sem_sinal",
+      naturezaInteracao: "manipulacao",
+      transicaoPosse: "deixado",
+    });
+  });
+
+  it("oclusão não gera deixado nem estado físico", () => {
+    const detector = new DetectorInteracao();
+    detector.processar(
+      sequencia(4, (i) =>
+        i >= 2 ? { caixaObjeto: { xmin: 0.5, ymin: 0.45, xmax: 0.7, ymax: 0.55 } } : {}
+      )
+    );
+    const semPar: EventoTemporal[] = [];
+    for (let i = 0; i < 3; i += 1) semPar.push(...detector.processar([]));
+    expect(semPar.at(-1)).toMatchObject({ estado: "encerrado", motivoEncerramento: "oclusao" });
+    expect(semPar.at(-1)?.transicaoPosse).toBeUndefined();
+    expect(semPar.at(-1)?.estadoAnterior).toBeUndefined();
+    expect(semPar.at(-1)?.estadoPosterior).toBeUndefined();
+  });
 });

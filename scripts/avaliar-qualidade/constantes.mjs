@@ -4,7 +4,16 @@ import { fileURLToPath } from "node:url";
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /** Tipos de evento visual aceitos (ver `src/types.ts`). */
-export const TIPOS = ["aparicao", "desaparecimento", "movimento", "mudanca_de_cena", "resumo"];
+export const TIPOS = [
+  "aparicao",
+  "desaparecimento",
+  "movimento",
+  "mudanca_de_cena",
+  "resumo",
+  // Memória temporal (Fase 4): aceitos como esperados em anotações de clipe.
+  "gesto_detectado",
+  "interacao_objeto",
+];
 export const CATEGORIAS = [
   "gesto",
   "postura",

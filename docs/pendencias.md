@@ -15,6 +15,20 @@ Para aceitar a Fase 3 em campo faltam:
 
 O protocolo, o veredito do soak acelerado e o resultado do soak real de 30 min estão em [`soak.md`](./soak.md); o desenho do motor está em [`fase-3-atencao.md`](./fase-3-atencao.md).
 
+## Fase 4 — Validação real de ações
+
+**Status:** implementação determinística entregue; precisão e atraso em clipes reais `N/A` até existir anotação humana. Os itens 1–6 do checklist canônico estão cobertos por testes; os itens 7–8 permanecem em aberto. Ver [`fase4-acoes.md`](./fase4-acoes.md).
+
+Para aceitar a Fase 4 com dados reais faltam:
+
+- clipes anotados com mão↔pessoa (duas ou mais pessoas, punhos visíveis e casos ambíguos), mão↔objeto, aproximação/contato/manipulação e pego/deixado;
+- anotação explícita de oclusão, `naoAmostrado` e falha de inferência, verificando que nenhum desses casos vire `deixado` ou ausência observada;
+- execução do harness sobre `logs/eventos-temporais.jsonl` com `inicioEm` e sidecar de início do clipe, publicando precisão/recall e `atraso` (média e p95) por gesto/classe;
+- conferência do par estado anterior/posterior contra mudanças de estado observadas pelo inventário, sem casamento por rótulo parecido;
+- relatório com veredito contra metas e registro do que o sistema não reconhece.
+
+O harness já emite `atraso` como `N/A` quando não há correspondência; isso é ausência de medição, não resultado de precisão. As metas numéricas de gestos continuam propostas em §Fase 1.5–1.6 e só passam a ser aplicadas à Fase 4 depois da primeira linha de base anotada.
+
 ## Fase 1.5–1.6 — Avaliação real de gestos
 
 **Status:** adiada em 2026-11-15. **Não bloqueia a Fase 2** (fortalecimento do motor temporal).

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { indisponivel, naoAmostrado } from "../src/domain";
-import type { EventoTemporal, ObservacaoFrame } from "../src/domain";
+import type { EventoTemporal, ObservacaoFrame, PessoaPose, PontoCorporal } from "../src/domain";
 import { MotorTemporalImpl } from "../public/temporal/motor-temporal";
 
 /**
@@ -23,6 +23,17 @@ interface OpcoesFrame {
   objetoX: number;
   /** X normalizado do punho da mao. */
   maoX: number;
+  pose?: ObservacaoFrame["pose"];
+}
+
+function poseComPunhoDireito(x: number): ObservacaoFrame["pose"] {
+  const pontos: PontoCorporal[] = Array.from({ length: 17 }, () => ({
+    x: 0.5,
+    y: 0.5,
+    confianca: 0.9,
+  }));
+  pontos[10] = { x, y: 0.5, confianca: 0.9 };
+  return { pessoas: [{ pontos, confianca: 0.9 } as PessoaPose] };
 }
 
 function frame(o: OpcoesFrame): ObservacaoFrame {
@@ -48,9 +59,9 @@ function frame(o: OpcoesFrame): ObservacaoFrame {
         },
       ],
     },
-    // Pose desativada: nao ha gesto/braco/movimento corporal; apenas maos e
-    // objetos alimentam a detectora de interacao.
-    pose: indisponivel("pose", "desativado"),
+    // Por default a pose fica desativada: apenas maos e objetos alimentam a
+    // detectora. Testes de associacao injetam uma pose explicita.
+    pose: o.pose ?? indisponivel("pose", "desativado"),
     maos: {
       dimensoes: { largura: LARGURA, altura: ALTURA },
       maos: [
@@ -111,6 +122,24 @@ describe("integracao de interacao no MotorTemporalImpl", () => {
     // O movimento do objeto gera tambem `movimento_objeto` no rastreador; o
     // evento de interacao e independente e nao deve ser confundido com ele.
     expect(resultado.eventos.some((e) => e.tipo === "movimento_objeto")).toBe(true);
+  });
+
+  it("propaga a pessoa associada à mao para o evento de interacao", () => {
+    const motor = new MotorTemporalImpl();
+    const frames = Array.from({ length: 4 }, (_, i) => {
+      const objetoX = i >= 2 ? 0.6 : 0.5;
+      return frame({
+        indice: i,
+        objetoX,
+        maoX: objetoX,
+        pose: poseComPunhoDireito(objetoX),
+      });
+    });
+    const confirmado = eventosInteracao(motor.processar(frames).eventos).at(-1);
+    expect(confirmado?.estado).toBe("confirmado");
+    expect(confirmado?.pessoaEntidadeId).toBeTruthy();
+    expect(confirmado?.participantes?.[0]).toBeTruthy();
+    expect(confirmado?.naturezaInteracao).toBe("manipulacao");
   });
 
   it("sem dimensoes nas deteccoes o motor se abstem de classificar interacao", () => {

@@ -20,6 +20,8 @@ export interface AmostraInteracao {
   sessionId: string;
   maoEntidadeId: string;
   objetoEntidadeId: string;
+  /** Pessoa associada à mão no mesmo frame; ausente quando ambíguo. */
+  pessoaEntidadeId?: string;
   rotuloObjeto?: string;
   /** Punho da mao (landmark 0), normalizado. */
   punhoMao: Ponto2D;
@@ -81,6 +83,8 @@ export interface EstadoPar {
   sessionId: string;
   maoEntidadeId: string;
   objetoEntidadeId: string;
+  /** Última associação conhecida; um frame ambíguo não a apaga. */
+  pessoaEntidadeId?: string;
   rotuloObjeto?: string;
   eventoId: string;
   inicioEm: string;
@@ -101,6 +105,10 @@ export interface EstadoPar {
   /** Ultimo centro do objeto e o instante, para medir mudanca de estado. */
   ultimoCentro: Ponto2D | null;
   ultimoTempoMs: number | null;
+  /** Quadros consecutivos em que o objeto foi visto sem se deslocar. */
+  framesObjetoEstavel: number;
+  /** `pego` so aparece na primeira promocao a `confirmado` deste par. */
+  possePegoEmitida: boolean;
 }
 
 export const ORDEM_GRAU: Record<GrauInteracao, number> = {

@@ -77,4 +77,32 @@ describe("parsearEventos", () => {
     expect(r[0]).toMatchObject({ rotuloObjeto: "person", origensSinal: ["objetos"] });
     expect(r[1].tipo).toBe("movimento");
   });
+
+  it("le eventos temporais pelo inicioEm, sem exigir timestamp legado", () => {
+    const texto = JSON.stringify({
+      eventoId: "e1",
+      tipo: "interacao_objeto",
+      inicioEm: "2026-11-22T10:00:01.000Z",
+      estado: "confirmado",
+      statusEvidencia: "inferido",
+      naturezaInteracao: "manipulacao",
+      transicaoPosse: "pego",
+      rotuloObjeto: "garrafa",
+      origens: ["maos", "objetos", "invalida"],
+      descricao: "mao e garrafa",
+      frameIds: ["f1", "f2"],
+    });
+    const r = parsearEventos(texto);
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({
+      tipo: "interacao_objeto",
+      timestamp: "2026-11-22T10:00:01.000Z",
+      inicioEm: "2026-11-22T10:00:01.000Z",
+      naturezaInteracao: "manipulacao",
+      transicaoPosse: "pego",
+      statusEvidencia: "inferido",
+      rotuloObjeto: "garrafa",
+      origensSinal: ["maos", "objetos"],
+    });
+  });
 });

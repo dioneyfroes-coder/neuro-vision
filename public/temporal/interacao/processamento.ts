@@ -25,6 +25,7 @@ export class DetectorInteracao extends BaseDetectorInteracao {
       } else {
         par.rotuloObjeto = amostra.rotuloObjeto ?? par.rotuloObjeto;
       }
+      if (amostra.pessoaEntidadeId) par.pessoaEntidadeId = amostra.pessoaEntidadeId;
 
       const centro = centroDaCaixa(amostra.caixaObjeto);
       const distancia = distanciaPontos(amostra.punhoMao, centro);
@@ -44,6 +45,7 @@ export class DetectorInteracao extends BaseDetectorInteracao {
         // Entidade observada sem o par/evidencia (ou oclusao): conta ausencia,
         // mas nao apaga a evidencia ja coletada.
         par.framesSemSinal += 1;
+        par.framesObjetoEstavel = 0;
         if (amostra.observado === false) par.continuidadeValida = false;
         if (par.framesSemSinal >= this.config.framesParaEncerrar) {
           const encerrado = this.encerrar(
@@ -67,6 +69,12 @@ export class DetectorInteracao extends BaseDetectorInteracao {
         deslocamento !== null &&
         deslocamento >= this.config.deslocamentoMinimoObjeto &&
         amostra.continuidadeValida !== false;
+      // Estabilidade do objeto é medida mesmo quando a mão já se afastou: é o
+      // que permite distinguir "deixou" de "saiu de quadro" no encerramento.
+      par.framesObjetoEstavel =
+        deslocamento !== null && deslocamento < this.config.deslocamentoMinimoObjeto
+          ? par.framesObjetoEstavel + 1
+          : 0;
 
       if (!proximo) {
         // O objeto continua observado, mas a mao se afastou: nao ha evidencia
@@ -101,9 +109,12 @@ export class DetectorInteracao extends BaseDetectorInteracao {
       const grau = this.calcularGrau(par, objetoMoveu);
       if (ORDEM_GRAU[grau] > ORDEM_GRAU[par.grauMaximo]) par.grauMaximo = grau;
       if (!par.emitido || ORDEM_GRAU[grau] > ORDEM_GRAU[par.grau]) {
+        const primeiroConfirmado = grau === "confirmado" && !par.possePegoEmitida;
+        const evento = eventoDe(par, grau, { ...this.config, primeiroConfirmado });
+        if (evento.transicaoPosse === "pego") par.possePegoEmitida = true;
         par.grau = grau;
         par.emitido = true;
-        emitidos.push(eventoDe(par, grau));
+        emitidos.push(evento);
       }
     }
 

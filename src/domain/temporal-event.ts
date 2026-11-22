@@ -7,6 +7,7 @@
  */
 
 import type { StatusEvidencia } from "./evidencia";
+import type { NaturezaInteracao, TransicaoPosse } from "./acoes-observaveis";
 
 /** Tipo normalizado de evento temporal. */
 export type TipoEventoTemporal =
@@ -130,6 +131,22 @@ export interface EventoTemporal {
    * campo explicita o par sem codificar identidade em texto livre.
    */
   participantes?: string[];
+  /**
+   * Pessoa associada à mão por pose e continuidade. É uma heurística de
+   * proximidade, não identidade física; ausente quando a associação é ambígua.
+   */
+  pessoaEntidadeId?: string;
+  /** Natureza da interação observada; ausente quando não há medição. */
+  naturezaInteracao?: NaturezaInteracao;
+  /** Transição de posse apoiada em evidência; ausente quando não há. */
+  transicaoPosse?: TransicaoPosse;
+  /**
+   * Estado físico antes/depois da ação, quando o subsistema de cena observou
+   * de fato um `estadoObjeto`. `estado` acima é o ciclo de vida do evento e
+   * nunca deve ser usado como estado físico.
+   */
+  estadoAnterior?: string;
+  estadoPosterior?: string;
   /** Rotulo do detector da entidade associada, quando for um objeto rastreado. */
   rotuloObjeto?: string;
   /** Descricao legivel em portugues. */

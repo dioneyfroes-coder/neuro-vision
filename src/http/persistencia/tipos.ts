@@ -1,3 +1,4 @@
+import type { NaturezaInteracao, TransicaoPosse } from "../../domain/acoes-observaveis";
 import type { RegistroCiclo } from "../../domain/cycle";
 import type {
   EstadoEventoTemporal,
@@ -48,6 +49,14 @@ export const ORIGENS_SINAL_TEMPORAL: OrigemSinalTemporal[] = [
   "cena",
   "movimento",
 ];
+
+/** Campos aditivos de ações observáveis (Fase 4). Valores não listados são descartados. */
+export const NATUREZAS_INTERACAO: NaturezaInteracao[] = [
+  "proximidade",
+  "contato",
+  "manipulacao",
+];
+export const TRANSICOES_POSSE: TransicaoPosse[] = ["pego", "deixado"];
 
 export interface ArquivoSnapshot {
   nome: string;

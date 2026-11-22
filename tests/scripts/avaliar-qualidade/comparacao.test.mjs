@@ -187,4 +187,26 @@ describe("compararEventos", () => {
     expect(r.duracaoMs).toBe(60000);
     expect(r.falsosPositivosPorMinuto).toBe(0);
   });
+
+  it("publica atraso com sinal, média e p95; sem amostra fica N/A", () => {
+    const semAmostra = compararEventos({ esperados: [], detectados: [] });
+    expect(semAmostra.atraso).toEqual({
+      amostras: 0,
+      mediaMs: null,
+      p95Ms: null,
+      minimoMs: null,
+      maximoMs: null,
+    });
+    const r = compararEventos({
+      esperados: [ev("interacao_objeto", 1000), ev("interacao_objeto", 2000)],
+      detectados: [ev("interacao_objeto", 1300), ev("interacao_objeto", 1600)],
+      toleranciaMs: 500,
+    });
+    expect(r.correspondencias.map((c) => c.atrasoMs)).toEqual([300, -400]);
+    expect(r.atraso.amostras).toBe(2);
+    expect(r.atraso.mediaMs).toBe(-50);
+    expect(r.atraso.p95Ms).toBe(300);
+    expect(r.atraso.minimoMs).toBe(-400);
+    expect(r.atraso.maximoMs).toBe(300);
+  });
 });

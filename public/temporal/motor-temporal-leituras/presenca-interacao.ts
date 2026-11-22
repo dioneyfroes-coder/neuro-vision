@@ -101,6 +101,9 @@ export function montarAmostrasInteracao(
         sessionId,
         maoEntidadeId: mao.entidadeId,
         objetoEntidadeId: deteccao.entidadeId,
+        ...(typeof mao.pessoaEntidadeId === "string"
+          ? { pessoaEntidadeId: mao.pessoaEntidadeId }
+          : {}),
         rotuloObjeto: deteccao.nome || deteccao.rotulo || undefined,
         punhoMao: { x: punho.x, y: punho.y },
         caixaObjeto: {

@@ -10,14 +10,20 @@ import type { EventoTemporalPersistido } from "../../types";
 import {
   ESTADOS_EVENTO_TEMPORAL_PERSISTIDOS,
   MOTIVOS_ENCERRAMENTO_TEMPORAL,
+  NATUREZAS_INTERACAO,
   ORIGENS_SINAL_TEMPORAL,
   SUBSISTEMAS_VALIDOS,
   TIPOS_EVENTO_TEMPORAL_PERSISTIDOS,
+  TRANSICOES_POSSE,
   type SubsistemaIndisponivel,
 } from "./tipos";
 
 function numeroFinito(valor: unknown): number | undefined {
   return typeof valor === "number" && Number.isFinite(valor) ? valor : undefined;
+}
+
+function textoOpcional(valor: unknown): string | undefined {
+  return typeof valor === "string" && valor.trim() ? valor : undefined;
 }
 
 /**
@@ -116,6 +122,16 @@ export function montarEventoTemporal(payload: unknown): EventoTemporalPersistido
   const participantes = Array.isArray(p.participantes)
     ? p.participantes.filter((id): id is string => typeof id === "string" && id.length > 0)
     : undefined;
+  const naturezaInteracao = NATUREZAS_INTERACAO.includes(
+    p.naturezaInteracao as (typeof NATUREZAS_INTERACAO)[number]
+  )
+    ? (p.naturezaInteracao as (typeof NATUREZAS_INTERACAO)[number])
+    : undefined;
+  const transicaoPosse = TRANSICOES_POSSE.includes(
+    p.transicaoPosse as (typeof TRANSICOES_POSSE)[number]
+  )
+    ? (p.transicaoPosse as (typeof TRANSICOES_POSSE)[number])
+    : undefined;
   const tipo = p.tipo as TipoEventoTemporal;
   const estado = p.estado as EstadoEventoTemporal;
   // O status é derivado no servidor a partir dos sinais brutos: um valor
@@ -146,6 +162,11 @@ export function montarEventoTemporal(payload: unknown): EventoTemporalPersistido
       typeof p.ultimaObservacaoEm === "string" ? p.ultimaObservacaoEm : undefined,
     entidadeId: typeof p.entidadeId === "string" ? p.entidadeId : undefined,
     participantes,
+    pessoaEntidadeId: textoOpcional(p.pessoaEntidadeId),
+    naturezaInteracao,
+    transicaoPosse,
+    estadoAnterior: textoOpcional(p.estadoAnterior),
+    estadoPosterior: textoOpcional(p.estadoPosterior),
     rotuloObjeto: typeof p.rotuloObjeto === "string" ? p.rotuloObjeto : undefined,
     descricao: p.descricao,
     confianca,

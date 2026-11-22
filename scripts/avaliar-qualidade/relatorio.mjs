@@ -16,6 +16,7 @@ export function formatarRelatorio(rel, { clip = "", toleranciaMs = 0 } = {}) {
     `Esperados: ${rel.esperados} | detectados: ${rel.detectados}`,
     `Verdadeiros positivos: ${rel.verdadeirosPositivos} | perdidos: ${rel.perdidos} | falsos positivos: ${rel.falsosPositivos}`,
     `Precisao: ${pct(rel.precisao)} | recall: ${pct(rel.recall)} | falsos positivos/min: ${valorOuNa(rel.falsosPositivosPorMinuto, 2)}`,
+    `Atraso (detectado - esperado): media ${valorOuNa(rel.atraso?.mediaMs)} ms | p95 ${valorOuNa(rel.atraso?.p95Ms)} ms | n=${rel.atraso?.amostras ?? 0}`,
   ];
   if (rel.foraEscopo > 0) linhas.push(`Fora do escopo avaliado: ${rel.foraEscopo}`);
   if (rel.semClassificacaoEscopo > 0) {

@@ -900,16 +900,16 @@ A ordem abaixo prioriza valor funcional e redução de risco. Não é necessári
 
 ## Fase 4 — Interações e ações
 
-- [ ] Associar mão a pessoa por pose e continuidade.
-- [ ] Associar mão a objeto.
-- [ ] Distinguir proximidade, contato e manipulação.
-- [ ] Detectar objeto pego/deixado quando houver evidência.
-- [ ] Detectar mudanças de estado suportadas.
-- [ ] Criar eventos com estado anterior/posterior.
-- [ ] Validar gestos com clipes reais anotados.
-- [ ] Publicar métricas de precisão e atraso.
+- [x] Associar mão a pessoa por pose e continuidade (heurística; abstenção quando ambígua).
+- [x] Associar mão a objeto (rastreamento com `entidadeId` estável).
+- [x] Distinguir proximidade, contato e manipulação.
+- [x] Detectar objeto pego/deixado quando houver evidência (oclusão/lacuna/indisponibilidade nunca geram `deixado`).
+- [x] Detectar mudanças de estado suportadas (somente observações de `MudancaCena`).
+- [x] Criar eventos com estado anterior/posterior (campos aditivos; `estado` segue sendo ciclo de vida).
+- [ ] Validar gestos com clipes reais anotados — pendente; ver [`docs/pendencias.md`](docs/pendencias.md#fase-4--validação-real-de-ações).
+- [ ] Publicar métricas de precisão e atraso — sem linha de base anotada; harness emite `N/A`, não zero.
 
-**Saída:** histórico de ações observáveis, com incerteza explícita.
+**Saída:** histórico de ações observáveis, com incerteza explícita; detalhes em [`docs/fase4-acoes.md`](docs/fase4-acoes.md).
 
 ## Fase 5 — Memória e consulta
 

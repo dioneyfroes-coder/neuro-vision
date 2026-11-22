@@ -10,7 +10,7 @@ export async function main() {
   const args = lerArgs();
   if (!args.anotacao) {
     console.error(
-      "Uso: npm run qualidade -- --anotacao bench/videos/<clipe>.json [--eventos logs/eventos.jsonl] [--tolerancia 3000] [--offset 0] [--ignorados resumo] [--json]"
+      "Uso: npm run qualidade -- --anotacao bench/videos/<clipe>.json [--eventos logs/eventos.jsonl|logs/eventos-temporais.jsonl] [--tolerancia 3000] [--offset 0] [--ignorados resumo] [--json]"
     );
     process.exit(1);
   }

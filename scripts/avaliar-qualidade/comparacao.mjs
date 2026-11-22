@@ -18,6 +18,30 @@ function calcularDuracaoMs(esperados, detectados) {
 }
 
 /**
+ * Atraso com sinal: detecção posterior ao esperado é positivo; anterior é
+ * negativo. Sem correspondência o valor é `null` (N/A) e nunca entra em média.
+ */
+export function estatisticasAtraso(correspondencias = []) {
+  const valores = correspondencias
+    .map((c) => (Number.isFinite(c.detectado?.em) && Number.isFinite(c.esperado?.em)
+      ? c.detectado.em - c.esperado.em
+      : Number.isFinite(c.atrasoMs) ? c.atrasoMs : null))
+    .filter((n) => Number.isFinite(n));
+  if (!valores.length) {
+    return { amostras: 0, mediaMs: null, p95Ms: null, minimoMs: null, maximoMs: null };
+  }
+  const ordenados = [...valores].sort((a, b) => a - b);
+  const indice = Math.min(ordenados.length - 1, Math.ceil(0.95 * ordenados.length) - 1);
+  return {
+    amostras: valores.length,
+    mediaMs: valores.reduce((a, b) => a + b, 0) / valores.length,
+    p95Ms: ordenados[Math.max(0, indice)],
+    minimoMs: ordenados[0],
+    maximoMs: ordenados[ordenados.length - 1],
+  };
+}
+
+/**
  * Compara eventos esperados com os detectados e calcula precisao, recall,
  * mudancas perdidas e falsos positivos por minuto.
  *
@@ -89,6 +113,7 @@ export function compararEventos({
         esperado,
         detectado: candidatos[melhorIndice],
         distanciaMs: melhorDistancia,
+        atrasoMs: candidatos[melhorIndice].em - esperado.em,
       });
     } else {
       perdidos.push(esperado);
@@ -122,6 +147,7 @@ export function compararEventos({
         ? fp / (duracaoEfetivaMs / 60_000)
         : null,
     duracaoMs: duracaoEfetivaMs,
+    atraso: estatisticasAtraso(correspondencias),
     correspondencias,
     perdidosDetalhe: perdidos,
     falsosPositivosDetalhe: falsosPositivos,

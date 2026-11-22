@@ -11,7 +11,7 @@ export {
   parsearEventos,
   resolverBaseMs,
 } from "./avaliar-qualidade/eventos.mjs";
-export { compararEventos } from "./avaliar-qualidade/comparacao.mjs";
+export { compararEventos, estatisticasAtraso } from "./avaliar-qualidade/comparacao.mjs";
 export { formatarRelatorio } from "./avaliar-qualidade/relatorio.mjs";
 
 const caminhoDoModulo = fileURLToPath(import.meta.url);

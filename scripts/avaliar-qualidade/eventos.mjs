@@ -1,6 +1,21 @@
 import { readFile } from "node:fs/promises";
 
 /** Le o JSONL de eventos gravado pelo app, ignorando linhas corrompidas/incompletas. */
+const ORIGENS_VALIDAS = ["objetos", "pose", "maos", "cena", "movimento"];
+
+function origensValidas(origens) {
+  if (!Array.isArray(origens)) return undefined;
+  const filtradas = origens.filter((origem) => ORIGENS_VALIDAS.includes(origem));
+  return filtradas.length ? filtradas : undefined;
+}
+
+/**
+ * Le o JSONL de eventos gravado pelo app, ignorando linhas corrompidas/incompletas.
+ *
+ * Aceita tanto o stream legado (`timestamp`) quanto a memoria temporal
+ * (`inicioEm`, `logs/eventos-temporais.jsonl`). O instante de comparacao e o
+ * inicio do evento — nunca o instante em que o registro foi persistido.
+ */
 export function parsearEventos(texto) {
   const eventos = [];
   for (const linha of String(texto ?? "").split(/\r?\n/)) {
@@ -8,18 +23,34 @@ export function parsearEventos(texto) {
     if (!limpa) continue;
     try {
       const evt = JSON.parse(limpa);
-      if (typeof evt?.timestamp !== "string" || typeof evt?.tipo !== "string") continue;
+      const instante = typeof evt?.timestamp === "string" ? evt.timestamp : evt?.inicioEm;
+      if (typeof instante !== "string" || typeof evt?.tipo !== "string") continue;
+      const origens = origensValidas(evt.origensSinal ?? evt.origens);
       eventos.push({
         tipo: evt.tipo,
-        timestamp: evt.timestamp,
+        timestamp: instante,
         descricao: evt.descricao ?? "",
+        ...(typeof evt.inicioEm === "string" ? { inicioEm: evt.inicioEm } : {}),
+        ...(typeof evt.estado === "string" ? { estado: evt.estado } : {}),
+        ...(typeof evt.statusEvidencia === "string"
+          ? { statusEvidencia: evt.statusEvidencia }
+          : {}),
+        ...(typeof evt.naturezaInteracao === "string"
+          ? { naturezaInteracao: evt.naturezaInteracao }
+          : {}),
+        ...(typeof evt.transicaoPosse === "string"
+          ? { transicaoPosse: evt.transicaoPosse }
+          : {}),
         ...(typeof evt.rotuloObjeto === "string" ? { rotuloObjeto: evt.rotuloObjeto } : {}),
-        ...(Array.isArray(evt.origensSinal)
-          ? {
-              origensSinal: evt.origensSinal.filter((origem) =>
-                ["objetos", "pose", "maos", "cena", "movimento"].includes(origem)
-              ),
-            }
+        ...(origens ? { origensSinal: origens } : {}),
+        ...(typeof evt.capturadoEmMs === "number" && Number.isFinite(evt.capturadoEmMs)
+          ? { capturadoEmMs: evt.capturadoEmMs }
+          : {}),
+        ...(typeof evt.processadoEmMs === "number" && Number.isFinite(evt.processadoEmMs)
+          ? { processadoEmMs: evt.processadoEmMs }
+          : {}),
+        ...(typeof evt.inferidoEmMs === "number" && Number.isFinite(evt.inferidoEmMs)
+          ? { inferidoEmMs: evt.inferidoEmMs }
           : {}),
       });
     } catch {

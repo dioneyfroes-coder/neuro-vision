@@ -23,7 +23,10 @@ export abstract class BaseDetectorInteracao {
     const emitidos: EventoTemporal[] = [];
     for (const par of [...this.pares.values()]) {
       if (!par.emitido) continue;
-      const evento = eventoDe(par, "incerto");
+      const evento = eventoDe(par, "incerto", {
+        ...this.config,
+        motivoEncerramento: "periodo_cego",
+      });
       evento.motivoEncerramento = "periodo_cego";
       evento.intervaloSemObservacaoMs = gapMs;
       evento.continuidadeValida = false;
@@ -98,6 +101,7 @@ export abstract class BaseDetectorInteracao {
       sessionId: amostra.sessionId,
       maoEntidadeId: amostra.maoEntidadeId,
       objetoEntidadeId: amostra.objetoEntidadeId,
+      pessoaEntidadeId: amostra.pessoaEntidadeId,
       rotuloObjeto: amostra.rotuloObjeto,
       eventoId: uuid(),
       inicioEm: amostra.timestamp,
@@ -116,6 +120,8 @@ export abstract class BaseDetectorInteracao {
       continuidadeValida: amostra.continuidadeValida !== false,
       ultimoCentro: null,
       ultimoTempoMs: null,
+      framesObjetoEstavel: 0,
+      possePegoEmitida: false,
     };
   }
 
@@ -127,7 +133,10 @@ export abstract class BaseDetectorInteracao {
     const observado = par.emitido || par.frameIds.length > 0;
     this.pares.delete(par.chave);
     if (!observado) return null;
-    const evento = eventoDe(par, "encerrado");
+    const evento = eventoDe(par, "encerrado", {
+      ...this.config,
+      motivoEncerramento: motivo,
+    });
     evento.motivoEncerramento = motivo;
     if (referencia.frameId) adicionarFrame(evento.frameIds, referencia.frameId);
     return evento;

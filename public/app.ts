@@ -4,6 +4,8 @@ import { FilaPersistencia } from "./persistencia";
 import * as api from "./api";
 import { CycleController } from "./cycle/cycle-controller";
 import type { ControladorCiclo, EventoUi, ItemHistorico } from "./cycle/cycle-controller";
+import type { EventoTemporalComVideo } from "../src/types";
+import { estadosObservadosParaEvento } from "../src/domain";
 import { CicloPercepcaoController } from "./cycle/ciclo-percepcao-controller";
 import { criarPercepcaoLocal } from "./perception/percepcao-local";
 import { obterVariante } from "./perception/variantes";
@@ -567,27 +569,66 @@ function aplicarFiltro(): void {
 }
 
 /**
+ * Descrição de um evento de ação para a linha do tempo. O texto nunca transforma
+ * hipótese/oclusão/indisponibilidade em fato: o suporte vem do servidor, e o
+ * par estado anterior/posterior so aparece quando o inventário observou o estado.
+ */
+function textoAcaoTemporal(
+  evento: EventoTemporalComVideo,
+  mudancas: Awaited<ReturnType<typeof api.listarMudancasCena>>
+): string {
+  const estados = estadosObservadosParaEvento(evento, mudancas);
+  const detalhes: string[] = [];
+  if (evento.naturezaInteracao) detalhes.push(`natureza: ${evento.naturezaInteracao}`);
+  if (evento.transicaoPosse) detalhes.push(`posse: ${evento.transicaoPosse}`);
+  if (evento.pessoaEntidadeId) detalhes.push(`pessoa: ${evento.pessoaEntidadeId}`);
+  if (estados.estadoAnterior || estados.estadoPosterior) {
+    detalhes.push(`estado: ${estados.estadoAnterior ?? "?"} → ${estados.estadoPosterior ?? "?"}`);
+  }
+  const suporte =
+    evento.statusEvidencia === "observado"
+      ? "observado"
+      : evento.statusEvidencia === "inferido"
+        ? "inferido"
+        : "sem confirmação";
+  return `[${evento.tipo} · ${evento.estado} · ${suporte}] ${evento.descricao}${
+    detalhes.length ? ` — ${detalhes.join(" · ")}` : ""
+  }`;
+}
+
+/**
  * Histórico de gravações/cenas da Câmera de Segurança.
  * Fonte principal: sessões/segmentos de monitoramento; descrições vêm de entradas/ciclos
- * correlacionados por sessão e janela de tempo. Busca única filtra descrição/objeto/ambiente/data.
+ * e eventos temporais correlacionados por sessão e janela de tempo.
+ * Busca única filtra descrição/objeto/ambiente/data.
  */
 async function carregarLinhaDoTempo(): Promise<void> {
   timelineAtualizarBtn.disabled = true;
   try {
     const termo = timelineBuscaInput.value.trim().toLowerCase();
-    const [sessoes, entradas, ciclos] = await Promise.all([
+    const [sessoes, entradas, ciclos, eventosTemporais] = await Promise.all([
       api.listarSessoesMonitoramento(100).catch(() => []),
       api.listarEntradas(500).catch(() => [] as EntradaComVideoOpcional[]),
       api.listarCiclos(500).catch(() => []),
+      api.listarEventosTemporais(500).catch(() => []),
     ]);
-    const segmentosPorSessao = new Map<string, Awaited<ReturnType<typeof api.listarSegmentosDaSessao>>>();
+    const porSessao = new Map<string, {
+      segmentos: Awaited<ReturnType<typeof api.listarSegmentosDaSessao>>;
+      mudancas: Awaited<ReturnType<typeof api.listarMudancasCena>>;
+    }>();
     await Promise.all(sessoes.map(async (s) => {
-      segmentosPorSessao.set(s.sessaoId, await api.listarSegmentosDaSessao(s.sessaoId, 500).catch(() => []));
+      const [segmentos, mudancas] = await Promise.all([
+        api.listarSegmentosDaSessao(s.sessaoId, 500).catch(() => []),
+        api.listarMudancasCena(s.sessaoId, 500).catch(() => []),
+      ]);
+      porSessao.set(s.sessaoId, { segmentos, mudancas });
     }));
 
     const itens: Array<{sessaoId:string; ambiente:string; inicioMs:number; dataHora:string; segmentos:Array<{segmentoId:string; inicioMs:number; fimMs:number; url:string; sequencia:number; incompleto?:boolean}>; descricoes:string[]}> = [];
     for (const sessao of sessoes) {
-      const segmentos = (segmentosPorSessao.get(sessao.sessaoId) ?? []).slice().sort((a,b)=>a.inicioMs-b.inicioMs);
+      const dadosSessao = porSessao.get(sessao.sessaoId);
+      const segmentos = (dadosSessao?.segmentos ?? []).slice().sort((a,b)=>a.inicioMs-b.inicioMs);
+      const mudancas = dadosSessao?.mudancas ?? [];
       const inicioMs = sessao.iniciadaEmMs;
       const fimMs = sessao.encerradaEmMs ?? Date.now();
       const descricoes: string[] = [];
@@ -598,6 +639,13 @@ async function carregarLinhaDoTempo(): Promise<void> {
       }
       for (const c of ciclos) {
         if (c.sessionId === sessao.sessaoId && c.interpretacao?.trim()) descricoes.push(c.interpretacao.trim());
+      }
+      for (const evt of eventosTemporais) {
+        const emMs = Date.parse(evt.inicioEm);
+        const naJanela = Number.isFinite(emMs) && emMs >= inicioMs - 5000 && emMs <= fimMs + 5000;
+        if (evt.sessionId === sessao.sessaoId || (!evt.sessionId && naJanela)) {
+          descricoes.push(textoAcaoTemporal(evt, mudancas));
+        }
       }
       const dataHora = rotuloInstante(sessao.iniciadaEm);
       const texto = [sessao.ambiente, dataHora, sessao.sessaoId, ...descricoes].join(" ").toLowerCase();

@@ -13,6 +13,7 @@ export * from "./hand-gestures";
 export * from "./observation";
 export * from "./evidencia";
 export * from "./temporal-event";
+export * from "./acoes-observaveis";
 export * from "./cycle";
 export * from "./interpretation";
 export * from "./monitoramento";
