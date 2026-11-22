@@ -622,7 +622,7 @@ Executar:
 - Disco cheio.
 - Alteração de resolução e dispositivo da câmera.
 
-O harness `npm run validar:soak` existe, mas a execução real de 30 minutos com relatório arquivado continua pendente conforme `docs/pendencias.md`.
+O harness `npm run validar:soak` existe e a execução real de 30 minutos foi concluída em 2026-11-22 com veredito `APROVADO` e relatório arquivado (ver [`docs/soak.md`](docs/soak.md)). Os demais cenários da lista — sessão de várias horas, queda de webcam física, reinício abrupto, disco cheio etc. — continuam pendentes conforme [`docs/pendencias.md`](docs/pendencias.md).
 
 ## 9.5 Recuperação automática
 
@@ -940,7 +940,7 @@ A ordem abaixo prioriza valor funcional e redução de risco. Não é necessári
 
 - [ ] Recuperar sessão após queda do processo.
 - [ ] Validar segmento incompleto e upload pendente.
-- [ ] Executar soak real de 30 minutos.
+- [x] Executar soak real de 30 minutos (2026-11-22, `APROVADO`; ver [`soak.md`](docs/soak.md)).
 - [ ] Executar sessão prolongada.
 - [ ] Testar webcam física e reconexão.
 - [ ] Testar disco cheio e falha de escrita.
