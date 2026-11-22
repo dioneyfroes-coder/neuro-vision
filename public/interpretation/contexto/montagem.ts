@@ -1,4 +1,9 @@
-import { estaIndisponivel, naoFoiAmostrado } from "../../../src/domain";
+import {
+  estaIndisponivel,
+  eventosRelevantesParaMultimodal,
+  naoFoiAmostrado,
+  selecionarFramesRelevantes,
+} from "../../../src/domain";
 import type {
   ObservacaoFrame,
   PacoteCiclo,
@@ -67,7 +72,16 @@ export function montarContextoCiclo(
   };
   const incluirDadosLocais = opcoes.incluirDadosLocais ?? true;
   const ordenadas = [...pacote.observacoes].sort((a, b) => a.capturadoEmMs - b.capturadoEmMs);
-  const selecionadas = amostrar(ordenadas, cfg.maxImagens);
+  const selecao = opcoes.selecaoFrames === "relevancia"
+    ? selecionarFramesRelevantes(
+        ordenadas.map((obs) => sinaisDoFrame(obs, pacote)),
+        cfg.maxImagens,
+        eventosRelevantesParaMultimodal(pacote.resumoTemporal)
+      )
+    : undefined;
+  const selecionadas = selecao
+    ? ordenadas.filter((obs) => selecao.selecionados.includes(obs.frameId))
+    : amostrar(ordenadas, cfg.maxImagens);
   const baseMs = selecionadas.length > 0 ? selecionadas[0].capturadoEmMs : 0;
 
   const frames: ObservacaoLocalSerializavel[] = [];
@@ -123,7 +137,42 @@ export function montarContextoCiclo(
 
   limitarPorBytes(contexto, cfg.maxBytesContexto);
 
-  return { imagens: selecionadas.map((obs) => obs.imagem), contexto };
+  return {
+    imagens: selecionadas.map((obs) => obs.imagem),
+    contexto,
+    ...(selecao ? { selecao } : {}),
+  };
+}
+
+/** Sinais locais já medidos que podem justificar a presença do frame no contexto. */
+function sinaisDoFrame(
+  obs: ObservacaoFrame,
+  pacote: PacoteCiclo
+): {
+  frameId: string;
+  capturadoEmMs: number;
+  eventosSuportados: string[];
+  percepcaoValida: boolean;
+  falhaPercepcao: boolean;
+  sinaisAtividade: number;
+} {
+  const subsistemas = [obs.deteccoes, obs.pose, obs.maos];
+  const falhaPercepcao = subsistemas.some(
+    (resultado) => estaIndisponivel(resultado) && !naoFoiAmostrado(resultado)
+  );
+  return {
+    frameId: obs.frameId,
+    capturadoEmMs: obs.capturadoEmMs,
+    eventosSuportados: pacote.eventosTemporais
+      .filter((evento) => evento.frameIds?.includes(obs.frameId))
+      .map((evento) => evento.eventoId),
+    percepcaoValida: !falhaPercepcao,
+    falhaPercepcao,
+    sinaisAtividade:
+      (estaIndisponivel(obs.deteccoes) ? 0 : obs.deteccoes.deteccoes.length) +
+      (estaIndisponivel(obs.pose) ? 0 : obs.pose.pessoas.length) +
+      (estaIndisponivel(obs.maos) ? 0 : obs.maos.maos.length),
+  };
 }
 
 function montarObservacao(

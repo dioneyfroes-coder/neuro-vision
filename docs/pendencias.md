@@ -157,9 +157,23 @@ As metas são **proposta inicial**: quando a primeira linha de base for medida, 
 
 A documentação do comportamento implementado está em [`eventos.md`](./eventos.md#entrada-e-saída-de-pessoas-fase-4), [`eventos.md`](./eventos.md#interação-mãoobjeto-fase-4) e [`arquitetura.md`](./arquitetura.md#frequência-adaptativa-na-entrada-de-pessoas-fase-4). O critério geral da Fase 4 — “registrar sequências simples de interação sem transformar proximidade em contato confirmado” — continua atendido. A validação com vídeos reais anotados da Fase 1.5–1.6 segue adiada e **não** é pré-requisito para esta conclusão técnica.
 
-## Fase 6 — robustez, desempenho e operação contínua
+## Fase 6 — interpretação multimodal
 
-**Status:** implementada em 2026-11-18; pendências abaixo são de **validação com dados reais**, não de código.
+**Status:** código concluído em 2026-11-22; pendências abaixo são de **validação com dados reais**, não de implementação. Detalhes em [`fase6-multimodal.md`](./fase6-multimodal.md).
+
+| Frente | O que existe agora | O que ainda depende de execução/dados |
+| --- | --- | --- |
+| Política orientada a eventos | `src/domain/politica-multimodal.ts` unifica modos e motivos; `quando_evento_relevante` é o modo desejável, `sob_demanda` continua o padrão operacional. | Rodar monitoramento com o modo orientado a eventos em clipe anotado e registrar se as ativações foram úteis. Sem isso, não se afirma que a política foi validada. |
+| Seleção de frames e schema | Seleção por sinais locais com queda para amostragem uniforme; schema `resposta-1` valida a resposta antes de qualquer uso. | Medir se a seleção melhora a narrativa em comparação com a amostragem uniforme, com anotação revisada. |
+| Evidência e inferência | Referências inválidas são separadas; afirmações sem suporte não entram nos fatos; `distincaoEvidencia` mantém status local separado da natureza declarada pelo modelo. | Revisar manualmente uma amostra de respostas reais para confirmar que nenhuma afirmação sem evidência vazou para a timeline. |
+| Latência e custo por evento | Tokens, duração, latência até resposta e `versaoPrompt` são propagados; `custoMultimodal` registra ausência de preço em vez de inventar valor. | Backend real disponível para medir latência e uma tabela de preços explícita (entrada/saída) para gerar `custoEstimado`. Até então, precisão e custo reais são `N/A`. |
+| Comparação com anotações humanas | `npm run avaliar:multimodal` compara respostas já coletadas com afirmações esperadas e só emite taxas para anotação `eval` revisada. | Clipe com consentimento, anotação revisada quadro a quadro e respostas multimodais reais coletadas. Os exemplos atuais são rascunhos e não produzem precisão real. |
+
+**Critério de conclusão da validação:** backend real executando sobre clipe anotado revisado, com respostas coletadas, comparação léxica arquivada, latência medida e custo calculado apenas com preço declarado. Nenhum desses itens pode ser substituído por teste sintético.
+
+## Fase 7 — robustez, desempenho e operação contínua (antiga “Fase 6” desta página)
+
+**Status:** implementada em 2026-11-18; pendências abaixo são de **validação com dados reais**, não de código. A numeração foi alinhada ao plano mestre, onde operação contínua é a Fase 7 e interpretação multimodal é a Fase 6.
 
 | Item do roteiro | Implementação | Verificação determinística |
 | --- | --- | --- |

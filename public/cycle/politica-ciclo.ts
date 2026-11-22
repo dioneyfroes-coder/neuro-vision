@@ -1,10 +1,12 @@
 import {
   cadenciaParaModo,
+  decidirAtivacaoMultimodal,
+  eventosRelevantesParaMultimodal,
+  TIPOS_EVENTO_RELEVANTES_MULTIMODAL,
   type CadenciaPercepcao,
   type ConfigFrequenciaAdaptativa,
   type ModoFrequencia,
   type ResumoTemporal,
-  type TipoEventoTemporal,
 } from "../../src/domain";
 import type {
   FrequenciaInterpretacao,
@@ -14,6 +16,11 @@ import type {
 } from "../../src/domain/cycle";
 
 export type { FrequenciaInterpretacao, MotivoSupressaoInterpretacao } from "../../src/domain/cycle";
+/**
+ * Lista canônica de tipos relevantes, mantida em `politica-multimodal.ts`.
+ * `provavel` conta; `candidato`/`incerto` não contam.
+ */
+export { TIPOS_EVENTO_RELEVANTES_MULTIMODAL as TIPOS_EVENTO_RELEVANTES };
 
 /**
  * Politica do ciclo multiframe (Fase 4).
@@ -54,26 +61,6 @@ export interface PoliticaCiclo {
    */
   frequenciaAdaptativa?: ConfigFrequenciaAdaptativa;
 }
-
-/**
- * Tipos de evento considerados "relevantes" para justificar uma nova
- * interpretacao: mudancas de cena/entidades e gestos/posturas que o modelo
- * precisa narrar. `provavel` conta: ha evidencia sustentada, mas nao o bastante
- * para afirmar contato — justamente o caso em que a interpretacao multimodal
- * pode ajudar. `candidato` e eventos apenas interrompidos por lacuna (`incerto`)
- * **nao** contam — evita chamar o modelo por um sinal ainda nao sustentado.
- */
-export const TIPOS_EVENTO_RELEVANTES: readonly TipoEventoTemporal[] = [
-  "aparicao",
-  "desaparecimento",
-  "mudanca_de_cena",
-  "gesto_detectado",
-  "braco_levantado",
-  "transicao_acao",
-  "movimento_corporal",
-  "pose_compativel_sexual",
-  "interacao_objeto",
-];
 
 /** Politica padrao do modo operacional (producao/uso real). */
 export const POLITICA_CICLO_OPERACIONAL: PoliticaCiclo = {
@@ -210,15 +197,7 @@ export interface DecisaoInterpretacao {
  * `confirmado` e `encerrado` (o grau `incerto` nao sustenta interpretacao).
  */
 export function eventosRelevantes(resumo: ResumoTemporal): string[] {
-  return resumo.eventos
-    .filter(
-      (evento) =>
-        TIPOS_EVENTO_RELEVANTES.includes(evento.tipo) &&
-        (evento.estado === "provavel" ||
-          evento.estado === "confirmado" ||
-          evento.estado === "encerrado")
-    )
-    .map((evento) => evento.eventoId);
+  return eventosRelevantesParaMultimodal(resumo);
 }
 
 /**
@@ -232,18 +211,12 @@ export function decidirInterpretacao(
   resumo: ResumoTemporal,
   opcoes: { disparoManual?: boolean } = {}
 ): DecisaoInterpretacao {
-  switch (politica.interpretacao) {
-    case "a_cada_ciclo":
-      return { interpretar: true, eventosRelevantes: eventosRelevantes(resumo) };
-    case "sob_demanda":
-      return opcoes.disparoManual
-        ? { interpretar: true, eventosRelevantes: eventosRelevantes(resumo) }
-        : { interpretar: false, motivo: "politica_sob_demanda", eventosRelevantes: [] };
-    case "quando_evento_relevante": {
-      const relevantes = eventosRelevantes(resumo);
-      return relevantes.length > 0
-        ? { interpretar: true, eventosRelevantes: relevantes }
-        : { interpretar: false, motivo: "sem_evento_relevante", eventosRelevantes: [] };
-    }
-  }
+  const decisao = decidirAtivacaoMultimodal(politica.interpretacao, resumo, {
+    disparoManual: opcoes.disparoManual,
+  });
+  return {
+    interpretar: decisao.interpretar,
+    ...(decisao.motivo ? { motivo: decisao.motivo } : {}),
+    eventosRelevantes: decisao.eventosRelevantes,
+  };
 }

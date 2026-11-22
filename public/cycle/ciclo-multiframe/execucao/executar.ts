@@ -1,4 +1,5 @@
 import { ehCancelamento } from "../../../../src/erros";
+import { medirCustoMultimodal } from "../../../../src/domain/custo-multimodal";
 import type {
   ErroEtapa,
   MetricasCiclo,
@@ -217,7 +218,23 @@ export async function executarCicloMultiframe(
       // Latencia real ate a resposta multimodal: inclui captura, percepcao e a
       // propria chamada remota. So existe quando houve resposta (nao suprimida
       // pela politica e sem erro).
-      pacote.metricas.latenciaAteRespostaMultimodalMs = Math.round(agora() - inicioMs);
+      const latenciaAteRespostaMs = Math.round(agora() - inicioMs);
+      pacote.metricas.latenciaAteRespostaMultimodalMs = latenciaAteRespostaMs;
+      if (resultado.tokens !== undefined) {
+        pacote.metricas.tokensMultimodal = resultado.tokens;
+      }
+      const modeloEfetivo = resultado.modelo ?? deps.interpretador.modelo ?? undefined;
+      pacote.metricas.custoMultimodal = medirCustoMultimodal({
+        cycleId,
+        eventoIds: decisao?.eventosRelevantes ?? [],
+        modelo: modeloEfetivo,
+        duracaoMs: resultado.duracaoMs,
+        latenciaAteRespostaMs,
+        tokens: resultado.tokens,
+        versaoPrompt: resultado.versaoPrompt,
+        precos: deps.obterPrecosMultimodal?.(),
+        registradoEm: agoraIso(),
+      });
       interpretacao = resultado.resumo;
     }
     registrarMemoria(amostrarMemoriaBytes());

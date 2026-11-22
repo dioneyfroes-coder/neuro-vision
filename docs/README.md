@@ -12,10 +12,11 @@
 | [`cena.md`](./cena.md) | Referência do ambiente, estados de confirmação e regras de detecção de mudanças com `mudancaId` estável. |
 | [`fase-2-inventario.md`](./fase-2-inventario.md) | Pipeline YOLO → inventário: coleta de quadros, consolidação por instância, evidência temporal, confirmação de mudanças e painel de revisão. |
 | [`fase-3-atencao.md`](./fase-3-atencao.md) | Estados de atenção, zonas de entrada/saída, cadência por subsistema, buffer pré-evento, custo por estado e telemetria aditiva. |
+| [`fase6-multimodal.md`](./fase6-multimodal.md) | Política orientada a eventos, seleção de frames, schema da resposta, exigência de evidência, separação observação/inferência, latência/custo e comparação com anotações humanas da Fase 6. |
 | [`arquitetura.md`](./arquitetura.md) | Estrutura de arquivos e como as partes conversam (servidor, cliente, motores, memória, variantes A–D). |
 | [`seguranca.md`](./seguranca.md) | Exposição na rede, origem cruzada, limites de corpo e validação de payloads. |
 | [`qualidade.md`](./qualidade.md) | Benchmark do modelo, avaliação de eventos (precisão/recall), benchmark das variantes A–D, benchmark da cadência independente (5 FPS), carregamento do modelo e fluxo de regressão. |
-| [`pendencias.md`](./pendencias.md) | Avaliações adiadas de propósito, com protocolo e critério de aceite — gestos (Fase 1.5–1.6) e validação real da Fase 6 (soak test, troca de stream, iluminação/oclusão anotadas). |
+| [`pendencias.md`](./pendencias.md) | Avaliações adiadas de propósito, com protocolo e critério de aceite — gestos (Fase 1.5–1.6), interpretação multimodal (Fase 6) e operação contínua (Fase 7: soak test, troca de stream, iluminação/oclusão anotadas). |
 | [`soak.md`](./soak.md) | Soak test do servidor de monitoramento com telemetria: como rodar em tempo real ou acelerado, invariantes verificados e interpretação do veredito. |
 | [`limites.md`](./limites.md) | Limitações conhecidas (classes COCO, oclusão, iluminação, alucinações, CPU/WASM, latência multiframe, dados sensíveis) e **como desligar cada componente**. |
 | [`auditoria-fase-0.md`](./auditoria-fase-0.md) | Baseline reproduzível do plano mestre: ambiente, verificações, telemetria diagnóstica e lacunas confirmadas antes das mudanças. |

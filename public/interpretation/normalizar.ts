@@ -1,3 +1,4 @@
+import { analisarRespostaMultimodal } from "../../src/domain/schema-resposta-multimodal";
 import type {
   NaturezaAcaoInterpretada,
   ParticipanteInterpretado,
@@ -24,9 +25,8 @@ export function normalizarInterpretacao(
   modelo?: string
 ): ResultadoInterpretacao {
   const bruto = texto ?? "";
-  const parseavel = extrairJson(bruto);
+  const { json: obj, schema } = analisarRespostaMultimodal(bruto);
   try {
-    const obj = parseavel ? JSON.parse(parseavel) : JSON.parse(bruto);
     if (obj && typeof obj === "object") {
       const resumo = typeof obj.resumo === "string" ? obj.resumo : "";
       const acoes = Array.isArray(obj.acoes)
@@ -45,8 +45,11 @@ export function normalizarInterpretacao(
                   ? (a as { natureza: string }).natureza.trim().toLowerCase()
                   : "";
               const confiancaBruta = (a as { confianca?: unknown }).confianca;
+              const descricao = typeof a.descricao === "string" ? a.descricao : "";
+              const inicioEm = typeof a.inicioEm === "string" ? a.inicioEm : undefined;
+              const fimEm = typeof a.fimEm === "string" ? a.fimEm : undefined;
               return {
-                descricao: typeof (a as { descricao?: unknown }).descricao === "string" ? (a as { descricao?: string }).descricao : "",
+                descricao,
                 ...(TIPOS_ACAO.has(tipoBruto as TipoAcaoInterpretada)
                   ? { tipo: tipoBruto as TipoAcaoInterpretada }
                   : {}),
@@ -56,8 +59,8 @@ export function normalizarInterpretacao(
                 ...(typeof confiancaBruta === "number" && Number.isFinite(confiancaBruta)
                   ? { confianca: Math.min(1, Math.max(0, confiancaBruta)) }
                   : {}),
-                inicioEm: typeof (a as { inicioEm?: unknown }).inicioEm === "string" ? (a as { inicioEm?: string }).inicioEm : undefined,
-                fimEm: typeof (a as { fimEm?: unknown }).fimEm === "string" ? (a as { fimEm?: string }).fimEm : undefined,
+                ...(inicioEm ? { inicioEm } : {}),
+                ...(fimEm ? { fimEm } : {}),
                 evidencias,
               };
             })
@@ -80,7 +83,8 @@ export function normalizarInterpretacao(
         incertezas,
         contradicoes,
         modelo,
-        bruto: resumo ? bruto : bruto,
+        schema,
+        bruto,
       };
     }
   } catch {
@@ -93,6 +97,7 @@ export function normalizarInterpretacao(
     incertezas: ["resposta nao estruturada"],
     contradicoes: [],
     modelo,
+    schema,
     bruto,
   };
 }
@@ -146,14 +151,4 @@ function normalizarParticipantes(valor: unknown): ParticipanteInterpretado[] {
         evidencias,
       };
     });
-}
-
-/** Extrai JSON em bloco ```json ou ``` ou texto entre chaves. */
-function extrairJson(texto: string): string | null {
-  const fenced = texto.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced && fenced[1]) return fenced[1].trim();
-  const prim = texto.indexOf("{");
-  const ult = texto.lastIndexOf("}");
-  if (prim >= 0 && ult > prim) return texto.slice(prim, ult + 1).trim();
-  return null;
 }

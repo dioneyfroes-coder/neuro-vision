@@ -925,16 +925,16 @@ A ordem abaixo prioriza valor funcional e redução de risco. Não é necessári
 
 ## Fase 6 — Interpretação multimodal
 
-- [ ] Consolidar política orientada a eventos.
-- [ ] Selecionar frames relevantes automaticamente.
-- [ ] Enviar contexto temporal estruturado.
-- [ ] Validar resposta contra schema.
-- [ ] Exigir referências a evidências.
-- [ ] Separar observação de inferência.
-- [ ] Medir latência e custo por evento.
-- [ ] Comparar respostas com anotações humanas.
+- [x] Consolidar política orientada a eventos — vocabulário único em `politica-multimodal.ts`; modo desejável `quando_evento_relevante` **após validação**, operacional padrão segue `sob_demanda`.
+- [x] Selecionar frames relevantes automaticamente — sinais locais já medidos, com queda determinística para amostragem uniforme e registro do critério.
+- [x] Enviar contexto temporal estruturado — `contexto-1` já versionado (Fase 3), agora com seleção rastreável.
+- [x] Validar resposta contra schema — schema canônico `resposta-1`, validação pura antes de qualquer uso do JSON.
+- [x] Exigir referências a evidências — referências inválidas separadas; afirmação sem suporte sai dos fatos e vai para `afirmacoesSemEvidencia`.
+- [x] Separar observação de inferência — `distincaoEvidencia` mantém status derivado da percepção longe da `natureza` declarada pelo modelo.
+- [x] Medir latência e custo por evento — tokens, duração e latência propagados; custo monetário permanece `N/A` sem tabela de preços explícita.
+- [x] Comparar respostas com anotações humanas — harness determinístico `npm run avaliar:multimodal`; taxas ficam `N/A` sem anotação revisada de avaliação.
 
-**Saída:** descrições úteis sem transformar alucinações em registros factuais.
+**Saída:** descrições úteis sem transformar alucinações em registros factuais; detalhes em [`docs/fase6-multimodal.md`](docs/fase6-multimodal.md). Validação com clipe anotado e backend real continua pendente em [`docs/pendencias.md`](docs/pendencias.md#fase-6--interpretação-multimodal).
 
 ## Fase 7 — Operação contínua e segurança
 

@@ -1,3 +1,4 @@
+import type { DiagnosticoSelecaoFrames } from "../../../src/domain/selecao-frames";
 import type {
   ContextoCicloSerializavel,
   ObservacaoLocalSerializavel,
@@ -30,6 +31,8 @@ export interface PayloadContexto {
   /** Imagens (data URL) na ordem dos frames do contexto. */
   imagens: string[];
   contexto: ContextoCicloSerializavel;
+  /** Regra de seleção aplicada (Fase 6, item 2); ausente no caminho legado. */
+  selecao?: DiagnosticoSelecaoFrames;
 }
 
 /** Opcoes de montagem do contexto (Etapa 9). */
@@ -51,6 +54,12 @@ export interface OpcoesContexto {
    * Nao altera certeza: apenas a ordem em que a evidencia e apresentada.
    */
   proximidadeObjetos?: Partial<ConfigProximidadeObjetos>;
+  /**
+   * Critério de escolha dos frames enviados (Fase 6, item 2). `uniforme`
+   * preserva o comportamento legado; `relevancia` prioriza frames com eventos
+   * sustentados/atividade, mantendo primeiro e último e registrando o motivo.
+   */
+  selecaoFrames?: "uniforme" | "relevancia";
 }
 
 /** Resultado interno da montagem de um frame, com o mapa de posicoes. */

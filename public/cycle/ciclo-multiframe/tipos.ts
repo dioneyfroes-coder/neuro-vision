@@ -1,5 +1,5 @@
 import type { AmostragemFrame } from "../../../src/domain/cadencia";
-import type { TelemetriaSubsistema } from "../../../src/domain";
+import type { TabelaPrecosMultimodal, TelemetriaSubsistema } from "../../../src/domain";
 import type {
   CargaModelosCiclo,
   ConfiguracaoCiclo,
@@ -105,7 +105,12 @@ export interface DependenciasCicloMultiframe {
    */
   decidirInterpretacao?: (
     resumoTemporal: ResumoTemporal
-  ) => { interpretar: boolean; motivo?: MotivoSupressaoInterpretacao };
+  ) => {
+    interpretar: boolean;
+    motivo?: MotivoSupressaoInterpretacao;
+    /** Eventos que justificaram a chamada — usados na telemetria por evento. */
+    eventosRelevantes?: readonly string[];
+  };
   /** Politica efetiva a registrar no ciclo (Fase 4/P1.4). */
   obterPolitica?: () => PoliticaCicloAplicada;
   /** Variante e parametros efetivos do pipeline para reprodutibilidade (P3.2). */
@@ -133,4 +138,10 @@ export interface DependenciasCicloMultiframe {
    * limpa o estado ao reiniciar a sessao.
    */
   registrarFimCiclo?: (fimMs: number) => void;
+  /**
+   * Tabela de precos explicita para estimativa de custo (Fase 6, item 7).
+   * Ausente, o registro de custo fica sem valor monetario e com o motivo —
+   * nunca eh inventado preco ou custo zero.
+   */
+  obterPrecosMultimodal?: () => TabelaPrecosMultimodal | undefined;
 }

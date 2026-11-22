@@ -3,6 +3,10 @@ import type {
   ConfiguracaoInterpretadorCiclo,
   PacoteCiclo,
 } from "../../src/domain/cycle";
+import {
+  aplicarExigenciaEvidencias,
+  type ContextoParaEvidencia,
+} from "../../src/domain/evidencia-interpretacao";
 import type { ResultadoInterpretacao } from "../../src/domain/interpretation";
 import {
   diagnosticarContexto,
@@ -16,7 +20,7 @@ import {
   validarReferencias,
   type OpcoesSerializacao,
 } from "./esquema";
-import { montarPromptInterpretacao } from "./prompt";
+import { montarPromptInterpretacao, VERSAO_PROMPT_INTERPRETACAO } from "./prompt";
 import { normalizarInterpretacao } from "./normalizar";
 
 /**
@@ -80,6 +84,8 @@ export interface DependenciasInterpretadorCiclo {
    * alem da geometria calculada. O padrao permanece compacto.
    */
   serializacao?: Partial<OpcoesSerializacao>;
+  /** Critério de seleção de frames; padrão `relevancia` (Fase 6, item 2). */
+  selecaoFrames?: "uniforme" | "relevancia";
   agora?: () => number;
 }
 
@@ -102,6 +108,7 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
   private readonly limites: LimitesContexto;
   private readonly incluirDadosLocais: boolean;
   private readonly serializacao?: Partial<OpcoesSerializacao>;
+  private readonly selecaoFrames: "uniforme" | "relevancia";
   private readonly agora: () => number;
 
   constructor(deps: DependenciasInterpretadorCiclo) {
@@ -120,6 +127,7 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
     this.limites = { ...LIMITES_CONTEXTO_PADRAO, ...deps.limites };
     this.incluirDadosLocais = deps.incluirDadosLocais ?? true;
     this.serializacao = deps.serializacao;
+    this.selecaoFrames = deps.selecaoFrames ?? "relevancia";
     this.agora = deps.agora ?? (() => performance.now());
   }
 
@@ -137,13 +145,15 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
         decimais: this.limites.decimais,
         ...this.serializacao,
       },
+      selecaoFrames: this.selecaoFrames,
     };
   }
 
   async interpretar(pacote: PacoteCiclo, sinal?: AbortSignal): Promise<ResultadoInterpretacao> {
-    const { imagens, contexto } = montarContextoCiclo(pacote, this.limites, {
+    const { imagens, contexto, selecao } = montarContextoCiclo(pacote, this.limites, {
       incluirDadosLocais: this.incluirDadosLocais,
       serializacao: this.serializacao,
+      selecaoFrames: this.selecaoFrames,
     });
     const contextoDeclarado = this.obterContextoDeclarado();
     const prompt = montarPromptInterpretacao(contexto, contextoDeclarado);
@@ -164,12 +174,16 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
     const duracaoMs = resposta.duracaoMs ?? Math.round(this.agora() - inicio);
     const resultado = normalizarInterpretacao(resposta.texto, resposta.modelo ?? modelo ?? undefined);
     const validado = this.validarEvidencias(contexto, resultado);
+    const comEvidencia = aplicarExigenciaEvidencias(validado, contextoParaEvidencia(contexto));
     // Fase 3, item 5: o chamador registra nas metricas se/como o contexto foi
     // compactado, permitindo medir a frequencia real de truncamento.
     return {
-      ...validado,
+      ...comEvidencia.resultado,
       duracaoMs,
+      ...(resposta.tokens !== undefined ? { tokens: resposta.tokens } : {}),
+      versaoPrompt: VERSAO_PROMPT_INTERPRETACAO,
       contextoMultimodal: diagnosticarContexto(contexto, this.limites.maxBytesContexto),
+      ...(selecao ? { selecaoFrames: selecao } : {}),
     };
   }
 
@@ -209,4 +223,17 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
       ...(global.invalidas.length > 0 ? { evidenciasInvalidas: global.invalidas } : {}),
     };
   }
+}
+
+/** Projeta o contexto versionado para a regra pura de exigência de evidência. */
+function contextoParaEvidencia(contexto: ContextoCicloSerializavel): ContextoParaEvidencia {
+  return {
+    frames: contexto.frames.map((frame) => ({
+      frameId: frame.frameId,
+      percepcaoValida: !Object.values(frame.subsistemas).some(
+        (subsistema) => subsistema.status === "indisponivel"
+      ),
+    })),
+    eventosTemporais: contexto.eventosTemporais,
+  };
 }

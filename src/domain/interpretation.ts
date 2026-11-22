@@ -3,6 +3,12 @@
  *
  * O interpretador recebe o pacote do ciclo; ele nunca captura uma imagem nova.
  */
+import type {
+  AfirmacaoSemEvidencia,
+  DistincaoEvidenciaInterpretacao,
+} from "./evidencia-interpretacao";
+import type { DiagnosticoSelecaoFrames } from "./selecao-frames";
+import type { SchemaRespostaMultimodal } from "./schema-resposta-multimodal";
 
 /** Grupo de evidencia removido do contexto para respeitar o teto de bytes. */
 export interface GrupoRemovidoContexto {
@@ -116,4 +122,16 @@ export interface ResultadoInterpretacao {
   bruto?: string;
   /** Compactacao do contexto enviado (tamanho, grupos podados e teto). */
   contextoMultimodal?: DiagnosticoContextoMultimodal;
+  /** Tokens informados pelo backend, quando medidos (Fase 6, item 7). */
+  tokens?: number;
+  /** Versão do prompt usada na chamada (Fase 6, rastreabilidade). */
+  versaoPrompt?: string;
+  /** Resultado da validacao contra o schema canonico (Fase 6, item 4). */
+  schema?: SchemaRespostaMultimodal;
+  /** Regra de selecao de frames efetivamente aplicada (Fase 6, item 2). */
+  selecaoFrames?: DiagnosticoSelecaoFrames;
+  /** Afirmacoes do modelo sem referencia valida — nunca viram fatos (item 5). */
+  afirmacoesSemEvidencia?: AfirmacaoSemEvidencia[];
+  /** Separacao explicita entre evidencia local e inferencia textual (item 6). */
+  distincaoEvidencia?: DistincaoEvidenciaInterpretacao;
 }

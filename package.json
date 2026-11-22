@@ -17,6 +17,7 @@
     "bench": "node scripts/benchmark.mjs",
     "bench:cadencia": "node scripts/benchmark-cadencia.mjs",
     "qualidade": "node scripts/avaliar-qualidade.mjs",
+    "avaliar:multimodal": "node --import tsx scripts/avaliar-multimodal.mjs",
     "validar:eval": "node scripts/validar-eval.mjs",
     "validar:soak": "node --import tsx scripts/soak-monitoramento.mjs",
     "validar:condicoes": "node --import tsx scripts/validar-condicoes.mjs",

@@ -140,7 +140,9 @@ Os cenários adversos da Fase 2 têm cobertura **determinística** em `tests/mot
 
 Esses testes provam a **regra**, não o desempenho em vídeo real: precisão/recall sob iluminação e oclusão reais continuam na avaliação registrada em [`pendencias.md`](./pendencias.md).
 
-### Robustez sob condições degradadas (Fase 6)
+### Robustez sob condições degradadas (testes sintéticos; antiga “Fase 6”)
+
+> Numeração alinhada ao plano mestre: a interpretação multimodal é a Fase 6; operação contínua e robustez são a Fase 7. Esta seção continua descrevendo os mesmos testes sintéticos de política, sem medir precisão real.
 
 `tests/qualidade-eventos.test.ts` acrescenta roteiros **sintéticos e determinísticos** para dois casos que não têm verdade binária:
 

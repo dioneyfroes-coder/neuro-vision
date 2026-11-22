@@ -1,6 +1,9 @@
 import { blocoAcaoMultiframe, blocoNsfwPrompt } from "../../src/nsfw-prompt";
 import type { ContextoCicloSerializavel } from "./esquema";
 
+/** Versão do contrato de prompt; mude quando as instruções/schema mudarem. */
+export const VERSAO_PROMPT_INTERPRETACAO = "prompt-interpretacao-1";
+
 /**
  * Construcao do prompt para a interpretacao multimodal (Etapa 7; Fase 3).
  *
@@ -95,7 +98,7 @@ export function montarPromptInterpretacao(
   return [
     "Voce e um analista visual que interpreta EXCLUSIVAMENTE as evidencias fornecidas.",
     "Nunca inferencie acoes, intencoes ou objetos nao visiveis.",
-    `Schema do contexto: ${contexto.versao}.`,
+    `Schema do contexto: ${contexto.versao}. Versao do prompt: ${VERSAO_PROMPT_INTERPRETACAO}.`,
     "",
     `Sessao: ${contexto.sessionId}, ciclo: ${contexto.cycleId}, iniciado ${contexto.iniciadoEm}, janela ${contexto.janelaMs}ms.`,
     `Tracks ativos: ${contexto.resumoTemporal.tracksAtivos} (pessoas: ${contexto.resumoTemporal.pessoasAtivas}, maos: ${contexto.resumoTemporal.maosAtivas}, objetos: ${contexto.resumoTemporal.objetosAtivos}); intervalo cego: ${contexto.resumoTemporal.houveIntervaloSemObservacao}` +

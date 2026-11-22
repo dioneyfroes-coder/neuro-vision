@@ -103,6 +103,9 @@ export function montar(opcoes: {
   agoraCaptura?: () => number;
   configCaptura?: Partial<typeof CONFIG_CAPTURA_PADRAO>;
   maxQuadros?: number;
+  interpretador?: InterpretadorMultimodal;
+  decidirInterpretacao?: DependenciasCicloMultiframe["decidirInterpretacao"];
+  obterPrecosMultimodal?: DependenciasCicloMultiframe["obterPrecosMultimodal"];
 } = {}) {
   const imagens = opcoes.imagens ?? ["A", "B", "C", "D"];
   const capturados: string[] = [];
@@ -132,7 +135,13 @@ export function montar(opcoes: {
     ...(opcoes.concorrenciaFrames !== undefined
       ? { concorrenciaFrames: opcoes.concorrenciaFrames }
       : {}),
-    interpretador: interpretadorFalso(interpretados),
+    interpretador: opcoes.interpretador ?? interpretadorFalso(interpretados),
+    ...(opcoes.decidirInterpretacao
+      ? { decidirInterpretacao: opcoes.decidirInterpretacao }
+      : {}),
+    ...(opcoes.obterPrecosMultimodal
+      ? { obterPrecosMultimodal: opcoes.obterPrecosMultimodal }
+      : {}),
     sessaoId: "sess0001",
     proximoCycleId: () => "sess0001-c1",
     agora: () => 0,

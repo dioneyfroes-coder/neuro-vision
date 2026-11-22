@@ -1,4 +1,5 @@
 import type { AmostragemCiclo } from "../../cadencia";
+import type { RegistroCustoMultimodal } from "../../custo-multimodal";
 import type { DiagnosticoContextoMultimodal } from "../../interpretation";
 import type { ResultadoIndisponivel, TelemetriaSubsistema } from "../../perception";
 import type { MotivoSupressaoInterpretacao } from "./politica";
@@ -67,6 +68,8 @@ export interface ConfiguracaoInterpretadorCiclo {
   incluirDadosLocais: boolean;
   limites: LimitesContextoCiclo;
   serializacao: OpcoesSerializacaoContextoCiclo;
+  /** Critério de seleção de frames usado pelo interpretador (Fase 6, item 2). */
+  selecaoFrames?: "uniforme" | "relevancia";
 }
 
 /**
@@ -159,4 +162,11 @@ export interface MetricasCiclo {
    * a captura perde frames; e `0` com um unico frame.
    */
   janelaCapturaMs?: number;
+  /** Tokens da chamada multimodal informados pelo backend (quando medidos). */
+  tokensMultimodal?: number;
+  /**
+   * Latência e custo da interpretação associada aos eventos do ciclo (Fase 6,
+   * item 7). Campos não medidos permanecem ausentes; nunca viram zero.
+   */
+  custoMultimodal?: RegistroCustoMultimodal;
 }
