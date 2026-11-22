@@ -913,15 +913,15 @@ A ordem abaixo prioriza valor funcional e redução de risco. Não é necessári
 
 ## Fase 5 — Memória e consulta
 
-- [ ] Consolidar schema canônico de eventos.
-- [ ] Implementar consultas por horário, pessoa temporária, objeto e ação.
-- [ ] Vincular evento a segmento e posição no vídeo.
-- [ ] Criar linha do tempo visual.
-- [ ] Implementar memória por sessão e histórico entre sessões.
-- [ ] Criar exportação de eventos.
-- [ ] Permitir correção humana auditável.
+- [x] Consolidar schema canônico de eventos (`EventoTemporal` + versão explícita e vocabulário único; streams antigos permanecem como legado adaptado).
+- [x] Consultas por horário (sobreposição), pessoa temporária, objeto e ação (`?pessoa`, `?acao`, `?objeto`, `?desde`/`?ate`).
+- [x] Vincular evento a segmento e posição no vídeo (`offsetMs`/`ateMs` derivados na leitura, usados pela timeline).
+- [x] Criar linha do tempo visual centrada em eventos, com filtros estruturados e badge de `statusEvidencia`.
+- [x] Memória por sessão (`GET /api/contexto?sessionId=`) e histórico entre sessões (JSONL persistente).
+- [x] Exportação de eventos em JSONL/CSV com metadados de sessão, versão do schema e filtros aplicados.
+- [x] Correção humana auditável: versão anexada ao stream, com autor, motivo, instante e valor original.
 
-**Saída:** histórico pesquisável e verificável.
+**Saída:** histórico pesquisável e verificável; detalhes em [`docs/fase5-memoria-consulta.md`](docs/fase5-memoria-consulta.md). Limitações conhecidas em [`docs/pendencias.md`](docs/pendencias.md#fase-5--limitações-conhecidas).
 
 ## Fase 6 — Interpretação multimodal
 

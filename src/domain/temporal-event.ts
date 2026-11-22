@@ -8,6 +8,7 @@
 
 import type { StatusEvidencia } from "./evidencia";
 import type { NaturezaInteracao, TransicaoPosse } from "./acoes-observaveis";
+import type { CorrecaoEvento } from "./correcao-evento";
 
 /** Tipo normalizado de evento temporal. */
 export type TipoEventoTemporal =
@@ -198,4 +199,11 @@ export interface EventoTemporal {
   ordemChegada?: number;
   /** Tipo de suporte da afirmação (fato, hipótese, oclusão, falha...). */
   statusEvidencia?: StatusEvidencia;
+  /** Versão do schema canônico no momento da persistência (Fase 5). */
+  schemaVersion?: number;
+  /**
+   * Correção humana auditável, quando houve. O registro original permanece no
+   * stream append-only; esta versão aponta para ele por `eventoId`.
+   */
+  correcao?: CorrecaoEvento;
 }

@@ -127,14 +127,23 @@ export async function handleContexto(
     const maxEntradas = inteiroLimitado(url.searchParams.get("maxEntradas"), 20, 1, 200);
     const maxEventos = inteiroLimitado(url.searchParams.get("maxEventos"), 20, 0, 200);
     const maxCaracteres = inteiroLimitado(url.searchParams.get("maxCaracteres"), 1200, 200, 8000);
-    const entradas = await lerLogEntries(logFile, maxEntradas);
-    const eventos = await lerEventos(eventosFile, maxEventos);
+    const sessionId = url.searchParams.get("sessionId")?.trim() || undefined;
+    // Com filtro, apenas registros explicitamente marcados com essa sessao.
+    // Sem filtro, registros legados sem sessao continuam no contexto global.
+    const daSessao = (valor: string | undefined) =>
+      sessionId ? valor === sessionId : true;
+    const entradas = (await lerLogEntries(logFile, maxEntradas)).filter((e) =>
+      daSessao(e.sessaoId)
+    );
+    const eventos = (await lerEventos(eventosFile, maxEventos)).filter((e) =>
+      daSessao(e.sessaoId)
+    );
     const contexto = reidratarContexto(entradas, eventos, {
       maxEntradas,
       maxEventos,
       maxCaracteres,
     });
-    sendJson(res, 200, { ok: true, ...contexto });
+    sendJson(res, 200, { ok: true, sessionId, ...contexto });
   } catch (err) {
     registrarFalha("error", "contexto_falhou", { erro: (err as Error).message });
     sendJson(res, 500, { ok: false, erro: (err as Error).message });

@@ -34,6 +34,14 @@ import {
   filterInput,
   timelineAtualizarBtn,
   timelineBuscaInput,
+  timelineDesdeInput,
+  timelineAteInput,
+  timelinePessoaInput,
+  timelineObjetoInput,
+  timelineAcaoSelect,
+  timelineExportarJsonlBtn,
+  timelineExportarCsvBtn,
+  timelineCorrecaoEl,
   timelineEventosEl,
   startBtn,
   stopBtn,
@@ -596,99 +604,345 @@ function textoAcaoTemporal(
   }`;
 }
 
+function rotuloEvidencia(status?: string): string {
+  if (status === "observado") return "fato observado";
+  if (status === "inferido") return "inferido";
+  return "sem confirmação";
+}
+
+function classeEvidencia(status?: string): string {
+  if (status === "observado") return "evidencia-observado";
+  if (status === "inferido") return "evidencia-inferido";
+  return "evidencia-indefinido";
+}
+
+function instanteDoInput(valor: string): number | undefined {
+  if (!valor) return undefined;
+  const ms = Date.parse(valor);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+/** Filtros estruturados enviados ao servidor — a UI não filtra a fatia local. */
+function filtrosDaLinhaDoTempo(): import("./api").FiltrosEventosTemporais {
+  const pessoa = timelinePessoaInput.value.trim();
+  const objeto = timelineObjetoInput.value.trim();
+  const acao = timelineAcaoSelect.value;
+  return {
+    desde: instanteDoInput(timelineDesdeInput.value),
+    ate: instanteDoInput(timelineAteInput.value),
+    ...(pessoa ? { pessoaEntidadeId: pessoa } : {}),
+    ...(objeto ? { objetos: [objeto] } : {}),
+    ...(acao ? { acoes: [acao] } : {}),
+  };
+}
+
+function temFiltrosEstruturados(): boolean {
+  return Boolean(
+    timelineDesdeInput.value ||
+      timelineAteInput.value ||
+      timelinePessoaInput.value.trim() ||
+      timelineObjetoInput.value.trim() ||
+      timelineAcaoSelect.value
+  );
+}
+
+/**
+ * Formulário de correção auditável. Só campos observáveis aparecem; autor e
+ * motivo são obrigatórios e a versão anterior continua consultável no servidor.
+ */
+function abrirCorrecao(evento: EventoTemporalComVideo): void {
+  timelineCorrecaoEl.hidden = false;
+  timelineCorrecaoEl.replaceChildren();
+  const titulo = document.createElement("h3");
+  titulo.textContent = `Corrigir evento ${evento.eventoId}`;
+  timelineCorrecaoEl.append(titulo);
+  if (evento.correcao) {
+    const anterior = document.createElement("p");
+    anterior.className = "timeline-correcao-anterior";
+    anterior.textContent = `versão ${evento.correcao.versao} · ${evento.correcao.corrigidoPor}: ${evento.correcao.motivo}`;
+    timelineCorrecaoEl.append(anterior);
+  }
+  const aviso = document.createElement("p");
+  aviso.className = "timeline-correcao-aviso";
+  const form = document.createElement("form");
+  const entradas = new Map<string, HTMLInputElement>();
+  const originais = new Map<string, string>();
+  const campos: Array<{ nome: string; rotulo: string; valor?: string }> = [
+    { nome: "descricao", rotulo: "Descrição", valor: evento.descricao },
+    { nome: "rotuloObjeto", rotulo: "Objeto", valor: evento.rotuloObjeto },
+    { nome: "pessoaEntidadeId", rotulo: "Pessoa", valor: evento.pessoaEntidadeId },
+    { nome: "naturezaInteracao", rotulo: "Natureza", valor: evento.naturezaInteracao },
+    { nome: "transicaoPosse", rotulo: "Posse", valor: evento.transicaoPosse },
+    { nome: "estadoAnterior", rotulo: "Estado anterior", valor: evento.estadoAnterior },
+    { nome: "estadoPosterior", rotulo: "Estado posterior", valor: evento.estadoPosterior },
+  ];
+  for (const campo of campos) {
+    const label = document.createElement("label");
+    label.textContent = campo.rotulo;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = campo.valor ?? "";
+    label.append(input);
+    form.append(label);
+    entradas.set(campo.nome, input);
+    originais.set(campo.nome, campo.valor ?? "");
+  }
+  const autor = document.createElement("input");
+  autor.type = "text";
+  autor.placeholder = "corrigido por";
+  autor.required = true;
+  const motivo = document.createElement("input");
+  motivo.type = "text";
+  motivo.placeholder = "motivo da correção";
+  motivo.required = true;
+  form.append(autor, motivo);
+  const enviar = document.createElement("button");
+  enviar.type = "submit";
+  enviar.textContent = "Registrar correção";
+  form.append(enviar);
+  const fechar = document.createElement("button");
+  fechar.type = "button";
+  fechar.textContent = "Cancelar";
+  fechar.addEventListener("click", () => {
+    timelineCorrecaoEl.hidden = true;
+  });
+  form.append(fechar);
+  form.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const alteracoes: Record<string, string | null> = {};
+    for (const [nome, input] of entradas) {
+      if (input.value !== originais.get(nome)) alteracoes[nome] = input.value.trim() || null;
+    }
+    void (async () => {
+      const resultado = await api.corrigirEventoTemporal(evento.eventoId, {
+        ...alteracoes,
+        corrigidoPor: autor.value.trim(),
+        motivo: motivo.value.trim(),
+      });
+      if (!resultado.ok) {
+        aviso.textContent = resultado.erro ?? "Falha ao corrigir.";
+        return;
+      }
+      timelineCorrecaoEl.hidden = true;
+      setStatus(`Correção v${resultado.versao ?? 1} registrada.`);
+      await carregarLinhaDoTempo();
+    })().catch((err: unknown) => {
+      aviso.textContent = (err as Error).message;
+    });
+  });
+  timelineCorrecaoEl.append(aviso, form);
+  timelineCorrecaoEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+/** Item de evento: o vídeo abre no offset devolvido pelo servidor. */
+function renderizarEventoNaLinhaDoTempo(
+  evento: EventoTemporalComVideo,
+  mudancas: Awaited<ReturnType<typeof api.listarMudancasCena>>
+): HTMLLIElement {
+  const li = document.createElement("li");
+  li.className = "timeline-item timeline-item-evento";
+  const cab = document.createElement("div");
+  cab.className = "timeline-item-head";
+  cab.textContent = `${rotuloInstante(evento.inicioEm)} — ${evento.tipo}`;
+  li.append(cab);
+  const meta = document.createElement("div");
+  meta.className = "timeline-meta";
+  const badge = document.createElement("span");
+  badge.className = `timeline-badge ${classeEvidencia(evento.statusEvidencia)}`;
+  badge.textContent = rotuloEvidencia(evento.statusEvidencia);
+  meta.append(badge);
+  const estado = document.createElement("span");
+  estado.textContent = ` ${evento.estado} · sessão ${evento.sessionId}`;
+  meta.append(estado);
+  if (evento.confianca !== undefined) {
+    const conf = document.createElement("span");
+    conf.textContent = ` · confiança ${Math.round(evento.confianca * 100)}%`;
+    meta.append(conf);
+  }
+  li.append(meta);
+  const descricao = document.createElement("p");
+  descricao.textContent = textoAcaoTemporal(evento, mudancas);
+  li.append(descricao);
+  if (evento.correcao) {
+    const corrigido = document.createElement("small");
+    corrigido.textContent = `corrigido v${evento.correcao.versao} por ${evento.correcao.corrigidoPor}`;
+    li.append(corrigido);
+  }
+  adicionarBotoesEvidencia(li, evento.segmentos, evento.descricao);
+  if (evento.segmentos.length === 0) {
+    const semVideo = document.createElement("span");
+    semVideo.className = "timeline-sem-video";
+    semVideo.textContent = "Sem vídeo coberto para este intervalo.";
+    li.append(semVideo);
+  }
+  const corrigir = document.createElement("button");
+  corrigir.type = "button";
+  corrigir.className = "ghost";
+  corrigir.textContent = "Corrigir";
+  corrigir.addEventListener("click", () => abrirCorrecao(evento));
+  li.append(corrigir);
+  return li;
+}
+
 /**
  * Histórico de gravações/cenas da Câmera de Segurança.
  * Fonte principal: sessões/segmentos de monitoramento; descrições vêm de entradas/ciclos
  * e eventos temporais correlacionados por sessão e janela de tempo.
  * Busca única filtra descrição/objeto/ambiente/data.
  */
+/** Visão de contexto por sessão, usada quando ainda não há eventos temporais. */
+async function carregarSessoesNaLinhaDoTempo(termo: string): Promise<void> {
+  const [sessoes, entradas, ciclos] = await Promise.all([
+    api.listarSessoesMonitoramento(100).catch(() => []),
+    api.listarEntradas(500).catch(() => [] as EntradaComVideoOpcional[]),
+    api.listarCiclos(500).catch(() => []),
+  ]);
+  const segmentosPorSessao = new Map<string, Awaited<ReturnType<typeof api.listarSegmentosDaSessao>>>();
+  await Promise.all(sessoes.map(async (s) => {
+    segmentosPorSessao.set(
+      s.sessaoId,
+      await api.listarSegmentosDaSessao(s.sessaoId, 500).catch(() => [])
+    );
+  }));
+  const itens: Array<{
+    sessaoId: string;
+    ambiente: string;
+    inicioMs: number;
+    dataHora: string;
+    descricoes: string[];
+    segmentos: Awaited<ReturnType<typeof api.listarSegmentosDaSessao>>;
+  }> = [];
+  for (const sessao of sessoes) {
+    const segmentos = (segmentosPorSessao.get(sessao.sessaoId) ?? [])
+      .slice()
+      .sort((a, b) => a.inicioMs - b.inicioMs);
+    const inicioMs = sessao.iniciadaEmMs;
+    const fimMs = sessao.encerradaEmMs ?? Date.now();
+    const descricoes: string[] = [];
+    for (const entrada of entradas) {
+      const ms = Date.parse(entrada.capturadoEm ?? entrada.timestamp);
+      const emJanela = Number.isFinite(ms) && ms >= inicioMs - 5000 && ms <= fimMs + 5000;
+      if (
+        (entrada.sessaoId === sessao.sessaoId || (!entrada.sessaoId && emJanela)) &&
+        entrada.resumo?.trim()
+      ) {
+        descricoes.push(entrada.resumo.trim());
+      }
+    }
+    for (const ciclo of ciclos) {
+      if (ciclo.sessionId === sessao.sessaoId && ciclo.interpretacao?.trim()) {
+        descricoes.push(ciclo.interpretacao.trim());
+      }
+    }
+    const dataHora = rotuloInstante(sessao.iniciadaEm);
+    const texto = [sessao.ambiente, dataHora, sessao.sessaoId, ...descricoes].join(" ").toLowerCase();
+    if (termo && !texto.includes(termo)) continue;
+    itens.push({
+      sessaoId: sessao.sessaoId,
+      ambiente: sessao.ambiente,
+      inicioMs,
+      dataHora,
+      descricoes: [...new Set(descricoes)].slice(0, 8),
+      segmentos,
+    });
+  }
+  itens.sort((a, b) => b.inicioMs - a.inicioMs);
+  timelineEventosEl.replaceChildren();
+  if (itens.length === 0) {
+    const vazio = document.createElement("li");
+    vazio.className = "timeline-vazio";
+    vazio.textContent = termo
+      ? "Nenhuma gravação/cena encontrada para a pesquisa."
+      : "Nenhuma gravação de câmera de segurança encontrada.";
+    timelineEventosEl.append(vazio);
+    return;
+  }
+  for (const item of itens) {
+    const li = document.createElement("li");
+    li.className = "timeline-item";
+    const cab = document.createElement("div");
+    cab.className = "timeline-item-head";
+    cab.textContent = `${item.dataHora} — ${item.ambiente}`;
+    li.append(cab);
+    const meta = document.createElement("small");
+    meta.textContent = `sessão ${item.sessaoId} • ${item.segmentos.length} segmento(s)`;
+    li.append(meta);
+    if (item.descricoes.length > 0) {
+      for (const descricao of item.descricoes) {
+        const p = document.createElement("p");
+        p.textContent = descricao;
+        li.append(p);
+      }
+    } else {
+      const p = document.createElement("p");
+      p.className = "timeline-sem-video";
+      p.textContent = "Sem descrição de cena registrada para esta sessão.";
+      li.append(p);
+    }
+    adicionarBotoesEvidencia(
+      li,
+      item.segmentos.map((segmento) => ({
+        segmentoId: segmento.segmentoId,
+        sessaoId: item.sessaoId,
+        url: api.urlVideoSegmento(segmento.segmentoId),
+        inicioMs: segmento.inicioMs,
+        fimMs: segmento.fimMs,
+        offsetMs: 0,
+        ateMs: Math.max(0, segmento.fimMs - segmento.inicioMs),
+        duracaoTrechoMs: Math.max(0, segmento.fimMs - segmento.inicioMs),
+        sequencia: segmento.sequencia,
+        incompleto: segmento.estado === "incompleto",
+        lacunas: segmento.lacunas,
+      })),
+      item.ambiente
+    );
+    timelineEventosEl.append(li);
+  }
+}
+
 async function carregarLinhaDoTempo(): Promise<void> {
   timelineAtualizarBtn.disabled = true;
   try {
+    const filtros = filtrosDaLinhaDoTempo();
     const termo = timelineBuscaInput.value.trim().toLowerCase();
-    const [sessoes, entradas, ciclos, eventosTemporais] = await Promise.all([
-      api.listarSessoesMonitoramento(100).catch(() => []),
-      api.listarEntradas(500).catch(() => [] as EntradaComVideoOpcional[]),
-      api.listarCiclos(500).catch(() => []),
-      api.listarEventosTemporais(500).catch(() => []),
-    ]);
-    const porSessao = new Map<string, {
-      segmentos: Awaited<ReturnType<typeof api.listarSegmentosDaSessao>>;
-      mudancas: Awaited<ReturnType<typeof api.listarMudancasCena>>;
-    }>();
-    await Promise.all(sessoes.map(async (s) => {
-      const [segmentos, mudancas] = await Promise.all([
-        api.listarSegmentosDaSessao(s.sessaoId, 500).catch(() => []),
-        api.listarMudancasCena(s.sessaoId, 500).catch(() => []),
-      ]);
-      porSessao.set(s.sessaoId, { segmentos, mudancas });
-    }));
+    const eventos = await api.listarEventosTemporais(500, filtros);
+    const sessoesIds = [...new Set(eventos.map((evento) => evento.sessionId).filter(Boolean))];
+    const mudancas = (
+      await Promise.all(
+        sessoesIds.map((id) => api.listarMudancasCena(id, 500).catch(() => []))
+      )
+    ).flat();
+    const visiveis = termo
+      ? eventos.filter((evento) =>
+          [
+            evento.descricao,
+            evento.tipo,
+            evento.rotuloObjeto,
+            evento.pessoaEntidadeId,
+            evento.transicaoPosse,
+            evento.sessionId,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(termo)
+        )
+      : eventos;
 
-    const itens: Array<{sessaoId:string; ambiente:string; inicioMs:number; dataHora:string; segmentos:Array<{segmentoId:string; inicioMs:number; fimMs:number; url:string; sequencia:number; incompleto?:boolean}>; descricoes:string[]}> = [];
-    for (const sessao of sessoes) {
-      const dadosSessao = porSessao.get(sessao.sessaoId);
-      const segmentos = (dadosSessao?.segmentos ?? []).slice().sort((a,b)=>a.inicioMs-b.inicioMs);
-      const mudancas = dadosSessao?.mudancas ?? [];
-      const inicioMs = sessao.iniciadaEmMs;
-      const fimMs = sessao.encerradaEmMs ?? Date.now();
-      const descricoes: string[] = [];
-      for (const e of entradas) {
-        const ms = Date.parse(e.capturadoEm ?? e.timestamp);
-        const emJanela = Number.isFinite(ms) && ms >= inicioMs - 5000 && ms <= fimMs + 5000;
-        if ((e.sessaoId === sessao.sessaoId || (!e.sessaoId && emJanela)) && e.resumo?.trim()) descricoes.push(e.resumo.trim());
-      }
-      for (const c of ciclos) {
-        if (c.sessionId === sessao.sessaoId && c.interpretacao?.trim()) descricoes.push(c.interpretacao.trim());
-      }
-      for (const evt of eventosTemporais) {
-        const emMs = Date.parse(evt.inicioEm);
-        const naJanela = Number.isFinite(emMs) && emMs >= inicioMs - 5000 && emMs <= fimMs + 5000;
-        if (evt.sessionId === sessao.sessaoId || (!evt.sessionId && naJanela)) {
-          descricoes.push(textoAcaoTemporal(evt, mudancas));
-        }
-      }
-      const dataHora = rotuloInstante(sessao.iniciadaEm);
-      const texto = [sessao.ambiente, dataHora, sessao.sessaoId, ...descricoes].join(" ").toLowerCase();
-      if (termo && !texto.includes(termo)) continue;
-      itens.push({
-        sessaoId: sessao.sessaoId, ambiente: sessao.ambiente, inicioMs, dataHora,
-        descricoes: [...new Set(descricoes)].slice(0, 8),
-        segmentos: segmentos.map((s)=>({ segmentoId:s.segmentoId, inicioMs:s.inicioMs, fimMs:s.fimMs, url:api.urlVideoSegmento(s.segmentoId), sequencia:s.sequencia, incompleto:s.estado === "incompleto" })),
-      });
-    }
-
-    itens.sort((a,b)=>b.inicioMs-a.inicioMs);
-    timelineEventosEl.replaceChildren();
-    if (itens.length === 0) {
-      const vazio = document.createElement("li");
-      vazio.className = "timeline-vazio";
-      vazio.textContent = termo ? "Nenhuma gravação/cena encontrada para a pesquisa." : "Nenhuma gravação de câmera de segurança encontrada.";
-      timelineEventosEl.append(vazio);
+    if (visiveis.length > 0) {
+      timelineEventosEl.replaceChildren(
+        ...visiveis.map((evento) => renderizarEventoNaLinhaDoTempo(evento, mudancas))
+      );
       return;
     }
-
-    for (const item of itens) {
-      const li = document.createElement("li");
-      li.className = "timeline-item";
-      const cab = document.createElement("div");
-      cab.className = "timeline-item-head";
-      cab.textContent = `${item.dataHora} — ${item.ambiente}`;
-      li.appendChild(cab);
-      const meta = document.createElement("small");
-      meta.textContent = `sessão ${item.sessaoId} • ${item.segmentos.length} segmento(s)`;
-      li.appendChild(meta);
-      if (item.descricoes.length > 0) {
-        for (const d of item.descricoes) { const p = document.createElement("p"); p.textContent = d; li.appendChild(p); }
-      } else {
-        const p = document.createElement("p"); p.className = "timeline-sem-video"; p.textContent = "Sem descrição de cena registrada para esta sessão."; li.appendChild(p);
-      }
-      if (item.segmentos.length > 0) {
-        adicionarBotoesEvidencia(li, item.segmentos.map((s)=>({ segmentoId:s.segmentoId, sessaoId:item.sessaoId, url:s.url, inicioMs:s.inicioMs, fimMs:s.fimMs, offsetMs:0, ateMs:Math.max(0,s.fimMs-s.inicioMs), duracaoTrechoMs:Math.max(0,s.fimMs-s.inicioMs), sequencia:s.sequencia, incompleto:!!s.incompleto, lacunas:[] })), item.ambiente);
-      } else {
-        const sv = document.createElement("span"); sv.className = "timeline-sem-video"; sv.textContent = "Sem vídeo disponível para esta sessão."; li.appendChild(sv);
-      }
-      timelineEventosEl.append(li);
+    if (temFiltrosEstruturados()) {
+      const vazio = document.createElement("li");
+      vazio.className = "timeline-vazio";
+      vazio.textContent = "Nenhum evento corresponde aos filtros.";
+      timelineEventosEl.replaceChildren(vazio);
+      return;
     }
+    await carregarSessoesNaLinhaDoTempo(termo);
   } catch (err) {
     const falha = document.createElement("li");
     falha.className = "timeline-vazio";
@@ -696,6 +950,19 @@ async function carregarLinhaDoTempo(): Promise<void> {
     timelineEventosEl.replaceChildren(falha);
   } finally {
     timelineAtualizarBtn.disabled = false;
+  }
+}
+
+async function exportarEventosDaLinhaDoTempo(formato: import("./api").FormatoExportacao): Promise<void> {
+  const botao = formato === "csv" ? timelineExportarCsvBtn : timelineExportarJsonlBtn;
+  botao.disabled = true;
+  try {
+    await api.exportarEventos(formato, filtrosDaLinhaDoTempo());
+    setStatus(`Eventos exportados em ${formato.toUpperCase()} com metadados.`);
+  } catch (err) {
+    setStatus(`Falha ao exportar eventos: ${(err as Error).message}`);
+  } finally {
+    botao.disabled = false;
   }
 }
 
@@ -798,6 +1065,19 @@ exportPendentesBtn.addEventListener("click", exportarPendentes);
 filterInput.addEventListener("input", aplicarFiltro);
 timelineAtualizarBtn.addEventListener("click", () => void carregarLinhaDoTempo());
 timelineBuscaInput.addEventListener("input", () => void carregarLinhaDoTempo());
+for (const campo of [
+  timelineDesdeInput,
+  timelineAteInput,
+  timelinePessoaInput,
+  timelineObjetoInput,
+  timelineAcaoSelect,
+]) {
+  campo.addEventListener("change", () => void carregarLinhaDoTempo());
+}
+timelineExportarJsonlBtn.addEventListener("click", () =>
+  void exportarEventosDaLinhaDoTempo("jsonl")
+);
+timelineExportarCsvBtn.addEventListener("click", () => void exportarEventosDaLinhaDoTempo("csv"));
 
 intervalInput.addEventListener("input", () => {
   intervalValue.textContent = `${intervalInput.value}s`;

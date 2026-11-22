@@ -7,7 +7,7 @@ import { MODELOS_DIR, NSFW_DIR, VENDOR_DIR, origemBloqueada } from "../base";
 import { serveArquivoOffline, serveModeloNsfw, serveSnapshot, serveStatic } from "../arquivos";
 import { handleCompararCena, handleListarMudancasCena, handleObterReferenciaCena, handleReferenciaCena, handleRevisarMudancaCena, rotaCenaMonitoramento } from "../rotas-cena";
 import { handleGravarAtencao, handleListarAtencao } from "../rotas-atencao";
-import { handleCiclos, handleClearCiclos, handleClearEventos, handleClearEventosTemporais, handleClearLogs, handleContexto, handleEventos, handleEventosTemporais, handleListCiclos, handleListEventos, handleListEventosTemporais, handleListLogs, handleLog, handleOperacional } from "../rotas-memoria";
+import { handleCiclos, handleClearCiclos, handleClearEventos, handleClearEventosTemporais, handleClearLogs, handleContexto, handleCorrigirEventoTemporal, handleEventos, handleEventosTemporais, handleExportarEventos, handleListCiclos, handleListEventos, handleListEventosTemporais, handleListLogs, handleLog, handleOperacional } from "../rotas-memoria";
 import { handleComandoMonitoramento, handleIniciarMonitoramento, handleListarSegmentosMonitoramento, handleListarSessoesMonitoramento, handleQuadrosMonitoramento, handleSegmentosDaSessaoMonitoramento, rotaSessaoMonitoramento } from "../rotas-monitoramento";
 import { handleExcluirVideo, handleExcluirVideosSessao, handleListarVideos, handleObterVideo, handleRetencaoVideos, handleUploadVideo } from "../rotas-videos";
 import { handlePreparar, handleVisao } from "../rotas-visao";
@@ -62,6 +62,10 @@ export function tratarRequisicao(req: IncomingMessage, res: ServerResponse, deps
         void handleListEventos(req, res, eventosFile, monitoramento);
         return;
       }
+      if (req.method === "GET" && pathname === "/api/eventos/exportar") {
+        void handleExportarEventos(req, res, eventosFile, eventosTemporaisFile);
+        return;
+      }
       if (req.method === "DELETE" && pathname === "/api/eventos") {
         void handleClearEventos(res, eventosFile, snapDir, logFile);
         return;
@@ -76,6 +80,13 @@ export function tratarRequisicao(req: IncomingMessage, res: ServerResponse, deps
       }
       if (req.method === "DELETE" && pathname === "/api/eventos-temporais") {
         void handleClearEventosTemporais(res, eventosTemporaisFile);
+        return;
+      }
+      if (
+        req.method === "POST" &&
+        /^\/api\/eventos-temporais\/[^/]+\/corrigir$/.test(pathname)
+      ) {
+        void handleCorrigirEventoTemporal(req, res, eventosTemporaisFile);
         return;
       }
       if (req.method === "POST" && url === "/api/operacional") {

@@ -4,13 +4,10 @@ import { eventoJaRegistrado } from "../../persistence/repositorio-eventos";
 import { marcarEventoRegistrado } from "../../persistence/repositorio-eventos";
 import { ServicoMonitoramento } from "../../monitoramento/servico-monitoramento";
 import { janelaEvento, vincularEventoASegmentos } from "../../domain/vinculo-evento-video";
+import { filtrarEventosTemporais } from "../../domain";
 import { EventoTemporalComVideo } from "../../types";
-import { EstadoEventoTemporal } from "../../domain/temporal-event";
-import { TipoEventoTemporal } from "../../domain/temporal-event";
 import { BODY_MAX_BYTES, readBody, registrarFalha, sendJson } from "../base";
 import {
-  ESTADOS_EVENTO_TEMPORAL_PERSISTIDOS,
-  TIPOS_EVENTO_TEMPORAL_PERSISTIDOS,
   appendCiclo,
   appendEventoTemporal,
   lerCiclos,
@@ -20,7 +17,7 @@ import {
   montarEventoTemporal,
   montarRegistroCiclo,
 } from "../persistencia";
-import { parsearInstante } from "../validacao";
+import { parsearFiltrosEventosTemporais } from "./filtros";
 
 /**
  * `POST /api/ciclos` — grava o diagnostico de um ciclo (metricas por etapa,
@@ -124,54 +121,13 @@ export async function handleListEventosTemporais(
     const limitParam = Number(url.searchParams.get("limit"));
     const limite =
       Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 500) : 100;
-    const tipos = new Set(
-      (url.searchParams.get("tipo") ?? "")
-        .split(",")
-        .map((t) => t.trim())
-        .filter((t): t is TipoEventoTemporal =>
-          TIPOS_EVENTO_TEMPORAL_PERSISTIDOS.includes(t as TipoEventoTemporal)
-        )
-    );
-    const estados = new Set(
-      (url.searchParams.get("estado") ?? "")
-        .split(",")
-        .map((e) => e.trim())
-        .filter((e): e is EstadoEventoTemporal =>
-          ESTADOS_EVENTO_TEMPORAL_PERSISTIDOS.includes(e as EstadoEventoTemporal)
-        )
-    );
-    const csv = (chave: string) =>
-      new Set(
-        (url.searchParams.get(chave) ?? "")
-          .split(",")
-          .map((valor) => valor.trim())
-          .filter((valor) => valor.length > 0)
-      );
-    const entidadeId = url.searchParams.get("entidadeId")?.trim() || undefined;
-    const sessionId = url.searchParams.get("sessionId")?.trim() || undefined;
-    const objetos = csv("objeto");
-    const participantes = csv("participante");
+    const filtros = parsearFiltrosEventosTemporais(url);
     const segmentoId = url.searchParams.get("segmentoId")?.trim() || undefined;
-    const desdeMs = parsearInstante(url.searchParams.get("desde"));
-    const ateMs = parsearInstante(url.searchParams.get("ate"));
 
-    const filtrados = (await lerEventosTemporais(eventosTemporaisFile, limite)).filter((evt) => {
-      if (tipos.size > 0 && !tipos.has(evt.tipo)) return false;
-      if (estados.size > 0 && !estados.has(evt.estado)) return false;
-      if (entidadeId && evt.entidadeId !== entidadeId) return false;
-      if (sessionId && evt.sessionId !== sessionId) return false;
-      if (objetos.size > 0 && (!evt.rotuloObjeto || !objetos.has(evt.rotuloObjeto))) return false;
-      if (
-        participantes.size > 0 &&
-        !(evt.participantes ?? []).some((id) => participantes.has(id))
-      ) {
-        return false;
-      }
-      const inicio = Date.parse(evt.inicioEm);
-      if (desdeMs !== undefined && Number.isFinite(inicio) && inicio < desdeMs) return false;
-      if (ateMs !== undefined && Number.isFinite(inicio) && inicio > ateMs) return false;
-      return true;
-    });
+    const filtrados = filtrarEventosTemporais(
+      await lerEventosTemporais(eventosTemporaisFile, limite),
+      filtros
+    );
 
     // Resolve o indice uma unica vez para toda a pagina, usando a janela dos
     // proprios eventos. Segmentos gravados depois do evento passam a aparecer:

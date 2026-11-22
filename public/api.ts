@@ -9,8 +9,14 @@ export type {
   ResultadoVisao,
 } from "./api/http";
 
-export  { gravarEvento, gravarEventoTemporal, listarEventos, listarEventosTemporais } from "./api/eventos";
+export  { gravarEvento, gravarEventoTemporal, listarEventos, listarEventosTemporais, paramsDeEventosTemporais } from "./api/eventos";
 export type { FiltrosEventos, FiltrosEventosTemporais } from "./api/eventos";
+
+export { exportarEventos } from "./api/exportacao";
+export type { FormatoExportacao } from "./api/exportacao";
+
+export { corrigirEventoTemporal } from "./api/correcao";
+export type { PedidoCorrecaoEventoUi, ResultadoCorrecao } from "./api/correcao";
 
 export  { saudeSistema, saudeVisao } from "./api/saude";
 export type { InfoSistema, RespostaSaude } from "./api/saude";

@@ -149,15 +149,36 @@
 
   <section class="timeline">
     <div class="timeline-head">
-      <h2>Histórico de gravações e cenas</h2>
-      <button id="timelineAtualizar" class="ghost" type="button">Atualizar</button>
+      <h2>Histórico de gravações e eventos</h2>
+      <div class="timeline-acoes">
+        <button id="timelineExportarJsonl" class="ghost" type="button" title="Exportar eventos em JSONL com metadados">Exportar JSONL</button>
+        <button id="timelineExportarCsv" class="ghost" type="button" title="Exportar eventos em CSV com metadados">Exportar CSV</button>
+        <button id="timelineAtualizar" class="ghost" type="button">Atualizar</button>
+      </div>
     </div>
     <div class="timeline-filtros">
       <label class="timeline-busca">
         Pesquisar cenas
         <input id="timelineBusca" type="search" placeholder="Buscar por descrição, objeto, ambiente ou data/hora..." />
       </label>
+      <label>De <input id="timelineDesde" type="datetime-local" /></label>
+      <label>Até <input id="timelineAte" type="datetime-local" /></label>
+      <label>Pessoa <input id="timelinePessoa" type="search" placeholder="pessoaEntidadeId" /></label>
+      <label>Objeto <input id="timelineObjeto" type="search" placeholder="rótulo do objeto" /></label>
+      <label>Ação
+        <select id="timelineAcao">
+          <option value="">Todas</option>
+          <option value="proximidade">proximidade</option>
+          <option value="contato">contato</option>
+          <option value="manipulacao">manipulação</option>
+          <option value="pego">pego</option>
+          <option value="deixado">deixado</option>
+          <option value="interacao_objeto">interação com objeto</option>
+          <option value="gesto_detectado">gesto detectado</option>
+        </select>
+      </label>
     </div>
+    <div id="timelineCorrecao" class="timeline-correcao" hidden></div>
     <div class="timeline-corpo">
       <ul id="timelineEventos" class="timeline-eventos"></ul>
       <div class="timeline-evidencia">

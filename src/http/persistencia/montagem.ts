@@ -1,5 +1,6 @@
 import type { RegistroCiclo } from "../../domain/cycle";
 import { statusEvidenciaEvento } from "../../domain/evidencia";
+import { CAMPOS_CORRIGIVEIS, VERSAO_ESQUEMA_EVENTO, type CorrecaoEvento } from "../../domain";
 import type {
   EstadoEventoTemporal,
   MotivoEncerramentoEvento,
@@ -24,6 +25,32 @@ function numeroFinito(valor: unknown): number | undefined {
 
 function textoOpcional(valor: unknown): string | undefined {
   return typeof valor === "string" && valor.trim() ? valor : undefined;
+}
+
+/** Correção só é aceita se vier completa e com campos conhecidos. */
+function corrigirPersistido(valor: unknown): CorrecaoEvento | undefined {
+  if (typeof valor !== "object" || valor === null || Array.isArray(valor)) return undefined;
+  const c = valor as Record<string, unknown>;
+  if (!textoOpcional(c.corrigidoEm) || !textoOpcional(c.corrigidoPor) || !textoOpcional(c.motivo)) {
+    return undefined;
+  }
+  if (typeof c.versao !== "number" || !Number.isInteger(c.versao) || c.versao < 1) {
+    return undefined;
+  }
+  const valorOriginal: CorrecaoEvento["valorOriginal"] = {};
+  if (typeof c.valorOriginal === "object" && c.valorOriginal !== null) {
+    for (const campo of CAMPOS_CORRIGIVEIS) {
+      const anterior = (c.valorOriginal as Record<string, unknown>)[campo];
+      if (typeof anterior === "string" && anterior.trim()) valorOriginal[campo] = anterior;
+    }
+  }
+  return {
+    corrigidoEm: c.corrigidoEm as string,
+    corrigidoPor: c.corrigidoPor as string,
+    motivo: c.motivo as string,
+    versao: c.versao,
+    valorOriginal,
+  };
 }
 
 /**
@@ -178,6 +205,8 @@ export function montarEventoTemporal(payload: unknown): EventoTemporalPersistido
     continuidadeValida,
     evidencias,
     statusEvidencia,
+    schemaVersion: VERSAO_ESQUEMA_EVENTO,
+    correcao: corrigirPersistido(p.correcao),
     capturadoEmMs: numeroFinito(p.capturadoEmMs),
     processadoEmMs: numeroFinito(p.processadoEmMs),
     inferidoEmMs: numeroFinito(p.inferidoEmMs),

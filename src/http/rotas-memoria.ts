@@ -21,3 +21,5 @@ export {
   handleClearEventosTemporais,
 } from "./rotas-memoria/temporais";
 export { anexarTrechosDeVideo } from "./rotas-memoria/video";
+export { handleExportarEventos } from "./rotas-memoria/exportacao";
+export { handleCorrigirEventoTemporal } from "./rotas-memoria/correcao";

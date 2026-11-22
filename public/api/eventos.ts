@@ -78,26 +78,41 @@ export interface FiltrosEventosTemporais {
   objetos?: string[];
   /** Qualquer participante da interacao (`participantes`), CSV. */
   participantes?: string[];
+  /** Pessoa heurística associada à mão (`pessoaEntidadeId`). */
+  pessoaEntidadeId?: string;
+  /** Ação observável: natureza, posse ou tipo de evento. */
+  acoes?: string[];
   segmentoId?: string;
   desde?: number | string;
   ate?: number | string;
 }
 
-export async function listarEventosTemporais(
-  limite = 100,
-  filtros: FiltrosEventosTemporais = {}
-): Promise<EventoTemporalComVideo[]> {
-  const params = new URLSearchParams({ limit: String(limite) });
+/** Parâmetros reutilizados pela consulta e pela exportação. */
+export function paramsDeEventosTemporais(
+  filtros: FiltrosEventosTemporais,
+  limite?: number
+): URLSearchParams {
+  const params = new URLSearchParams();
+  if (limite !== undefined) params.set("limit", String(limite));
   if (filtros.tipos?.length) params.set("tipo", filtros.tipos.join(","));
   if (filtros.estados?.length) params.set("estado", filtros.estados.join(","));
   if (filtros.entidadeId) params.set("entidadeId", filtros.entidadeId);
   if (filtros.sessionId) params.set("sessionId", filtros.sessionId);
   if (filtros.objetos?.length) params.set("objeto", filtros.objetos.join(","));
   if (filtros.participantes?.length) params.set("participante", filtros.participantes.join(","));
+  if (filtros.pessoaEntidadeId) params.set("pessoa", filtros.pessoaEntidadeId);
+  if (filtros.acoes?.length) params.set("acao", filtros.acoes.join(","));
   if (filtros.segmentoId) params.set("segmentoId", filtros.segmentoId);
   if (filtros.desde !== undefined) params.set("desde", String(filtros.desde));
   if (filtros.ate !== undefined) params.set("ate", String(filtros.ate));
+  return params;
+}
 
+export async function listarEventosTemporais(
+  limite = 100,
+  filtros: FiltrosEventosTemporais = {}
+): Promise<EventoTemporalComVideo[]> {
+  const params = paramsDeEventosTemporais(filtros, limite);
   let resposta: Response;
   try {
     resposta = await fetch(`/api/eventos-temporais?${params.toString()}`);

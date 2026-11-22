@@ -29,6 +29,16 @@ Para aceitar a Fase 4 com dados reais faltam:
 
 O harness já emite `atraso` como `N/A` quando não há correspondência; isso é ausência de medição, não resultado de precisão. As metas numéricas de gestos continuam propostas em §Fase 1.5–1.6 e só passam a ser aplicadas à Fase 4 depois da primeira linha de base anotada.
 
+## Fase 5 — Limitações conhecidas
+
+**Status:** os sete itens do checklist canônico estão implementados e cobertos por testes determinísticos (`tests/fase5-eventos.test.ts`, `tests/server-fase5.test.ts`). O que segue são limitações reais, não pendências de implementação do checklist:
+
+- `segmentosParaIntervalo()` cruza apenas tempo, não `sessionId`. Sessões com janelas de vídeo sobrepostas podem vincular um evento ao segmento da outra. Não foi alterado porque os testes de integração atuais usam `sessionId` de ciclo distinto do `sessaoId` da gravação; corrigir exige primeiro alinhar essa convenção nos produtores.
+- A reidratação do controlador entre sessões é parcial: `GET /api/contexto?sessionId=` reconstrói entradas/eventos, mas o estado interno do motor temporal e do ciclo de percepção não é restaurado por sessão.
+- A exportação lê no máximo 20.000 registros por stream. Para históricos maiores, filtre por sessão/período; não há pagamento/streaming de exportação.
+- Não há E2E cobrindo a timeline centrada em eventos, os botões de vídeo no `offsetMs`, o formulário de correção nem o download CSV/JSONL. Os contratos HTTP e as regras puras são testados; a interação no navegador não.
+- A correção é auditável por append-only, mas a API expõe apenas a versão mais recente por `eventoId`. As versões anteriores continuam no JSONL e podem ser lidas diretamente; ainda não há endpoint de "histórico de correções" de um evento.
+
 ## Fase 1.5–1.6 — Avaliação real de gestos
 
 **Status:** adiada em 2026-11-15. **Não bloqueia a Fase 2** (fortalecimento do motor temporal).
