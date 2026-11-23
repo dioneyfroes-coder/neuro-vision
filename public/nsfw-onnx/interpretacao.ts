@@ -97,6 +97,21 @@ function saidaCruaUsaLogits(
   return false;
 }
 
+export type FormatoSaidaNsfw = "cru" | "nms";
+
+/**
+ * Distingue a saida crua do NudeNet (4 coordenadas + 18 classes = 22) da saida
+ * com NMS (`[1,300,6]`). A dimensao 22 pode aparecer em qualquer uma das duas
+ * ultimas posicoes conforme o export; decidir apenas por `dims[1]` faria um
+ * export `[1,N,22]` ser lido como NMS e produzir caixas sem sentido.
+ */
+export function formatoSaidaNsfw(dims: readonly number[]): FormatoSaidaNsfw {
+  if (dims.length < 3) return "nms";
+  const penultima = dims[dims.length - 2];
+  const ultima = dims[dims.length - 1];
+  return penultima === 22 || ultima === 22 ? "cru" : "nms";
+}
+
 /**
  * Interpreta a saida crua do YOLOv8/NudeNet (`[1, 22, N]`): 4 coordenadas
  * `cx,cy,w,h` + 18 scores de classe. Aceita a forma transposta `[1, N, 22]`.

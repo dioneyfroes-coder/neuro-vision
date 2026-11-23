@@ -6,11 +6,13 @@
  *   do Hugging Face como `onnx/model.onnx`.
  * - Runtime: `onnxruntime-web` (WASM) vindo do CDN, como ja faziam
  *   Transformers.js e MediaPipe, e carregado **sob demanda**.
- * - Pre-pos-processamento (mesmo esquema do `preprocessor_config.json` do
- *   modelo): redimensiona (stretch) para 640x640, normaliza para [0,1] em RGB
- *   (float32, NCHW) e interpreta a saida `[1, 300, 6]` =
- *   (x1, y1, x2, y2, confianca, classe) em coordenadas do tensor 640x640,
- *   convertidas de volta para a resolucao original.
+ * - Pre-pos-processamento implementado no cliente: redimensiona (stretch) para
+ *   640x640, normaliza para [0,1] em RGB (float32, NCHW) e interpreta a saida
+ *   `[1, 300, 6]` = (x1, y1, x2, y2, confianca, classe) em coordenadas do tensor
+ *   640x640, convertidas de volta para a resolucao original. Nao ha um
+ *   `preprocessor_config.json` versionado para estes pesos: a afirmacao de que
+ *   este caminho e identico a referencia de treinamento permanece pendente de
+ *   verificacao com os pesos/referencia Python (ver `docs/nsfw.md`).
  *
  * O mesmo runtime/sessao e reaproveitado pelo detector NSFW experimental.
  */

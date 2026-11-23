@@ -26,6 +26,29 @@ describe("configurarSubsistemas", () => {
     expect(resultado.falhas).toEqual([{ subsistema: "pose", motivo: "erro ao carregar pose" }]);
     expect(status).toEqual(expect.arrayContaining(["pose indisponivel: erro ao carregar pose"]));
   });
+
+  it("preserva e anuncia a falha individual de uma carga parcial", async () => {
+    const status: string[] = [];
+    const detector = new DetectorFalso();
+    detector.metricas.motivoFalha = "b: peso ausente";
+    const pose = new PoseFalso();
+    const maos = new MaosFalso();
+    const resultado = await configurarSubsistemas(
+      { detector, pose, maos },
+      { objetos: "obj", pose: "pose", maos: "maos" },
+      (m) => status.push(m)
+    );
+
+    expect(resultado.carregados).toContain("deteccao");
+    expect(resultado.falhas).toEqual([]);
+    expect(resultado.carregamento?.deteccao).toMatchObject({
+      status: "ok",
+      motivoFalha: "b: peso ausente",
+    });
+    expect(status).toEqual(
+      expect.arrayContaining(["deteccao carregou parcialmente: b: peso ausente"])
+    );
+  });
 });
 
 describe("criarProcessadorInativo (variante B, sem percepcao local)", () => {

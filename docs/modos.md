@@ -86,6 +86,10 @@ pré/pós-processamento, coberta pelos testes determinísticos.
 
 ## NSFW experimental (toggle da interface)
 
+Esta seção descreve apenas o modo **Neuro Vision**. A especialização não é
+ativada pela Câmera de Segurança; o escopo e o estado atual estão em
+[`nsfw.md`](./nsfw.md).
+
 O checkbox **NSFW (experimental)** (`#nsfw`) liga um subsistema do pipeline local: ao ativar, ele carrega **automaticamente todos** os modelos do conjunto (`nudenet_320n`, `nudenet_640m`, `erax_nsfw_yolo11n/s/m` e `penis_yolov8m`), cada um em um **worker ONNX próprio** (com tentativa WebGPU e recriação em WASM), e roda todos sobre o mesmo frame. Não há seletor de modelo. As marcações são mescladas (mesmo rótulo com IoU ≥ 0,6 vira um registro com os modelos concordantes; rótulos diferentes são preservados) e cada frame ganha marcações (`rotulo`, `score`, `caixa`, `modelo`/`modelos`) que:
 
 - entram no **contexto estruturado** dos modos multiframe C/D (campo `nsfw` do frame no schema `contexto-1`) e no **corpo de `/api/visao`** de todos os modos; com o toggle desligado o campo é omitido por completo;

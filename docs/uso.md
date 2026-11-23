@@ -153,7 +153,7 @@ Nos modos multiframe (C/D), cada frame carrega **telemetria por subsistema** em 
 
 ## NSFW experimental
 
-O checkbox **NSFW (experimental)** no cabeçalho liga o conjunto local de classificação de conteúdo adulto: ao ativar, **todos** os modelos do conjunto são carregados automaticamente, cada um em seu próprio worker, sem seletor. Ele vale para a próxima inicialização de sessão e funciona em **todos os modos**: frame único (`Deteccao`, `Eventos`, `Visao`, `Roteiro`) e multiframe C/D. Com ele ligado:
+O checkbox **NSFW (experimental)** no cabeçalho liga, somente no modo Neuro Vision, o conjunto local de classificação de conteúdo adulto (não faz parte da Câmera de Segurança; veja [`nsfw.md`](./nsfw.md)): ao ativar, **todos** os modelos do conjunto são carregados automaticamente, cada um em seu próprio worker, sem seletor. Ele vale para a próxima inicialização de sessão e funciona em **todos os modos**: frame único (`Deteccao`, `Eventos`, `Visao`, `Roteiro`) e multiframe C/D. Com ele ligado:
 
 - as marcações (`rotulo`, `score`, `caixa`, `modelo`/`modelos`) vão ao contexto (multiframe), ao prompt/corpo de `/api/visao` (quando o modo chama o modelo) e ao log;
 - o modelo recebe instrução explícita para descrever conteúdo adulto sem eufemismos ou censura, e a resposta não é filtrada pelo app;

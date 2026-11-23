@@ -82,16 +82,22 @@ export async function configurarSubsistemas(
     // Carga fria medida pelo adaptador (mesmo quando a carga falhou: o custo
     // gasto ate a falha continua sendo um custo de inicializacao observado).
     const metricas = alvo.porta.metricas;
+    const carregou = status[alvo.subsistema] === "carregado";
+    // Um conjunto pode carregar parcialmente e ainda assim resolver: o motivo
+    // individual dos modelos indisponiveis nao pode desaparecer do diagnostico.
+    const motivoParcial = carregou ? metricas?.motivoFalha : undefined;
     carregamento[alvo.subsistema] = {
-      status: status[alvo.subsistema] === "carregado" ? "ok" : "indisponivel",
+      status: carregou ? "ok" : "indisponivel",
       modelo: metricas?.modelo,
       dispositivo: metricas?.dispositivo,
       versao: metricas?.versao,
-      motivoFalha:
-        status[alvo.subsistema] === "carregado" ? undefined : metricas?.motivoFalha,
+      motivoFalha: carregou ? motivoParcial : metricas?.motivoFalha,
       tempoCargaMs: metricas?.tempoCargaMs,
       memoriaBytes: metricas?.memoriaBytes,
     };
+    if (motivoParcial) {
+      aoStatus?.(`${alvo.subsistema} carregou parcialmente: ${motivoParcial}`);
+    }
   }
 
   return { carregados, falhas, desativados, status, carregamento };

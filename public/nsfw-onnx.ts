@@ -38,7 +38,9 @@ export {
   CLASSES_NSFW_IGNORADAS,
   filtrarClassesNsfwRelevantes,
   filtrarDeteccoesNsfw,
+  formatoSaidaNsfw,
   interpretarSaidaNudeNetCru,
   nmsPorRotulo,
+  type FormatoSaidaNsfw,
 } from "./nsfw-onnx/interpretacao";
 export { DetectorNsfwOnnx } from "./nsfw-onnx/detector";

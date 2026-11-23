@@ -7,7 +7,7 @@ import type { ControladorCiclo, EventoUi, ItemHistorico } from "./cycle/cycle-co
 import type { EventoTemporalComVideo } from "../src/types";
 import { estadosObservadosParaEvento } from "../src/domain";
 import { CicloPercepcaoController } from "./cycle/ciclo-percepcao-controller";
-import { criarPercepcaoLocal } from "./perception/percepcao-local";
+import { criarPercepcaoLocal, type PercepcaoLocal } from "./perception/percepcao-local";
 import { obterVariante } from "./perception/variantes";
 import type { VariantePercepcao } from "./perception/variantes";
 import type { HabilitacaoSubsistemas } from "./perception/local-perception-pipeline";
@@ -18,6 +18,7 @@ import { InterpretadorCiclo } from "./interpretation/interpretador-ciclo";
 import { criarTransporteServidor } from "./interpretation/transporte-servidor";
 import { criarModuloMonitoramento } from "./ui/monitoramento";
 import { partesDiagnosticoPersistencia, textoAvisoPersistencia } from "./ui/diagnostico-persistencia";
+import { partesDiagnosticoNsfw } from "./ui/diagnostico-nsfw";
 import { aplicarPerfilInicializacao } from "./ui/perfil-inicializacao";
 import {
   camera,
@@ -200,6 +201,12 @@ const controladorFrame = new CycleController({
 });
 
 /**
+ * Conjunto NSFW criado pelo pipeline multiframe. E `undefined` antes da primeira
+ * sessao; o diagnostico nao inventa telemetria para um conjunto que nao rodou.
+ */
+let conjuntoNsfwMultiframe: PercepcaoLocal["nsfw"] | undefined;
+
+/**
  * Controlador do ciclo multiframe: pipeline local completo (deteccao + pose +
  * maos), motor temporal e interpretacao multimodal.
  *
@@ -221,12 +228,17 @@ const controladorPercepcao = new CicloPercepcaoController({
   },
   fila: filaPersistencia,
   obterModo: () => obterModo(motorSelect.value),
-  criarPercepcao: () =>
-    criarPercepcaoLocal({
+  criarPercepcao: () => {
+    const percepcao = criarPercepcaoLocal({
       habilitacao: montarHabilitacao(),
       obterThreshold: () => Number(thresholdInput.value),
       aoStatus: (mensagem) => setStatus(mensagem),
-    }),
+    });
+    // O multiframe cria seu proprio conjunto NSFW; guarda a referencia para
+    // mostrar as falhas individuais no mesmo diagnostico do modo de frame unico.
+    conjuntoNsfwMultiframe = percepcao.nsfw;
+    return percepcao;
+  },
   obterModelosPercepcao: () => ({
     objetos: modelSelect.value,
     // NSFW experimental: so carrega quando o toggle esta ligado no inicio da
@@ -422,7 +434,13 @@ function atualizarDiagnostico(): void {
         : "nenhum";
 
   const partes = [`motor ${motor}`, `backend LM Studio`, `modelo ${modelo}`, `carregados: ${carregados}`];
-  if (nsfwAtivo()) partes.push(`nsfw ${rotuloConjuntoNsfw()}`);
+  if (nsfwAtivo()) {
+    partes.push(`nsfw ${rotuloConjuntoNsfw()}`);
+    const metricasNsfw = definicao.multiframe
+      ? conjuntoNsfwMultiframe?.metricas
+      : classificadorNsfw.metricas;
+    partes.push(...partesDiagnosticoNsfw(metricasNsfw, true));
+  }
   if (definicao.usaDeteccao && detectorCoco.dispositivo) {
     partes.push(`dispositivo ${detectorCoco.dispositivo}`);
   }

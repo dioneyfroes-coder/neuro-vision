@@ -35,6 +35,18 @@ export interface OpcoesConjuntoNsfw {
 export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
   readonly id = "nsfw";
   private readonly adaptadores = new Map<string, ClassificadorNsfw>();
+  /**
+   * Apenas os modelos que concluiram a carga. `adaptadores` continua com todos
+   * (inclusive os indisponiveis) para preservar a telemetria e permitir retry;
+   * `avaliar()` nao deve chamar um modelo que ja falhou na carga.
+   */
+  private readonly modelosCarregados = new Set<string>();
+  /**
+   * Falhas de carga persistem ate um retry explicito. Sem isso, a proxima
+   * inferencia bem-sucedida apagava o motivo do modelo indisponivel do
+   * diagnostico agregado.
+   */
+  private falhasCarga: string[] = [];
   private readonly modelosAlvo: readonly string[];
   private readonly criarAdaptador: CriadorAdaptadorNsfw;
   private readonly metricasValor: MetricasAdaptador = {};
@@ -72,12 +84,25 @@ export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
     void modelo;
     const inicio = performance.now();
     if (aoStatus) this.aoStatusValor = aoStatus;
-    for (const id of this.modelosAlvo) {
-      if (!this.adaptadores.has(id)) {
-        const adaptador = this.criarAdaptador(id);
-        adaptador.aoStatus = this.aoStatusValor;
-        this.adaptadores.set(id, adaptador);
+
+    // Cada chamada a `carregar()` e um retry explicito: os adaptadores ja
+    // existentes sao reaproveitados (sem duplicar workers) e os que falharam
+    // antes sao tentados de novo. Nada e reexecutado automaticamente por frame.
+    try {
+      for (const id of this.modelosAlvo) {
+        if (!this.adaptadores.has(id)) {
+          const adaptador = this.criarAdaptador(id);
+          adaptador.aoStatus = this.aoStatusValor;
+          this.adaptadores.set(id, adaptador);
+        }
       }
+    } catch (erro) {
+      // Se a fabrica falhar no meio do conjunto, libera os adaptadores ja
+      // criados em vez de deixar workers orfaos.
+      this.encerrar();
+      throw erro instanceof Error
+        ? erro
+        : new ErroPercepcao("detector", `Falha ao criar conjunto NSFW: ${String(erro)}`);
     }
 
     const ids = [...this.adaptadores.keys()];
@@ -98,6 +123,10 @@ export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
         falhas.push(`${id}: ${motivo}`);
       }
     });
+
+    this.modelosCarregados.clear();
+    for (const id of carregados) this.modelosCarregados.add(id);
+    this.falhasCarga = falhas;
 
     this.metricasValor.tempoCargaMs = Math.round(performance.now() - inicio);
     this.metricasValor.memoriaBytes = amostrarMemoriaBytes() ?? this.metricasValor.memoriaBytes;
@@ -121,11 +150,11 @@ export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
     entrada: EntradaAdaptador,
     opcoes?: OpcoesDeteccao
   ): Promise<ResultadoNsfw> {
-    if (!this.carregado || this.adaptadores.size === 0) {
+    const ids = [...this.modelosCarregados];
+    if (!this.carregado || ids.length === 0) {
       throw new ErroPercepcao("detector", "Conjunto NSFW nao carregado.");
     }
     const inicio = performance.now();
-    const ids = [...this.adaptadores.keys()];
     const resultados = await Promise.allSettled(
       ids.map((id) => this.adaptadores.get(id)!.avaliar(entrada, opcoes))
     );
@@ -168,7 +197,7 @@ export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
 
     const marcacoes = mesclarMarcacoesNsfw(brutas);
     this.metricasValor.status = marcacoes.length > 0 ? "ok" : "sem_resultado";
-    this.metricasValor.motivoFalha = falhas.length ? falhas.join("; ") : undefined;
+    this.metricasValor.motivoFalha = this.motivosFalhaAgregados(falhas);
 
     const contagem: Record<string, number> = {};
     for (const marcacao of marcacoes) {
@@ -188,16 +217,38 @@ export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
     };
   }
 
-  /** Libera todos os modelos (cada um encerra seu worker/sessao). */
+  /** Falhas de carga e de inferencia do ultimo frame, sem duplicar motivos. */
+  private motivosFalhaAgregados(falhasInferencia: readonly string[]): string | undefined {
+    const motivos = [...new Set([...this.falhasCarga, ...falhasInferencia])];
+    return motivos.length ? motivos.join("; ") : undefined;
+  }
+
+  /**
+   * Libera todos os modelos, inclusive os que falharam na carga ou que nunca
+   * chegaram a ser usados. Idempotente: limpa o mapa antes de encerrar, de modo
+   * que uma segunda chamada nao tente liberar o mesmo worker duas vezes. Um
+   * adaptador que lance no descarte nao impede a liberacao dos demais.
+   */
   encerrar(): void {
-    for (const adaptador of this.adaptadores.values()) adaptador.encerrar();
+    const adaptadores = [...this.adaptadores.values()];
     this.adaptadores.clear();
+    this.modelosCarregados.clear();
+    this.falhasCarga = [];
     this.carregado = false;
     this.metricasValor.status = "nao_carregado";
     this.metricasValor.modelo = undefined;
     this.metricasValor.modelos = [];
     this.metricasValor.telemetriaModelos = [];
     this.metricasValor.motivoFallback = undefined;
+    this.metricasValor.motivoFalha = undefined;
+    for (const adaptador of adaptadores) {
+      try {
+        adaptador.encerrar();
+      } catch {
+        // O descarte e best-effort por adaptador; os demais ainda devem ser
+        // encerrados e o estado agregado ja foi limpo acima.
+      }
+    }
   }
 
   /** Motivos de fallback por modelo, agregados para o subsistema. */

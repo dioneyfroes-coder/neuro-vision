@@ -28,6 +28,7 @@ import {
   carregarRotulosNsfw,
   filtrarClassesNsfwRelevantes,
   filtrarDeteccoesNsfw,
+  formatoSaidaNsfw,
   interpretarSaidaNudeNetCru,
 } from "./interpretacao";
 
@@ -102,7 +103,7 @@ export class DetectorNsfwOnnx implements MotorDeteccao {
       const tensor = resultado[saida];
       if (!tensor) throw new ErroPercepcao("detector", "Saida do classificador NSFW vazia.");
       const rotulos = this.rotulos ?? [];
-      const cru = tensor.dims[1] === 22;
+      const cru = formatoSaidaNsfw(tensor.dims) === "cru";
       const deteccoes = filtrarClassesNsfwRelevantes(
         cru
           ? interpretarSaidaNudeNetCru(

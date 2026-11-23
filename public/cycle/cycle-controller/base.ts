@@ -254,6 +254,13 @@ export abstract class BaseCycleController implements ControladorCiclo {
     try {
       await classificador.carregar(modelo, (mensagem) => this.status(mensagem));
       this.nsfwAtivo = true;
+      // Carga parcial resolve sem lancar: cada modelo indisponivel precisa
+      // aparecer por nome/motivo no aviso operacional e no status da interface.
+      const parcial = classificador.metricas.motivoFalha;
+      if (parcial) {
+        this.registrarOperacional("aviso", "nsfw", `carga parcial: ${parcial}`);
+        this.status(`NSFW parcialmente disponivel: ${parcial}`);
+      }
     } catch (err) {
       this.nsfwAtivo = false;
       this.registrarOperacional("aviso", "nsfw", (err as Error).message);

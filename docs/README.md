@@ -15,6 +15,7 @@
 | [`fase6-multimodal.md`](./fase6-multimodal.md) | Política orientada a eventos, seleção de frames, schema da resposta, exigência de evidência, separação observação/inferência, latência/custo e comparação com anotações humanas da Fase 6. |
 | [`fase7-operacao-seguranca.md`](./fase7-operacao-seguranca.md) | Recuperação após queda, retenção habilitada, autenticação opcional, criptografia em repouso, auditoria e diretrizes de consentimento/privacidade da Fase 7. |
 | [`fase8-otimizacao-manutencao.md`](./fase8-otimizacao-manutencao.md) | Fase 8: filas com descarte explícito, perfil `leve` opt-in, refatoração de regras de UI, relatório consolidado de benchmark e o que ainda depende de medição real. |
+| [`nsfw.md`](./nsfw.md) | Especialização NSFW do modo Neuro Vision: separação do modo Câmera de Segurança, confiabilidade do conjunto, pré-processamento verificável e pendências. |
 | [`compatibilidade.md`](./compatibilidade.md) | Política de versões fixadas (CDN/Node), IDs e revisão de modelos, telemetria necessária e matriz de fallback. |
 | [`arquitetura.md`](./arquitetura.md) | Estrutura de arquivos e como as partes conversam (servidor, cliente, motores, memória, variantes A–D). |
 | [`seguranca.md`](./seguranca.md) | Exposição na rede, token opcional, origem cruzada, limites de corpo, criptografia em repouso e auditoria. |

@@ -2,7 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { AdaptadorNsfwConjunto } from "../../public/perception/adapters/nsfw-classifier.adapter";
 import { MODELO_NSFW_CONJUNTO } from "../../public/nsfw-onnx";
 import { ErroPercepcao } from "../../src/erros";
-import { AdaptadorFalso, ENTRADA, caixa, criarConjunto, marcacao } from "../helpers/nsfw-classifier-adapter";
+import {
+  AdaptadorFalso,
+  ENTRADA,
+  caixa,
+  criarConjunto,
+  criarConjuntoComAdaptadores,
+  marcacao,
+} from "../helpers/nsfw-classifier-adapter";
 
 describe("AdaptadorNsfwConjunto", () => {
   it("carrega todos os modelos e marca o id composto", async () => {
@@ -103,6 +110,96 @@ describe("AdaptadorNsfwConjunto", () => {
     expect(conjunto.modelo).toBeNull();
     expect(conjunto.metricas.modelos).toEqual([]);
     expect(conjunto.metricas.telemetriaModelos).toEqual([]);
+  });
+});
+
+describe("AdaptadorNsfwConjunto - carga parcial, retry e descarte (Fase 1)", () => {
+  it("nao chama em nenhuma inferencia o modelo que falhou na carga", async () => {
+    const { conjunto, adaptadores } = criarConjuntoComAdaptadores({
+      a: { resultado: { marcacoes: [], modelo: "a", resumo: "nenhuma marcacao" } },
+      b: { falharCarga: true },
+    });
+    await conjunto.carregar(MODELO_NSFW_CONJUNTO);
+
+    const primeiro = await conjunto.avaliar(ENTRADA);
+    const segundo = await conjunto.avaliar(ENTRADA);
+
+    expect(primeiro.modelos).toEqual(["a"]);
+    expect(segundo.modelos).toEqual(["a"]);
+    expect(adaptadores.get("a")?.contagemAvaliacoes).toBe(2);
+    expect(adaptadores.get("b")?.contagemAvaliacoes).toBe(0);
+    expect(adaptadores.get("b")?.contagemCargas).toBe(1);
+
+    // A telemetria do modelo indisponivel e preservada, inclusive apos inferir.
+    const telemetriaB = conjunto.metricas.telemetriaModelos?.find((t) => t.modelo === "b");
+    expect(telemetriaB?.status).toBe("indisponivel");
+    expect(telemetriaB?.motivoFalha).toContain("b quebrou na carga");
+    expect(telemetriaB?.marcacoes).toBeUndefined();
+    expect(conjunto.metricas.motivoFalha).toContain("b quebrou na carga");
+  });
+
+  it("o retry explicito recupera o modelo sem duplicar workers", async () => {
+    const { conjunto, adaptadores } = criarConjuntoComAdaptadores({ a: {}, b: { falharCarga: true } });
+    await conjunto.carregar(MODELO_NSFW_CONJUNTO);
+    expect(conjunto.metricas.modelos).toEqual(["a"]);
+
+    adaptadores.get("b")?.permitirRecarga();
+    await conjunto.carregar(MODELO_NSFW_CONJUNTO);
+
+    expect(conjunto.metricas.modelos).toEqual(["a", "b"]);
+    expect(adaptadores.get("b")?.contagemCargas).toBe(2);
+    // A fabrica so foi chamada uma vez por modelo: nao ha worker duplicado.
+    expect(new Set(conjunto.metricas.telemetriaModelos?.map((t) => t.modelo)).size).toBe(2);
+    expect(conjunto.metricas.telemetriaModelos).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ modelo: "b", status: "ok", tempoCargaMs: 1 }),
+      ])
+    );
+    expect(conjunto.metricas.motivoFalha).toBeUndefined();
+
+    const resultado = await conjunto.avaliar(ENTRADA);
+    expect(resultado.modelos).toEqual(["a", "b"]);
+    expect(adaptadores.get("b")?.contagemAvaliacoes).toBe(1);
+  });
+
+  it("encerra inclusive o modelo que falhou na carga e e idempotente", async () => {
+    const { conjunto, adaptadores } = criarConjuntoComAdaptadores({ a: {}, b: { falharCarga: true } });
+    await conjunto.carregar(MODELO_NSFW_CONJUNTO);
+    conjunto.encerrar();
+    conjunto.encerrar();
+
+    expect(adaptadores.get("a")?.contagemEncerramentos).toBe(1);
+    expect(adaptadores.get("b")?.contagemEncerramentos).toBe(1);
+    expect(conjunto.metricas.modelos).toEqual([]);
+    expect(conjunto.metricas.telemetriaModelos).toEqual([]);
+    expect(conjunto.metricas.status).toBe("nao_carregado");
+    expect(conjunto.metricas.motivoFalha).toBeUndefined();
+    await expect(conjunto.avaliar(ENTRADA)).rejects.toBeInstanceOf(ErroPercepcao);
+  });
+
+  it("um erro no descarte de um modelo nao impede a liberacao dos demais", async () => {
+    const { conjunto, adaptadores } = criarConjuntoComAdaptadores({
+      a: {},
+      b: { falharEncerramento: true },
+      c: {},
+    });
+    await conjunto.carregar(MODELO_NSFW_CONJUNTO);
+    expect(() => conjunto.encerrar()).not.toThrow();
+    expect(adaptadores.get("a")?.contagemEncerramentos).toBe(1);
+    expect(adaptadores.get("b")?.contagemEncerramentos).toBe(1);
+    expect(adaptadores.get("c")?.contagemEncerramentos).toBe(1);
+  });
+
+  it("uma falha de inferencia e transitoria e nao remove o modelo da proxima avaliacao", async () => {
+    const { conjunto, adaptadores } = criarConjuntoComAdaptadores({
+      a: {},
+      b: { falharAvaliacao: true },
+    });
+    await conjunto.carregar(MODELO_NSFW_CONJUNTO);
+
+    await expect(conjunto.avaliar(ENTRADA)).resolves.toMatchObject({ modelos: ["a"] });
+    adaptadores.get("b")?.permitirAvaliacao();
+    await expect(conjunto.avaliar(ENTRADA)).resolves.toMatchObject({ modelos: ["a", "b"] });
   });
 });
 

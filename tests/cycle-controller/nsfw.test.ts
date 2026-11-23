@@ -92,6 +92,36 @@ describe("CycleController", () => {
     expect(classificador.avaliar).not.toHaveBeenCalled();
   });
 
+  it("carga parcial do NSFW gera aviso com o motivo de cada modelo", async () => {
+    const classificador = {
+      id: "nsfw",
+      modelo: "conjunto-nsfw",
+      metricas: { modelo: "conjunto-nsfw", status: "ok", motivoFalha: "b: peso ausente" },
+      carregar: vi.fn(async () => undefined),
+      avaliar: vi.fn(async () => ({ marcacoes: [], modelo: "conjunto-nsfw", resumo: "nenhuma marcacao" })),
+      encerrar: vi.fn(),
+    } as unknown as ClassificadorNsfw;
+
+    const { controlador, eventos, repositorio } = montar({
+      classificadorNsfw: classificador,
+      obterModeloNsfw: () => "conjunto-nsfw",
+    });
+    await controlador.iniciar();
+
+    expect(controlador.estaRodando).toBe(true);
+    expect(repositorio.gravarOperacional).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nivel: "aviso",
+        origem: "nsfw",
+        mensagem: expect.stringContaining("b: peso ausente"),
+      })
+    );
+    expect(eventos.some((e) => e.tipo === "status" && e.texto.includes("b: peso ausente"))).toBe(
+      true
+    );
+    expect(classificador.avaliar).toHaveBeenCalled();
+  });
+
   it("no modo visao, envia as marcacoes NSFW ao motor e exibe a resposta explicita", async () => {
     const classificador = {
       id: "nsfw",
