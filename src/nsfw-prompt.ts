@@ -20,6 +20,33 @@ export { MODELO_NSFW, resolverModeloVisao, INSTRUCAO_NSFW, INSTRUCAO_ACAO_MULTIF
 export { descreverRotuloNsfw, normalizarCaixaNsfw, normalizarMarcacoesNsfw, formatarMarcacoesNsfw, resumirMarcacoesNsfw } from "./nsfw-prompt/marcacoes";
 export { LIMITE_CONTEXTO_DECLARADO, normalizarContextoDeclarado, blocoContextoDeclarado, blocoNsfwPrompt } from "./nsfw-prompt/contexto";
 export {
+  classificarMarcacoesNsfw,
+  classificarRotuloNsfw,
+  contemPropostaCena,
+  ePropostaCena,
+  INSTRUCAO_PROPOSTA_CENA_NSFW,
+  ROTULOS_ACAO_NSFW,
+  ROTULOS_ANATOMIA_NSFW,
+  type ClassificacaoClasseNsfw,
+  type EscopoClasseNsfw,
+  type MarcacaoNsfwClassificada,
+  type TipoClasseNsfw,
+  type UsoPermitidoNsfw,
+} from "./domain/nsfw-classificacao-rotulo";
+export {
+  enriquecerMarcacoesTemporais,
+  formatarTempoMarcacaoNsfw,
+  ordenarMarcacoesTemporais,
+  type MarcacaoNsfwTemporal,
+  type TempoFrameNsfw,
+} from "./domain/nsfw-marcacao-temporal";
+export {
+  resumirEvidenciaTemporalNsfw,
+  sinalNsfwDoFrame,
+  type EvidenciaNsfwPorFrame,
+  type ResumoEvidenciaTemporalNsfw,
+} from "./domain/nsfw-evidencia-temporal";
+export {
   INSTRUCAO_CORPO_NEUTRO,
   PERFIS_DESCRICAO_CORPORAL,
   blocoCorpoNeutro,

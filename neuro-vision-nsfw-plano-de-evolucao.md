@@ -854,14 +854,30 @@ A infraestrutura para medir está entregue; o equilíbrio em si segue sem mediç
 
 ## Fase 4 — análise multiframe
 
-- [ ] Incluir timestamps nas marcações do prompt.
-- [ ] Criar seleção adaptativa de frames.
-- [ ] Separar classes anatômicas de classes de ação.
-- [ ] Tratar `make_love` como proposta de cena, não confirmação.
-- [ ] Ampliar avaliação de ações com vídeos anotados.
-- [ ] Validar cronologia, evidências e incerteza.
+- [x] Incluir timestamps nas marcações do prompt — carimbo real do frame
+  propagado para cada marcação; ausência vira `tempo_desconhecido`, nunca
+  `Date.now()` (`src/domain/nsfw-marcacao-temporal.ts`, `prompt-interpretacao-3`).
+- [x] Criar seleção adaptativa de frames — sinal NSFW fraco (0–5) somado à
+  seleção existente, com motivos rastreáveis; detector sozinho não vira evento
+  validado (`nsfw-evidencia-temporal.ts`, `selecao-frames.ts`).
+- [x] Separar classes anatômicas de classes de ação — metadados estruturais
+  determinísticos por rótulo do catálogo (`nsfw-classificacao-rotulo.ts`).
+- [x] Tratar `make_love` como proposta de cena, não confirmação — `tipo: "acao"`,
+  `escopo: "cena"`, `usoPermitido: "proposta_temporal"` e instrução explícita no
+  bloco NSFW.
+- [ ] Ampliar avaliação de ações com vídeos anotados — infraestrutura entregue
+  (`avaliacao-nsfw-anotada.ts`, harness `avaliar:acoes:nsfw`): sem anotação v2
+  revisada, `conjunto: "eval"` e resolução melhor que 1 fps o resultado é `N/A`.
+  Não existe clipe adulto anotado; precisão/recall reais permanecem N/A.
+- [x] Validar cronologia, evidências e incerteza — `inicioEm <= fimEm`, janela
+  do ciclo, `frameId` de evidência e avisos de resolução/incerteza
+  (`validacao-cronologia.ts`, opcional em `validarRespostaMultimodal`).
 
-**Resultado esperado:** interpretação de ações baseada em sequência, sem deduções frágeis de frames isolados.
+**Resultado esperado:** interpretação de ações baseada em sequência, sem deduções
+frágeis de frames isolados. A infraestrutura determinística está entregue; a
+medição com vídeos adultos anotados segue INCONCLUSIVO por falta de dataset
+revisado. O ganho da seleção adaptativa não foi medido — nenhuma precisão,
+recall ou latência é afirmada.
 
 ## Fase 5 — Gemma, prompt e interface
 

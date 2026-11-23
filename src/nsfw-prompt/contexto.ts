@@ -1,3 +1,4 @@
+import { contemPropostaCena, INSTRUCAO_PROPOSTA_CENA_NSFW } from "../domain/nsfw-classificacao-rotulo";
 import type { QuadroNsfwPrompt } from "./tipos";
 import { INSTRUCAO_NSFW } from "./instrucoes";
 import { formatarMarcacoesNsfw } from "./marcacoes";
@@ -59,12 +60,20 @@ export function blocoNsfwPrompt(
   if (quadros.length === 0) return "";
   const linhas = quadros.map((q) => {
     const referencia = `Imagem ${q.indice}${q.frameId ? ` (frameId ${q.frameId})` : ""}`;
-    return `- ${referencia}: ${formatarMarcacoesNsfw(q.marcacoes)}`;
+    // O quadro sabe o frameId; repeti-lo na marcação deixa o carimbo temporal
+    // completo e auditável linha a linha no prompt.
+    const marcacoes = q.marcacoes.map((m) => ({
+      ...m,
+      ...(!m.frameId && q.frameId ? { frameId: q.frameId } : {}),
+    }));
+    return `- ${referencia}: ${formatarMarcacoesNsfw(marcacoes)}`;
   });
   const contextoDeclarado = blocoContextoDeclarado(contexto);
+  const temAcao = quadros.some((q) => contemPropostaCena(q.marcacoes));
   return [
     ...(contextoDeclarado ? [contextoDeclarado, ""] : []),
     INSTRUCAO_NSFW,
+    ...(temAcao ? ["", INSTRUCAO_PROPOSTA_CENA_NSFW] : []),
     "",
     "Marcacoes NSFW observadas (rotulo traduzido, score, caixa normalizada " +
       "[xmin,ymin,xmax,ymax], origem no canto superior esquerdo):",

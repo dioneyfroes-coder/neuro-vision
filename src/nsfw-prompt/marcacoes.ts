@@ -1,4 +1,5 @@
 import type { MarcacaoNsfw } from "../domain/perception";
+import { formatarTempoMarcacaoNsfw } from "../domain/nsfw-marcacao-temporal";
 import type { Caixa } from "../types";
 import type { MarcacaoNsfwVisivel } from "./tipos";
 
@@ -83,7 +84,7 @@ export function normalizarCaixaNsfw(
 
 /** Normaliza uma lista de marcacoes para o formato de log/prompt/UI. */
 export function normalizarMarcacoesNsfw(
-  marcacoes: ReadonlyArray<MarcacaoNsfw>,
+  marcacoes: ReadonlyArray<MarcacaoNsfw & Partial<MarcacaoNsfwVisivel>>,
   dimensoes?: { largura: number; altura: number }
 ): MarcacaoNsfwVisivel[] {
   return marcacoes.map((m) => ({
@@ -92,6 +93,16 @@ export function normalizarMarcacoesNsfw(
     caixa: normalizarCaixaNsfw(m.caixa, dimensoes),
     ...(m.modelo ? { modelo: m.modelo } : {}),
     ...(m.modelos?.length ? { modelos: [...m.modelos] } : {}),
+    // Tempo/classificação só entram quando o produtor os forneceu: payloads
+    // antigos continuam com o mesmo texto e o mesmo contrato.
+    ...(m.frameId ? { frameId: m.frameId } : {}),
+    ...(m.capturadoEm ? { capturadoEm: m.capturadoEm } : {}),
+    ...(Number.isFinite(m.capturadoEmMs) ? { capturadoEmMs: m.capturadoEmMs } : {}),
+    ...(Number.isFinite(m.offsetMs) ? { offsetMs: m.offsetMs } : {}),
+    ...(m.tempoConfiavel !== undefined ? { tempoConfiavel: m.tempoConfiavel } : {}),
+    ...(m.tipoClasse ? { tipoClasse: m.tipoClasse } : {}),
+    ...(m.escopoClasse ? { escopoClasse: m.escopoClasse } : {}),
+    ...(m.usoPermitido ? { usoPermitido: m.usoPermitido } : {}),
   }));
 }
 
@@ -139,11 +150,16 @@ export function formatarMarcacoesNsfw(
   return marcacoes
     .map((m) => {
       const c = m.caixa;
+      const tempo = m.tempoConfiavel !== undefined ? `; ${formatarTempoMarcacaoNsfw(m)}` : "";
+      const proposta =
+        m.tipoClasse === "acao" && m.escopoClasse === "cena" ? "; proposta_de_cena_nao_confirmacao" : "";
       return (
         `${descreverRotuloNsfw(m.rotulo)} ${limitar01(m.score).toFixed(decimais)} ` +
         `caixa [${c.xmin},${c.ymin},${c.xmax},${c.ymax}] ` +
         `(regiao ${regiaoDaCaixa(c)}; tamanho ${tamanhoDaCaixa(c)})` +
-        origemDaMarcacao(m)
+        origemDaMarcacao(m) +
+        proposta +
+        tempo
       );
     })
     .join("; ");

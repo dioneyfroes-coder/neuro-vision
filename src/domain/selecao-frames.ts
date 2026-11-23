@@ -20,6 +20,13 @@ export interface FrameParaSelecao {
   falhaPercepcao?: boolean;
   /** Contagem de sinais de atividade (detecções/movimento), quando medida. */
   sinaisAtividade?: number;
+  /**
+   * Sinal NSFW fraco (0–5) derivado de propostas de ação/concordância entre
+   * detectores (Fase 4). Nunca equivale a evento temporal validado.
+   */
+  sinaisNsfw?: number;
+  /** Motivos do sinal NSFW, rastreáveis no diagnóstico da seleção. */
+  motivosNsfw?: readonly string[];
 }
 
 export type CriterioSelecaoFrames = "relevancia" | "uniforme" | "sem_selecao";
@@ -96,6 +103,12 @@ export function selecionarFramesRelevantes(
     if (sinais > 0) {
       pontos += 10 * sinais;
       razoes.push(`atividade:${sinais}`);
+    }
+    // Sinal NSFW é fraco por princípio: detector sozinho nunca confirma ação.
+    const sinaisNsfw = Math.max(0, Math.min(5, Math.floor(frame.sinaisNsfw ?? 0)));
+    if (sinaisNsfw > 0) {
+      pontos += 2 * sinaisNsfw;
+      razoes.push(`nsfw_sinal:${sinaisNsfw}`, ...(frame.motivosNsfw ?? []));
     }
     return { frame, posicao, pontos, razoes: razoes.length ? razoes : ["linha_do_tempo"] };
   });

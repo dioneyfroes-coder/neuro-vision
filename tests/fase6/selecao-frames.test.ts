@@ -56,4 +56,31 @@ describe("seleção automática de frames (Fase 6, item 2)", () => {
     expect(selecao.selecionados).toEqual(["f0", "f1", "f2", "f4"]);
     expect(selecao.totalFrames).toBe(5);
   });
+
+  it("usa o sinal NSFW como reforço fraco, nunca acima de evento validado (Fase 4)", () => {
+    const comEvento = [
+      frame("f0", 0),
+      frame("f1", 100, { sinaisNsfw: 5, motivosNsfw: ["nsfw_proposta_acao"] }),
+      frame("f2", 200),
+      frame("f3", 300, { eventosSuportados: ["ev1"], sinaisAtividade: 1 }),
+      frame("f4", 400),
+    ];
+    // Evento validado (100+) pontua mais que o teto do sinal NSFW (10).
+    const selecaoComEvento = selecionarFramesRelevantes(comEvento, 3, ["ev1"]);
+    expect(selecaoComEvento.criterio).toBe("relevancia");
+    expect(selecaoComEvento.selecionados).toEqual(["f0", "f3", "f4"]);
+
+    // Sem evento, o sinal fraco desempata e é rastreável nos motivos.
+    const semEvento = [
+      frame("f0", 0),
+      frame("f1", 100, { sinaisNsfw: 5, motivosNsfw: ["nsfw_proposta_acao"] }),
+      frame("f2", 200),
+      frame("f3", 300),
+      frame("f4", 400),
+    ];
+    const selecaoSemEvento = selecionarFramesRelevantes(semEvento, 3);
+    expect(selecaoSemEvento.selecionados).toEqual(["f0", "f1", "f4"]);
+    expect(selecaoSemEvento.motivos.f1).toContain("nsfw_sinal:5");
+    expect(selecaoSemEvento.motivos.f1).toContain("nsfw_proposta_acao");
+  });
 });

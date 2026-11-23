@@ -1,8 +1,12 @@
 import {
+  classificarMarcacoesNsfw,
+  enriquecerMarcacoesTemporais,
   estaIndisponivel,
   eventosRelevantesParaMultimodal,
   naoFoiAmostrado,
+  resumirEvidenciaTemporalNsfw,
   selecionarFramesRelevantes,
+  sinalNsfwDoFrame,
 } from "../../../src/domain";
 import type {
   ObservacaoFrame,
@@ -155,11 +159,32 @@ function sinaisDoFrame(
   percepcaoValida: boolean;
   falhaPercepcao: boolean;
   sinaisAtividade: number;
+  sinaisNsfw: number;
+  motivosNsfw: string[];
 } {
   const subsistemas = [obs.deteccoes, obs.pose, obs.maos];
   const falhaPercepcao = subsistemas.some(
     (resultado) => estaIndisponivel(resultado) && !naoFoiAmostrado(resultado)
   );
+
+  // NSFW é opt-in: só entra como sinal fraco quando o subsistema realmente
+  // rodou. Detector sozinho nunca confirma ação nem vira evento validado.
+  let sinaisNsfw = 0;
+  let motivosNsfw: string[] = [];
+  if (obs.nsfw && !estaIndisponivel(obs.nsfw) && !naoFoiAmostrado(obs.nsfw)) {
+    const temporais = enriquecerMarcacoesTemporais(obs.nsfw.marcacoes, {
+      frameId: obs.frameId,
+      capturadoEm: obs.capturadoEm,
+      capturadoEmMs: obs.capturadoEmMs,
+    });
+    const classificadas = classificarMarcacoesNsfw(temporais).map(
+      ({ rotulo, classificacao, marcacao }) => ({ ...marcacao, rotulo, classificacao })
+    );
+    const sinal = sinalNsfwDoFrame(resumirEvidenciaTemporalNsfw(classificadas), obs.frameId);
+    sinaisNsfw = sinal.sinal;
+    motivosNsfw = sinal.motivos;
+  }
+
   return {
     frameId: obs.frameId,
     capturadoEmMs: obs.capturadoEmMs,
@@ -172,6 +197,8 @@ function sinaisDoFrame(
       (estaIndisponivel(obs.deteccoes) ? 0 : obs.deteccoes.deteccoes.length) +
       (estaIndisponivel(obs.pose) ? 0 : obs.pose.pessoas.length) +
       (estaIndisponivel(obs.maos) ? 0 : obs.maos.maos.length),
+    sinaisNsfw,
+    motivosNsfw,
   };
 }
 

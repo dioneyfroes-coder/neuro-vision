@@ -97,8 +97,8 @@ Entregue nesta fase:
 Uso opt-in: `?descricaoCorporal=neutro` na URL (ou `perfilCorporal: "neutro"` no
 `POST /api/visao`). Não há botão na interface: o toggle NSFW continua
 independente e bloqueado durante a captura. `VERSAO_PROMPT_INTERPRETACAO`
-passou para `prompt-interpretacao-2` porque o contrato do prompt multiframe
-ganhou o perfil.
+passou para `prompt-interpretacao-3`: o contrato multiframe ganhou o perfil e,
+na Fase 4, o carimbo de tempo por marcação e a distinção anatomia/ação/proposta.
 
 O harness `npm run avaliar:corpo` imprime a comparação dos três blocos e
 `Acurácia: N/A` com o motivo; com `--anotacao <json> --respostas <jsonl>` ele
@@ -178,14 +178,55 @@ A Fase 3 entregou **mecanismos determinísticos**, não medições de modelo:
   coletadas. Sem `--amostras`, o relatório volta `sem_dados` com `N/A` em
   concorrência e latência; memória é sempre `N/A`.
 
+## Fase 4 — tempo, ações e cronologia
+
+A Fase 4 entregou **infraestrutura determinística**, não medição de modelo:
+
+- `src/domain/nsfw-marcacao-temporal.ts` carimba cada marcação com o `frameId`,
+  o índice, `capturadoEm`/`offsetMs` do frame que a produziu. Sem carimbo
+  confiável o prompt diz `tempo_desconhecido` — nunca `Date.now()`, nunca
+  duração inferida da quantidade de imagens.
+- `src/domain/nsfw-classificacao-rotulo.ts` separa anatomia local, estado visual
+  e ação em nível de cena. `make_love` é `tipo: "acao"`, `escopo: "cena"`,
+  `usoPermitido: "proposta_temporal"`: proposta de cena, não confirmação do ato.
+  Rótulos fora do vocabulário viram sinal auxiliar (`confiavel: false`).
+- `src/domain/nsfw-evidencia-temporal.ts` resume sinais por frame e alimenta
+  `sinaisNsfw` na seleção adaptativa. O sinal é fraco (0–5, ação=1,
+  concordância entre modelos=2, teto 5) e registrado com motivos; detector
+  sozinho não se torna evento temporal validado.
+- `src/domain/validacao-cronologia.ts` checa `inicioEm <= fimEm`, janela do
+  ciclo e `frameId` citado como evidência. Passou a ser opcional em
+  `validarRespostaMultimodal(valor, contexto)`; sem contexto o comportamento
+  é o anterior. Intervalos curtos e evidências fora do intervalo geram aviso
+  e incerteza explícita.
+- `avaliarAcoesNsfwAnotadas()` e `npm run avaliar:acoes:nsfw` comparam
+  intervalos por sobreposição determinística. Sem anotação v2 revisada,
+  `conjunto: "eval"` e resolução melhor que 1 fps, o relatório volta `N/A`
+  com motivo e taxas `null` — nunca `0`, nunca "aprovado".
+
+Implementação: [`src/domain/nsfw-marcacao-temporal.ts`](../src/domain/nsfw-marcacao-temporal.ts),
+[`src/domain/nsfw-classificacao-rotulo.ts`](../src/domain/nsfw-classificacao-rotulo.ts),
+[`src/domain/nsfw-evidencia-temporal.ts`](../src/domain/nsfw-evidencia-temporal.ts),
+[`src/domain/validacao-cronologia.ts`](../src/domain/validacao-cronologia.ts),
+[`src/domain/avaliacao-nsfw-anotada.ts`](../src/domain/avaliacao-nsfw-anotada.ts),
+[`scripts/avaliar-nsfw-acoes.mjs`](../scripts/avaliar-nsfw-acoes.mjs) e
+[`public/interpretation/prompt.ts`](../public/interpretation/prompt.ts).
+Testes: `tests/nsfw-marcacao-temporal.test.ts`,
+`tests/nsfw-classificacao-rotulo.test.ts`, `tests/nsfw-evidencia-temporal.test.ts`,
+`tests/validacao-cronologia.test.ts`, `tests/avaliacao-nsfw-anotada.test.ts`,
+`tests/nsfw-prompt-temporal.test.ts` e `tests/scripts/avaliar-nsfw-acoes.test.mjs`.
+
 ## Limites que seguem em aberto
 
 O dataset anotado e a medição real seguem pendentes. Permanece INCONCLUSIVO:
 a calibração numérica por modelo/classe, a concorrência efetiva dos workers
 reais, o valor ótimo de paralelismo, P50/P95 de latência e RAM/heap/WASM no
-PC alvo. As fases 4–6 do plano também seguem pendentes: timestamps nas
-marcações, seleção adaptativa de frames, separação entre anatomia e ação,
-configuração centralizada do Gemma e avaliação humana. Nenhuma precisão, recall
-ou ganho de latência é afirmado sem medição com dados anotados.
+PC alvo, a precisão/recall de ações NSFW, a cronologia e as evidências do
+modelo revisadas por humano, e a equivalência Python × ONNX do
+pré-processamento. Não existe clipe adulto anotado com início/fim de ação em
+resolução melhor que 1 fps; `bench/clipes/eval/manifest.json` cobre apenas
+`movimento_objeto.objeto_deslocado`. As fases 5–6 do plano também seguem
+pendentes: configuração centralizada do Gemma e avaliação humana. Nenhuma
+precisão, recall ou ganho de latência é afirmado sem medição com dados anotados.
 
 Este subsistema continua **experimental** e separado do modo de segurança.

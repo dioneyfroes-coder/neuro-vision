@@ -1,12 +1,14 @@
 import {
   blocoAcaoMultiframe,
   blocoPerfilCorporal,
+  classificarMarcacoesNsfw,
+  enriquecerMarcacoesTemporais,
   type PerfilDescricaoCorporal,
 } from "../../src/nsfw-prompt";
 import type { ContextoCicloSerializavel } from "./esquema";
 
 /** Versão do contrato de prompt; mude quando as instruções/schema mudarem. */
-export const VERSAO_PROMPT_INTERPRETACAO = "prompt-interpretacao-2";
+export const VERSAO_PROMPT_INTERPRETACAO = "prompt-interpretacao-3";
 
 /**
  * Construcao do prompt para a interpretacao multimodal (Etapa 7; Fase 3).
@@ -86,11 +88,26 @@ export function montarPromptInterpretacao(
   // imagens, mesmo que o detector nao tenha marcado aquele frame especifico.
   const quadrosNsfw = contexto.frames
     .filter((f) => f.subsistemas.nsfw !== undefined)
-    .map((f) => ({
-      indice: f.indice,
-      frameId: f.frameId,
-      marcacoes: f.nsfw ?? [],
-    }));
+    .map((f) => {
+      // Tempo real e natureza da classe por marcação (Fase 4). Sem carimbo
+      // confiável o prompt diz `tempo_desconhecido`, nunca inventa "agora".
+      const temporais = enriquecerMarcacoesTemporais(f.nsfw ?? [], {
+        frameId: f.frameId,
+        indice: f.indice,
+        capturadoEm: f.capturadoEm,
+        offsetMs: f.offsetMs,
+      });
+      const marcacoes = classificarMarcacoesNsfw(temporais).map(
+        ({ rotulo, classificacao, marcacao }) => ({
+          ...marcacao,
+          rotulo,
+          tipoClasse: classificacao.tipo,
+          escopoClasse: classificacao.escopo,
+          usoPermitido: classificacao.usoPermitido,
+        })
+      );
+      return { indice: f.indice, frameId: f.frameId, marcacoes };
+    });
   const blocoPerfil = blocoPerfilCorporal(perfilCorporal, quadrosNsfw, contextoDeclarado);
   // Acao sexual e temporal: so entra com 2+ imagens, perfil explicito e bloco
   // NSFW presente. O perfil neutro nunca pede inferencia de ato sexual.

@@ -8,6 +8,8 @@
  * tratadas em `validarReferencias` (camada de contexto); aqui apenas se exige
  * que sejam listas de strings.
  */
+import { validarCronologiaResposta, type ContextoCronologia } from "./validacao-cronologia";
+
 export const VERSAO_SCHEMA_RESPOSTA = 1;
 
 export interface SchemaRespostaMultimodal {
@@ -63,8 +65,15 @@ function itens(
   );
 }
 
-/** Valida um objeto já parseado contra o schema canônico. */
-export function validarRespostaMultimodal(valor: unknown): SchemaRespostaMultimodal {
+/**
+ * Valida um objeto já parseado contra o schema canônico.
+ * Com `contexto`, acrescenta a checagem semântica de cronologia (Fase 4);
+ * sem ele, o comportamento é exatamente o anterior.
+ */
+export function validarRespostaMultimodal(
+  valor: unknown,
+  contexto?: ContextoCronologia
+): SchemaRespostaMultimodal {
   const schema: SchemaRespostaMultimodal = {
     versao: VERSAO_SCHEMA_RESPOSTA,
     valido: false,
@@ -129,6 +138,11 @@ export function validarRespostaMultimodal(valor: unknown): SchemaRespostaMultimo
 
   for (const chave of Object.keys(obj)) {
     if (!CAMPOS_CONHECIDOS.has(chave)) schema.avisos.push(`campo extra: ${chave}`);
+  }
+  if (contexto) {
+    const cronologia = validarCronologiaResposta(valor, contexto);
+    schema.erros.push(...cronologia.erros);
+    schema.avisos.push(...cronologia.avisos, ...cronologia.incertezas.map((i) => `incerteza: ${i}`));
   }
   schema.valido = schema.erros.length === 0;
   return schema;
