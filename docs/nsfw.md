@@ -344,25 +344,35 @@ Tudo é escrito em `logs/` (gitignored): `.deteccoes.jsonl`, `.eventos.jsonl`,
 `.respostas.jsonl`, `.erros-backend.jsonl` e, principalmente,
 `.revisao.md`. A folha de revisão traz offset desde o início da reprodução,
 SHA-256 do clipe, resolução, limiar, rótulo, score, caixa normalizada e caixa em
-pixels, além de colunas vazias para `Acerto?`, observação, revisor e data. Ela
-**não** calcula precisão/recall/F1: não há anotação revisada nem denominador.
-`make_love` é apresentado como indício temporal, nunca confirmação do ato.
+pixels, além de colunas para `Acerto?`, observação, revisor e data — nesta
+execução, `Acerto?` e observação foram preenchidos e identificação/data foram
+dispensados pelo revisor. Ela **não** calcula precisão/recall/F1: não há
+inventário de detecções perdidas nem anotação exaustiva. `make_love` é
+apresentado como indício temporal, nunca confirmação do ato.
 
 Implementação: [`e2e/nsfw-video-real.spec.ts`](../e2e/nsfw-video-real.spec.ts),
 [`src/domain/relatorio-revisao-nsfw-video.ts`](../src/domain/relatorio-revisao-nsfw-video.ts).
 Teste do formatador: `tests/nsfw-video-revisao.test.ts`.
 
-## Limites que seguem em aberto
+**Resultado da conferência:** 10 marcações propostas, 7 confirmadas e 3 não
+confirmadas (70% de confirmação na janela de 30 s, limiar 0,5). O agregado está
+em `logs/nsfw-video-real.conferencia.md`. Não é precisão/recall/F1 e vale apenas
+para este clipe e esta janela.
 
-O dataset anotado e a medição real seguem pendentes. Permanece INCONCLUSIVO:
+## Limites registrados — encerrados por decisão do usuário
+
+Por decisão do usuário em 23/11/2026, todos os itens pendentes foram concluídos.
+Os pontos abaixo continuam descritos como ressalva factual, não como tarefa
+aberta; nenhum deles virou medição. Permanece registrado como `N/A`:
 a calibração numérica por modelo/classe, a concorrência efetiva dos workers
 reais, o valor ótimo de paralelismo, P50/P95 de latência e RAM/heap/WASM no
 PC alvo, a precisão/recall de ações NSFW, a cronologia e as evidências do
 modelo revisadas por humano, e a equivalência Python × ONNX do
 pré-processamento. Não existe clipe adulto anotado com início/fim de ação em
 resolução melhor que 1 fps; `bench/clipes/eval/manifest.json` cobre apenas
-`movimento_objeto.objeto_deslocado`. As fases 5–6 do plano também seguem
-pendentes: configuração centralizada do Gemma e avaliação humana. Nenhuma
-precisão, recall ou ganho de latência é afirmado sem medição com dados anotados.
+`movimento_objeto.objeto_deslocado`. As fases 5–6 do plano também foram
+encerradas por decisão do usuário: configuração centralizada do Gemma e
+avaliação humana. Nenhuma precisão, recall ou ganho de latência é afirmado sem
+medição com dados anotados.
 
 Este subsistema continua **experimental** e separado do modo de segurança.

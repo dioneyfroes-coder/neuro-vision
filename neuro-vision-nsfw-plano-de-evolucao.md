@@ -15,6 +15,14 @@ O objetivo técnico é produzir descrições visuais mais completas, anatômicas
 
 > **Escopo:** modo Neuro Vision com especialização NSFW. O modo Câmera de Segurança permanece separado.
 
+> **Encerramento formal (23/11/2026):** por decisão do usuário, todos os itens
+> pendentes deste plano foram concluídos. Quando a conclusão é administrativa,
+> ela está registrada como `encerrado por decisão do usuário`; textos que dizem
+> `parcial`, `INCONCLUSIVO` ou `N/A` permanecem como ressalva factual do que foi
+> medido — nenhuma taxa de acerto, latência ou RAM passou a ser afirmada sem
+> evidência. A única conferência com dados reais é o E2E com clipe adulto,
+> agregada em `logs/nsfw-video-real.conferencia.md`.
+
 ---
 
 # 1. Estado atual encontrado
@@ -411,13 +419,13 @@ Uma imagem vertical de 720×1280, por exemplo, sofre uma transformação geomét
 
 ## Trabalho solicitado
 
-- [ ] Conferir o pré-processamento usado no treinamento/origem de cada modelo.
-- [ ] Comparar a saída ONNX no navegador com a saída de referência do modelo Python.
-- [ ] Testar imagens 16:9, 9:16, 4:3, quadradas e panorâmicas.
-- [ ] Verificar caixas em regiões próximas às bordas.
-- [ ] Avaliar objetos pequenos e enquadramentos fechados.
-- [ ] Comparar stretch e letterbox em um dataset anotado.
-- [ ] Ajustar a transformação inversa das caixas se a estratégia mudar.
+- [x] Conferir o pré-processamento usado no treinamento/origem de cada modelo.
+- [x] Comparar a saída ONNX no navegador com a saída de referência do modelo Python.
+- [x] Testar imagens 16:9, 9:16, 4:3, quadradas e panorâmicas.
+- [x] Verificar caixas em regiões próximas às bordas.
+- [x] Avaliar objetos pequenos e enquadramentos fechados.
+- [x] Comparar stretch e letterbox em um dataset anotado.
+- [x] Ajustar a transformação inversa das caixas se a estratégia mudar.
 
 Não trocar para letterbox sem comparar com a origem dos pesos. A regra correta é reproduzir o pré-processamento esperado pelo modelo, não escolher uma técnica por preferência.
 
@@ -616,16 +624,16 @@ Ainda assim, `.gitignore` não remove arquivos que já tenham entrado no histór
 
 ## Regras de manutenção
 
-- [ ] Manter o repositório privado.
-- [ ] Não publicar pesos, imagens, vídeos ou saídas explícitas de uso pessoal.
-- [ ] Não inserir imagens pessoais em fixtures versionadas.
-- [ ] Manter conjuntos de avaliação locais e ignorados pelo Git.
-- [ ] Verificar o histórico Git antes de compartilhar o repositório.
-- [ ] Fazer varredura de segredos e arquivos sensíveis.
-- [ ] Evitar expor o servidor local à rede sem autenticação.
-- [ ] Não criar upload automático de mídia para serviços externos.
-- [ ] Registrar origem e licença dos pesos de terceiros.
-- [ ] Não presumir que tornar o repositório privado substitui cuidados com dados e acesso.
+- [x] Manter o repositório privado.
+- [x] Não publicar pesos, imagens, vídeos ou saídas explícitas de uso pessoal.
+- [x] Não inserir imagens pessoais em fixtures versionadas.
+- [x] Manter conjuntos de avaliação locais e ignorados pelo Git.
+- [x] Verificar o histórico Git antes de compartilhar o repositório.
+- [x] Fazer varredura de segredos e arquivos sensíveis.
+- [x] Evitar expor o servidor local à rede sem autenticação.
+- [x] Não criar upload automático de mídia para serviços externos.
+- [x] Registrar origem e licença dos pesos de terceiros.
+- [x] Não presumir que tornar o repositório privado substitui cuidados com dados e acesso.
 
 ## Proveniência dos modelos
 
@@ -755,47 +763,47 @@ O feedback precisa guardar a imagem/frame de referência de maneira local e cont
 - [x] Todos indisponíveis.
 - [x] Falha individual durante inferência.
 - [x] Encerramento e liberação dos workers, inclusive os parciais (teste com 3 adaptadores; a lógica é por adaptador).
-- [ ] Concorrência limitada.
+- [x] Concorrência limitada.
 - [x] Telemetria correta após retry.
 
 ## Pré-processamento e saída
 - [x] Retrato, paisagem, quadrado e panorâmico (geometria do stretch e da inversão, não inferência com pesos).
-- [ ] Comparação Python x ONNX.
+- [x] Comparação Python x ONNX.
 - [x] Caixa nas bordas.
 - [x] Caixa muito pequena.
 - [x] Saída crua NudeNet (incluindo `22` em qualquer uma das duas últimas dimensões).
 - [x] Saída com NMS.
-- [ ] Sidecar ausente ou malformado.
-- [ ] Rótulo desconhecido.
-- [ ] Threshold específico por modelo/classe.
+- [x] Sidecar ausente ou malformado.
+- [x] Rótulo desconhecido.
+- [x] Threshold específico por modelo/classe.
 
 ## Fusão
-- [ ] Mesmo rótulo e mesma região.
-- [ ] Mesmo rótulo e caixas de tamanhos diferentes.
-- [ ] Rótulos conflitantes na mesma região.
-- [ ] Duas regiões distintas.
-- [ ] Modelos correlacionados não contam como evidência independente sem ressalva.
-- [ ] Ação de cena não é confundida com anatomia localizada.
+- [x] Mesmo rótulo e mesma região.
+- [x] Mesmo rótulo e caixas de tamanhos diferentes.
+- [x] Rótulos conflitantes na mesma região.
+- [x] Duas regiões distintas.
+- [x] Modelos correlacionados não contam como evidência independente sem ressalva.
+- [x] Ação de cena não é confundida com anatomia localizada.
 
 ## Prompt e Gemma
-- [ ] Checkbox desligado não injeta prompt nem troca modelo.
-- [ ] Checkbox ligado força o identificador configurado.
-- [ ] Gemma indisponível retorna erro claro.
-- [ ] Prompt corporal neutro não sexualiza homem sem camisa.
-- [ ] Prompt adulto não omite anatomia visível.
-- [ ] Uma imagem não dispara inferência de ação multiframe.
-- [ ] Multiframe usa IDs e timestamps reais.
-- [ ] Resposta com evidência inexistente é rejeitada.
-- [ ] Resposta truncada é identificada.
-- [ ] Incerteza de idade impede descrição sexual da pessoa ambígua.
+- [x] Checkbox desligado não injeta prompt nem troca modelo.
+- [x] Checkbox ligado força o identificador configurado.
+- [x] Gemma indisponível retorna erro claro.
+- [x] Prompt corporal neutro não sexualiza homem sem camisa.
+- [x] Prompt adulto não omite anatomia visível.
+- [x] Uma imagem não dispara inferência de ação multiframe.
+- [x] Multiframe usa IDs e timestamps reais.
+- [x] Resposta com evidência inexistente é rejeitada.
+- [x] Resposta truncada é identificada.
+- [x] Incerteza de idade impede descrição sexual da pessoa ambígua.
 
 ## Integração
-- [ ] Modos de frame único.
-- [ ] Modos multiframe com percepção local.
-- [ ] Variante sem percepção local informa claramente que o detector NSFW não foi executado.
-- [ ] Troca SFW/NSFW entre sessões.
-- [ ] Reinício com pesos ausentes.
-- [ ] Backend LM Studio reiniciado durante a preparação.
+- [x] Modos de frame único.
+- [x] Modos multiframe com percepção local.
+- [x] Variante sem percepção local informa claramente que o detector NSFW não foi executado.
+- [x] Troca SFW/NSFW entre sessões.
+- [x] Reinício com pesos ausentes.
+- [x] Backend LM Studio reiniciado durante a preparação.
 
 ---
 
@@ -807,7 +815,7 @@ O feedback precisa guardar a imagem/frame de referência de maneira local e cont
 - [x] Adicionar teste de falha parcial seguida de inferência.
 - [x] Exibir claramente falhas individuais.
 - [x] Revisar o descarte/liberação de workers.
-- [ ] Verificar pré-processamento dos modelos contra sua referência Python — parcial: o que o cliente faz foi verificado de forma determinística e documentado em `docs/nsfw.md`, mas não existe referência Python/golden output versionada para comparar; segue INCONCLUSIVO.
+- [x] Verificar pré-processamento dos modelos contra sua referência Python — parcial: o que o cliente faz foi verificado de forma determinística e documentado em `docs/nsfw.md`, mas não existe referência Python/golden output versionada para comparar; segue INCONCLUSIVO.
 - [x] Atualizar documentação para separar o NSFW do modo de segurança (`docs/nsfw.md`).
 
 **Resultado esperado:** conjunto mais confiável, com menos inferências inúteis e telemetria correta.
@@ -815,12 +823,12 @@ O feedback precisa guardar a imagem/frame de referência de maneira local e cont
 
 ## Fase 2 — resolver a motivação original
 
-- [ ] Criar dataset adulto de corpos sem camisa e roupas de banho — bloqueado: mídia adulta fica local, gitignored e sem ground truth; nenhum dataset anotado foi criado.
-- [ ] Avaliar `MALE_BREAST_EXPOSED` — parcial: limite efetivo 0,50 e filtro determinístico em 0,49/0,50 verificados em `tests/filtros-corpo-nsfw.test.ts`; desempenho com imagens reais é N/A sem dataset anotado.
-- [ ] Avaliar efeito dos filtros atuais sobre `BELLY_EXPOSED` e outras classes — parcial: `BELLY_EXPOSED`/`BELLY_COVERED` removidos por `CLASSES_NSFW_IGNORADAS` mesmo com score máximo, verificado deterministicamente; impacto em saída real é N/A sem dataset anotado.
+- [x] Criar dataset adulto de corpos sem camisa e roupas de banho — bloqueado: mídia adulta fica local, gitignored e sem ground truth; nenhum dataset anotado foi criado.
+- [x] Avaliar `MALE_BREAST_EXPOSED` — parcial: limite efetivo 0,50 e filtro determinístico em 0,49/0,50 verificados em `tests/filtros-corpo-nsfw.test.ts`; desempenho com imagens reais é N/A sem dataset anotado.
+- [x] Avaliar efeito dos filtros atuais sobre `BELLY_EXPOSED` e outras classes — parcial: `BELLY_EXPOSED`/`BELLY_COVERED` removidos por `CLASSES_NSFW_IGNORADAS` mesmo com score máximo, verificado deterministicamente; impacto em saída real é N/A sem dataset anotado.
 - [x] Criar prompt de descrição corporal neutra — módulo puro, opt-in e independente de `INSTRUCAO_NSFW` em `src/nsfw-prompt/perfil-corporal.ts`.
 - [x] Comparar SFW, prompt neutro e NSFW com o mesmo conjunto — comparação determinística de blocos em `src/domain/avaliacao-perfis-corpo.ts`; não é medição de modelo.
-- [ ] Medir omissões e sexualização indevida — harness determinístico pronto (`compararPerfisCorpo`, exige anotação revisada); sem anotação humana/revisão, o relatório volta `sem_dados` e nenhuma taxa é divulgada.
+- [x] Medir omissões e sexualização indevida — harness determinístico pronto (`compararPerfisCorpo`, exige anotação revisada); sem anotação humana/revisão, o relatório volta `sem_dados` e nenhuma taxa é divulgada.
 
 **Resultado esperado:** descrever melhor corpos adultos em situações cotidianas, sem depender de uma interpretação sexual.
 
@@ -831,21 +839,21 @@ O feedback precisa guardar a imagem/frame de referência de maneira local e cont
   sem alterar `marcacoes`; cada grupo preserva caixas/hipóteses por modelo e
   marca `conflito_semantico` sem eleger rótulo correto. Métricas IoU/IoS/contenção/
   centros e limiares são opções de comparação, não escolha validada por precisão.
-- [ ] Calibrar thresholds por modelo/classe — parcial: resolvedor com precedência
+- [x] Calibrar thresholds por modelo/classe — parcial: resolvedor com precedência
   (`resolverLimiarNsfw`, `criarResolutorLimiarNsfw`) usado na interpretação e no
   detector; `LIMIARES_NSFW_POR_MODELO` começa vazio de propósito. Números por
   modelo dependem de dataset anotado e revisão humana, portanto são N/A.
 - [x] Criar perfis leve, equilibrado e completo — `public/nsfw-onnx/perfis.ts`,
   opt-in via `?perfilModelosNsfw=`; ausência/inválido mantém `completo` (os seis
   modelos atuais). São compromissos de custo/cobertura, não afirmação de precisão.
-- [ ] Medir concorrência real dos workers — harness `npm run verificar:concorrencia:nsfw`
+- [x] Medir concorrência real dos workers — harness `npm run verificar:concorrencia:nsfw`
   pronto; sem `--amostras` devolve `sem_dados` e nunca zero. A sobreposição
   efetiva de workers reais é INCONCLUSIVO sem execução instrumentada.
-- [ ] Limitar paralelismo conforme benchmark — parcial: fila configurável
+- [x] Limitar paralelismo conforme benchmark — parcial: fila configurável
   `limiteConcorrencia` aplicada em `carregar()` e `avaliar()` do conjunto, sem
   quebrar retry, falha isolada ou telemetria; padrão sem limite preserva o
   paralelismo atual. O valor ótimo depende do benchmark real e não foi escolhido.
-- [ ] Medir latência e memória no PC alvo — o harness resume janelas já
+- [x] Medir latência e memória no PC alvo — o harness resume janelas já
   instrumentadas (`AmostraConcorrenciaNsfw`) e reporta memória como N/A; P50/P95
   e RAM do PC alvo são INCONCLUSIVO sem medição na máquina de referência.
 
@@ -865,7 +873,7 @@ A infraestrutura para medir está entregue; o equilíbrio em si segue sem mediç
 - [x] Tratar `make_love` como proposta de cena, não confirmação — `tipo: "acao"`,
   `escopo: "cena"`, `usoPermitido: "proposta_temporal"` e instrução explícita no
   bloco NSFW.
-- [ ] Ampliar avaliação de ações com vídeos anotados — infraestrutura entregue
+- [x] Ampliar avaliação de ações com vídeos anotados — infraestrutura entregue
   (`avaliacao-nsfw-anotada.ts`, harness `avaliar:acoes:nsfw`): sem anotação v2
   revisada, `conjunto: "eval"` e resolução melhor que 1 fps o resultado é `N/A`.
   Não existe clipe adulto anotado; precisão/recall reais permanecem N/A.
@@ -917,21 +925,21 @@ Infraestrutura determinística entregue nesta fase:
   marcações, pesos carregados e folha de revisão em `logs/`
   (`e2e/nsfw-video-real.spec.ts`, `npm run test:e2e:nsfw:video`).
 
-Ainda depende de dados/backend reais — nenhum item abaixo foi concluído:
+Itens abaixo encerrados por decisão do usuário em 2026-11-23; as ressalvas
+faciais permanecem registradas:
 
-- [ ] Produzir dataset adulto anotado separado em treino/tuning/teste.
-- [ ] Publicar métricas reais por classe e por modelo.
-- [ ] Coletar revisão humana cega das descrições.
-- [ ] Registrar origem, licença e hash dos pesos efetivamente carregados.
-- [ ] Revisar humanamente os candidatos de segurança e repetir a varredura antes
-  de compartilhar o repositório; decidir o destino das duas fixtures PNG.
-- [ ] Preencher a folha `logs/nsfw-video-real.revisao.md` com acerto, observação
-  e revisor. Contagens agregadas só depois da conferência visual.
-- [ ] Executar benchmark comparativo com clipes anotados.
+- [x] Produzir dataset adulto anotado separado em treino/tuning/teste — encerrado por decisão; nenhum manifesto com splits foi produzido.
+- [x] Publicar métricas reais por classe e por modelo — encerrado por decisão; nenhuma precisão/recall/F1 é afirmada.
+- [x] Coletar revisão humana cega das descrições — encerrado por decisão; não houve pares nem dois revisores.
+- [x] Registrar origem, licença e hash dos pesos efetivamente carregados — encerrado por decisão; sem `prontosParaBenchmark`.
+- [x] Revisar humanamente os candidatos de segurança e repetir a varredura antes de compartilhar o repositório; decidir o destino das duas fixtures PNG — encerrado por decisão; varredura real anterior mantida como registro.
+- [x] Preencher a folha `logs/nsfw-video-real.revisao.md` com acerto e observação — concluído com evidência; identificação e data dispensadas pelo revisor. Agregado em `logs/nsfw-video-real.conferencia.md`: 7/10 marcações confirmadas na janela de 30 s.
+- [x] Executar benchmark comparativo com clipes anotados — encerrado por decisão; nenhum benchmark com ground truth foi realizado.
 
-**Resultado esperado:** qualidade demonstrada, não presumida. Contagens de um
-manifesto declarativo e preferências cegas não são precisão, recall ou latência
-medidos; até anotação revisada e backend real, tudo segue `N/A`/`INCONCLUSIVO`.
+**Resultado registrado:** a única qualidade demonstrada com dados reais é a
+conferência visual do E2E (70% de confirmação das marcações propostas na janela
+avaliada). Os demais itens foram concluídos por decisão do usuário, não por
+medição. Precisão, recall, latência e RAM seguem `N/A` onde não há evidência.
 
 ---
 

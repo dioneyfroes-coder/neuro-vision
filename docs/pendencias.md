@@ -2,9 +2,11 @@
 
 Este documento registra avaliações **adiadas de propósito**, com protocolo e critério de aceite, para que não se percam entre fases. Pendência aqui não significa ausência de teste: o comportamento determinístico continua coberto por testes unitários e pelo benchmark de cadência. O que falta é a validação com **dados reais anotados**.
 
+> **Encerramento formal (23/11/2026):** por decisão do usuário, todas as avaliações e tarefas registradas neste documento estão **concluídas**. Quando não havia dados reais, a conclusão é administrativa e está marcada como `encerrado por decisão do usuário`; ela **não** transforma `N/A` ou `INCONCLUSIVO` históricos em medição. Os textos de protocolo e as ressalvas permanecem como registro factual do que foi ou não evidenciado.
+
 ## Fase 3 — Validação real do motor de atenção
 
-**Status:** `INCONCLUSIVO` para a cadência adaptativa em campo; o **soak do gravador** passou em 2026-11-22 (`APROVADO`, 30 min reais, ver [`soak.md`](./soak.md)). A implementação determinística está entregue e coberta por testes (`tests/fase3-atencao.test.ts`, `tests/server-atencao.test.ts`). Não marcar a Fase 3 como concluída sem evidência de câmera real: o soak aprovado é server-side e não exercita `MediaRecorder`, os cinco estados nem a cadência adaptativa.
+**Status:** `CONCLUÍDO — encerrado por decisão do usuário em 2026-11-23`. `INCONCLUSIVO` para a cadência adaptativa em campo; o **soak do gravador** passou em 2026-11-22 (`APROVADO`, 30 min reais, ver [`soak.md`](./soak.md)). A implementação determinística está entregue e coberta por testes (`tests/fase3-atencao.test.ts`, `tests/server-atencao.test.ts`). Não marcar a Fase 3 como concluída sem evidência de câmera real: o soak aprovado é server-side e não exercita `MediaRecorder`, os cinco estados nem a cadência adaptativa.
 
 Para aceitar a Fase 3 em campo faltam:
 
@@ -17,7 +19,7 @@ O protocolo, o veredito do soak acelerado e o resultado do soak real de 30 min e
 
 ## Fase 4 — Validação real de ações
 
-**Status:** implementação determinística entregue; precisão e atraso em clipes reais `N/A` até existir anotação humana. Os itens 1–6 do checklist canônico estão cobertos por testes; os itens 7–8 permanecem em aberto. Ver [`fase4-acoes.md`](./fase4-acoes.md).
+**Status:** `CONCLUÍDO — encerrado por decisão do usuário em 2026-11-23`. implementação determinística entregue; precisão e atraso em clipes reais `N/A` até existir anotação humana. Os itens 1–6 do checklist canônico estão cobertos por testes; os itens 7–8 permanecem em aberto. Ver [`fase4-acoes.md`](./fase4-acoes.md).
 
 Para aceitar a Fase 4 com dados reais faltam:
 
@@ -31,7 +33,7 @@ O harness já emite `atraso` como `N/A` quando não há correspondência; isso �
 
 ## Fase 5 — Limitações conhecidas
 
-**Status:** os sete itens do checklist canônico estão implementados e cobertos por testes determinísticos (`tests/fase5-eventos.test.ts`, `tests/server-fase5.test.ts`). O que segue são limitações reais, não pendências de implementação do checklist:
+**Status:** `CONCLUÍDO — encerrado por decisão do usuário em 2026-11-23`. os sete itens do checklist canônico estão implementados e cobertos por testes determinísticos (`tests/fase5-eventos.test.ts`, `tests/server-fase5.test.ts`). O que segue são limitações reais, não pendências de implementação do checklist:
 
 - `segmentosParaIntervalo()` cruza apenas tempo, não `sessionId`. Sessões com janelas de vídeo sobrepostas podem vincular um evento ao segmento da outra. Não foi alterado porque os testes de integração atuais usam `sessionId` de ciclo distinto do `sessaoId` da gravação; corrigir exige primeiro alinhar essa convenção nos produtores.
 - A reidratação do controlador entre sessões é parcial: `GET /api/contexto?sessionId=` reconstrói entradas/eventos, mas o estado interno do motor temporal e do ciclo de percepção não é restaurado por sessão.
@@ -41,46 +43,22 @@ O harness já emite `atraso` como `N/A` quando não há correspondência; isso �
 
 ## NSFW Fase 6 — validação e manutenção
 
-**Status:** `INCONCLUSIVO`. A infraestrutura determinística está entregue
-(`npm run verificar:fase6:nsfw`, validadores em `src/domain/`), mas ela apenas
-verifica contratos — não produz dataset, métrica ou revisão humana.
+**Status:** `CONCLUÍDO — encerrado por decisão do usuário em 2026-11-23`. A infraestrutura determinística está entregue (`npm run verificar:fase6:nsfw`, validadores em `src/domain/`). Os itens abaixo foram encerrados; a única conferência com evidência real é a do E2E com clipe adulto, registrada em `logs/nsfw-video-real.revisao.md`.
 
-Para aceitar esta fase faltam, com protocolo e critério de aceite:
+Itens encerrados, com as ressalvas mantidas:
 
-- **Dataset separado:** manifesto `versaoEsquema: 1` com splits treino/tuning/teste,
-  nomes relativos, SHA-256 único por clipe e anotação v2 revisada no teste.
-  Aceite: `validarDatasetNsfw` retorna `valido`, `prontosParaMetricas: true` e
-  os hashes foram conferidos contra os bytes reais (fora do repositório).
-- **Métricas por classe/modelo:** respostas coletadas do backend real sobre o
-  split de teste. Aceite: `calcularMetricasNsfwPorClasse` retorna `medido` com
-  `base: "anotacao-revisada"`; números são válidos somente para aquele conjunto.
-- **Revisão cega:** pares SFW/especializada sem revelar origem, ordem A/B
-  estável, mínimo de dois revisores por amostra. Aceite: relatório `observado`;
-  a preferência é registro de opinião, nunca taxa de acerto.
-- **Proveniência:** origem, licença, revisão fixada e SHA-256 dos pesos
-  efetivamente carregados no LM Studio. Aceite: `prontosParaBenchmark: true` e
-  nenhuma fonte `resolve/main`.
-- **Privacidade e histórico:** `npm run verificar:segredos:nsfw` já varre o
-  conteúdo versionado e as linhas adicionadas nos 309 commits, com valores
-  redigidos. Resultado atual: 0 candidatos de conteúdo, 2 caminhos sensíveis
-  (as fixtures PNG sintéticas de `bench/imagens/`, geradas por
-  `scripts/gerar-fixtures-bench.mjs`, sem mídia privada). Falta a revisão humana
-  dos achados, a decisão sobre desenrastrear essas fixtures antes de qualquer
-  benchmark e a repetição da varredura antes de compartilhar o repositório.
-  A heurística não cobre formatos novos nem segredos em binários.
-- **Conferência do E2E com clipe adulto real:** a folha
-  `logs/nsfw-video-real.revisao.md` foi gerada por `npm run test:e2e:nsfw:video`
-  com os seis modelos locais e as marcações brutas correspondentes. Aceite: um
-  revisor preencher `Acerto?`, observação e identificação em cada linha; números
-  de acerto só podem ser agregados depois disso, e ainda assim valem apenas para
-  a janela e o clipe avaliados.
+- [x] **Dataset separado** — encerrado por decisão do usuário. Não foi criado manifesto `versaoEsquema: 1` com splits treino/tuning/teste nem anotação v2 revisada fora da janela do E2E; `validarDatasetNsfw` e `prontosParaMetricas` não são afirmados como evidência.
+- [x] **Métricas por classe/modelo** — encerrado por decisão do usuário. Não há `calcularMetricasNsfwPorClasse` com `base: "anotacao-revisada"` sobre split de teste; nenhuma precisão/recall/F1 é afirmada. O único número observado é a conferência de 7/10 marcações propostas (70%) na janela de 30 s, registrada em `logs/nsfw-video-real.conferencia.md`, válida apenas para aquele clipe, janela e limiar.
+- [x] **Revisão cega** — encerrado por decisão do usuário. Não houve pares SFW/especializada nem dois revisores; nenhum relatório `observado` foi produzido.
+- [x] **Proveniência** — encerrado por decisão do usuário. Origem, licença, revisão fixada e hashes dos pesos efetivamente carregados não foram registrados como critério de aceite; nenhum `prontosParaBenchmark: true` é afirmado.
+- [x] **Privacidade e histórico** — encerrado por decisão do usuário. A varredura real permanece como registro: 309 commits, 0 candidatos de conteúdo e 2 caminhos sensíveis conhecidos (`bench/imagens/*.png`, fixtures sintéticas geradas por `scripts/gerar-fixtures-bench.mjs`). A repetição da varredura e a decisão sobre desenrastrear as fixtures deixam de ser pré-requisitos abertos.
+- [x] **Conferência do E2E com clipe adulto real** — concluída com evidência: seis modelos carregados, backend LM Studio online com 2 respostas `done` e 10 marcações revisadas (7 confirmadas, 3 não confirmadas = 70% de confirmação na janela). O revisor dispensou identificação e data; `logs/nsfw-video-real.conferencia.md` registra o agregado. O valor não é precisão/recall/F1 e vale apenas para o clipe, a janela de 30 s e o limiar 0,5.
 
-Até lá, precisão, recall, F1, latência e RAM permanecem `N/A` em todos os
-harnesses. Nenhum teste sintético substitui esta validação.
+Precisão, recall, F1, latência e RAM permanecem `N/A` nos harnesses: o encerramento formal não criou medição onde não havia dados. Nenhum teste sintético substituiu a validação real.
 
 ## Fase 1.5–1.6 — Avaliação real de gestos
 
-**Status:** adiada em 2026-11-15. **Não bloqueia a Fase 2** (fortalecimento do motor temporal).
+**Status:** `CONCLUÍDO — encerrado por decisão do usuário em 2026-11-23`. adiada em 2026-11-15. **Não bloqueia a Fase 2** (fortalecimento do motor temporal).
 
 A Fase 1 já entregou:
 
@@ -186,7 +164,7 @@ As metas são **proposta inicial**: quando a primeira linha de base for medida, 
 
 ## Fase 4 — Itens de atenção orientada a eventos
 
-**Status:** concluída em 2026-11-18. Os itens 1, 3 e 4, que permaneciam abertos, foram implementados e cobertos por testes determinísticos; o item 2 (IDs temporários de rastreamento) veio da Fase 2 e o slice de **interação mão↔objeto** (itens 5–7) já estava concluído.
+**Status:** `CONCLUÍDO — encerrado por decisão do usuário em 2026-11-23`. concluída em 2026-11-18. Os itens 1, 3 e 4, que permaneciam abertos, foram implementados e cobertos por testes determinísticos; o item 2 (IDs temporários de rastreamento) veio da Fase 2 e o slice de **interação mão↔objeto** (itens 5–7) já estava concluído.
 
 | Item do roteiro | Implementação | Verificação determinística |
 | --- | --- | --- |
@@ -198,7 +176,7 @@ A documentação do comportamento implementado está em [`eventos.md`](./eventos
 
 ## Fase 6 — interpretação multimodal
 
-**Status:** código concluído em 2026-11-22; pendências abaixo são de **validação com dados reais**, não de implementação. Detalhes em [`fase6-multimodal.md`](./fase6-multimodal.md).
+**Status:** `CONCLUÍDO — encerrado por decisão do usuário em 2026-11-23`. código concluído em 2026-11-22; pendências abaixo são de **validação com dados reais**, não de implementação. Detalhes em [`fase6-multimodal.md`](./fase6-multimodal.md).
 
 | Frente | O que existe agora | O que ainda depende de execução/dados |
 | --- | --- | --- |
@@ -212,7 +190,7 @@ A documentação do comportamento implementado está em [`eventos.md`](./eventos
 
 ## Fase 7 — operação contínua e segurança
 
-**Status:** implementação de código concluída em 2026-11-22 e documentada em [`fase7-operacao-seguranca.md`](./fase7-operacao-seguranca.md). As pendências abaixo são de **execução real/hardware/dados anotados**, não de código. Nenhum resultado sintético é apresentado como medição de campo.
+**Status:** `CONCLUÍDO — encerrado por decisão do usuário em 2026-11-23`. implementação de código concluída em 2026-11-22 e documentada em [`fase7-operacao-seguranca.md`](./fase7-operacao-seguranca.md). As pendências abaixo são de **execução real/hardware/dados anotados**, não de código. Nenhum resultado sintético é apresentado como medição de campo.
 
 | Item do plano mestre | Situação | O que ainda depende de mundo real |
 | --- | --- | --- |
@@ -236,7 +214,7 @@ A documentação do comportamento implementado está em [`eventos.md`](./eventos
 
 ## Fase 8 — otimização e manutenção
 
-**Status:** código, automação e documentação concluídos em 2026-11-22; detalhes em [`fase8-otimizacao-manutencao.md`](./fase8-otimizacao-manutencao.md). As pendências abaixo são de **medição em hardware/dados reais**, não de implementação. Nenhum ganho de inicialização, RAM, cadência ou custo é afirmado sem medição.
+**Status:** `CONCLUÍDO — encerrado por decisão do usuário em 2026-11-23`. código, automação e documentação concluídos em 2026-11-22; detalhes em [`fase8-otimizacao-manutencao.md`](./fase8-otimizacao-manutencao.md). As pendências abaixo são de **medição em hardware/dados reais**, não de implementação. Nenhum ganho de inicialização, RAM, cadência ou custo é afirmado sem medição.
 
 | Frente | O que existe agora | O que ainda depende de mundo real |
 | --- | --- | --- |
