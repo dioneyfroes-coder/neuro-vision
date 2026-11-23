@@ -43,16 +43,16 @@ O harness já emite `atraso` como `N/A` quando não há correspondência; isso �
 
 ## NSFW Fase 6 — validação e manutenção
 
-**Status:** `CONCLUÍDO — encerrado por decisão do usuário em 2026-11-23`. A infraestrutura determinística está entregue (`npm run verificar:fase6:nsfw`, validadores em `src/domain/`). Os itens abaixo foram encerrados; a única conferência com evidência real é a do E2E com clipe adulto, registrada em `logs/nsfw-video-real.revisao.md`.
+**Status:** `CONCLUÍDO — encerrado por decisão do usuário em 2026-11-23`. A infraestrutura determinística está entregue (`npm run verificar:fase6:nsfw`, validadores em `src/domain/`). Os itens abaixo foram encerrados; a única conferência com evidência real é a do E2E com clipe adulto, cuja folha foi preenchida e depois removida com os artefatos temporários.
 
 Itens encerrados, com as ressalvas mantidas:
 
 - [x] **Dataset separado** — encerrado por decisão do usuário. Não foi criado manifesto `versaoEsquema: 1` com splits treino/tuning/teste nem anotação v2 revisada fora da janela do E2E; `validarDatasetNsfw` e `prontosParaMetricas` não são afirmados como evidência.
-- [x] **Métricas por classe/modelo** — encerrado por decisão do usuário. Não há `calcularMetricasNsfwPorClasse` com `base: "anotacao-revisada"` sobre split de teste; nenhuma precisão/recall/F1 é afirmada. O único número observado é a conferência de 7/10 marcações propostas (70%) na janela de 30 s, registrada em `logs/nsfw-video-real.conferencia.md`, válida apenas para aquele clipe, janela e limiar.
+- [x] **Métricas por classe/modelo** — encerrado por decisão do usuário. Não há `calcularMetricasNsfwPorClasse` com `base: "anotacao-revisada"` sobre split de teste; nenhuma precisão/recall/F1 é afirmada. O único número observado é a conferência de 7/10 marcações propostas (70%) na janela de 30 s, registrada durante a execução, válida apenas para aquele clipe, janela e limiar.
 - [x] **Revisão cega** — encerrado por decisão do usuário. Não houve pares SFW/especializada nem dois revisores; nenhum relatório `observado` foi produzido.
 - [x] **Proveniência** — encerrado por decisão do usuário. Origem, licença, revisão fixada e hashes dos pesos efetivamente carregados não foram registrados como critério de aceite; nenhum `prontosParaBenchmark: true` é afirmado.
 - [x] **Privacidade e histórico** — encerrado por decisão do usuário. A varredura real permanece como registro: 309 commits, 0 candidatos de conteúdo e 2 caminhos sensíveis conhecidos (`bench/imagens/*.png`, fixtures sintéticas geradas por `scripts/gerar-fixtures-bench.mjs`). A repetição da varredura e a decisão sobre desenrastrear as fixtures deixam de ser pré-requisitos abertos.
-- [x] **Conferência do E2E com clipe adulto real** — concluída com evidência: seis modelos carregados, backend LM Studio online com 2 respostas `done` e 10 marcações revisadas (7 confirmadas, 3 não confirmadas = 70% de confirmação na janela). O revisor dispensou identificação e data; `logs/nsfw-video-real.conferencia.md` registra o agregado. O valor não é precisão/recall/F1 e vale apenas para o clipe, a janela de 30 s e o limiar 0,5.
+- [x] **Conferência do E2E com clipe adulto real** — concluída com evidência: seis modelos carregados, backend LM Studio online com 2 respostas `done` e 10 marcações revisadas (7 confirmadas, 3 não confirmadas = 70% de confirmação na janela). O revisor dispensou identificação e data; o agregado foi registrado durante a execução e os artefatos temporários removidos. O valor não é precisão/recall/F1 e vale apenas para o clipe, a janela de 30 s e o limiar 0,5.
 
 Precisão, recall, F1, latência e RAM permanecem `N/A` nos harnesses: o encerramento formal não criou medição onde não havia dados. Nenhum teste sintético substituiu a validação real.
 

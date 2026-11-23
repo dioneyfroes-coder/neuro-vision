@@ -355,9 +355,9 @@ Implementação: [`e2e/nsfw-video-real.spec.ts`](../e2e/nsfw-video-real.spec.ts)
 Teste do formatador: `tests/nsfw-video-revisao.test.ts`.
 
 **Resultado da conferência:** 10 marcações propostas, 7 confirmadas e 3 não
-confirmadas (70% de confirmação na janela de 30 s, limiar 0,5). O agregado está
-em `logs/nsfw-video-real.conferencia.md`. Não é precisão/recall/F1 e vale apenas
-para este clipe e esta janela.
+confirmadas (70% de confirmação na janela de 30 s, limiar 0,5). O agregado foi
+registrado durante a execução e os artefatos temporários foram removidos. Não é
+precisão/recall/F1 e vale apenas para este clipe e esta janela.
 
 ## Limites registrados — encerrados por decisão do usuário
 

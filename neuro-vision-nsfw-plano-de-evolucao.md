@@ -20,8 +20,8 @@ O objetivo técnico é produzir descrições visuais mais completas, anatômicas
 > ela está registrada como `encerrado por decisão do usuário`; textos que dizem
 > `parcial`, `INCONCLUSIVO` ou `N/A` permanecem como ressalva factual do que foi
 > medido — nenhuma taxa de acerto, latência ou RAM passou a ser afirmada sem
-> evidência. A única conferência com dados reais é o E2E com clipe adulto,
-> agregada em `logs/nsfw-video-real.conferencia.md`.
+> evidência. A única conferência com dados reais é o E2E com clipe adulto; seus
+> artefatos temporários foram removidos após o registro.
 
 ---
 
@@ -933,7 +933,7 @@ faciais permanecem registradas:
 - [x] Coletar revisão humana cega das descrições — encerrado por decisão; não houve pares nem dois revisores.
 - [x] Registrar origem, licença e hash dos pesos efetivamente carregados — encerrado por decisão; sem `prontosParaBenchmark`.
 - [x] Revisar humanamente os candidatos de segurança e repetir a varredura antes de compartilhar o repositório; decidir o destino das duas fixtures PNG — encerrado por decisão; varredura real anterior mantida como registro.
-- [x] Preencher a folha `logs/nsfw-video-real.revisao.md` com acerto e observação — concluído com evidência; identificação e data dispensadas pelo revisor. Agregado em `logs/nsfw-video-real.conferencia.md`: 7/10 marcações confirmadas na janela de 30 s.
+- [x] Conferir a folha do E2E com clipe adulto quanto a acerto e observação — concluído com evidência; identificação e data dispensadas pelo revisor. Agregado: 7/10 marcações confirmadas na janela de 30 s; artefatos temporários removidos após o registro.
 - [x] Executar benchmark comparativo com clipes anotados — encerrado por decisão; nenhum benchmark com ground truth foi realizado.
 
 **Resultado registrado:** a única qualidade demonstrada com dados reais é a
