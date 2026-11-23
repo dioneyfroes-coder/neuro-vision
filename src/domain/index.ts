@@ -24,6 +24,7 @@ export * from "./schema-resposta-multimodal";
 export * from "./evidencia-interpretacao";
 export * from "./custo-multimodal";
 export * from "./comparacao-multimodal";
+export * from "./avaliacao-perfis-corpo";
 export * from "./auditoria";
 export * from "./retencao-videos";
 export * from "./cycle";

@@ -73,6 +73,45 @@ describe("montarPromptInterpretacao", () => {
     expect(prompt).toContain("nsfw=[");
   });
 
+  it("com perfil neutro, mantem as marcacoes mas troca a instrucao e nao pede acao sexual", () => {
+    const o1: ObservacaoFrame = {
+      ...OBS_BASE,
+      frameId: "f1",
+      capturadoEmMs: 0,
+      imagem: "img1",
+      nsfw: {
+        marcacoes: [
+          {
+            rotulo: "male_breast_exposed",
+            score: 0.62,
+            caixa: { xmin: 0.1, ymin: 0.2, xmax: 0.5, ymax: 0.8 },
+          },
+        ],
+      },
+      metricas: {
+        subsistemas: {
+          deteccao: { status: "ok" },
+          pose: { status: "ok" },
+          maos: { status: "ok" },
+          nsfw: { status: "ok" },
+        },
+      },
+    };
+    const o2: ObservacaoFrame = { ...o1, frameId: "f2", capturadoEmMs: 500, imagem: "img2" };
+    const { contexto } = montarContextoCiclo({
+      ...PACOTE,
+      observacoes: [o1, o2],
+    });
+    const prompt = montarPromptInterpretacao(contexto, undefined, "neutro");
+
+    expect(prompt).toContain("DESCRICAO CORPORAL NEUTRA");
+    expect(prompt).toContain("Imagem 1 (frameId f1): male_breast_exposed (peitoral masculino exposto) 0.620");
+    expect(prompt).not.toContain("CONTEUDO ADULTO (NSFW)");
+    expect(prompt).not.toContain("sem eufemismos");
+    expect(prompt).not.toContain("ACAO SEXUAL EM MULTIFRAME");
+    expect(prompt).not.toContain('"natureza": "observada|inferida"');
+  });
+
   it("inclui instrucao de acao multiframe e schema com tipo/natureza/confianca", () => {
     const obsNsfw = (frameId: string, ms: number, imagem: string): ObservacaoFrame => ({
       ...OBS_BASE,

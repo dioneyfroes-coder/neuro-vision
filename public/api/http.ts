@@ -66,6 +66,11 @@ export interface PayloadVisao {
    */
   nsfwAtivo?: boolean;
   /**
+   * Perfil de descricao corporal (Fase 2). `neutro` e opt-in e nao troca o modelo
+   * nem ativa a instrucao adulta; `undefined` preserva o comportamento atual.
+   */
+  perfilCorporal?: "sfw" | "neutro" | "nsfw";
+  /**
    * Contexto/metadado declarado (nome do clipe, anotacao do usuario). O prompt
    * o trata como declaracao, nunca como observacao visual; identidade de genero
    * so entra por aqui.

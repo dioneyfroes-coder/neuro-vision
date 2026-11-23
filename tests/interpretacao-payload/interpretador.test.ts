@@ -59,6 +59,37 @@ describe("InterpretadorCiclo", () => {
     });
   });
 
+  it("perfil neutro explicito vence o toggle e e enviado ao servidor sem sinalizar NSFW", async () => {
+    const o1: ObservacaoFrame = {
+      ...OBS_BASE,
+      nsfw: { marcacoes: [] },
+      metricas: {
+        subsistemas: {
+          deteccao: { status: "ok" },
+          pose: { status: "ok" },
+          maos: { status: "ok" },
+          nsfw: { status: "ok" },
+        },
+      },
+    };
+    let requisicao: RequisicaoMultimodal | undefined;
+    const interpreter = new InterpretadorCiclo({
+      modelo: "m",
+      nsfwAtivo: true,
+      perfilCorporal: () => "neutro",
+      enviar: async (req) => {
+        requisicao = req;
+        return { texto: '{"resumo":"torso exposto","evidencias":["f1"],"incertezas":[]}' };
+      },
+    });
+    await interpreter.interpretar({ ...PACOTE, observacoes: [o1] });
+
+    expect(requisicao?.perfilCorporal).toBe("neutro");
+    expect(requisicao?.nsfwAtivo).toBeUndefined();
+    expect(requisicao?.prompt).toContain("DESCRICAO CORPORAL NEUTRA");
+    expect(requisicao?.prompt).not.toContain("CONTEUDO ADULTO (NSFW)");
+  });
+
   it("valida evidencias dos participantes contra o contexto", async () => {
     const o1: ObservacaoFrame = { ...OBS_BASE, frameId: "f1", capturadoEmMs: 0, imagem: "img1" };
     const pacote: PacoteCiclo = { ...PACOTE, observacoes: [o1] };

@@ -64,6 +64,7 @@ import {
   classificadorNsfw,
   configuracaoCaptura,
   detectorCoco,
+  perfilDescricaoCorporal,
   perfilInicializacao,
   politicaCiclo,
 } from "./ui/configuracao";
@@ -189,7 +190,8 @@ const controladorFrame = new CycleController({
       obterThreshold: () => Number(thresholdInput.value),
     });
   },
-  criarMotorVisao: (opcoes) => new MotorVisao(opcoes),
+  criarMotorVisao: (opcoes) =>
+    new MotorVisao({ ...opcoes, ...(perfilDescricaoCorporal ? { perfilCorporal: perfilDescricaoCorporal } : {}) }),
   obterModeloVisao: () => modeloVisaoEfetivo(),
   obterIntervaloMs: () => intervaloMsConfigurado,
   classificadorNsfw,
@@ -261,6 +263,7 @@ const controladorPercepcao = new CicloPercepcaoController({
       // modelo da Etapa 9 valer em qualquer execucao.
       modelo: () => modeloVisaoEfetivo() ?? infoVisao?.modelo ?? undefined,
       nsfwAtivo: () => nsfwAtivo(),
+      ...(perfilDescricaoCorporal ? { perfilCorporal: perfilDescricaoCorporal } : {}),
       contextoDeclarado,
       incluirDadosLocais: varianteDoModoAtual().dadosLocais,
     }),

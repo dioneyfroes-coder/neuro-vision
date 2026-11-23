@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PacoteCiclo, ObservacaoFrame } from "../../src/domain";
 import { InterpretadorCiclo } from "../../public/interpretation/interpretador-ciclo";
+import { VERSAO_PROMPT_INTERPRETACAO } from "../../public/interpretation/prompt";
 import { executarCicloMultiframe } from "../../public/cycle/ciclo-multiframe";
 import { OBS_BASE, PACOTE } from "../helpers/interpretacao-payload";
 import { montar } from "../helpers/ciclo-multiframe";
@@ -34,7 +35,7 @@ describe("integração da Fase 6 no interpretador e no ciclo", () => {
     expect(resultado.schema?.valido).toBe(true);
     expect(resultado.tokens).toBe(17);
     expect(resultado.duracaoMs).toBe(25);
-    expect(resultado.versaoPrompt).toBe("prompt-interpretacao-1");
+    expect(resultado.versaoPrompt).toBe(VERSAO_PROMPT_INTERPRETACAO);
     expect(resultado.acoes.map((a) => a.descricao)).toEqual(["ação sustentada"]);
     expect(resultado.afirmacoesSemEvidencia?.map((a) => a.texto)).toContain("ação sem base");
     expect(resultado.selecaoFrames?.totalFrames).toBe(2);

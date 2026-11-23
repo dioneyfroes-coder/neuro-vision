@@ -19,3 +19,12 @@ export type { MarcacaoNsfwVisivel, QuadroNsfwPrompt } from "./nsfw-prompt/tipos"
 export { MODELO_NSFW, resolverModeloVisao, INSTRUCAO_NSFW, INSTRUCAO_ACAO_MULTIFRAME, blocoAcaoMultiframe } from "./nsfw-prompt/instrucoes";
 export { descreverRotuloNsfw, normalizarCaixaNsfw, normalizarMarcacoesNsfw, formatarMarcacoesNsfw, resumirMarcacoesNsfw } from "./nsfw-prompt/marcacoes";
 export { LIMITE_CONTEXTO_DECLARADO, normalizarContextoDeclarado, blocoContextoDeclarado, blocoNsfwPrompt } from "./nsfw-prompt/contexto";
+export {
+  INSTRUCAO_CORPO_NEUTRO,
+  PERFIS_DESCRICAO_CORPORAL,
+  blocoCorpoNeutro,
+  blocoPerfilCorporal,
+  normalizarPerfilDescricaoCorporal,
+  resolverPerfilDescricaoCorporal,
+  type PerfilDescricaoCorporal,
+} from "./nsfw-prompt/perfil-corporal";

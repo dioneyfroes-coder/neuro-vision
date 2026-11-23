@@ -10,6 +10,7 @@ import {
 } from "../cycle/politica-ciclo";
 import type { PoliticaCiclo } from "../cycle/politica-ciclo";
 import { lerPerfilInicializacao, type PerfilInicializacao } from "./perfil-inicializacao";
+import { normalizarPerfilDescricaoCorporal } from "../../src/nsfw-prompt";
 /**
  * Politica do ciclo (Fase 4): fonte unica de espacamento/quantidade de
  * snapshots, pausa pos-ciclo e frequencia da interpretacao. O intervalo entre
@@ -25,6 +26,14 @@ const parametrosUrl = new URLSearchParams(window.location.search);
 const benchmark = parametrosUrl.get("benchmark");
 /** Opt-in `?perfil=leve`: nao carrega pose/maos na partida (Fase 8). */
 export const perfilInicializacao: PerfilInicializacao = lerPerfilInicializacao(parametrosUrl);
+/**
+ * Perfil de descricao corporal opt-in via `?descricaoCorporal=neutro` (Fase 2).
+ * Nao altera o toggle NSFW nem o modelo: serve para comparar o mesmo conjunto
+ * de detectores com linguagem neutra. Valor ausente/invalido = padrao `sfw`.
+ */
+export const perfilDescricaoCorporal = normalizarPerfilDescricaoCorporal(
+  parametrosUrl.get("descricaoCorporal")
+);
 export const politicaCiclo: PoliticaCiclo =
   benchmark === "5fps"
     ? POLITICA_CICLO_BENCHMARK_5FPS

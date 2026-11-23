@@ -60,6 +60,8 @@ export interface OpcoesMotorVisao {
   motivo?: MotivoAnalise;
   /** Marcacoes NSFW do frame (caixas normalizadas); `undefined` = desligado. */
   nsfw?: MarcacaoNsfwLog[];
+  /** Perfil de descricao corporal opt-in (Fase 2); `undefined` = padrao. */
+  perfilCorporal?: "sfw" | "neutro" | "nsfw";
   /** Frames que originaram a inferencia multimodal. */
   frameIds?: string[];
   /** Contexto/metadado declarado (nome do clipe, anotacao do usuario). */
@@ -109,6 +111,7 @@ export class MotorVisao implements MotorPercepcao {
     payload.motivo = this.opcoes.motivo;
     if (this.opcoes.contexto?.trim()) payload.contexto = this.opcoes.contexto.trim();
     if (this.opcoes.nsfw !== undefined) payload.nsfw = this.opcoes.nsfw;
+    if (this.opcoes.perfilCorporal) payload.perfilCorporal = this.opcoes.perfilCorporal;
 
     const { evento, parcial } = await api.descreverFrame(payload, sinal, aoProgresso);
     const descricao = evento?.descricao ?? parcial;

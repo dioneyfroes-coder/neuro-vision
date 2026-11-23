@@ -64,6 +64,59 @@ Testes: `tests/nsfw-classifier-adapter/conjunto.test.ts`,
 `tests/diagnostico-nsfw.test.ts`, `tests/cycle-controller/nsfw.test.ts` e
 `tests/local-perception-pipeline/configuracao-e-inativo.test.ts`.
 
+## Fase 2 — descrição corporal neutra e avaliação de filtros
+
+Entregue nesta fase:
+
+1. **Perfil corporal neutro, opt-in e separado do NSFW.**
+   `src/nsfw-prompt/perfil-corporal.ts` expõe `INSTRUCAO_CORPO_NEUTRO`,
+   `blocoCorpoNeutro()` e `blocoPerfilCorporal()`. O bloco neutro descreve
+   roupa/torso/abdomen com linguagem anatômica, distingue torso exposto de
+   nudez e **não** herda a instrução adulta, o pedido de explicitude nem a
+   política do classificador. Um perfil explícito vence o toggle, para que o
+   mesmo conjunto de detectores possa ser comparado sob prompts diferentes.
+2. **Default preservado.** Sem `?descricaoCorporal=neutro` e sem perfil no
+   payload, o prompt SFW continua intacto; com NSFW ligado, o bloco adulto e o
+   `MODELO_NSFW` continuam exatamente como antes. O perfil neutro **não** força
+   o modelo adulto — pelo contrário, o servidor não sinaliza `nsfwAtivo` quando
+   ele é pedido. No multiframe, a instrução de ação sexual e a linha "sem
+   eufemismos" entram somente no perfil `nsfw`.
+3. **Filtros verificados de forma determinística.** `MALE_BREAST_EXPOSED` usa o
+   mesmo piso de `0,50` de `FEMALE_BREAST_EXPOSED`: `0,49` é descartado, `0,50`
+   passa. `BELLY_EXPOSED` e `BELLY_COVERED` são removidos por
+   `CLASSES_NSFW_IGNORADAS` mesmo com score máximo, assim como rosto, pés e
+   axilas. Isso é verificação de configuração/limiar, **não** medição de acerto.
+4. **Comparação honesta de perfis.** `compararPromptsCorpo()` compara os três
+   blocos gerado das mesmas marcações (contrato dos prompts, sem modelo).
+   `compararPerfisCorpo()` conta omissões e sexualizações indevidas **apenas**
+   quando há anotação humana com `revisao.status === "revisada"`; sem respostas
+   ou sem anotação revisada, devolve `sem_dados` com motivo e não publica taxa.
+   Os números, quando existem, são léxicos (sinônimos declarados), nunca
+   precisão/recall.
+
+Uso opt-in: `?descricaoCorporal=neutro` na URL (ou `perfilCorporal: "neutro"` no
+`POST /api/visao`). Não há botão na interface: o toggle NSFW continua
+independente e bloqueado durante a captura. `VERSAO_PROMPT_INTERPRETACAO`
+passou para `prompt-interpretacao-2` porque o contrato do prompt multiframe
+ganhou o perfil.
+
+O harness `npm run avaliar:corpo` imprime a comparação dos três blocos e
+`Acurácia: N/A` com o motivo; com `--anotacao <json> --respostas <jsonl>` ele
+também aplica `compararPerfisCorpo()`. Não executa modelo e não lê imagem.
+
+Implementação: [`src/nsfw-prompt/perfil-corporal.ts`](../src/nsfw-prompt/perfil-corporal.ts),
+[`src/domain/avaliacao-perfis-corpo.ts`](../src/domain/avaliacao-perfis-corpo.ts),
+[`public/interpretation/prompt.ts`](../public/interpretation/prompt.ts),
+[`src/http/rotas-visao/handle.ts`](../src/http/rotas-visao/handle.ts) e
+[`scripts/avaliar-perfis-corpo.mjs`](../scripts/avaliar-perfis-corpo.mjs).
+Testes: `tests/perfil-corporal.test.ts`, `tests/filtros-corpo-nsfw.test.ts`,
+`tests/avaliacao-perfis-corpo.test.ts` e `tests/server-visao/perfil-corporal.test.ts`.
+
+**Não entregue / N/A:** dataset adulto anotado de corpos sem camisa e roupas de
+banho; comparação da saída real do Gemma nos três perfis; omissões/sexualização
+medidas em imagens reais. Sem ground truth revisado, qualquer número de acerto
+seria inventado.
+
 ## Pré-processamento: o que foi verificado e o que não foi
 
 **Verificado de forma determinística nesta fase** (sem pesos e sem Python):
@@ -101,11 +154,12 @@ podem ser usados como evidência para eles. Ver
 
 ## Limites que seguem em aberto
 
-As fases 2–6 do plano permanecem pendentes: dataset anotado de corpos sem camisa,
-prompt de descrição corporal neutra, agrupamento espacial com hipóteses
-conflitantes, calibração por modelo/classe, perfis de execução, timestamps nas
-marcações, seleção adaptativa de frames, separação entre anatomia e ação,
-configuração centralizada do Gemma e avaliação humana. Nenhuma precisão, recall
-ou ganho de latência é afirmado sem medição com dados anotados.
+A Fase 2 entregou o prompt neutro e a avaliação determinística dos filtros, mas
+o dataset anotado e a medição real seguem pendentes. As fases 3–6 do plano
+permanecem pendentes: agrupamento espacial com hipóteses conflitantes,
+calibração por modelo/classe, perfis de execução, timestamps nas marcações,
+seleção adaptativa de frames, separação entre anatomia e ação, configuração
+centralizada do Gemma e avaliação humana. Nenhuma precisão, recall ou ganho de
+latência é afirmado sem medição com dados anotados.
 
 Este subsistema continua **experimental** e separado do modo de segurança.

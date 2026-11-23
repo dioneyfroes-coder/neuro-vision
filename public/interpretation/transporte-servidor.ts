@@ -21,6 +21,7 @@ export function criarTransporteServidor(): EnviarMultimodal {
         prompt: requisicao.prompt,
         modelo: requisicao.modelo,
         ...(requisicao.contextoDeclarado ? { contexto: requisicao.contextoDeclarado } : {}),
+        ...(requisicao.perfilCorporal ? { perfilCorporal: requisicao.perfilCorporal } : {}),
         ...(requisicao.nsfwAtivo ? { nsfwAtivo: true } : {}),
         modo: "descricao",
       },

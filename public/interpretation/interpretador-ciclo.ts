@@ -20,6 +20,10 @@ import {
   validarReferencias,
   type OpcoesSerializacao,
 } from "./esquema";
+import {
+  resolverPerfilDescricaoCorporal,
+  type PerfilDescricaoCorporal,
+} from "../../src/nsfw-prompt";
 import { montarPromptInterpretacao, VERSAO_PROMPT_INTERPRETACAO } from "./prompt";
 import { normalizarInterpretacao } from "./normalizar";
 
@@ -35,6 +39,8 @@ export interface RequisicaoMultimodal {
   modelo?: string;
   /** NSFW ativo: o servidor deve usar exclusivamente o `MODELO_NSFW`. */
   nsfwAtivo?: boolean;
+  /** Perfil de descricao corporal resolvido para este ciclo. */
+  perfilCorporal?: PerfilDescricaoCorporal;
   /** Contexto/metadado declarado (nome do clipe, anotacao do usuario). */
   contextoDeclarado?: string;
 }
@@ -66,6 +72,12 @@ export interface DependenciasInterpretadorCiclo {
    * Quando `true`, o servidor troca o modelo por `MODELO_NSFW`.
    */
   nsfwAtivo?: boolean | (() => boolean);
+  /**
+   * Perfil de descricao corporal (Fase 2). `neutro` e opt-in e pode ser lido de
+   * forma dinamica; um perfil explicito vence o toggle para permitir comparar
+   * prompts com o mesmo conjunto de detectores. Padrao: resolve do `nsfwAtivo`.
+   */
+  perfilCorporal?: PerfilDescricaoCorporal | (() => PerfilDescricaoCorporal | undefined | null);
   /**
    * Contexto/metadado declarado (nome do clipe, anotacao do usuario). Pode ser
    * uma funcao para refletir a interface a cada interpretacao. Vai ao prompt
@@ -104,6 +116,7 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
   private readonly enviar: EnviarMultimodal;
   private readonly obterModelo: () => string | null;
   private readonly obterNsfwAtivo: () => boolean;
+  private readonly obterPerfilCorporal: () => PerfilDescricaoCorporal | undefined | null;
   private readonly obterContextoDeclarado: () => string | undefined;
   private readonly limites: LimitesContexto;
   private readonly incluirDadosLocais: boolean;
@@ -119,6 +132,9 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
     const nsfwAtivo = deps.nsfwAtivo;
     this.obterNsfwAtivo =
       typeof nsfwAtivo === "function" ? nsfwAtivo : () => nsfwAtivo === true;
+    const perfilCorporal = deps.perfilCorporal;
+    this.obterPerfilCorporal =
+      typeof perfilCorporal === "function" ? perfilCorporal : () => perfilCorporal ?? null;
     const contextoDeclarado = deps.contextoDeclarado;
     this.obterContextoDeclarado =
       typeof contextoDeclarado === "function"
@@ -156,7 +172,12 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
       selecaoFrames: this.selecaoFrames,
     });
     const contextoDeclarado = this.obterContextoDeclarado();
-    const prompt = montarPromptInterpretacao(contexto, contextoDeclarado);
+    const nsfwAtivo = this.obterNsfwAtivo();
+    const perfilCorporal = resolverPerfilDescricaoCorporal(
+      this.obterPerfilCorporal(),
+      nsfwAtivo
+    );
+    const prompt = montarPromptInterpretacao(contexto, contextoDeclarado, perfilCorporal);
     const modelo = this.obterModelo();
     const inicio = this.agora();
     const resposta = await this.enviar(
@@ -167,7 +188,8 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
         contexto,
         modelo: modelo ?? undefined,
         ...(contextoDeclarado ? { contextoDeclarado } : {}),
-        ...(this.obterNsfwAtivo() ? { nsfwAtivo: true } : {}),
+        ...(perfilCorporal === "nsfw" ? { nsfwAtivo: true } : {}),
+        ...(perfilCorporal === "neutro" ? { perfilCorporal: "neutro" as const } : {}),
       },
       sinal
     );

@@ -1,8 +1,12 @@
-import { blocoAcaoMultiframe, blocoNsfwPrompt } from "../../src/nsfw-prompt";
+import {
+  blocoAcaoMultiframe,
+  blocoPerfilCorporal,
+  type PerfilDescricaoCorporal,
+} from "../../src/nsfw-prompt";
 import type { ContextoCicloSerializavel } from "./esquema";
 
 /** Versão do contrato de prompt; mude quando as instruções/schema mudarem. */
-export const VERSAO_PROMPT_INTERPRETACAO = "prompt-interpretacao-1";
+export const VERSAO_PROMPT_INTERPRETACAO = "prompt-interpretacao-2";
 
 /**
  * Construcao do prompt para a interpretacao multimodal (Etapa 7; Fase 3).
@@ -23,7 +27,8 @@ export const VERSAO_PROMPT_INTERPRETACAO = "prompt-interpretacao-1";
  */
 export function montarPromptInterpretacao(
   contexto: ContextoCicloSerializavel,
-  contextoDeclarado?: string
+  contextoDeclarado?: string,
+  perfilCorporal: PerfilDescricaoCorporal = "nsfw"
 ): string {
   const frames = contexto.frames
     .map((f) => {
@@ -86,11 +91,13 @@ export function montarPromptInterpretacao(
       frameId: f.frameId,
       marcacoes: f.nsfw ?? [],
     }));
-  const blocoNsfw = blocoNsfwPrompt(quadrosNsfw, contextoDeclarado);
-  // Acao sexual e temporal: a instrucao so entra com 2+ imagens do ciclo e com
-  // o subsistema NSFW ativo. Com uma imagem, pedir inferencia de acao seria
-  // convidar o modelo a adivinhar.
-  const blocoAcao = blocoNsfw ? blocoAcaoMultiframe(contexto.frames.length) : "";
+  const blocoPerfil = blocoPerfilCorporal(perfilCorporal, quadrosNsfw, contextoDeclarado);
+  // Acao sexual e temporal: so entra com 2+ imagens, perfil explicito e bloco
+  // NSFW presente. O perfil neutro nunca pede inferencia de ato sexual.
+  const blocoAcao =
+    perfilCorporal === "nsfw" && blocoPerfil
+      ? blocoAcaoMultiframe(contexto.frames.length)
+      : "";
   const schemaAcoes = blocoAcao
     ? '  "acoes": [ { "descricao": "acao observada ou inferida", "tipo": "masturbacao|sexo_oral|penetracao|outra", "natureza": "observada|inferida", "confianca": 0.0, "inicioEm": "ISO", "fimEm": "ISO", "evidencias": ["fX","eY"] } ],'
     : '  "acoes": [ { "descricao": "acao observada", "inicioEm": "ISO", "fimEm": "ISO", "evidencias": ["fX","eY"] } ],';
@@ -152,7 +159,7 @@ export function montarPromptInterpretacao(
     "Em `interacao_objeto`, `participantes` lista mao+objeto e `status provavel` significa APENAS proximidade/sobreposicao — nao afirme contato ou acao sobre o objeto sem evidencia nas imagens; so `confirmado` traz sobreposicao sustentada e deslocamento observado.",
     eventos.length ? eventos : "- nenhum",
     "",
-    ...(blocoNsfw ? [blocoNsfw, ""] : []),
+    ...(blocoPerfil ? [blocoPerfil, ""] : []),
     ...(blocoAcao ? [blocoAcao, ""] : []),
     "Tarefa:",
     "- Produza uma NARRATIVA CRONOLOGICA baseada APENAS nos dados acima e nas imagens.",
@@ -167,7 +174,7 @@ export function montarPromptInterpretacao(
     "- Liste INCERTEZAS explicitamente se qualquer afirmacao nao for diretamente observada.",
     "- Nao adivinhe. Se nao tem evidencia, diga 'nao observado'.",
     "- Nao invente acoes nao vistas. Se houver ambiguidade, aponte incerteza.",
-    ...(blocoNsfw
+    ...(perfilCorporal === "nsfw" && blocoPerfil
       ? [
           "- Se houver conteudo adulto, descreva-o explicitamente, sem eufemismos, censura ou omissao.",
         ]

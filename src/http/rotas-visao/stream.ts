@@ -1,5 +1,6 @@
 import { ServerResponse } from "node:http";
 import { gerarDescricaoStream } from "../../visao";
+import type { PerfilDescricaoCorporal } from "../../nsfw-prompt";
 import { deveTraduzir, traduzirTexto, type ModoAnalise } from "../../visao";
 import { colapsarRepeticoes, cortarFraseIncompleta, ehSemMudanca } from "../../texto";
 import type { EntradaLog, MarcacaoNsfwLog, MotivoAnalise, TipoEntrada } from "../../types";
@@ -22,6 +23,8 @@ export async function streamVisao(
     frameIds?: string[];
     /** Contexto/metadado declarado (nome do clipe, anotacao do usuario). */
     contexto?: string;
+    /** Perfil de descricao corporal; `undefined` = padrao. */
+    perfilCorporal?: PerfilDescricaoCorporal;
     /** Marcacoes NSFW normalizadas; `undefined` = subsistema desligado. */
     nsfw?: MarcacaoNsfwLog[];
     apiKey?: string;

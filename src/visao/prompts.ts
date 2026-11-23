@@ -1,4 +1,5 @@
 import type { MarcacaoNsfwLog } from "../types";
+import type { PerfilDescricaoCorporal } from "../nsfw-prompt";
 
 export type ModoAnalise = "descricao" | "roteiro";
 
@@ -22,8 +23,14 @@ export interface OpcoesGerarDescricao {
    */
   nsfw?: MarcacaoNsfwLog[];
   /**
+   * Perfil de descricao corporal (Fase 2). `neutro` e opt-in e independente de
+   * `INSTRUCAO_NSFW`: usa marcacoes como evidencia, mas pede linguagem anatomica
+   * neutra. `undefined` preserva o comportamento atual.
+   */
+  perfilCorporal?: PerfilDescricaoCorporal;
+  /**
    * IDs dos frames enviados. No frame unico, o unico item vira o `frameId` do
-   * bloco NSFW; no multiframe o prompt explicito ja traz o proprio bloco.
+   * bloco do perfil; no multiframe o prompt explicito ja traz o proprio bloco.
    */
   frameIds?: string[];
   /**

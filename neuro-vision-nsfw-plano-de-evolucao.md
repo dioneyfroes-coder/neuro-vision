@@ -815,12 +815,12 @@ O feedback precisa guardar a imagem/frame de referência de maneira local e cont
 
 ## Fase 2 — resolver a motivação original
 
-- [ ] Criar dataset adulto de corpos sem camisa e roupas de banho.
-- [ ] Avaliar `MALE_BREAST_EXPOSED`.
-- [ ] Avaliar efeito dos filtros atuais sobre `BELLY_EXPOSED` e outras classes.
-- [ ] Criar prompt de descrição corporal neutra.
-- [ ] Comparar SFW, prompt neutro e NSFW com o mesmo conjunto.
-- [ ] Medir omissões e sexualização indevida.
+- [ ] Criar dataset adulto de corpos sem camisa e roupas de banho — bloqueado: mídia adulta fica local, gitignored e sem ground truth; nenhum dataset anotado foi criado.
+- [ ] Avaliar `MALE_BREAST_EXPOSED` — parcial: limite efetivo 0,50 e filtro determinístico em 0,49/0,50 verificados em `tests/filtros-corpo-nsfw.test.ts`; desempenho com imagens reais é N/A sem dataset anotado.
+- [ ] Avaliar efeito dos filtros atuais sobre `BELLY_EXPOSED` e outras classes — parcial: `BELLY_EXPOSED`/`BELLY_COVERED` removidos por `CLASSES_NSFW_IGNORADAS` mesmo com score máximo, verificado deterministicamente; impacto em saída real é N/A sem dataset anotado.
+- [x] Criar prompt de descrição corporal neutra — módulo puro, opt-in e independente de `INSTRUCAO_NSFW` em `src/nsfw-prompt/perfil-corporal.ts`.
+- [x] Comparar SFW, prompt neutro e NSFW com o mesmo conjunto — comparação determinística de blocos em `src/domain/avaliacao-perfis-corpo.ts`; não é medição de modelo.
+- [ ] Medir omissões e sexualização indevida — harness determinístico pronto (`compararPerfisCorpo`, exige anotação revisada); sem anotação humana/revisão, o relatório volta `sem_dados` e nenhuma taxa é divulgada.
 
 **Resultado esperado:** descrever melhor corpos adultos em situações cotidianas, sem depender de uma interpretação sexual.
 

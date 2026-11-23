@@ -1,4 +1,4 @@
-import { blocoNsfwPrompt } from "../nsfw-prompt";
+import { blocoPerfilCorporal, resolverPerfilDescricaoCorporal } from "../nsfw-prompt";
 import { interpretarLinha, montarRequisicaoChat, type Backend } from "../provedor";
 import { ErroVisao, backendDe, resolverModelo } from "./comum";
 import {
@@ -23,16 +23,20 @@ function montarCorpo(
     opcoes.prompt === undefined
       ? promptBase
       : `${promptBase}\n\n${PROMPT_ANALISE_PROFUNDA}`;
-  // NSFW ativo: o bloco e anexado ao prompt padrao (um prompt explicito, como o
-  // do ciclo multiframe, ja traz o proprio bloco e nao e duplicado).
+  // Perfil de corpo: o bloco e anexado ao prompt padrao (um prompt explicito,
+  // como o do ciclo multiframe, ja traz o proprio bloco e nao e duplicado).
+  // O perfil `neutro` existe mesmo sem marcacoes; `nsfw` preserva o comportamento
+  // historico exatamente, inclusive a exigencia de marcacoes presentes.
+  const perfil = resolverPerfilDescricaoCorporal(
+    opcoes.perfilCorporal,
+    opcoes.nsfw !== undefined
+  );
   const frameId = opcoes.frameIds?.length === 1 ? opcoes.frameIds[0] : undefined;
-  const prompt =
-    opcoes.prompt === undefined && opcoes.nsfw !== undefined
-      ? `${promptCompleto}\n\n${blocoNsfwPrompt(
-          [{ indice: 1, ...(frameId ? { frameId } : {}), marcacoes: opcoes.nsfw }],
-          opcoes.contexto
-        )}`
-      : promptCompleto;
+  const quadros = opcoes.nsfw
+    ? [{ indice: 1, ...(frameId ? { frameId } : {}), marcacoes: opcoes.nsfw }]
+    : [];
+  const bloco = blocoPerfilCorporal(perfil, quadros, opcoes.contexto);
+  const prompt = opcoes.prompt === undefined && bloco ? `${promptCompleto}\n\n${bloco}` : promptCompleto;
   const requisicao = montarRequisicaoChat({
     backend,
     modelo,

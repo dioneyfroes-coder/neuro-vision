@@ -1,6 +1,6 @@
 import { IncomingMessage, ServerResponse } from "node:http";
 import { ErroVisao, escolherModelo } from "../../visao";
-import { MODELO_NSFW } from "../../nsfw-prompt";
+import { MODELO_NSFW, normalizarPerfilDescricaoCorporal } from "../../nsfw-prompt";
 import { env } from "../../env";
 import { ehCancelamento } from "../../erros";
 import { EVENTOS_FILE, LOG_FILE, SNAP_DIR, VISAO_BODY_MAX_BYTES, logEvent, readBody, registrarFalha, sendJson } from "../base";
@@ -39,10 +39,15 @@ export async function handleVisao(
     return;
   }
 
+  const perfilCorporal = normalizarPerfilDescricaoCorporal(p.perfilCorporal);
   // NSFW ativo = marcacoes presentes (mesmo vazias) ou sinalizacao explicita
   // do fluxo multiframe. Nesse caso o modelo e sempre o `MODELO_NSFW`, nunca a
-  // escolha da interface nem o padrao do servidor.
-  const nsfwAtivo = p.nsfw !== undefined || p.nsfwAtivo === true;
+  // escolha da interface nem o padrao do servidor. O perfil neutro e opt-in e
+  // vence a sinalizacao: ele nao pede descricao adulta explicita.
+  const nsfwAtivo =
+    perfilCorporal === "neutro"
+      ? false
+      : perfilCorporal === "nsfw" || p.nsfw !== undefined || p.nsfwAtivo === true;
   const modeloPedido = nsfwAtivo
     ? MODELO_NSFW
     : typeof p.modelo === "string"
@@ -85,6 +90,7 @@ export async function handleVisao(
           ? p.frameIds.filter((id): id is string => typeof id === "string")
           : undefined,
         contexto: typeof p.contexto === "string" ? p.contexto : undefined,
+        perfilCorporal,
         nsfw: normalizarMarcacoesNsfw(p.nsfw),
       },
       config.logFile ?? LOG_FILE,
