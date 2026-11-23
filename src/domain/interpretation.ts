@@ -134,4 +134,6 @@ export interface ResultadoInterpretacao {
   afirmacoesSemEvidencia?: AfirmacaoSemEvidencia[];
   /** Separacao explicita entre evidencia local e inferencia textual (item 6). */
   distincaoEvidencia?: DistincaoEvidenciaInterpretacao;
+  /** Perfil de orçamento de contexto/tokens aplicado (Fase 5). */
+  perfilOrcamentoTokens?: string;
 }

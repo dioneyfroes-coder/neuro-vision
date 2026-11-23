@@ -1,11 +1,13 @@
 /**
  * Modelo de visao obrigatorio quando o subsistema NSFW esta ativo.
  *
- * O padrao do app continua sendo o modelo rapido (`qwen2.5-vl-3b-instruct`);
- * o NSFW so roda com este modelo, escolhido por fidelidade e por nao recusar
- * conteudo adulto. A regra vale no cliente e no servidor.
+ * O identificador agora tem uma unica fonte tipada (`configuracao-gemma.ts`);
+ * este re-export preserva o contrato publico usado por cliente, servidor e
+ * testes. O padrao do app sem NSFW continua sendo `qwen2.5-vl-3b-instruct`.
  */
-export const MODELO_NSFW = "gemma-4-e2b-uncensored-hauhaucs-aggressive";
+import { MODELO_GEMMA_PADRAO, resolverConfiguracaoGemma } from "./configuracao-gemma";
+
+export const MODELO_NSFW = MODELO_GEMMA_PADRAO;
 
 /**
  * Resolve o modelo efetivo de uma requisicao de visao.
@@ -16,9 +18,10 @@ export const MODELO_NSFW = "gemma-4-e2b-uncensored-hauhaucs-aggressive";
  */
 export function resolverModeloVisao(
   modelo: string | undefined | null,
-  nsfwAtivo: boolean
+  nsfwAtivo: boolean,
+  configuracao?: Parameters<typeof resolverConfiguracaoGemma>[0]
 ): string | undefined {
-  return nsfwAtivo ? MODELO_NSFW : (modelo ?? undefined);
+  return nsfwAtivo ? resolverConfiguracaoGemma(configuracao).modelo : (modelo ?? undefined);
 }
 
 /**

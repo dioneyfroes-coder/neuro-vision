@@ -1,3 +1,4 @@
+import type { DiagnosticoDisponibilidadeGemma } from "../../src/domain/disponibilidade-gemma";
 import type { MarcacaoNsfwLog, MotivoAnalise } from "../../src/types";
 import { ErroPercepcao } from "../../src/erros";
 
@@ -12,12 +13,18 @@ export interface InfoVisao {
   modelos: string[];
   carregados: string[];
   erro: string;
+  /** Modelo Gemma configurado para o modo NSFW (Fase 5). */
+  modeloNsfw?: string;
+  /** Disponibilidade do Gemma, independente dos detectores locais. */
+  gemma?: DiagnosticoDisponibilidadeGemma;
 }
 
 export interface PreparacaoVisao {
+  solicitado?: string;
   modelo?: string;
   carregado?: boolean;
   carregandoMs?: number;
+  gemma?: DiagnosticoDisponibilidadeGemma;
 }
 
 export interface EventoVisao {

@@ -76,6 +76,43 @@
             title="Metadado declarado por você (nome do clipe, anotação). Vai ao prompt como declaração, nunca como observação visual. Identidade de gênero só entra por aqui."
           />
         </label>
+        <details class="inventario-painel" title="Fase 5: ferramentas locais de inspeção; não são métricas de qualidade">
+          <summary>Revisão local NSFW <span id="revisaoResumo" class="count">sem feedback</span></summary>
+          <p class="atencao-linha">Comparação lexical SFW × especializada (inspeção, não precisão):</p>
+          <div class="monitor-grupo monitor-grupo-secundario">
+            <label>SFW <textarea id="comparacaoSfw" rows="2" placeholder="Descrição SFW"></textarea></label>
+            <label>Especializada <textarea id="comparacaoEspecializada" rows="2" placeholder="Descrição com perfil NSFW/neutro"></textarea></label>
+            <button id="compararDescricoesBtn" class="ghost" type="button">Comparar</button>
+          </div>
+          <pre id="comparacaoResultado" class="timeline-evidencia-info">sem comparação</pre>
+          <p class="atencao-linha">
+            Warm-up controlado do Gemma (separado dos detectores; nunca cai para modelo SFW):
+            <button id="warmupGemmaBtn" class="ghost" type="button">Preparar Gemma</button>
+          </p>
+          <pre id="warmupGemmaResultado" class="timeline-evidencia-info">não preparado</pre>
+          <p class="atencao-linha">Feedback local (metadados/texto; sem imagem, vídeo, log ou peso):</p>
+          <div class="monitor-grupo monitor-grupo-secundario">
+            <label>Tipo
+              <select id="feedbackTipo">
+                <option value="falso_positivo">falso positivo</option>
+                <option value="falso_negativo">falso negativo</option>
+                <option value="descricao_incorreta">descrição incorreta</option>
+                <option value="cronologia_incorreta">cronologia incorreta</option>
+                <option value="outro">outro</option>
+              </select>
+            </label>
+            <label>Frame <input id="feedbackFrameId" type="text" maxlength="120" placeholder="f1" /></label>
+            <label>Ciclo <input id="feedbackCicloId" type="text" maxlength="120" placeholder="ciclo-1" /></label>
+            <label>Rótulo <input id="feedbackRotulo" type="text" maxlength="120" placeholder="rótulo" /></label>
+          </div>
+          <label>Comentário <textarea id="feedbackDescricao" rows="2" maxlength="500" placeholder="O que revisar"></textarea></label>
+          <div class="monitor-grupo monitor-grupo-secundario">
+            <button id="feedbackSalvarBtn" class="ghost" type="button">Salvar feedback</button>
+            <button id="feedbackExportarBtn" class="ghost" type="button">Exportar JSON</button>
+            <button id="feedbackLimparBtn" class="ghost" type="button">Limpar</button>
+          </div>
+          <ul id="feedbackLista" class="inventario-lista"></ul>
+        </details>
       </div>
       <div class="monitor">
         <div class="monitor-head">

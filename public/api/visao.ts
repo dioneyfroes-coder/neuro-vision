@@ -2,9 +2,16 @@ import type { PreparacaoVisao, PayloadVisao, EventoVisao, ResultadoVisao } from 
 import { ErroEventoVisao } from "./http";
 import { ErroPercepcao } from "../../src/erros";
 
-export async function prepararVisao(modelo?: string): Promise<PreparacaoVisao> {
+export async function prepararVisao(
+  modelo?: string,
+  opcoes: { nsfw?: boolean } = {}
+): Promise<PreparacaoVisao> {
   const alvo = modelo?.trim();
-  const url = alvo ? `/api/visao/preparar?modelo=${encodeURIComponent(alvo)}` : "/api/visao/preparar";
+  const parametros = new URLSearchParams();
+  if (alvo) parametros.set("modelo", alvo);
+  if (opcoes.nsfw) parametros.set("nsfw", "1");
+  const sufixo = parametros.toString();
+  const url = sufixo ? `/api/visao/preparar?${sufixo}` : "/api/visao/preparar";
   let resposta: Response;
   try {
     resposta = await fetch(url);

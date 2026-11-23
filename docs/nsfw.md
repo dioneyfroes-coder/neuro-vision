@@ -97,8 +97,9 @@ Entregue nesta fase:
 Uso opt-in: `?descricaoCorporal=neutro` na URL (ou `perfilCorporal: "neutro"` no
 `POST /api/visao`). Não há botão na interface: o toggle NSFW continua
 independente e bloqueado durante a captura. `VERSAO_PROMPT_INTERPRETACAO`
-passou para `prompt-interpretacao-3`: o contrato multiframe ganhou o perfil e,
-na Fase 4, o carimbo de tempo por marcação e a distinção anatomia/ação/proposta.
+passou para `prompt-interpretacao-4`: o contrato multiframe ganhou o perfil e,
+na Fase 4, o carimbo de tempo por marcação e a distinção anatomia/ação/proposta;
+na Fase 5, a deduplicação de linhas exatas (sem alterar o texto sem repetição).
 
 O harness `npm run avaliar:corpo` imprime a comparação dos três blocos e
 `Acurácia: N/A` com o motivo; com `--anotacao <json> --respostas <jsonl>` ele
@@ -215,6 +216,52 @@ Testes: `tests/nsfw-marcacao-temporal.test.ts`,
 `tests/nsfw-classificacao-rotulo.test.ts`, `tests/nsfw-evidencia-temporal.test.ts`,
 `tests/validacao-cronologia.test.ts`, `tests/avaliacao-nsfw-anotada.test.ts`,
 `tests/nsfw-prompt-temporal.test.ts` e `tests/scripts/avaliar-nsfw-acoes.test.mjs`.
+
+## Fase 5 — Gemma, prompt e interface
+
+A Fase 5 entregou **configuração e diagnóstico determinísticos**, não medição de
+modelo:
+
+- `src/nsfw-prompt/configuracao-gemma.ts` é a fonte única do identificador, com
+  padrão `gemma-4-e2b-uncensored-hauhaucs-aggressive`. Sobrescrita local via
+  `NEURO_MODELO_NSFW`, `NEURO_GEMMA_VERSAO`, `NEURO_GEMMA_QUANTIZACAO`,
+  `NEURO_GEMMA_CONTEXTO_MAXIMO` e `NEURO_GEMMA_TEMPLATE_CONVERSA`. Versão,
+  quantização, contexto e template são **declarados**, nunca inferidos.
+- `src/domain/disponibilidade-gemma.ts` separa `nao_verificado` (backend não
+  consultado), `indisponivel` (modelo não instalado) e `disponivel` (com `pronto`
+  somente se confirmado em memória). `/api/health` reporta `modeloNsfw` e
+  `gemma` ao lado do modelo SFW solicitado/efetivo.
+- `GET /api/visao/preparar?nsfw=1` executa o warm-up do Gemma isoladamente. Se
+  outro modelo for pedido, responde `400` com o modelo solicitado e o efetivo —
+  não há fallback silencioso para `qwen2.5-vl-3b-instruct`. O fallback comum
+  continua disponível apenas fora do modo NSFW.
+- `?orcamentoTokens=leve|equilibrado|completo` ajusta frames, eventos e bytes do
+  contexto antes da serialização. O perfil `equilibrado` é o padrão e reproduz
+  os limites antigos (4 imagens, 20 eventos, 16 KB). É distinto de `?perfil=`
+  (pose/mãos), `?perfilModelosNsfw=` (detectores) e `?descricaoCorporal=`
+  (linguagem). Tokens exatos continuam sendo contados pelo backend.
+- O prompt interpretativo passou a remover apenas linhas duplicadas exatas; sem
+  duplicata o texto é idêntico ao anterior (`prompt-interpretacao-4`).
+- A interface tem um painel de revisão local: comparação **lexical** SFW ×
+  especializada e feedback com tipo, `frameId`/`cicloId`, rótulo e comentário.
+  O repositório guarda só metadados e texto no `localStorage`; campos de mídia
+  ou peso são descartados e cada registro pode ser removido. A comparação
+  imprime `N/A` quando falta uma descrição, nunca `0%`.
+
+Implementação: [`src/configuracao-gemma-servidor.ts`](../src/configuracao-gemma-servidor.ts),
+[`src/nsfw-prompt/orcamento-tokens.ts`](../src/nsfw-prompt/orcamento-tokens.ts),
+[`src/nsfw-prompt/composicao.ts`](../src/nsfw-prompt/composicao.ts),
+[`public/ui/revisao-local.ts`](../public/ui/revisao-local.ts) e
+[`scripts/verificar-gemma-fase5.mjs`](../scripts/verificar-gemma-fase5.mjs).
+Testes: `tests/fase5-nsfw-configuracao-e-orcamento.test.ts`,
+`tests/fase5-nsfw-comparacao-e-feedback.test.ts`,
+`tests/server-visao/fase5-nsfw-preparar.test.ts` e
+`tests/scripts/verificar-gemma-fase5.test.mjs`.
+
+**Não entregue / N/A:** disponibilidade real no LM Studio, warmer em sessão
+longa, latência, RAM, contagem real de tokens, ganho de qualquer perfil e
+comparação semântica entre descrições. `npm run verificar:gemma:nsfw` sem
+`--health` imprime `INCONCLUSIVO` e deixa latência/RAM/precisão/recall em `N/A`.
 
 ## Limites que seguem em aberto
 

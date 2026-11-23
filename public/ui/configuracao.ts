@@ -10,7 +10,11 @@ import {
 } from "../cycle/politica-ciclo";
 import type { PoliticaCiclo } from "../cycle/politica-ciclo";
 import { lerPerfilInicializacao, type PerfilInicializacao } from "./perfil-inicializacao";
-import { normalizarPerfilDescricaoCorporal } from "../../src/nsfw-prompt";
+import {
+  normalizarPerfilDescricaoCorporal,
+  normalizarPerfilOrcamentoNsfw,
+  type PerfilOrcamentoNsfw,
+} from "../../src/nsfw-prompt";
 import { normalizarPerfilModelosNsfw } from "../nsfw-onnx";
 /**
  * Politica do ciclo (Fase 4): fonte unica de espacamento/quantidade de
@@ -42,6 +46,15 @@ export const perfilDescricaoCorporal = normalizarPerfilDescricaoCorporal(
  */
 export const perfilModelosNsfw =
   normalizarPerfilModelosNsfw(parametrosUrl.get("perfilModelosNsfw")) ?? "completo";
+/**
+ * Orçamento de contexto/tokens do prompt interpretativo via
+ * `?orcamentoTokens=leve|equilibrado|completo` (Fase 5). Distinto de `?perfil=`
+ * (pose/mãos), `?perfilModelosNsfw=` (detectores) e `?descricaoCorporal=`
+ * (linguagem do prompt). Ausente/inválido = `equilibrado`, que reproduz os
+ * limites históricos.
+ */
+export const perfilOrcamentoTokens: PerfilOrcamentoNsfw =
+  normalizarPerfilOrcamentoNsfw(parametrosUrl.get("orcamentoTokens")) ?? "equilibrado";
 export const politicaCiclo: PoliticaCiclo =
   benchmark === "5fps"
     ? POLITICA_CICLO_BENCHMARK_5FPS

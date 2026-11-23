@@ -2,13 +2,14 @@ import {
   blocoAcaoMultiframe,
   blocoPerfilCorporal,
   classificarMarcacoesNsfw,
+  deduparLinhasPrompt,
   enriquecerMarcacoesTemporais,
   type PerfilDescricaoCorporal,
 } from "../../src/nsfw-prompt";
 import type { ContextoCicloSerializavel } from "./esquema";
 
 /** Versão do contrato de prompt; mude quando as instruções/schema mudarem. */
-export const VERSAO_PROMPT_INTERPRETACAO = "prompt-interpretacao-3";
+export const VERSAO_PROMPT_INTERPRETACAO = "prompt-interpretacao-4";
 
 /**
  * Construcao do prompt para a interpretacao multimodal (Etapa 7; Fase 3).
@@ -32,6 +33,9 @@ export function montarPromptInterpretacao(
   contextoDeclarado?: string,
   perfilCorporal: PerfilDescricaoCorporal = "nsfw"
 ): string {
+  // Fase 5: o orçamento por perfil é aplicado na montagem do contexto
+  // (`InterpretadorCiclo`), antes da serialização — nunca por corte cego aqui,
+  // que deixaria referências de evento/frame penduradas.
   const frames = contexto.frames
     .map((f) => {
       // Variante B nao envia dados locais: os subsistemas vem `nao_carregado`.
@@ -119,7 +123,7 @@ export function montarPromptInterpretacao(
     ? '  "acoes": [ { "descricao": "acao observada ou inferida", "tipo": "masturbacao|sexo_oral|penetracao|outra", "natureza": "observada|inferida", "confianca": 0.0, "inicioEm": "ISO", "fimEm": "ISO", "evidencias": ["fX","eY"] } ],'
     : '  "acoes": [ { "descricao": "acao observada", "inicioEm": "ISO", "fimEm": "ISO", "evidencias": ["fX","eY"] } ],';
 
-  return [
+  const linhas: string[] = [
     "Voce e um analista visual que interpreta EXCLUSIVAMENTE as evidencias fornecidas.",
     "Nunca inferencie acoes, intencoes ou objetos nao visiveis.",
     `Schema do contexto: ${contexto.versao}. Versao do prompt: ${VERSAO_PROMPT_INTERPRETACAO}.`,
@@ -214,5 +218,8 @@ export function montarPromptInterpretacao(
     '  "incertezas": ["incertezas explicitadas"],',
     '  "contradicoes": []',
     '}',
-  ].join("\n");
+  ];
+  // Fase 5: removemos apenas repetições exatas de linha. O texto gerado sem
+  // duplicatas continua idêntico ao da versão anterior.
+  return deduparLinhasPrompt(linhas).linhas.join("\n");
 }

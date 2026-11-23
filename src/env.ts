@@ -119,6 +119,22 @@ export const env = {
   get NEURO_MODEL(): string {
     return str("NEURO_MODEL", "");
   },
+  /** Identificador do Gemma usado quando o NSFW esta ativo (Fase 5). */
+  get NEURO_MODELO_NSFW(): string {
+    return str("NEURO_MODELO_NSFW", "");
+  },
+  get NEURO_GEMMA_VERSAO(): string {
+    return str("NEURO_GEMMA_VERSAO", "");
+  },
+  get NEURO_GEMMA_QUANTIZACAO(): string {
+    return str("NEURO_GEMMA_QUANTIZACAO", "");
+  },
+  get NEURO_GEMMA_CONTEXTO_MAXIMO(): number {
+    return numPos("NEURO_GEMMA_CONTEXTO_MAXIMO", 0);
+  },
+  get NEURO_GEMMA_TEMPLATE_CONVERSA(): string {
+    return str("NEURO_GEMMA_TEMPLATE_CONVERSA", "");
+  },
   get NEURO_VISION_TIMEOUT_MS(): number {
     return numPos("NEURO_VISION_TIMEOUT_MS", 300_000);
   },

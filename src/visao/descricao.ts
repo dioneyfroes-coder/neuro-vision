@@ -60,7 +60,8 @@ function lancarSeVazioSemResposta(
     const dica =
       motivoFim === "length"
         ? "o backend encerrou a geracao antes de produzir texto (finish_reason=length); " +
-          "verifique o limite de tokens e o contexto configurados no backend."
+          "verifique o limite de tokens e o contexto configurados no backend. " +
+          "Para repetir com menos frames, use ?orcamentoTokens=leve."
         : 'o backend ignorou o desligamento do "thinking"; use um modelo de visao nao-pensante (ex.: qwen2.5-vl).';
     throw new ErroVisao(`o modelo ${modelo} derivou/raciocinou sem produzir resposta: ${dica}`);
   }

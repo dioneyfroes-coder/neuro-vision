@@ -1,6 +1,7 @@
 import { IncomingMessage, ServerResponse } from "node:http";
 import { ErroVisao, escolherModelo } from "../../visao";
-import { MODELO_NSFW, normalizarPerfilDescricaoCorporal } from "../../nsfw-prompt";
+import { normalizarPerfilDescricaoCorporal } from "../../nsfw-prompt";
+import { configuracaoGemmaDoServidor, descricaoGemmaDoServidor } from "../../configuracao-gemma-servidor";
 import { env } from "../../env";
 import { ehCancelamento } from "../../erros";
 import { EVENTOS_FILE, LOG_FILE, SNAP_DIR, VISAO_BODY_MAX_BYTES, logEvent, readBody, registrarFalha, sendJson } from "../base";
@@ -40,27 +41,34 @@ export async function handleVisao(
   }
 
   const perfilCorporal = normalizarPerfilDescricaoCorporal(p.perfilCorporal);
+  // Configuracao unica do Gemma: o identificador pode vir de NEURO_MODELO_NSFW,
+  // mas continua sendo o mesmo valor usado pelo cliente no diagnostico.
+  const configGemma = configuracaoGemmaDoServidor();
+  const modeloNsfw = configGemma.modelo;
   // NSFW ativo = marcacoes presentes (mesmo vazias) ou sinalizacao explicita
-  // do fluxo multiframe. Nesse caso o modelo e sempre o `MODELO_NSFW`, nunca a
-  // escolha da interface nem o padrao do servidor. O perfil neutro e opt-in e
-  // vence a sinalizacao: ele nao pede descricao adulta explicita.
+  // do fluxo multiframe. Nesse caso o modelo e sempre o Gemma configurado,
+  // nunca a escolha da interface nem o padrao do servidor. O perfil neutro e
+  // opt-in e vence a sinalizacao: ele nao pede descricao adulta explicita.
   const nsfwAtivo =
     perfilCorporal === "neutro"
       ? false
       : perfilCorporal === "nsfw" || p.nsfw !== undefined || p.nsfwAtivo === true;
   const modeloPedido = nsfwAtivo
-    ? MODELO_NSFW
+    ? modeloNsfw
     : typeof p.modelo === "string"
       ? p.modelo
       : undefined;
+  if (nsfwAtivo) {
+    logEvent("info", "modelo_gemma_resolvido", { descricao: descricaoGemmaDoServidor() });
+  }
   const escolha =
     modeloPedido !== undefined
       ? { solicitado: modeloPedido, modelo: modeloPedido, alternativo: false }
       : await escolherModelo({ baseUrl: config.backendUrl });
-  if (nsfwAtivo && typeof p.modelo === "string" && p.modelo !== MODELO_NSFW) {
+  if (nsfwAtivo && typeof p.modelo === "string" && p.modelo !== modeloNsfw) {
     logEvent("info", "modelo_nsfw_forcado", {
       solicitado: p.modelo,
-      modelo: MODELO_NSFW,
+      modelo: modeloNsfw,
     });
   }
   if (escolha.alternativo) {

@@ -21,8 +21,12 @@ import {
   type OpcoesSerializacao,
 } from "./esquema";
 import {
+  limitesContextoDoOrcamento,
+  normalizarPerfilOrcamentoNsfw,
+  orcamentoTokensNsfw,
   resolverPerfilDescricaoCorporal,
   type PerfilDescricaoCorporal,
+  type PerfilOrcamentoNsfw,
 } from "../../src/nsfw-prompt";
 import { montarPromptInterpretacao, VERSAO_PROMPT_INTERPRETACAO } from "./prompt";
 import { normalizarInterpretacao } from "./normalizar";
@@ -86,6 +90,12 @@ export interface DependenciasInterpretadorCiclo {
   contextoDeclarado?: string | (() => string | undefined);
   limites?: Partial<LimitesContexto>;
   /**
+   * Orçamento de tokens/contexto por perfil (Fase 5). Afeta somente o
+   * montador de contexto; limites explícitos em `deps.limites` têm precedência.
+   * Pode ser uma função para refletir a escolha da interface a cada ciclo.
+   */
+  orcamentoTokens?: PerfilOrcamentoNsfw | (() => PerfilOrcamentoNsfw | undefined | null);
+  /**
    * Inclui os dados locais no contexto multimodal. `false` (variante B) envia
    * apenas as imagens + cronologia. Padrao: `true`.
    */
@@ -118,6 +128,7 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
   private readonly obterNsfwAtivo: () => boolean;
   private readonly obterPerfilCorporal: () => PerfilDescricaoCorporal | undefined | null;
   private readonly obterContextoDeclarado: () => string | undefined;
+  private readonly obterOrcamentoTokens: () => PerfilOrcamentoNsfw | undefined;
   private readonly limites: LimitesContexto;
   private readonly incluirDadosLocais: boolean;
   private readonly serializacao?: Partial<OpcoesSerializacao>;
@@ -140,6 +151,11 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
       typeof contextoDeclarado === "function"
         ? () => contextoDeclarado() ?? undefined
         : () => contextoDeclarado ?? undefined;
+    const orcamento = deps.orcamentoTokens;
+    this.obterOrcamentoTokens = () => {
+      const valor = typeof orcamento === "function" ? orcamento() : orcamento;
+      return normalizarPerfilOrcamentoNsfw(valor);
+    };
     this.limites = { ...LIMITES_CONTEXTO_PADRAO, ...deps.limites };
     this.incluirDadosLocais = deps.incluirDadosLocais ?? true;
     this.serializacao = deps.serializacao;
@@ -162,11 +178,18 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
         ...this.serializacao,
       },
       selecaoFrames: this.selecaoFrames,
+      perfilOrcamentoTokens: this.obterOrcamentoTokens(),
     };
   }
 
   async interpretar(pacote: PacoteCiclo, sinal?: AbortSignal): Promise<ResultadoInterpretacao> {
-    const { imagens, contexto, selecao } = montarContextoCiclo(pacote, this.limites, {
+    // Fase 5: o perfil de orçamento altera os limites de montagem (frames,
+    // eventos e bytes), sem alterar os detectores nem o contrato do prompt.
+    const perfilOrcamento = this.obterOrcamentoTokens();
+    const limites = perfilOrcamento
+      ? { ...limitesContextoDoOrcamento(orcamentoTokensNsfw(perfilOrcamento)), ...this.limites }
+      : this.limites;
+    const { imagens, contexto, selecao } = montarContextoCiclo(pacote, limites, {
       incluirDadosLocais: this.incluirDadosLocais,
       serializacao: this.serializacao,
       selecaoFrames: this.selecaoFrames,
@@ -204,8 +227,9 @@ export class InterpretadorCiclo implements InterpretadorMultimodal {
       duracaoMs,
       ...(resposta.tokens !== undefined ? { tokens: resposta.tokens } : {}),
       versaoPrompt: VERSAO_PROMPT_INTERPRETACAO,
-      contextoMultimodal: diagnosticarContexto(contexto, this.limites.maxBytesContexto),
+      contextoMultimodal: diagnosticarContexto(contexto, limites.maxBytesContexto),
       ...(selecao ? { selecaoFrames: selecao } : {}),
+      ...(perfilOrcamento ? { perfilOrcamentoTokens: perfilOrcamento } : {}),
     };
   }
 

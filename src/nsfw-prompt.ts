@@ -16,6 +16,29 @@
  */
 
 export type { MarcacaoNsfwVisivel, QuadroNsfwPrompt } from "./nsfw-prompt/tipos";
+export {
+  CONFIGURACAO_GEMMA_PADRAO,
+  MODELO_GEMMA_PADRAO,
+  descreverConfiguracaoGemma,
+  normalizarConfiguracaoGemma,
+  resolverConfiguracaoGemma,
+  type ConfiguracaoGemma,
+} from "./nsfw-prompt/configuracao-gemma";
+export {
+  ORCAMENTOS_TOKENS_NSFW,
+  PERFIL_ORCAMENTO_PADRAO,
+  PERFIS_ORCAMENTO_NSFW,
+  limitesContextoDoOrcamento,
+  normalizarPerfilOrcamentoNsfw,
+  orcamentoTokensNsfw,
+  type OrcamentoTokensNsfw,
+  type PerfilOrcamentoNsfw,
+} from "./nsfw-prompt/orcamento-tokens";
+export {
+  comporBlocosPrompt,
+  deduparLinhasPrompt,
+  type ResultadoComposicaoPrompt,
+} from "./nsfw-prompt/composicao";
 export { MODELO_NSFW, resolverModeloVisao, INSTRUCAO_NSFW, INSTRUCAO_ACAO_MULTIFRAME, blocoAcaoMultiframe } from "./nsfw-prompt/instrucoes";
 export { descreverRotuloNsfw, normalizarCaixaNsfw, normalizarMarcacoesNsfw, formatarMarcacoesNsfw, resumirMarcacoesNsfw } from "./nsfw-prompt/marcacoes";
 export { LIMITE_CONTEXTO_DECLARADO, normalizarContextoDeclarado, blocoContextoDeclarado, blocoNsfwPrompt } from "./nsfw-prompt/contexto";

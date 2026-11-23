@@ -70,6 +70,8 @@ export interface ConfiguracaoInterpretadorCiclo {
   serializacao: OpcoesSerializacaoContextoCiclo;
   /** Critério de seleção de frames usado pelo interpretador (Fase 6, item 2). */
   selecaoFrames?: "uniforme" | "relevancia";
+  /** Perfil de orçamento de contexto/tokens efetivo (Fase 5). */
+  perfilOrcamentoTokens?: "leve" | "equilibrado" | "completo";
 }
 
 /**

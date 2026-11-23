@@ -19,6 +19,7 @@ import { criarTransporteServidor } from "./interpretation/transporte-servidor";
 import { criarModuloMonitoramento } from "./ui/monitoramento";
 import { partesDiagnosticoPersistencia, textoAvisoPersistencia } from "./ui/diagnostico-persistencia";
 import { partesDiagnosticoNsfw } from "./ui/diagnostico-nsfw";
+import { iniciarRevisaoLocal } from "./ui/revisao-local";
 import { aplicarPerfilInicializacao } from "./ui/perfil-inicializacao";
 import {
   camera,
@@ -67,6 +68,7 @@ import {
   perfilDescricaoCorporal,
   perfilInicializacao,
   perfilModelosNsfw,
+  perfilOrcamentoTokens,
   politicaCiclo,
 } from "./ui/configuracao";
 import {
@@ -268,6 +270,7 @@ const controladorPercepcao = new CicloPercepcaoController({
       ...(perfilDescricaoCorporal ? { perfilCorporal: perfilDescricaoCorporal } : {}),
       contextoDeclarado,
       incluirDadosLocais: varianteDoModoAtual().dadosLocais,
+      orcamentoTokens: perfilOrcamentoTokens,
     }),
   obterIntervaloMs: () => intervaloMsConfigurado,
   politicaCiclo,
@@ -345,7 +348,9 @@ function contextoDeclarado(): string | undefined {
  * respeita a escolha da interface (`undefined` = padrao do servidor).
  */
 function modeloVisaoEfetivo(): string | undefined {
-  return resolverModeloVisao(modeloVisaoSelecionado(), nsfwAtivo());
+  return resolverModeloVisao(modeloVisaoSelecionado(), nsfwAtivo(), {
+    modelo: infoVisao?.modeloNsfw,
+  });
 }
 
 function carregarModeloVisaoSalvo(): void {
@@ -438,13 +443,29 @@ function atualizarDiagnostico(): void {
         ? infoVisao.carregados.join(", ")
         : "nenhum";
 
-  const partes = [`motor ${motor}`, `backend LM Studio`, `modelo ${modelo}`, `carregados: ${carregados}`];
+  const partes = [
+    `motor ${motor}`,
+    `backend LM Studio`,
+    `modelo ${modelo}`,
+    `carregados: ${carregados}`,
+    `orcamento ${perfilOrcamentoTokens}`,
+  ];
   if (nsfwAtivo()) {
     partes.push(`nsfw ${rotuloConjuntoNsfw()}`);
     const metricasNsfw = definicao.multiframe
       ? conjuntoNsfwMultiframe?.metricas
       : classificadorNsfw.metricas;
     partes.push(...partesDiagnosticoNsfw(metricasNsfw, true));
+    // Solicitado vs efetivo deixa explícito que o NSFW não usa o seletor SFW.
+    const pedido = modeloVisaoSelecionado() ?? infoVisao?.solicitado;
+    if (pedido && pedido !== modeloVisao) {
+      partes.push(`solicitado ${pedido} -> efetivo ${modeloVisao}`);
+    }
+    const gemma = infoVisao?.gemma;
+    partes.push(
+      `gemma ${gemma?.status ?? "nao_verificado"}${gemma?.pronto ? " carregado" : ""}`
+    );
+    if (gemma?.status === "indisponivel" && gemma.motivo) partes.push(gemma.motivo);
   }
   if (definicao.usaDeteccao && detectorCoco.dispositivo) {
     partes.push(`dispositivo ${detectorCoco.dispositivo}`);
@@ -1136,7 +1157,7 @@ window.addEventListener("focus", atualizarVisaoSeVazia);
 nsfwToggle.addEventListener("change", () => {
   setStatus(
     nsfwAtivo()
-      ? `NSFW experimental: ligado. ${rotuloConjuntoNsfw()} e visao ${MODELO_NSFW}; cada modelo roda em seu proprio worker e as marcacoes sao mescladas. A descricao explicita segue no contexto, no prompt e na resposta.`
+      ? `NSFW experimental: ligado. ${rotuloConjuntoNsfw()} e visao ${modeloVisaoEfetivo() ?? MODELO_NSFW}; cada modelo roda em seu proprio worker e as marcacoes sao mescladas. A descricao explicita segue no contexto, no prompt e na resposta.`
       : nsfwToggle.checked
         ? "NSFW experimental: ligado, mas o modo atual nao roda a percepcao local (NSFW inativo)."
         : "NSFW experimental: desligado."
@@ -1145,6 +1166,7 @@ nsfwToggle.addEventListener("change", () => {
 });
 
 carregarModeloVisaoSalvo();
+iniciarRevisaoLocal();
 atualizarContagem();
 atualizarBotoesMonitoramento();
 atualizarDiagnostico();

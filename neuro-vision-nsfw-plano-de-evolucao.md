@@ -881,14 +881,18 @@ recall ou latência é afirmada.
 
 ## Fase 5 — Gemma, prompt e interface
 
-- [ ] Centralizar configuração do Gemma.
-- [ ] Adicionar verificação de disponibilidade e warm-up.
-- [ ] Mostrar modelo solicitado/efetivo.
-- [ ] Reduzir redundância do prompt.
-- [ ] Ajustar orçamento de tokens por perfil.
-- [ ] Adicionar comparação de descrições e feedback local.
+- [x] Centralizar configuração do Gemma (`src/nsfw-prompt/configuracao-gemma.ts`; padrão inalterado).
+- [x] Adicionar verificação de disponibilidade e warm-up (`src/domain/disponibilidade-gemma.ts`,
+  `?nsfw=1` em `/api/visao/preparar`, sem fallback silencioso para SFW).
+- [x] Mostrar modelo solicitado/efetivo (`InfoVisao` e diagnóstico da interface).
+- [x] Reduzir redundância do prompt (dedup de linhas exatas; contrato `prompt-interpretacao-4`).
+- [x] Ajustar orçamento de tokens por perfil (`?orcamentoTokens=leve|equilibrado|completo`;
+  equilibrado reproduz os limites históricos).
+- [x] Adicionar comparação de descrições e feedback local (somente metadados/texto; sem mídia versionada).
 
-**Resultado esperado:** comportamento previsível e fácil de diagnosticar.
+**Resultado esperado:** comportamento previsível e fácil de diagnosticar. A infraestrutura é
+determinística: disponibilidade real, latência, RAM e superioridade de perfil dependem de
+LM Studio e de anotação revisada, então seguem `N/A`/`INCONCLUSIVO` até medição controlada.
 
 ## Fase 6 — validação e manutenção
 

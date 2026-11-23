@@ -275,8 +275,11 @@ export function tratarRequisicao(req: IncomingMessage, res: ServerResponse, deps
         return;
       }
       if (req.method === "GET" && pathname === "/api/visao/preparar") {
-        const modelo = new URL(req.url ?? "/", "http://localhost").searchParams.get("modelo");
-        void handlePreparar(res, config, modelo ?? undefined);
+        const parametros = new URL(req.url ?? "/", "http://localhost").searchParams;
+        const modelo = parametros.get("modelo");
+        void handlePreparar(res, config, modelo ?? undefined, {
+          nsfw: parametros.get("nsfw") === "1" || parametros.get("nsfw") === "true",
+        });
         return;
       }
       if (req.method === "GET" && pathname === "/api/logs") {

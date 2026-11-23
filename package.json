@@ -24,6 +24,7 @@
     "avaliar:corpo": "node --import tsx scripts/avaliar-perfis-corpo.mjs",
     "verificar:concorrencia:nsfw": "node --import tsx scripts/verificar-nsfw-concorrencia.mjs",
     "avaliar:acoes:nsfw": "node --import tsx scripts/avaliar-nsfw-acoes.mjs",
+    "verificar:gemma:nsfw": "node --import tsx scripts/verificar-gemma-fase5.mjs",
     "validar:eval": "node scripts/validar-eval.mjs",
     "validar:soak": "node --import tsx scripts/soak-monitoramento.mjs",
     "validar:condicoes": "node --import tsx scripts/validar-condicoes.mjs",
