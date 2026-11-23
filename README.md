@@ -52,6 +52,8 @@ Configuração essencial (veja a tabela completa em [`docs/uso.md`](./docs/uso.m
 | [`docs/arquitetura.md`](./docs/arquitetura.md) | Estrutura de arquivos e como as partes conversam. |
 | [`docs/seguranca.md`](./docs/seguranca.md) | Exposição na rede, token, criptografia em repouso e auditoria. |
 | [`docs/fase7-operacao-seguranca.md`](./docs/fase7-operacao-seguranca.md) | Recuperação, retenção, acesso e privacidade na operação contínua. |
+| [`docs/fase8-otimizacao-manutencao.md`](./docs/fase8-otimizacao-manutencao.md) | Fase 8: backpressure, perfil `leve`, relatórios consolidados e o que depende de medição real. |
+| [`docs/compatibilidade.md`](./docs/compatibilidade.md) | Versões fixadas, modelos/pesos e matriz de fallback. |
 | [`docs/qualidade.md`](./docs/qualidade.md) | Benchmark, avaliação de eventos (precisão/recall) e regressão. |
 | [`docs/limites.md`](./docs/limites.md) | Limitações conhecidas. |
 

@@ -111,6 +111,22 @@ node scripts/benchmark-variantes.mjs --anotacoes-dir bench/clipes/eval `
 - **Suficiência estatística:** além de comparável, a rodada precisa de `--min-amostras-estatisticas <n>` (padrão **10**) ciclos concluídos por variante no regime aquecido para ser **CONCLUSIVA**. Abaixo disso ela é **comparável, mas estatisticamente insuficiente**: os números servem para diagnóstico, não para eleger vencedores. Mediana e P95 sempre descrevem a amostra observada; o **IC95% da mediana** só aparece com amostra suficiente (ordem estatística, sem reamostragem) — caso contrário sai `N/A (n<10)`, nunca um intervalo inventado.
 - **Saídas:** `bench/RELATORIO_VARIANTE_{A,B,C,D}_<data>.md` e `bench/COMPARATIVO_A_B_C_D_<data>.md`. Cada relatório registra commit/branch, backend, **modelo multimodal**, **dispositivo efetivo dos adaptadores de detecção, pose e mãos** (ausência vira "não registrado", nunca um dispositivo suposto), a **janela de geração do relatório** (wall-clock do harness, não a duração das inferências), clipes com tamanho e SHA-256 e a contagem de ciclos concluídos. O script **se recusa a escrever em `bench/BASELINE.md`** (proteção coberta por teste).
 
+### Relatório consolidado (Fase 8)
+
+`npm run bench:relatorio` (`scripts/relatorio-fase8.mjs`) reúne em um único Markdown as duas visões acima — comparação A–D e cadência efetiva — a partir de um JSONL de ciclos, sem exigir uma nova execução. Ele **reaproveita** as funções de agregação existentes; não é uma nova fonte de medição.
+
+```bash
+npm run bench:relatorio                                            # logs/ciclos.jsonl -> bench/RELATORIO_FASE8_YYYYMMDD.md
+npm run bench:relatorio -- --ciclos logs/outro.jsonl --politica benchmark-5fps --json
+npm run bench:relatorio -- --min-ciclos 2 --warmups 1 --soak logs/soak-resultado.json
+```
+
+- Com menos de duas variantes contendo o mínimo de ciclos concluídos no regime aquecido, ou sem registros, o veredito é `INCONCLUSIVO` e as células sem amostra permanecem `N/A`.
+- Um veredito `NAO_ATINGIU` significa que a cadência foi **medida** e ficou abaixo do alvo — não é sinônimo de falta de dados.
+- Warm-ups (ciclos concluídos iniciais) são excluídos das medianas e contados à parte; o custo de partida continua disponível em `cargaModelos`.
+- O nome de saída é validado; `bench/BASELINE.md` nunca é sobrescrito. Código de saída `2` = inconclusivo.
+- A política de versões/modelos que permite comparar relatórios entre execuções está em [`compatibilidade.md`](./compatibilidade.md).
+
 ### Benchmark da cadência independente (Fase 1.4)
 
 `scripts/benchmark-cadencia.mjs` (`npm run bench:cadencia`) lê os ciclos persistidos em `logs/ciclos.jsonl` e responde a uma pergunta diferente do benchmark de variantes: **a cadência alvo foi atingida e a que custo de latência?** Ele usa `metricas.amostragem` — o plano realmente aplicado aos timestamps de captura — e não a intenção declarada na política.

@@ -177,7 +177,17 @@ Os classificadores rodam localmente, cada um em seu próprio worker. Eles requer
 | `npm run lint` | ESLint. |
 | `npm run lint:fix` | ESLint com correção automática. |
 | `npm run bench` | Benchmark comparativo dos modelos do backend de visão (latência, tok/s, inferências/min). Requer o backend rodando. |
+| `npm run bench:cadencia` | Resume a cadência **efetiva** por subsistema a partir de `logs/ciclos.jsonl` (`metricas.amostragem`), com veredito e latência por etapa. |
+| `npm run bench:variantes` | Compara as variantes A/B/C/D sobre os mesmos clipes; grava `bench/RELATORIO_VARIANTE_*` e `bench/COMPARATIVO_*`. Requer ciclos/anotações reais para concluir. |
+| `npm run bench:relatorio` | Gera `bench/RELATORIO_FASE8_YYYYMMDD.md` consolidando variantes e cadência a partir dos logs; sem amostra, marca `INCONCLUSIVO`/`N/A`. Use `--json` para o resumo estruturado. |
+| `npm run verificar:compatibilidade` | Confere se as versões fixadas de MediaPipe/Transformers/ONNX Runtime e a versão do Node estão sincronizadas entre cliente, manifesto offline, tipos, testes e `package.json`. |
 | `npm run qualidade` | Compara os eventos gravados com a anotação de um clipe (precisão/recall, falsos positivos por minuto). |
+| `npm run avaliar:multimodal` | Compara respostas multimodais com anotações humanas; exige `--anotacao` e respostas coletadas de verdade. |
+| `npm run validar:eval` | Valida a separação entre conjuntos `tuning/` e `eval/` antes do benchmark de aceite. |
+| `npm run validar:soak` | Soak do monitoramento; em modo acelerado o veredito é sempre `INCONCLUSIVO`. |
+| `npm run validar:condicoes` | Gate de iluminação/oclusão com clipes e anotações rotuladas. |
+| `npm run preparar:offline` | Baixa runtimes e modelos para `vendor/` e `modelos/` (alternativa local ao CDN). |
+| `npm run baixar:nsfw` | Baixa os pesos do conjunto NSFW experimental para `modelos/yolonsfw/`. |
 | `npm run gravar:webcam` | Grava alguns segundos da webcam em `.webm` (clipe para a avaliação de eventos). |
 | `npm run extrair:frames` | Extrai quadros de um clipe `.webm` para conferência/anotação. |
 | `npm run integrar:lmstudio` | Teste prático automático da integração com o LM Studio (lista modelos, prepara o modelo e descreve um frame sintético pela API real do servidor). Configure a URL e o modelo com `LMSTUDIO_URL` e `NEURO_MODEL`. |

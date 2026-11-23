@@ -17,6 +17,8 @@ import { MotorTemporalImpl } from "./temporal/motor-temporal";
 import { InterpretadorCiclo } from "./interpretation/interpretador-ciclo";
 import { criarTransporteServidor } from "./interpretation/transporte-servidor";
 import { criarModuloMonitoramento } from "./ui/monitoramento";
+import { partesDiagnosticoPersistencia, textoAvisoPersistencia } from "./ui/diagnostico-persistencia";
+import { aplicarPerfilInicializacao } from "./ui/perfil-inicializacao";
 import {
   camera,
   ctx,
@@ -61,6 +63,7 @@ import {
   classificadorNsfw,
   configuracaoCaptura,
   detectorCoco,
+  perfilInicializacao,
   politicaCiclo,
 } from "./ui/configuracao";
 import {
@@ -268,15 +271,12 @@ function varianteDoModoAtual(): VariantePercepcao {
  */
 function montarHabilitacao(): HabilitacaoSubsistemas {
   const variante = varianteDoModoAtual();
-  if (!variante.percepcaoLocal) {
-    return { deteccao: false, pose: false, maos: false, nsfw: false };
-  }
-  return {
-    deteccao: true,
-    pose: true,
-    maos: true,
-    nsfw: nsfwToggle.checked,
-  };
+  const habilitacao: HabilitacaoSubsistemas = !variante.percepcaoLocal
+    ? { deteccao: false, pose: false, maos: false, nsfw: false }
+    : { deteccao: true, pose: true, maos: true, nsfw: nsfwToggle.checked };
+  // Perfil leve: nada de pose/maos e carregado, sem transformar "desativado"
+  // em ausencia observada (a telemetria continua marcando o motivo).
+  return aplicarPerfilInicializacao(habilitacao, perfilInicializacao);
 }
 
 /** Controlador do modo ativo: o multiframe tem um fluxo proprio, sem `MotorPercepcao`. */
@@ -434,8 +434,7 @@ function atualizarDiagnostico(): void {
   if (controlador().ultimaPersistenciaMs > 0) partes.push(`persistencia ${controlador().ultimaPersistenciaMs} ms`);
 
   const fila = filaPersistencia.estado;
-  if (fila.pendentes > 0) partes.push(`fila ${fila.pendentes}`);
-  if (fila.falhas > 0) partes.push(`falhas de persistencia ${fila.falhas}`);
+  partes.push(...partesDiagnosticoPersistencia(fila));
 
   if (infoSistema) {
     const s = infoSistema;
@@ -463,14 +462,9 @@ function atualizarDiagnostico(): void {
 
   // Uma falha de gravacao fica visivel e nao pode ser confundida com um
   // evento salvo. O aviso so some quando nao ha mais gravacoes falhando.
-  if (fila.falhas > 0) {
-    const detalhe = fila.ultimoErro ? ` — ${fila.ultimoErro}` : "";
-    persistAvisoEl.textContent = `Aviso: ${fila.falhas} gravacao(oes) nao chegaram ao servidor${detalhe}. Use "Pendentes" para exportar.`;
-    persistAvisoEl.hidden = false;
-  } else {
-    persistAvisoEl.textContent = "";
-    persistAvisoEl.hidden = true;
-  }
+  const aviso = textoAvisoPersistencia(fila);
+  persistAvisoEl.textContent = aviso ?? "";
+  persistAvisoEl.hidden = aviso === null;
   exportPendentesBtn.disabled = fila.falhas === 0;
 }
 

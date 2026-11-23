@@ -128,6 +128,63 @@ describe("FilaPersistencia", () => {
 
     expect(fila.estado.enviados).toBe(3);
     expect(fila.estado.falhas).toBe(1);
+    expect(fila.estado.descartes).toBe(1);
+  });
+
+  it("limita a memoria das falhas guardadas e conta o descarte como perda", async () => {
+    const fila = new FilaPersistencia({
+      atrasoBaseMs: 0,
+      maxTentativas: 1,
+      maxFalhasGuardadas: 2,
+    });
+
+    for (const id of [1, 2, 3]) {
+      fila.agendar({
+        descricao: `e${id}`,
+        payload: id,
+        executar: async () => {
+          throw new Error("sem servidor");
+        },
+      });
+    }
+    await fila.aguardar();
+
+    expect(fila.naoEnviados).toEqual([2, 3]);
+    expect(fila.estado).toMatchObject({ falhas: 3, descartes: 1 });
+
+    fila.limpar();
+    expect(fila.naoEnviados).toEqual([]);
+    expect(fila.estado.descartes).toBe(0);
+  });
+
+  it("nao conta duas vezes o mesmo descarte quando os dois limites estouram", async () => {
+    let liberar!: () => void;
+    const bloqueio = new Promise<void>((resolve) => {
+      liberar = resolve;
+    });
+    const fila = new FilaPersistencia({ maxTentativas: 1, maxPendentes: 1, maxFalhasGuardadas: 1 });
+
+    fila.agendar({
+      descricao: "trabalhando",
+      payload: "w",
+      executar: async () => {
+        await bloqueio;
+        throw new Error("sem servidor");
+      },
+    });
+    // Com o primeiro em processamento, estes dois excedem `maxPendentes`.
+    // O descarte entra em `naoGravadas` e, somado a falha definitiva do
+    // primeiro, tambem estoura `maxFalhasGuardadas` — cada item e contado
+    // como uma unica perda observada.
+    fila.agendar({ descricao: "descartada", payload: "x", executar: async () => {} });
+    fila.agendar({ descricao: "pendente", payload: "y", executar: async () => {} });
+
+    liberar();
+    await fila.aguardar();
+
+    expect(fila.estado.falhas).toBe(2);
+    expect(fila.estado.descartes).toBe(2);
+    expect(fila.naoEnviados).toEqual(["w"]);
   });
 
   it("notifica o estado a cada mudanca", async () => {

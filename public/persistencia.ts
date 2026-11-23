@@ -29,10 +29,15 @@ export interface TarefaPersistencia {
 export interface EstadoFila {
   /** Itens gravados com sucesso. */
   enviados: number;
-  /** Itens descartados apos esgotar as tentativas (ou por fila cheia). */
+  /** Itens que nao chegaram ao servidor (inclusive descartes por capacidade). */
   falhas: number;
   /** Itens aguardando gravacao. */
   pendentes: number;
+  /**
+   * Itens descartados por limite de capacidade (fila cheia ou teto de falhas
+   * guardadas para exportacao). Nao e o numero de retries: e perda observada.
+   */
+  descartes: number;
   /** Mensagem da ultima falha. */
   ultimoErro?: string;
 }
@@ -46,6 +51,13 @@ export interface OpcoesFila {
   atrasoMaximoMs?: number;
   /** Teto de itens aguardando; acima disso o mais antigo e descartado. Padrao: 200. */
   maxPendentes?: number;
+  /**
+   * Teto de itens falhos mantidos em memoria para exportacao manual. Acima
+   * disso o mais antigo e descartado; a perda entra em `estado.descartes`.
+   * Padrao: 200 (limite explicito para evitar crescimento ilimitado em sessoes
+   * longas com o servidor fora do ar).
+   */
+  maxFalhasGuardadas?: number;
   /** Notificacao de mudanca de estado (diagnostico/interface). */
   aoMudar?: (estado: EstadoFila) => void;
   /** Injetavel para testes (substitui `setTimeout`). */
@@ -68,12 +80,14 @@ export class FilaPersistencia {
   private readonly atrasoBaseMs: number;
   private readonly atrasoMaximoMs: number;
   private readonly maxPendentes: number;
+  private readonly maxFalhasGuardadas: number;
   private readonly aoMudar: ((estado: EstadoFila) => void) | undefined;
   private readonly esperar: (ms: number) => Promise<void>;
   private processando = false;
   private pausada = false;
   private enviados = 0;
   private falhas = 0;
+  private descartes = 0;
   private ultimoErro: string | undefined;
 
   constructor(opcoes: OpcoesFila = {}) {
@@ -81,6 +95,7 @@ export class FilaPersistencia {
     this.atrasoBaseMs = Math.max(0, opcoes.atrasoBaseMs ?? 400);
     this.atrasoMaximoMs = Math.max(this.atrasoBaseMs, opcoes.atrasoMaximoMs ?? 4000);
     this.maxPendentes = Math.max(1, opcoes.maxPendentes ?? 200);
+    this.maxFalhasGuardadas = Math.max(1, opcoes.maxFalhasGuardadas ?? 200);
     this.aoMudar = opcoes.aoMudar;
     this.esperar = opcoes.esperar ?? esperaReal;
   }
@@ -90,6 +105,7 @@ export class FilaPersistencia {
       enviados: this.enviados,
       falhas: this.falhas,
       pendentes: this.tarefas.length,
+      descartes: this.descartes,
       ultimoErro: this.ultimoErro,
     };
   }
@@ -145,6 +161,7 @@ export class FilaPersistencia {
     this.naoGravadas.length = 0;
     this.enviados = 0;
     this.falhas = 0;
+    this.descartes = 0;
     this.ultimoErro = undefined;
     this.notificar();
   }
@@ -186,9 +203,24 @@ export class FilaPersistencia {
     return Math.min(this.atrasoBaseMs * 2 ** (tentativa - 1), this.atrasoMaximoMs);
   }
 
-  private registrarFalha(tarefa: TarefaPersistencia): void {
+  private registrarFalha(tarefa: TarefaPersistencia, motivoDescarte?: string): void {
     this.falhas += 1;
+    if (motivoDescarte) {
+      // Perda por capacidade e contada uma unica vez, mesmo que a lista de
+      // nao enviados tambem estoure logo em seguida.
+      this.descartes += 1;
+      this.ultimoErro = motivoDescarte;
+    }
     this.naoGravadas.push(tarefa);
+    // Limite explicito de memoria: em uma sessao longa com o servidor fora do
+    // ar, a lista de nao enviados cresceria sem teto. O item mais antigo sai e
+    // a perda e contabilizada — nunca confundida com gravacao bem-sucedida.
+    while (this.naoGravadas.length > this.maxFalhasGuardadas) {
+      const antiga = this.naoGravadas.shift();
+      if (!antiga) break;
+      this.descartes += 1;
+      this.ultimoErro = `limite de pendentes atingido: descartado ${antiga.descricao}`;
+    }
     try {
       tarefa.aoFalhar?.();
     } catch {
@@ -200,8 +232,7 @@ export class FilaPersistencia {
     while (this.tarefas.length > this.maxPendentes) {
       const descartada = this.tarefas.shift();
       if (!descartada) return;
-      this.ultimoErro = `fila cheia: descartado ${descartada.descricao}`;
-      this.registrarFalha(descartada);
+      this.registrarFalha(descartada, `fila cheia: descartado ${descartada.descricao}`);
     }
   }
 

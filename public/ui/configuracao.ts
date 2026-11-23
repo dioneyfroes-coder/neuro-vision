@@ -9,6 +9,7 @@ import {
   POLITICA_CICLO_OPERACIONAL,
 } from "../cycle/politica-ciclo";
 import type { PoliticaCiclo } from "../cycle/politica-ciclo";
+import { lerPerfilInicializacao, type PerfilInicializacao } from "./perfil-inicializacao";
 /**
  * Politica do ciclo (Fase 4): fonte unica de espacamento/quantidade de
  * snapshots, pausa pos-ciclo e frequencia da interpretacao. O intervalo entre
@@ -22,6 +23,8 @@ import type { PoliticaCiclo } from "../cycle/politica-ciclo";
  */
 const parametrosUrl = new URLSearchParams(window.location.search);
 const benchmark = parametrosUrl.get("benchmark");
+/** Opt-in `?perfil=leve`: nao carrega pose/maos na partida (Fase 8). */
+export const perfilInicializacao: PerfilInicializacao = lerPerfilInicializacao(parametrosUrl);
 export const politicaCiclo: PoliticaCiclo =
   benchmark === "5fps"
     ? POLITICA_CICLO_BENCHMARK_5FPS

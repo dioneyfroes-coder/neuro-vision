@@ -954,15 +954,15 @@ A ordem abaixo prioriza valor funcional e redução de risco. Não é necessári
 
 ## Fase 8 — Otimização e manutenção
 
-- [ ] Comparar variantes de modelos e cadência.
-- [ ] Reduzir inicialização e consumo de RAM.
-- [ ] Ajustar backpressure e filas.
-- [ ] Refatorar controladores grandes.
-- [ ] Atualizar documentação.
-- [ ] Automatizar relatórios de benchmark.
-- [ ] Definir política de compatibilidade de modelos e dependências.
+- [x] Comparar variantes de modelos e cadência — consolidação automática dos agregadores existentes em `npm run bench:relatorio`, sobre os mesmos registros; conclusão depende de `logs/ciclos.jsonl` real.
+- [x] Reduzir inicialização e consumo de RAM — limite explícito para falhas guardadas na fila e perfil `?perfil=leve` opt-in que evita carregar pose/mãos. Ganhos reais ainda não medidos em hardware alvo.
+- [x] Ajustar backpressure e filas — `estado.descartes` separa perda por capacidade de falha/exportação, com aviso visível e teste determinístico.
+- [x] Refatorar controladores grandes — regras de diagnóstico e perfil extraídas de `public/app.ts` para módulos puros em `public/ui/`.
+- [x] Atualizar documentação — ver [`fase8-otimizacao-manutencao.md`](docs/fase8-otimizacao-manutencao.md), [`compatibilidade.md`](docs/compatibilidade.md), índices e correção das contradições de Fase 7.
+- [x] Automatizar relatórios de benchmark — `npm run bench:relatorio` gera `bench/RELATORIO_FASE8_YYYYMMDD.md`, marca `INCONCLUSIVO`/`N/A` sem dados e protege `bench/BASELINE.md`.
+- [x] Definir política de compatibilidade de modelos e dependências — ver [`compatibilidade.md`](docs/compatibilidade.md) e `npm run verificar:compatibilidade` no CI.
 
-**Saída:** sistema sustentável para evolução.
+**Saída:** sistema sustentável para evolução no que depende de código. A Fase 8 permanece **parcialmente validada** até que os logs/ciclos reais e o hardware alvo forneçam medições de inicialização, RAM, cadência e custo; ver [`fase8-otimizacao-manutencao.md`](docs/fase8-otimizacao-manutencao.md) e [`pendencias.md`](docs/pendencias.md#fase-7--operação-contínua-e-segurança).
 
 ---
 
