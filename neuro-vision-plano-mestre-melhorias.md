@@ -985,6 +985,8 @@ O Neuro Vision estará próximo do objetivo quando conseguir:
 - [ ] Manter retenção e proteção dos dados.
 - [ ] Publicar métricas reais de precisão, recall, atraso e estabilidade.
 
+> **Estado destes critérios (2026-11-22):** os itens permanecem desmarcados de propósito. A implementação determinística das Fases 0–8 está entregue e coberta por testes, mas estes critérios são de **conclusão em campo**: exigem hardware alvo, clipes anotados, backend real e sessões prolongadas. Celebração antecipada transformaria ausência de medição em aprovação. O protocolo de cada frente e o que falta executar estão em [`pendencias.md`](docs/pendencias.md); o soak de 30 min da Fase 7 é a única medição real já arquivada ([`soak.md`](docs/soak.md)).
+
 ---
 
 # 17. O que NÃO recomendo fazer agora

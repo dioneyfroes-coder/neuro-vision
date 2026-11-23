@@ -195,6 +195,20 @@ A documentação do comportamento implementado está em [`eventos.md`](./eventos
 
 **Critério de aceite da Fase 7:** sessão prolongada, webcam física/reconexão e disco cheio executados e arquivados, além do gate de condições `APROVADO` com clipes revisados. O soak de 30 min já atendeu sua parte. Até o restante existir, a Fase 7 está **parcial** — os harnesses não são a medição. Precisão, latência e custo reais seguem `N/A`.
 
+## Fase 8 — otimização e manutenção
+
+**Status:** código, automação e documentação concluídos em 2026-11-22; detalhes em [`fase8-otimizacao-manutencao.md`](./fase8-otimizacao-manutencao.md). As pendências abaixo são de **medição em hardware/dados reais**, não de implementação. Nenhum ganho de inicialização, RAM, cadência ou custo é afirmado sem medição.
+
+| Frente | O que existe agora | O que ainda depende de mundo real |
+| --- | --- | --- |
+| Comparar variantes e cadência | `npm run bench:relatorio` consolida A–D e cadência sobre os mesmos `RegistroCiclo`, reaproveitando os agregadores existentes. | `logs/ciclos.jsonl` real com pelo menos duas variantes contendo o mínimo de ciclos concluídos no regime aquecido, warm-ups separados e mesmo backend/modelo entre execuções. Sem isso o veredito é `INCONCLUSIVO`. |
+| Reduzir inicialização e RAM | `?perfil=leve` desliga pose/mãos antes da carga dos modelos; `FilaPersistencia` limita pendentes e falhas guardadas com descarte contabilizado. | Medição A/B no hardware alvo: cold start (ms), RSS pico e FPS efetivo, com a configuração registrada. O limite de memória é estrutural; o ganho numérico está `N/A`. |
+| Backpressure sob carga sustentada | Contadores, limite e aviso de descarte cobertos por testes determinísticos (`tests/persistencia.test.ts`, `tests/diagnostico-persistencia.test.ts`). | Sessão longa com o servidor fora do ar, verificando que a memória permanece limitada e que nenhum descarte aparece como gravação bem-sucedida. |
+| Relatório automatizado | `bench/RELATORIO_FASE8_YYYYMMDD.md`, veredito explícito, `N/A` para ausência e proteção de `bench/BASELINE.md`. | Arquivar um relatório gerado a partir de logs reais (e, se disponível, `--soak`) para substituir o `INCONCLUSIVO` por veredito conclusivo. |
+| Compatibilidade entre execuções | `npm run verificar:compatibilidade` no CI sincroniza versões de runtime e Node entre cliente, manifesto, tipos, testes e `package.json`. | Fixar revisão/hash dos pesos do Hugging Face (hoje `resolve/main`) e fingerprint do backend na telemetria. Sem isso, comparar execuções com pesos diferentes não é comparável. |
+
+**Critério de aceite da Fase 8:** relatório consolidado gerado de logs reais com veredito conclusivo, deltas de inicialização/RAM medidos no hardware alvo com contexto declarado, e revisão de pesos registrada por execução. Até lá, `N/A` — não um número inferido de teste sintético. Estas pendências **não** substituem as da Fase 7 acima: sessão prolongada, webcam física/reconexão, disco cheio, clipes degradados anotados e precisão/custo multimodais reais continuam em aberto.
+
 ## Outras pendências registradas
 
 Novas avaliações adiadas devem entrar neste documento com o mesmo formato da Fase 1.5–1.6: motivação, dados necessários, métricas e critério de aceite. Itens de implementação ainda abertos (como os da Fase 4 acima) ficam registrados com o mesmo nível de detalhe, mas marcados como tal.

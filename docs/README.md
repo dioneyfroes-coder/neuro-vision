@@ -19,7 +19,7 @@
 | [`arquitetura.md`](./arquitetura.md) | Estrutura de arquivos e como as partes conversam (servidor, cliente, motores, memória, variantes A–D). |
 | [`seguranca.md`](./seguranca.md) | Exposição na rede, token opcional, origem cruzada, limites de corpo, criptografia em repouso e auditoria. |
 | [`qualidade.md`](./qualidade.md) | Benchmark do modelo, avaliação de eventos (precisão/recall), benchmark das variantes A–D, benchmark da cadência independente (5 FPS), carregamento do modelo e fluxo de regressão. |
-| [`pendencias.md`](./pendencias.md) | Avaliações adiadas de propósito, com protocolo e critério de aceite — gestos (Fase 1.5–1.6), interpretação multimodal (Fase 6) e operação contínua (Fase 7: sessão prolongada, webcam física, disco cheio, iluminação/oclusão anotadas; soak de 30 min já aprovado). |
+| [`pendencias.md`](./pendencias.md) | Avaliações adiadas de propósito, com protocolo e critério de aceite — gestos (Fase 1.5–1.6), interpretação multimodal (Fase 6), operação contínua (Fase 7: sessão prolongada, webcam física, disco cheio, iluminação/oclusão anotadas; soak de 30 min já aprovado) e medição de inicialização/RAM/cadência com revisão de pesos (Fase 8). |
 | [`soak.md`](./soak.md) | Soak test do servidor de monitoramento com telemetria: como rodar em tempo real ou acelerado, invariantes verificados e interpretação do veredito. |
 | [`limites.md`](./limites.md) | Limitações conhecidas (classes COCO, oclusão, iluminação, alucinações, CPU/WASM, latência multiframe, dados sensíveis) e **como desligar cada componente**. |
 | [`auditoria-fase-0.md`](./auditoria-fase-0.md) | Baseline reproduzível do plano mestre: ambiente, verificações, telemetria diagnóstica e lacunas confirmadas antes das mudanças. |
