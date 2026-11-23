@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:nsfw:video": "playwright test e2e/nsfw-video-real.spec.ts --workers=1",
     "bench": "node scripts/benchmark.mjs",
     "bench:cadencia": "node scripts/benchmark-cadencia.mjs",
     "bench:variantes": "node scripts/benchmark-variantes.mjs",

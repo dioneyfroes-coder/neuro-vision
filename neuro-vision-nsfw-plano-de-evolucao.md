@@ -913,6 +913,9 @@ Infraestrutura determinística entregue nesta fase:
   `npm run verificar:segredos:nsfw`). Zero candidatos não é certificado.
 - [x] Documentar protocolo, harness e pendências (`docs/nsfw.md`,
   `docs/pendencias.md`); `npm run verificar:fase6:nsfw` reporta `INCONCLUSIVO`.
+- [x] Executar E2E opt-in com clipe adulto real de `bench/videos/` e gravar
+  marcações, pesos carregados e folha de revisão em `logs/`
+  (`e2e/nsfw-video-real.spec.ts`, `npm run test:e2e:nsfw:video`).
 
 Ainda depende de dados/backend reais — nenhum item abaixo foi concluído:
 
@@ -922,6 +925,8 @@ Ainda depende de dados/backend reais — nenhum item abaixo foi concluído:
 - [ ] Registrar origem, licença e hash dos pesos efetivamente carregados.
 - [ ] Revisar humanamente os candidatos de segurança e repetir a varredura antes
   de compartilhar o repositório; decidir o destino das duas fixtures PNG.
+- [ ] Preencher a folha `logs/nsfw-video-real.revisao.md` com acerto, observação
+  e revisor. Contagens agregadas só depois da conferência visual.
 - [ ] Executar benchmark comparativo com clipes anotados.
 
 **Resultado esperado:** qualidade demonstrada, não presumida. Contagens de um

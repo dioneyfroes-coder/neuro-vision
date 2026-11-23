@@ -68,6 +68,12 @@ Para aceitar esta fase faltam, com protocolo e critério de aceite:
   dos achados, a decisão sobre desenrastrear essas fixtures antes de qualquer
   benchmark e a repetição da varredura antes de compartilhar o repositório.
   A heurística não cobre formatos novos nem segredos em binários.
+- **Conferência do E2E com clipe adulto real:** a folha
+  `logs/nsfw-video-real.revisao.md` foi gerada por `npm run test:e2e:nsfw:video`
+  com os seis modelos locais e as marcações brutas correspondentes. Aceite: um
+  revisor preencher `Acerto?`, observação e identificação em cada linha; números
+  de acerto só podem ser agregados depois disso, e ainda assim valem apenas para
+  a janela e o clipe avaliados.
 
 Até lá, precisão, recall, F1, latência e RAM permanecem `N/A` em todos os
 harnesses. Nenhum teste sintético substitui esta validação.

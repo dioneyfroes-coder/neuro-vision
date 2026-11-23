@@ -38,6 +38,7 @@ export * from "./avaliacao-descricoes-humanas";
 export * from "./proveniencia-pesos";
 export * from "./auditoria-privacidade";
 export * from "./varredura-segredos";
+export * from "./relatorio-revisao-nsfw-video";
 export * from "./disponibilidade-gemma";
 export * from "./comparacao-descricoes";
 export * from "./feedback-local";

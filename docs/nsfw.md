@@ -325,6 +325,33 @@ A varredura cobre padrões conhecidos em texto: formatos novos, segredos em
 binários e vazamentos fora do Git não são detectados por ela. Nenhum número
 destes harnesses é uma taxa de acerto.
 
+## E2E com clipe adulto real — conferência humana
+
+`npm run test:e2e:nsfw:video` (ou `npx playwright test
+e2e/nsfw-video-real.spec.ts --workers=1`) reproduz um arquivo `nsfw*` de
+`bench/videos/` como se fosse webcam. O teste é **opt-in**: defina
+`E2E_WEBCAM_CLIP` com o caminho do arquivo; `E2E_WEBCAM_DURATION_MS` limita a
+janela medida e `E2E_WEBCAM_EVENTOS` escolhe o prefixo dos artefatos.
+
+Durante a execução os seis pesos locais de `modelos/yolonsfw/` são requisitados
+e as marcações de cada frame são gravadas **antes** da chamada ao backend. Por
+isso o classificador continua produzindo resultado mesmo com o LM Studio
+desligado: nesse caso a descrição multimodal fica `N/A` e o erro é registrado à
+parte. O teste falha se nenhum frame com campo `nsfw` chegar ao servidor ou se
+algum dos seis modelos não for carregado.
+
+Tudo é escrito em `logs/` (gitignored): `.deteccoes.jsonl`, `.eventos.jsonl`,
+`.respostas.jsonl`, `.erros-backend.jsonl` e, principalmente,
+`.revisao.md`. A folha de revisão traz offset desde o início da reprodução,
+SHA-256 do clipe, resolução, limiar, rótulo, score, caixa normalizada e caixa em
+pixels, além de colunas vazias para `Acerto?`, observação, revisor e data. Ela
+**não** calcula precisão/recall/F1: não há anotação revisada nem denominador.
+`make_love` é apresentado como indício temporal, nunca confirmação do ato.
+
+Implementação: [`e2e/nsfw-video-real.spec.ts`](../e2e/nsfw-video-real.spec.ts),
+[`src/domain/relatorio-revisao-nsfw-video.ts`](../src/domain/relatorio-revisao-nsfw-video.ts).
+Teste do formatador: `tests/nsfw-video-revisao.test.ts`.
+
 ## Limites que seguem em aberto
 
 O dataset anotado e a medição real seguem pendentes. Permanece INCONCLUSIVO:
