@@ -126,6 +126,18 @@ export const LIMIARES_NSFW: Readonly<Record<string, number>> = {
   FEMALE_BREAST_COVERED: 0.4,
 };
 
+/**
+ * Limiares por **modelo e classe**.
+ *
+ * A tabela comeca vazia de proposito: nao existe calibration anotada que
+ * justifique numeros por modelo. A infraestrutura aceita overrides injetados
+ * (`resolverLimiarNsfw`) e o detector ja informa seu modelo ao resolver, entao
+ * uma futura calibracao so precisa preencher esta tabela — sem mudar protocolo.
+ */
+export const LIMIARES_NSFW_POR_MODELO: Readonly<
+  Record<string, Readonly<Record<string, number>>>
+> = {};
+
 /** Menor limiar que ainda pode produzir uma deteccao (piso do catalogo). */
 export function limiarMinimoNsfw(global = 0.5): number {
   const valores = Object.values(LIMIARES_NSFW);
@@ -135,6 +147,45 @@ export function limiarMinimoNsfw(global = 0.5): number {
 /** Limiar efetivo de um rotulo: especifico quando existe; senao o global. */
 export function limiarEfetivoNsfw(rotulo: string, global = 0.5): number {
   return LIMIARES_NSFW[rotulo] ?? global;
+}
+
+export interface OpcoesLimiarNsfw {
+  /** Limiar global do frame/pedido; default `0,5`. */
+  global?: number;
+  /** Tabela por classe; default `LIMIARES_NSFW`. */
+  limiares?: Readonly<Record<string, number>>;
+  /** Modelo que produziu a deteccao; habilita o override por modelo/classe. */
+  modelo?: string | null;
+  /** Tabela por modelo/classe; default `LIMIARES_NSFW_POR_MODELO`. */
+  limiaresPorModelo?: Readonly<Record<string, Readonly<Record<string, number>>>>;
+}
+
+function limiarValido(valor: number | undefined): valor is number {
+  return typeof valor === "number" && Number.isFinite(valor) && valor >= 0 && valor <= 1;
+}
+
+/**
+ * Precedencia: override por modelo/classe > tabela por classe > global.
+ * Valores invalidos sao ignorados (nunca viram `0` silenciosamente).
+ */
+export function resolverLimiarNsfw(rotulo: string, opcoes: OpcoesLimiarNsfw = {}): number {
+  const global = limiarValido(opcoes.global) ? opcoes.global : 0.5;
+  const modelo = opcoes.modelo?.trim();
+  const porModelo =
+    modelo !== undefined && modelo !== ""
+      ? (opcoes.limiaresPorModelo ?? LIMIARES_NSFW_POR_MODELO)[modelo]?.[rotulo]
+      : undefined;
+  if (limiarValido(porModelo)) return porModelo;
+  const porClasse = (opcoes.limiares ?? LIMIARES_NSFW)[rotulo];
+  return limiarValido(porClasse) ? porClasse : global;
+}
+
+/** Fecha o modelo em um resolvedor de rotulo, para uso na interpretacao. */
+export function criarResolutorLimiarNsfw(
+  modelo: string | null | undefined,
+  opcoes: Omit<OpcoesLimiarNsfw, "modelo"> = {}
+): (rotulo: string) => number {
+  return (rotulo) => resolverLimiarNsfw(rotulo, { ...opcoes, modelo });
 }
 
 /** Resolve a definicao do catalogo; chaves/URLs desconhecidas usam o padrao. */

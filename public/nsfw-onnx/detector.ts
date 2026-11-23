@@ -19,9 +19,10 @@ import type {
 } from "../yolo-onnx";
 import {
   CLASSES_NUDENET,
+  LIMIARES_NSFW,
   MODELO_NSFW_PADRAO,
+  criarResolutorLimiarNsfw,
   definicaoModeloNsfw,
-  limiarMinimoNsfw,
   urlModeloNsfw,
 } from "./catalogo";
 import {
@@ -103,6 +104,15 @@ export class DetectorNsfwOnnx implements MotorDeteccao {
       const tensor = resultado[saida];
       if (!tensor) throw new ErroPercepcao("detector", "Saida do classificador NSFW vazia.");
       const rotulos = this.rotulos ?? [];
+      const rotulosInterpretacao = rotulos.length > 0 ? rotulos : CLASSES_NUDENET;
+      // O modelo realmente carregado participa da decisao do limiar. O piso de
+      // decodificacao acompanha o menor limiar resolvido, para nao descartar na
+      // interpretacao grossa uma classe que o filtro fino aceitaria.
+      const resolverLimiar = criarResolutorLimiarNsfw(this.modelo, { global: limiar });
+      const pisoDecodificacao = Math.min(
+        limiar,
+        ...rotulosInterpretacao.map((rotulo) => resolverLimiar(rotulo))
+      );
       const cru = formatoSaidaNsfw(tensor.dims) === "cru";
       const deteccoes = filtrarClassesNsfwRelevantes(
         cru
@@ -113,19 +123,23 @@ export class DetectorNsfwOnnx implements MotorDeteccao {
               larguraOriginal,
               alturaOriginal,
               lado,
-              rotulos.length > 0 ? rotulos : CLASSES_NUDENET
+              rotulosInterpretacao,
+              LIMIARES_NSFW,
+              resolverLimiar
             )
           : filtrarDeteccoesNsfw(
               interpretarSaidaYolo(
                 tensor.data,
                 tensor.dims,
-                limiarMinimoNsfw(limiar),
+                pisoDecodificacao,
                 larguraOriginal,
                 alturaOriginal,
                 lado,
                 rotulos
               ),
-              limiar
+              limiar,
+              LIMIARES_NSFW,
+              resolverLimiar
             )
       );
       if (opcoes?.percentage) {

@@ -28,12 +28,23 @@ export {
   MODELOS_NSFW_CONJUNTO,
   MODELO_NSFW_CONJUNTO,
   MODELO_NSFW_PADRAO,
+  LIMIARES_NSFW_POR_MODELO,
+  criarResolutorLimiarNsfw,
   definicaoModeloNsfw,
   limiarEfetivoNsfw,
   limiarMinimoNsfw,
+  resolverLimiarNsfw,
   urlModeloNsfw,
   type DefinicaoModeloNsfw,
+  type OpcoesLimiarNsfw,
 } from "./nsfw-onnx/catalogo";
+export {
+  MODELOS_POR_PERFIL_NSFW,
+  PERFIS_MODELOS_NSFW,
+  modelosDoPerfilNsfw,
+  normalizarPerfilModelosNsfw,
+  type PerfilModelosNsfw,
+} from "./nsfw-onnx/perfis";
 export {
   CLASSES_NSFW_IGNORADAS,
   filtrarClassesNsfwRelevantes,

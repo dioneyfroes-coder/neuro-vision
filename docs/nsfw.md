@@ -152,14 +152,40 @@ podem ser usados como evidência para eles. Ver
 > pesos. A mudança de formato de saída acima é uma correção de decodificação, não
 > uma troca de pré-processamento.
 
+## Fase 3 — infraestrutura de fusão e eficiência
+
+A Fase 3 entregou **mecanismos determinísticos**, não medições de modelo:
+
+- `src/domain/agrupamento-espacial-nsfw.ts` agrupa por geometria antes de
+  comparar rótulos. `ResultadoNsfw.grupos` preserva as caixas originais, as
+  hipóteses por modelo e o estado `concordancia`/`conflito_semantico` sem
+  descartar rótulos conflitantes nem eleger um vencedor. As marcações mescladas
+  antigas continuam em `marcacoes`, intactas.
+- `public/nsfw-onnx/perfis.ts` define `leve`, `equilibrado` e `completo`,
+  selecionáveis por `?perfilModelosNsfw=`. É um perfil de **execução**, distinto
+  de `?perfil=leve` (pose/mãos) e de `?descricaoCorporal=` (prompt). O padrão
+  continua `completo`.
+- `resolverLimiarNsfw` aplica a precedência modelo/classe > classe > global na
+  interpretação da saída; `LIMIARES_NSFW_POR_MODELO` começa vazio porque não
+  existe calibração anotada que justifique overrides numéricos. `score` bruto
+  não é alterado — o limiar usado é registrado em `limiarUsado`.
+- `limiteConcorrencia` em `OpcoesConjuntoNsfw` limita modelos em voo em
+  `carregar()` e `avaliar()`. Sem ele, o comportamento é o paralelismo total de
+  antes. A telemetria registra `limiteConcorrencia` e
+  `concorrenciaMaximaObservada` — contagem da fila local, não prova de
+  escalonamento dos workers.
+- `npm run verificar:concorrencia:nsfw` resume janelas instrumentadas já
+  coletadas. Sem `--amostras`, o relatório volta `sem_dados` com `N/A` em
+  concorrência e latência; memória é sempre `N/A`.
+
 ## Limites que seguem em aberto
 
-A Fase 2 entregou o prompt neutro e a avaliação determinística dos filtros, mas
-o dataset anotado e a medição real seguem pendentes. As fases 3–6 do plano
-permanecem pendentes: agrupamento espacial com hipóteses conflitantes,
-calibração por modelo/classe, perfis de execução, timestamps nas marcações,
-seleção adaptativa de frames, separação entre anatomia e ação, configuração
-centralizada do Gemma e avaliação humana. Nenhuma precisão, recall ou ganho de
-latência é afirmado sem medição com dados anotados.
+O dataset anotado e a medição real seguem pendentes. Permanece INCONCLUSIVO:
+a calibração numérica por modelo/classe, a concorrência efetiva dos workers
+reais, o valor ótimo de paralelismo, P50/P95 de latência e RAM/heap/WASM no
+PC alvo. As fases 4–6 do plano também seguem pendentes: timestamps nas
+marcações, seleção adaptativa de frames, separação entre anatomia e ação,
+configuração centralizada do Gemma e avaliação humana. Nenhuma precisão, recall
+ou ganho de latência é afirmado sem medição com dados anotados.
 
 Este subsistema continua **experimental** e separado do modo de segurança.

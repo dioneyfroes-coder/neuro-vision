@@ -826,14 +826,31 @@ O feedback precisa guardar a imagem/frame de referência de maneira local e cont
 
 ## Fase 3 — fusão e eficiência
 
-- [ ] Criar agrupamento espacial com hipóteses conflitantes.
-- [ ] Calibrar thresholds por modelo/classe.
-- [ ] Criar perfis leve, equilibrado e completo.
-- [ ] Medir concorrência real dos workers.
-- [ ] Limitar paralelismo conforme benchmark.
-- [ ] Medir latência e memória no PC alvo.
+- [x] Criar agrupamento espacial com hipóteses conflitantes — módulo puro em
+  `src/domain/agrupamento-espacial-nsfw.ts`, integrado como `ResultadoNsfw.grupos`
+  sem alterar `marcacoes`; cada grupo preserva caixas/hipóteses por modelo e
+  marca `conflito_semantico` sem eleger rótulo correto. Métricas IoU/IoS/contenção/
+  centros e limiares são opções de comparação, não escolha validada por precisão.
+- [ ] Calibrar thresholds por modelo/classe — parcial: resolvedor com precedência
+  (`resolverLimiarNsfw`, `criarResolutorLimiarNsfw`) usado na interpretação e no
+  detector; `LIMIARES_NSFW_POR_MODELO` começa vazio de propósito. Números por
+  modelo dependem de dataset anotado e revisão humana, portanto são N/A.
+- [x] Criar perfis leve, equilibrado e completo — `public/nsfw-onnx/perfis.ts`,
+  opt-in via `?perfilModelosNsfw=`; ausência/inválido mantém `completo` (os seis
+  modelos atuais). São compromissos de custo/cobertura, não afirmação de precisão.
+- [ ] Medir concorrência real dos workers — harness `npm run verificar:concorrencia:nsfw`
+  pronto; sem `--amostras` devolve `sem_dados` e nunca zero. A sobreposição
+  efetiva de workers reais é INCONCLUSIVO sem execução instrumentada.
+- [ ] Limitar paralelismo conforme benchmark — parcial: fila configurável
+  `limiteConcorrencia` aplicada em `carregar()` e `avaliar()` do conjunto, sem
+  quebrar retry, falha isolada ou telemetria; padrão sem limite preserva o
+  paralelismo atual. O valor ótimo depende do benchmark real e não foi escolhido.
+- [ ] Medir latência e memória no PC alvo — o harness resume janelas já
+  instrumentadas (`AmostraConcorrenciaNsfw`) e reporta memória como N/A; P50/P95
+  e RAM do PC alvo são INCONCLUSIVO sem medição na máquina de referência.
 
 **Resultado esperado:** equilíbrio mensurável entre cobertura, qualidade e consumo.
+A infraestrutura para medir está entregue; o equilíbrio em si segue sem medição.
 
 ## Fase 4 — análise multiframe
 

@@ -66,6 +66,7 @@ import {
   detectorCoco,
   perfilDescricaoCorporal,
   perfilInicializacao,
+  perfilModelosNsfw,
   politicaCiclo,
 } from "./ui/configuracao";
 import {
@@ -233,6 +234,7 @@ const controladorPercepcao = new CicloPercepcaoController({
   criarPercepcao: () => {
     const percepcao = criarPercepcaoLocal({
       habilitacao: montarHabilitacao(),
+      perfilModelosNsfw,
       obterThreshold: () => Number(thresholdInput.value),
       aoStatus: (mensagem) => setStatus(mensagem),
     });

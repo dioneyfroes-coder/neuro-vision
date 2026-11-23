@@ -128,7 +128,8 @@ export function interpretarSaidaNudeNetCru(
   alturaOriginal: number,
   lado: number,
   rotulos: readonly string[] = CLASSES_NUDENET,
-  limiares: Readonly<Record<string, number>> = LIMIARES_NSFW
+  limiares: Readonly<Record<string, number>> = LIMIARES_NSFW,
+  resolverLimiar?: (rotulo: string) => number
 ): DeteccaoYOLO[] {
   if (dims.length < 2) {
     throw new ErroPercepcao("detector", `Saida inesperada do NudeNet: dims=${dims.join("x")}.`);
@@ -164,7 +165,7 @@ export function interpretarSaidaNudeNetCru(
     if (!Number.isFinite(score)) continue;
     score = Math.min(1, Math.max(0, score));
     const rotulo = rotulos[melhor] ?? `classe ${melhor}`;
-    const limiar = limiares[rotulo] ?? limiarGlobal;
+    const limiar = resolverLimiar ? resolverLimiar(rotulo) : (limiares[rotulo] ?? limiarGlobal);
     if (!(score >= limiar)) continue;
 
     const cx = cru[indice(i, 0)];
@@ -187,9 +188,12 @@ export function interpretarSaidaNudeNetCru(
 export function filtrarDeteccoesNsfw(
   deteccoes: ReadonlyArray<DeteccaoYOLO>,
   limiarGlobal = 0.5,
-  limiares: Readonly<Record<string, number>> = LIMIARES_NSFW
+  limiares: Readonly<Record<string, number>> = LIMIARES_NSFW,
+  resolverLimiar?: (rotulo: string) => number
 ): DeteccaoYOLO[] {
-  return deteccoes.filter((d) => d.score >= (limiares[d.label] ?? limiarGlobal));
+  return deteccoes.filter((d) =>
+    d.score >= (resolverLimiar ? resolverLimiar(d.label) : (limiares[d.label] ?? limiarGlobal))
+  );
 }
 
 /**

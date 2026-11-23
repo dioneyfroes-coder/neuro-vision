@@ -25,6 +25,8 @@ export * from "./evidencia-interpretacao";
 export * from "./custo-multimodal";
 export * from "./comparacao-multimodal";
 export * from "./avaliacao-perfis-corpo";
+export * from "./agrupamento-espacial-nsfw";
+export * from "./metricas-concorrencia-nsfw";
 export * from "./auditoria";
 export * from "./retencao-videos";
 export * from "./cycle";

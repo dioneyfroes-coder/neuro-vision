@@ -63,6 +63,16 @@ export interface MetricasAdaptador {
   tempoInferenciaMs?: number;
   /** Memoria usada pelo subsistema (bytes), quando o ambiente a expoe. */
   memoriaBytes?: number;
+  /**
+   * Limite configurado de tarefas simultaneas no conjunto NSFW (Fase 3).
+   * Ausente = paralelismo total (comportamento historico).
+   */
+  limiteConcorrencia?: number;
+  /**
+   * Maximo de tarefas do conjunto observadas em voo na ultima operacao.
+   * Medicao local do agregador, nao prova de escalonamento dos workers.
+   */
+  concorrenciaMaximaObservada?: number;
 }
 
 /**

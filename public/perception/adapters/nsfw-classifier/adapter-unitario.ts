@@ -1,4 +1,4 @@
-import { DetectorNsfwOnnx } from "../../../nsfw-onnx";
+import { DetectorNsfwOnnx, resolverLimiarNsfw } from "../../../nsfw-onnx";
 import type { MotorDeteccao } from "../../../yolo-onnx";
 import type {
   MetricasAdaptador,
@@ -64,14 +64,20 @@ export class AdaptadorClassificadorNsfw implements ClassificadorNsfw {
   avaliar(entrada: EntradaAdaptador, opcoes?: OpcoesDeteccao): Promise<ResultadoNsfw> {
     return medirTempoInferencia(this.metricasValor, async () => {
       try {
+        const limiarGlobal = opcoes?.threshold ?? 0.5;
         const cru = await this.interno.executar(entrada.imagem, {
-          threshold: opcoes?.threshold ?? 0.5,
+          threshold: limiarGlobal,
           percentage: opcoes?.percentage ?? false,
         });
         const marcacoes: MarcacaoNsfw[] = cru.map((d) => ({
           rotulo: d.label,
           score: Number(d.score.toFixed(3)),
           caixa: d.box,
+          // Registro da decisao por modelo/classe; `score` continua bruto.
+          limiarUsado: resolverLimiarNsfw(d.label, {
+            global: limiarGlobal,
+            modelo: this.interno.modelo ?? undefined,
+          }),
         }));
         const contagem: Record<string, number> = {};
         for (const m of marcacoes) contagem[m.rotulo] = (contagem[m.rotulo] ?? 0) + 1;

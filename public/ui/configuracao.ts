@@ -11,6 +11,7 @@ import {
 import type { PoliticaCiclo } from "../cycle/politica-ciclo";
 import { lerPerfilInicializacao, type PerfilInicializacao } from "./perfil-inicializacao";
 import { normalizarPerfilDescricaoCorporal } from "../../src/nsfw-prompt";
+import { normalizarPerfilModelosNsfw } from "../nsfw-onnx";
 /**
  * Politica do ciclo (Fase 4): fonte unica de espacamento/quantidade de
  * snapshots, pausa pos-ciclo e frequencia da interpretacao. O intervalo entre
@@ -34,6 +35,13 @@ export const perfilInicializacao: PerfilInicializacao = lerPerfilInicializacao(p
 export const perfilDescricaoCorporal = normalizarPerfilDescricaoCorporal(
   parametrosUrl.get("descricaoCorporal")
 );
+/**
+ * Perfil de execucao dos detectores NSFW via `?perfilModelosNsfw=` (Fase 3).
+ * Existe para separar custo/cobertura de `?perfil=leve` (pose/maos) e de
+ * `?descricaoCorporal=` (prompt). Valor invalido/ausente = `completo`.
+ */
+export const perfilModelosNsfw =
+  normalizarPerfilModelosNsfw(parametrosUrl.get("perfilModelosNsfw")) ?? "completo";
 export const politicaCiclo: PoliticaCiclo =
   benchmark === "5fps"
     ? POLITICA_CICLO_BENCHMARK_5FPS
@@ -57,4 +65,4 @@ export const detectorCoco = new AdaptadorDetectorObjetos();
  * local; este atende `deteccao`, `eventos`, `visao` e `roteiro` quando o toggle
  * esta ligado.
  */
-export const classificadorNsfw = new AdaptadorNsfwConjunto();
+export const classificadorNsfw = new AdaptadorNsfwConjunto({ perfil: perfilModelosNsfw });

@@ -7,6 +7,8 @@
  * `src/domain/**`.
  */
 
+import type { GrupoEspacialNsfw } from "./agrupamento-espacial-nsfw";
+
 /** Caixa delimitadora em pixels da imagem analisada. */
 export interface Caixa {
   xmin: number;
@@ -191,11 +193,22 @@ export interface MarcacaoNsfw {
    * IoU alto). Um unico modelo aparece quando nao houve concordancia.
    */
   modelos?: string[];
+  /**
+   * Limiar efetivo aplicado a esta marcação (Fase 3). Registro da decisão, não
+   * uma probabilidade calibrada: o score permanece bruto em `score`.
+   */
+  limiarUsado?: number;
 }
 
 /** Resultado do classificador NSFW para um frame. */
 export interface ResultadoNsfw {
   marcacoes: MarcacaoNsfw[];
+  /**
+   * Agrupamento espacial das marcações brutas (Fase 3). Cada grupo preserva as
+   * hipóteses por modelo e marca conflito de rótulo sem eleger um vencedor.
+   * Ausente em adaptadores de modelo único.
+   */
+  grupos?: GrupoEspacialNsfw[];
   /** Modelo que produziu o resultado (quando conhecido). */
   modelo?: string;
   /** Modelos que participaram do resultado (conjunto multi-modelo). */

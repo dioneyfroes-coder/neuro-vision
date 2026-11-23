@@ -1,18 +1,34 @@
 import { ErroPercepcao } from "../../../../src/erros";
-import { MODELO_NSFW_CONJUNTO, MODELOS_NSFW_CONJUNTO } from "../../../nsfw-onnx";
+import {
+  MODELO_NSFW_CONJUNTO,
+  modelosDoPerfilNsfw,
+  type PerfilModelosNsfw,
+} from "../../../nsfw-onnx";
 import type { ClassificadorNsfw, EntradaAdaptador, MetricasAdaptador, OpcoesDeteccao } from "../../contracts";
 import { amostrarMemoriaBytes } from "../../contracts";
+import { criarGruposEspaciaisNsfw } from "../../../../src/domain/agrupamento-espacial-nsfw";
+import type { OpcoesAgrupamentoEspacialNsfw } from "../../../../src/domain/agrupamento-espacial-nsfw";
 import type { MarcacaoNsfw, ResultadoNsfw, TelemetriaModeloNsfw } from "../../../../src/domain/perception";
 import { criarMotorNsfwRemoto } from "../../workers/motores-remotos";
 import { AdaptadorClassificadorNsfw } from "./adapter-unitario";
+import { mapearComLimite } from "./concorrencia";
 import { mesclarMarcacoesNsfw } from "./mesclagem";
 
 /** Fabrica de um adaptador de modelo unico (um worker/thread por modelo). */
 export type CriadorAdaptadorNsfw = (modelo: string) => ClassificadorNsfw;
 
 export interface OpcoesConjuntoNsfw {
-  /** Modelos a executar; default `MODELOS_NSFW_CONJUNTO`. */
+  /** Modelos a executar; sobrescreve o perfil quando presente. */
   modelos?: readonly string[];
+  /**
+   * Perfil de execucao (Fase 3): `leve`, `equilibrado` ou `completo`.
+   * Default `completo`, preservando os seis modelos atuais.
+   */
+  perfil?: PerfilModelosNsfw;
+  /** Maximo de modelos em voo; ausente mantem o paralelismo total de antes. */
+  limiteConcorrencia?: number;
+  /** Criterio de agrupamento espacial das marcacoes brutas. */
+  agrupamento?: OpcoesAgrupamentoEspacialNsfw;
   /**
    * Fabrica do adaptador de cada modelo. O default cria um
    * `AdaptadorClassificadorNsfw` com `criarMotorNsfwRemoto()` — um worker
@@ -31,6 +47,9 @@ export interface OpcoesConjuntoNsfw {
  *   (o mais lento manda), e cada modelo mantem sua propria telemetria.
  * - O resultado e complementar: rotulos diferentes somam; a mesma regiao com o
  *   mesmo rotulo e deduplicada por IoU e ganha a lista de modelos concordantes.
+ * - Fase 3: perfis de execucao escolhem subconjuntos do catalogo, o
+ *   paralelismo pode ser limitado e `grupos` registra hipoteses conflitantes
+ *   sem descartar rotulos. Nada disso e afirmacao de precisao.
  */
 export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
   readonly id = "nsfw";
@@ -49,15 +68,44 @@ export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
   private falhasCarga: string[] = [];
   private readonly modelosAlvo: readonly string[];
   private readonly criarAdaptador: CriadorAdaptadorNsfw;
+  private readonly limiteConcorrencia: number | undefined;
+  private readonly agrupamento: OpcoesAgrupamentoEspacialNsfw;
   private readonly metricasValor: MetricasAdaptador = {};
   private aoStatusValor?: (mensagem: string) => void;
   private carregado = false;
 
   constructor(opcoes: OpcoesConjuntoNsfw = {}) {
-    this.modelosAlvo = opcoes.modelos ?? MODELOS_NSFW_CONJUNTO;
+    this.modelosAlvo = opcoes.modelos ?? modelosDoPerfilNsfw(opcoes.perfil ?? "completo");
     this.criarAdaptador =
       opcoes.criarAdaptador ??
       (() => new AdaptadorClassificadorNsfw(criarMotorNsfwRemoto()));
+    this.limiteConcorrencia = opcoes.limiteConcorrencia;
+    this.agrupamento = opcoes.agrupamento ?? {};
+  }
+
+  /**
+   * Executa com limite configuravel e registra a maior sobreposicao observada.
+   * O numero descreve a fila deste agregador — nao substitui medicao de
+   * escalonamento/workers reais.
+   */
+  private async mapearComTelemetria<T, R>(
+    itens: readonly T[],
+    tarefa: (item: T, indice: number) => Promise<R>
+  ): Promise<PromiseSettledResult<R>[]> {
+    let maximo = 0;
+    const resultados = await mapearComLimite(
+      itens,
+      this.limiteConcorrencia,
+      tarefa,
+      {
+        aoObservar: (emVoo) => {
+          if (emVoo > maximo) maximo = emVoo;
+        },
+      }
+    );
+    this.metricasValor.limiteConcorrencia = this.limiteConcorrencia;
+    this.metricasValor.concorrenciaMaximaObservada = maximo;
+    return resultados;
   }
 
   get modelo(): string | null {
@@ -106,8 +154,8 @@ export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
     }
 
     const ids = [...this.adaptadores.keys()];
-    const resultados = await Promise.allSettled(
-      ids.map((id) => this.adaptadores.get(id)!.carregar(id, this.aoStatusValor))
+    const resultados = await this.mapearComTelemetria(ids, (id) =>
+      this.adaptadores.get(id)!.carregar(id, this.aoStatusValor)
     );
 
     const carregados: string[] = [];
@@ -155,8 +203,8 @@ export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
       throw new ErroPercepcao("detector", "Conjunto NSFW nao carregado.");
     }
     const inicio = performance.now();
-    const resultados = await Promise.allSettled(
-      ids.map((id) => this.adaptadores.get(id)!.avaliar(entrada, opcoes))
+    const resultados = await this.mapearComTelemetria(ids, (id) =>
+      this.adaptadores.get(id)!.avaliar(entrada, opcoes)
     );
 
     const brutas: MarcacaoNsfw[] = [];
@@ -196,6 +244,10 @@ export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
     }
 
     const marcacoes = mesclarMarcacoesNsfw(brutas);
+    // Anti-collapse: as marcacoes mescladas continuam identicas as de antes;
+    // os grupos sao acrescentados a partir das marcas BRUTAS para preservar
+    // caixas/rotulos originais de cada modelo e registrar conflitos.
+    const grupos = criarGruposEspaciaisNsfw(brutas, this.agrupamento).grupos;
     this.metricasValor.status = marcacoes.length > 0 ? "ok" : "sem_resultado";
     this.metricasValor.motivoFalha = this.motivosFalhaAgregados(falhas);
 
@@ -211,6 +263,7 @@ export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
 
     return {
       marcacoes,
+      grupos,
       modelo: MODELO_NSFW_CONJUNTO,
       modelos: validos,
       resumo,
@@ -241,6 +294,7 @@ export class AdaptadorNsfwConjunto implements ClassificadorNsfw {
     this.metricasValor.telemetriaModelos = [];
     this.metricasValor.motivoFallback = undefined;
     this.metricasValor.motivoFalha = undefined;
+    this.metricasValor.concorrenciaMaximaObservada = undefined;
     for (const adaptador of adaptadores) {
       try {
         adaptador.encerrar();

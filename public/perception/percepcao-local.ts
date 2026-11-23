@@ -5,6 +5,7 @@ import { AdaptadorClassificadorNsfw, AdaptadorNsfwConjunto } from "./adapters/ns
 import { criarMotorPoseTransformers, MODELO_POSE_PADRAO } from "../pose";
 import { criarMotorGestosMediaPipe, MODELO_MAOS_PADRAO } from "../gestos";
 import { MODELO_YOLO_PADRAO } from "../yolo-onnx";
+import type { PerfilModelosNsfw } from "../nsfw-onnx";
 import {
   criarMotorDeteccaoRemoto,
   criarMotorMaosRemoto,
@@ -47,6 +48,8 @@ export interface OpcoesPercepcaoLocal {
   modelos?: ModelosPercepcao;
   /** Habilitacao explicita por subsistema; default `HABILITACAO_PADRAO`. */
   habilitacao?: HabilitacaoSubsistemas;
+  /** Perfil de execucao dos modelos NSFW (Fase 3); default `completo`. */
+  perfilModelosNsfw?: PerfilModelosNsfw;
   /** Limiar de deteccao lido a cada frame. */
   obterThreshold?: () => number;
   /** Status/avisos (ex.: progresso de carregamento e falhas). */
@@ -102,6 +105,7 @@ export function criarPercepcaoLocal(opcoes: OpcoesPercepcaoLocal = {}): Percepca
   const pose = new AdaptadorPose(usarWorkers ? criarMotorPoseRemoto : criarMotorPoseTransformers);
   const maos = new AdaptadorMaos(usarWorkers ? criarMotorMaosRemoto : criarMotorGestosMediaPipe);
   const nsfw = new AdaptadorNsfwConjunto({
+    perfil: opcoes.perfilModelosNsfw ?? "completo",
     // Um worker por modelo: o conjunto nunca compartilha fila, sessao ONNX nem
     // runtime entre NudeNet/EraX/penis. Sem workers, cada modelo cai para o
     // motor local (tambem isolado por instancia).
