@@ -284,9 +284,17 @@ A Fase 6 entregou **protocolo e validadores**, não resultado de medição:
 - `src/domain/auditoria-privacidade.ts` classifica uma lista de caminhos
   versionados (mídia, peso, log, segredo, texto) a partir de nomes/extensões.
   Não lê conteúdo: ausência de caminho suspeito **não** é varredura de segredos.
+- `src/domain/varredura-segredos.ts` procura padrões conhecidos em trechos de
+  texto e **redige** o valor suspeito antes de relatá-lo. Placeholders de
+  documentação são ignorados; o resultado é candidato a revisão, nunca prova.
 - `npm run verificar:fase6:nsfw` aceita manifestos opcionais e imprime
   `INCONCLUSIVO` com precisão/recall/f1/latência/RAM em `N/A` quando não há
   anotação revisada. `git ls-files` é usado apenas para a auditoria de nomes.
+- `npm run verificar:segredos:nsfw` varre o conteúdo dos arquivos versionados e
+  as linhas adicionadas em todo o histórico Git, além de auditar os caminhos que
+  já passaram pelo repositório. Na execução desta fase (309 commits) houve
+  **0 candidatos de conteúdo**; os dois PNGs sintéticos continuam sinalizados.
+  Isso é resultado heurístico, não certificado de ausência de segredos.
 
 **Achado da auditoria executada nesta fase:** dois PNGs sintéticos
 (`bench/imagens/cena-640x480.png`, `bench/imagens/cena-1280x720.png`) continuam
@@ -300,16 +308,22 @@ Implementação: [`src/domain/dataset-nsfw.ts`](../src/domain/dataset-nsfw.ts),
 [`src/domain/metricas-nsfw-por-classe.ts`](../src/domain/metricas-nsfw-por-classe.ts),
 [`src/domain/avaliacao-descricoes-humanas.ts`](../src/domain/avaliacao-descricoes-humanas.ts),
 [`src/domain/proveniencia-pesos.ts`](../src/domain/proveniencia-pesos.ts),
-[`src/domain/auditoria-privacidade.ts`](../src/domain/auditoria-privacidade.ts) e
-[`scripts/verificar-fase6-nsfw.mjs`](../scripts/verificar-fase6-nsfw.mjs).
+[`src/domain/auditoria-privacidade.ts`](../src/domain/auditoria-privacidade.ts),
+[`src/domain/varredura-segredos.ts`](../src/domain/varredura-segredos.ts),
+[`scripts/verificar-fase6-nsfw.mjs`](../scripts/verificar-fase6-nsfw.mjs) e
+[`scripts/varrer-segredos-nsfw.mjs`](../scripts/varrer-segredos-nsfw.mjs).
 Testes: `tests/fase6-nsfw-dataset-metricas.test.ts`,
-`tests/fase6-nsfw-revisao-proveniencia.test.ts` e
-`tests/scripts/verificar-fase6-nsfw.test.mjs`.
+`tests/fase6-nsfw-revisao-proveniencia.test.ts`,
+`tests/fase6-nsfw-varredura-segredos.test.ts`,
+`tests/scripts/verificar-fase6-nsfw.test.mjs` e
+`tests/scripts/varrer-segredos-nsfw.test.mjs`.
 
 **Não entregue / N/A:** dataset adulto anotado, métricas reais por classe/modelo,
 revisão humana cega coletada, proveniência dos pesos efetivamente carregados no
-LM Studio, varredura de segredos no conteúdo e em todo o histórico Git, e
-benchmark comparativo. Nenhum número destes harnesses é uma taxa de acerto.
+LM Studio, revisão humana dos candidatos de segurança e benchmark comparativo.
+A varredura cobre padrões conhecidos em texto: formatos novos, segredos em
+binários e vazamentos fora do Git não são detectados por ela. Nenhum número
+destes harnesses é uma taxa de acerto.
 
 ## Limites que seguem em aberto
 

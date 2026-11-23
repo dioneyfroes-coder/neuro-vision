@@ -37,6 +37,7 @@ export * from "./metricas-nsfw-por-classe";
 export * from "./avaliacao-descricoes-humanas";
 export * from "./proveniencia-pesos";
 export * from "./auditoria-privacidade";
+export * from "./varredura-segredos";
 export * from "./disponibilidade-gemma";
 export * from "./comparacao-descricoes";
 export * from "./feedback-local";

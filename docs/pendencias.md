@@ -60,11 +60,14 @@ Para aceitar esta fase faltam, com protocolo e critério de aceite:
 - **Proveniência:** origem, licença, revisão fixada e SHA-256 dos pesos
   efetivamente carregados no LM Studio. Aceite: `prontosParaBenchmark: true` e
   nenhuma fonte `resolve/main`.
-- **Privacidade e histórico:** varredura de segredos no conteúdo e no histórico
-  Git, além da auditoria de nomes já executada. Achado aberto: duas fixtures PNG
-  sintéticas em `bench/imagens/` continuam versionadas; são geradas por
-  `scripts/gerar-fixtures-bench.mjs` e não contêm mídia privada, mas precisam de
-  decisão explícita sobre desenrastrear antes de qualquer benchmark.
+- **Privacidade e histórico:** `npm run verificar:segredos:nsfw` já varre o
+  conteúdo versionado e as linhas adicionadas nos 309 commits, com valores
+  redigidos. Resultado atual: 0 candidatos de conteúdo, 2 caminhos sensíveis
+  (as fixtures PNG sintéticas de `bench/imagens/`, geradas por
+  `scripts/gerar-fixtures-bench.mjs`, sem mídia privada). Falta a revisão humana
+  dos achados, a decisão sobre desenrastrear essas fixtures antes de qualquer
+  benchmark e a repetição da varredura antes de compartilhar o repositório.
+  A heurística não cobre formatos novos nem segredos em binários.
 
 Até lá, precisão, recall, F1, latência e RAM permanecem `N/A` em todos os
 harnesses. Nenhum teste sintético substitui esta validação.

@@ -908,6 +908,9 @@ Infraestrutura determinística entregue nesta fase:
   sinalizar `resolve/main` (`src/domain/proveniencia-pesos.ts`).
 - [x] Auditar nomes de arquivos versionados e documentar o achado das duas
   fixtures PNG sintéticas (`src/domain/auditoria-privacidade.ts`).
+- [x] Varrer segredos no conteúdo atual e nas linhas adicionadas de todo o
+  histórico Git, com valores redigidos (`src/domain/varredura-segredos.ts`,
+  `npm run verificar:segredos:nsfw`). Zero candidatos não é certificado.
 - [x] Documentar protocolo, harness e pendências (`docs/nsfw.md`,
   `docs/pendencias.md`); `npm run verificar:fase6:nsfw` reporta `INCONCLUSIVO`.
 
@@ -917,7 +920,8 @@ Ainda depende de dados/backend reais — nenhum item abaixo foi concluído:
 - [ ] Publicar métricas reais por classe e por modelo.
 - [ ] Coletar revisão humana cega das descrições.
 - [ ] Registrar origem, licença e hash dos pesos efetivamente carregados.
-- [ ] Fazer varredura de segredos no conteúdo e em todo o histórico Git.
+- [ ] Revisar humanamente os candidatos de segurança e repetir a varredura antes
+  de compartilhar o repositório; decidir o destino das duas fixtures PNG.
 - [ ] Executar benchmark comparativo com clipes anotados.
 
 **Resultado esperado:** qualidade demonstrada, não presumida. Contagens de um
