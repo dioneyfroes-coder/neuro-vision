@@ -263,6 +263,54 @@ longa, latência, RAM, contagem real de tokens, ganho de qualquer perfil e
 comparação semântica entre descrições. `npm run verificar:gemma:nsfw` sem
 `--health` imprime `INCONCLUSIVO` e deixa latência/RAM/precisão/recall em `N/A`.
 
+## Fase 6 — validação e manutenção
+
+A Fase 6 entregou **protocolo e validadores**, não resultado de medição:
+
+- `src/domain/dataset-nsfw.ts` valida um manifesto declarativo de separação
+  treino/tuning/teste. Exige nome de arquivo relativo, SHA-256 de 64 hex e
+  anotação revisada/esquema v2 no split de teste; detecta repetição de hash
+  entre splits. Não lê mídia e não verifica se o hash bate com os bytes.
+- `src/domain/metricas-nsfw-por-classe.ts` conta `tp`/`fp`/`fn` por
+  `(clip, modelo, classe)` e só publica precisão/recall/f1 quando a anotação é
+  revisada e do conjunto de teste/eval. Sem isso, os três campos são `null`.
+- `src/domain/avaliacao-descricoes-humanas.ts` monta pares cegos A/B com ordem
+  estável derivada do id (sem aleatoriedade) e exige no mínimo dois revisores
+  distintos por amostra antes de registrar consenso. Preferência cega não é
+  taxa de acerto.
+- `src/domain/proveniencia-pesos.ts` valida origem, licença, revisão e SHA-256
+  **declarados** dos pesos e sinaliza fontes `resolve/main`, cujo conteúdo pode
+  mudar sem trocar de ID. Não baixa nem inspeciona arquivos de peso.
+- `src/domain/auditoria-privacidade.ts` classifica uma lista de caminhos
+  versionados (mídia, peso, log, segredo, texto) a partir de nomes/extensões.
+  Não lê conteúdo: ausência de caminho suspeito **não** é varredura de segredos.
+- `npm run verificar:fase6:nsfw` aceita manifestos opcionais e imprime
+  `INCONCLUSIVO` com precisão/recall/f1/latência/RAM em `N/A` quando não há
+  anotação revisada. `git ls-files` é usado apenas para a auditoria de nomes.
+
+**Achado da auditoria executada nesta fase:** dois PNGs sintéticos
+(`bench/imagens/cena-640x480.png`, `bench/imagens/cena-1280x720.png`) continuam
+versionados — são fixtures geradas por `scripts/gerar-fixtures-bench.mjs` e
+descritas em `bench/README.md`, sem conteúdo adulto ou privado. Foram
+sinalizados, não removidos: a decisão de desenrastreá-los exige regeneração
+pelo script antes de qualquer benchmark. `.env.example` é tratado como modelo,
+não como segredo.
+
+Implementação: [`src/domain/dataset-nsfw.ts`](../src/domain/dataset-nsfw.ts),
+[`src/domain/metricas-nsfw-por-classe.ts`](../src/domain/metricas-nsfw-por-classe.ts),
+[`src/domain/avaliacao-descricoes-humanas.ts`](../src/domain/avaliacao-descricoes-humanas.ts),
+[`src/domain/proveniencia-pesos.ts`](../src/domain/proveniencia-pesos.ts),
+[`src/domain/auditoria-privacidade.ts`](../src/domain/auditoria-privacidade.ts) e
+[`scripts/verificar-fase6-nsfw.mjs`](../scripts/verificar-fase6-nsfw.mjs).
+Testes: `tests/fase6-nsfw-dataset-metricas.test.ts`,
+`tests/fase6-nsfw-revisao-proveniencia.test.ts` e
+`tests/scripts/verificar-fase6-nsfw.test.mjs`.
+
+**Não entregue / N/A:** dataset adulto anotado, métricas reais por classe/modelo,
+revisão humana cega coletada, proveniência dos pesos efetivamente carregados no
+LM Studio, varredura de segredos no conteúdo e em todo o histórico Git, e
+benchmark comparativo. Nenhum número destes harnesses é uma taxa de acerto.
+
 ## Limites que seguem em aberto
 
 O dataset anotado e a medição real seguem pendentes. Permanece INCONCLUSIVO:

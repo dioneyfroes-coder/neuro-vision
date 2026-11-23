@@ -39,6 +39,36 @@ O harness já emite `atraso` como `N/A` quando não há correspondência; isso �
 - Não há E2E cobrindo a timeline centrada em eventos, os botões de vídeo no `offsetMs`, o formulário de correção nem o download CSV/JSONL. Os contratos HTTP e as regras puras são testados; a interação no navegador não.
 - A correção é auditável por append-only, mas a API expõe apenas a versão mais recente por `eventoId`. As versões anteriores continuam no JSONL e podem ser lidas diretamente; ainda não há endpoint de "histórico de correções" de um evento.
 
+## NSFW Fase 6 — validação e manutenção
+
+**Status:** `INCONCLUSIVO`. A infraestrutura determinística está entregue
+(`npm run verificar:fase6:nsfw`, validadores em `src/domain/`), mas ela apenas
+verifica contratos — não produz dataset, métrica ou revisão humana.
+
+Para aceitar esta fase faltam, com protocolo e critério de aceite:
+
+- **Dataset separado:** manifesto `versaoEsquema: 1` com splits treino/tuning/teste,
+  nomes relativos, SHA-256 único por clipe e anotação v2 revisada no teste.
+  Aceite: `validarDatasetNsfw` retorna `valido`, `prontosParaMetricas: true` e
+  os hashes foram conferidos contra os bytes reais (fora do repositório).
+- **Métricas por classe/modelo:** respostas coletadas do backend real sobre o
+  split de teste. Aceite: `calcularMetricasNsfwPorClasse` retorna `medido` com
+  `base: "anotacao-revisada"`; números são válidos somente para aquele conjunto.
+- **Revisão cega:** pares SFW/especializada sem revelar origem, ordem A/B
+  estável, mínimo de dois revisores por amostra. Aceite: relatório `observado`;
+  a preferência é registro de opinião, nunca taxa de acerto.
+- **Proveniência:** origem, licença, revisão fixada e SHA-256 dos pesos
+  efetivamente carregados no LM Studio. Aceite: `prontosParaBenchmark: true` e
+  nenhuma fonte `resolve/main`.
+- **Privacidade e histórico:** varredura de segredos no conteúdo e no histórico
+  Git, além da auditoria de nomes já executada. Achado aberto: duas fixtures PNG
+  sintéticas em `bench/imagens/` continuam versionadas; são geradas por
+  `scripts/gerar-fixtures-bench.mjs` e não contêm mídia privada, mas precisam de
+  decisão explícita sobre desenrastrear antes de qualquer benchmark.
+
+Até lá, precisão, recall, F1, latência e RAM permanecem `N/A` em todos os
+harnesses. Nenhum teste sintético substitui esta validação.
+
 ## Fase 1.5–1.6 — Avaliação real de gestos
 
 **Status:** adiada em 2026-11-15. **Não bloqueia a Fase 2** (fortalecimento do motor temporal).

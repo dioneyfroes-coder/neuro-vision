@@ -896,14 +896,33 @@ LM Studio e de anotação revisada, então seguem `N/A`/`INCONCLUSIVO` até medi
 
 ## Fase 6 — validação e manutenção
 
-- [ ] Produzir dataset separado de treino/tuning/teste.
-- [ ] Publicar métricas por classe e por modelo.
-- [ ] Avaliar descrições com revisão humana.
-- [ ] Registrar origem, licença e hashes dos pesos.
-- [ ] Revisar privacidade e histórico Git.
-- [ ] Atualizar documentação e benchmark.
+Infraestrutura determinística entregue nesta fase:
 
-**Resultado esperado:** qualidade demonstrada, não presumida.
+- [x] Validar manifesto de dataset com separação treino/tuning/teste, hash
+  único e anotação revisada no teste (`src/domain/dataset-nsfw.ts`).
+- [x] Calcular métricas por classe/modelo com `N/A` sem anotação revisada
+  (`src/domain/metricas-nsfw-por-classe.ts`).
+- [x] Preparar avaliação cega A/B com ordem estável e consenso exigindo dois
+  revisores (`src/domain/avaliacao-descricoes-humanas.ts`).
+- [x] Validar proveniência declarada (origem, licença, revisão, SHA-256) e
+  sinalizar `resolve/main` (`src/domain/proveniencia-pesos.ts`).
+- [x] Auditar nomes de arquivos versionados e documentar o achado das duas
+  fixtures PNG sintéticas (`src/domain/auditoria-privacidade.ts`).
+- [x] Documentar protocolo, harness e pendências (`docs/nsfw.md`,
+  `docs/pendencias.md`); `npm run verificar:fase6:nsfw` reporta `INCONCLUSIVO`.
+
+Ainda depende de dados/backend reais — nenhum item abaixo foi concluído:
+
+- [ ] Produzir dataset adulto anotado separado em treino/tuning/teste.
+- [ ] Publicar métricas reais por classe e por modelo.
+- [ ] Coletar revisão humana cega das descrições.
+- [ ] Registrar origem, licença e hash dos pesos efetivamente carregados.
+- [ ] Fazer varredura de segredos no conteúdo e em todo o histórico Git.
+- [ ] Executar benchmark comparativo com clipes anotados.
+
+**Resultado esperado:** qualidade demonstrada, não presumida. Contagens de um
+manifesto declarativo e preferências cegas não são precisão, recall ou latência
+medidos; até anotação revisada e backend real, tudo segue `N/A`/`INCONCLUSIVO`.
 
 ---
 
